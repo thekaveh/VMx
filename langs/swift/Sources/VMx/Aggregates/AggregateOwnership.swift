@@ -64,7 +64,56 @@ func validateAggregateSlots(
     }
 }
 
+/// Disposes the candidates of a population that its preflight refused before
+/// the commit (#1324). A candidate that has a parent, that another ownership
+/// transaction holds, or that is an owner on the ancestor chain of `parent`,
+/// belongs to someone else and is skipped. Each canonical identity is
+/// disposed once.
+///
+/// The cleanup is best-effort. The parent check takes no lock, so another
+/// thread that starts to attach a candidate after the checks can still lose
+/// it to this cleanup. The in-progress check never waits: a candidate whose
+/// gate another thread holds at that moment is skipped and stays undisposed.
+/// A factory's fresh output is normally reachable only by the refused
+/// population, so both windows are narrow.
+func disposeUnownedCandidates(parent: OwnershipParentVM, _ candidates: [ComponentVMBase]) {
+    var seen = Set<ObjectIdentifier>()
+    for candidate in candidates {
+        let identity = candidate._ownershipIdentity
+        guard seen.insert(ObjectIdentifier(identity)).inserted else { continue }
+        if candidate._transferOwnershipParent != nil { continue }
+        if isOwnershipTransactionInProgress(candidate) { continue }
+        var ownsOnChain = false
+        var cursor: OwnershipParentVM? = parent
+        while let current = cursor {
+            if current.ownershipOwner._ownershipIdentity === identity {
+                ownsOnChain = true
+                break
+            }
+            cursor = current.ownershipOwnerParent
+        }
+        if !ownsOnChain { candidate.dispose() }
+    }
+}
+
 func replaceAggregateSlots(
+    parent: AggregateParent,
+    previous: [ComponentVMBase?],
+    next: [ComponentVMBase],
+    assign: () -> Void
+) throws -> Bool {
+    do {
+        return try replaceValidatedAggregateSlots(
+            parent: parent, previous: previous, next: next, assign: assign)
+    } catch {
+        // Only the reservation and the preflight throw: the old slots stay,
+        // and the candidates nobody else owns are disposed (#1324).
+        disposeUnownedCandidates(parent: parent, next)
+        throw error
+    }
+}
+
+private func replaceValidatedAggregateSlots(
     parent: AggregateParent,
     previous: [ComponentVMBase?],
     next: [ComponentVMBase],
@@ -94,12 +143,10 @@ func commitAggregateSlots(
     previous: [ComponentVMBase?],
     next: [ComponentVMBase]
 ) {
-    for child in previous where child?._ownershipParent === parent {
-        child?._parent = nil
-        child?._ownershipParent = nil
+    for child in previous {
+        child?._unlinkParent(ifOwnedBy: parent)
     }
     for child in next {
-        child._parent = parent
-        child._ownershipParent = parent
+        child._linkParent(parent)
     }
 }

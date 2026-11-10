@@ -7,17 +7,21 @@ The release pipeline has two halves:
 - **Routine releases.** `release-please` watches `main` for Conventional
   Commits and maintains a long-lived "release PR" that bumps the version
   in `langs/python/src/vmx/__about__.py` and writes the new section in
-  `langs/python/CHANGELOG.md`. Merging that PR pushes a `python-v<X.Y.Z>`
-  tag, which fires the publish pipeline.
-- **Publish pipeline.** `.github/workflows/release.yml` runs five jobs on
+  `langs/python/CHANGELOG.md`. It creates no tag and no GitHub Release
+  (`skip-github-release: true`). After the merge, the owner pushes the
+  annotated `python-v<X.Y.Z>` tag, which fires the publish pipeline.
+- **Publish pipeline.** `.github/workflows/release.yml` runs six jobs on
   the new tag: `release-metadata` (version, tag, and changelog preflight),
-  `python-test` (full pytest matrix gate), `python-build-and-publish`
-  (gated on the `pypi-python` GitHub environment for manual approval, then an
-  exact-backend build, metadata check, fresh-environment install/smoke of the
-  local wheel, and Trusted-Publishing-via-OIDC upload with Sigstore (PEP 740)
-  attestations),
+  `python-test` (full pytest matrix gate), `python-build` (exact-backend
+  build, metadata check, extracted-sdist tests, and fresh-environment
+  install/smoke of the local wheel, without `id-token: write`),
+  `python-publish` (gated on the `pypi-python` GitHub environment for manual
+  approval, then a Trusted-Publishing-via-OIDC upload of the `dist/` files
+  that `python-build` checked, with Sigstore (PEP 740) attestations; it
+  installs, builds, and tests nothing),
   `python-verify-published` (5-attempt fresh-venv `pip install` + smoke test),
-  and `python-release-notes` (CHANGELOG-extracted GitHub Release).
+  and `python-release-notes` (CHANGELOG-extracted GitHub Release, then the
+  release PR relabel).
 
 No API tokens. No Test PyPI. Trusted Publishing only.
 
@@ -30,10 +34,11 @@ documentation updates. This runbook adds only the Python steps.
 
 ### 1.1 PyPI Trusted Publisher
 
-- A PyPI account at <https://pypi.org/account/register/> with 2FA enabled.
-- On <https://pypi.org/manage/account/publishing/>, "Add a new pending
-  publisher" with PyPI Project Name `vmx`, the shared trusted-publisher fields,
-  and environment `pypi-python`.
+The PyPI trusted publisher is configured; the pending-publisher bootstrap is
+in git history at [commit `e8f065f6`, §1.1](https://github.com/thekaveh/VMx/blob/e8f065f66f1154774e0e61a0ceb8b728352c1cf5/langs/python/RELEASING.md#L31-L36).
+It uses the shared trusted-publisher fields with environment
+`pypi-python`. The PEP 740 provenance of `vmx` 3.23.0 names `thekaveh/VMx`,
+workflow `release.yml`, and environment `pypi-python`.
 
 ### 1.2 GitHub environment `pypi-python`
 
@@ -68,23 +73,53 @@ Until the manifest is reconciled, release through
 [§2.2](#22-manual-tag-release-when-release-please-is-paused).
 
 1. Land Conventional-Commit-style PRs on `develop` (`feat: …`, `fix: …`, `docs: …`, etc.), then promote `develop` to `main` through a separate PR.
-2. `release-please` opens a "chore(main): release python X.Y.Z" PR — review the version bump in `langs/python/src/vmx/__about__.py` and the matching `langs/python/CHANGELOG.md` entry.
+2. `release-please` opens a "chore(main): release python X.Y.Z" PR — review the version bump in `langs/python/src/vmx/__about__.py` and the matching `langs/python/CHANGELOG.md` entry. In the same PR, update the PyPI status in `langs/python/README.md` §2, because that README becomes the PyPI project page.
 3. If the spec version also bumped, update `__min_spec_version__` in the same PR (release-please does not auto-bump that — see the comment in `__about__.py`).
-4. Merge the release PR. release-please pushes a `python-v<X.Y.Z>` tag on the merge commit.
+4. Merge the release PR. release-please creates no tag, so push the annotated
+   `python-v<X.Y.Z>` tag on the merge commit as in
+   [§2.2](#22-manual-tag-release-when-release-please-is-paused).
 5. Watch <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease> — the publish pipeline fires on the tag.
-6. The `python-build-and-publish` job pauses for **your approval** on the `pypi-python` environment. Click "Review pending deployments" → `pypi-python` → "Approve and deploy". Approve within 30 days: GitHub then fails the pending deployment, and the tag cannot be reused.
-7. Before upload, `python-build-and-publish` installs the exact wheel from
-   `dist/` into a fresh environment and runs the version/lifecycle smoke test.
-   A failure stops before the irreversible PyPI action.
+6. The `python-publish` job pauses for **your approval** on the `pypi-python` environment. Click "Review pending deployments" → `pypi-python` → "Approve and deploy". Approve within 30 days: GitHub then fails the pending deployment, and the tag cannot be reused.
+7. Before upload, `python-build` installs the exact wheel from `dist/` into
+   a fresh environment and runs the version/lifecycle smoke test. A failure
+   stops before the irreversible PyPI action. `python-publish` uploads only
+   the files that job checked.
 8. `python-verify-published` independently installs `vmx==<X.Y.Z>` from PyPI in
    a fresh venv with retry-on-CDN-lag (5 attempts × 30s backoff) and runs the
    same smoke test.
 9. `python-release-notes` posts the matching CHANGELOG section as a GitHub Release.
+10. The same job then runs `tools/release-please-labels.py relabel`, which
+    moves the merged release PR from `autorelease: pending` to
+    `autorelease: tagged`. release-please creates no Python release, so it
+    never relabels the PR itself, and while a merged release PR keeps
+    `autorelease: pending` it opens no new release PR. On each push to
+    `main`, the `release-please` workflow runs
+    `tools/release-please-labels.py check`. The check fails and names the PR
+    when a merged release PR keeps `autorelease: pending` after its GitHub
+    Release exists. A PR whose tag or GitHub Release does not exist yet
+    passes, because its release is still in progress.
+
+    Recovery only, when the relabel step failed: relabel the PR by hand.
+
+    ```bash
+    gh api -X DELETE "repos/thekaveh/VMx/issues/<PR>/labels/autorelease:%20pending"
+    gh api -X POST "repos/thekaveh/VMx/issues/<PR>/labels" -f "labels[]=autorelease: tagged"
+    ```
+
+release-please does not create the GitHub Release, because `release.yml` owns
+it. `python-release-notes` runs `gh release create`, which fails when the
+release already exists. A release made at merge time would also exist before
+PyPI accepted the package.
 
 ### 2.2 Manual tag release (when release-please is paused)
 
 Use this path when `__about__.py` already holds the target version, so
-release-please proposes no release PR. Push the tag manually:
+release-please proposes no release PR. First, a release-prep PR replaces
+`unreleased source version` in the `## [X.Y.Z]` CHANGELOG heading with the
+release date and reaches `main`, so the heading date equals the tag date
+(`CONTRIBUTING.md` §4.3). The same PR updates the PyPI status in
+`langs/python/README.md` §2, because that README becomes the PyPI project
+page. Then push the tag manually:
 
 ```bash
 git checkout main
@@ -95,7 +130,7 @@ git tag -a "python-v${version}" -m "vmx ${version}"
 git push origin "python-v${version}"
 ```
 
-The same five publish jobs run.
+The same six publish-pipeline jobs run.
 
 The `release-please` workflow pauses while the source version and
 `.release-please-manifest.json` disagree. The manifest records the last version
@@ -151,13 +186,14 @@ gh release view python-vX.Y.Z
 The publish never reaches the build job. Leave the failed tag immutable, fix
 the broken test on `main`, and release a new patch version with a new tag.
 
-### 4.2 `python-build-and-publish` approval declined
+### 4.2 `python-build` failed or `python-publish` approval declined
 
 The environment publishes nothing. Land the fix for the rejection cause on `main`, then release a new patch version with a new tag.
 
-The same job can also fail safely after approval but before upload if the pinned
-build backend, Twine metadata check, local wheel installation, or lifecycle smoke
-fails. No PyPI version exists for that tag; fix the defect on `main` and cut a new tag.
+`python-build` fails safely before any approval if the pinned build backend,
+Twine metadata check, extracted-sdist tests, local wheel installation, or
+lifecycle smoke fails. No PyPI version exists for that tag; fix the defect on
+`main` and cut a new tag.
 
 ### 4.3 Publish succeeded but the release is broken
 
@@ -175,6 +211,10 @@ for a transient failure when that tagged content is correct. If the tag itself
 has incomplete notes, use an audited manual GitHub Release recovery from the
 published version's notes or fix forward; a later `main` edit cannot change the
 tagged workflow input. The PyPI artifact is already live.
+
+If only the last step failed, the GitHub Release exists but the merged release
+PR keeps `autorelease: pending`. Relabel it with the recovery commands in
+§2.1 step 10.
 
 ## 5. Tag scheme and multi-flavor coexistence
 

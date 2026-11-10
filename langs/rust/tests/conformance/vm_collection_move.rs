@@ -265,10 +265,10 @@ fn disposed_containers_reject_removal_clear_and_selection() {
         composite.set_current(Some(a.clone())),
         Err(VmxError::Disposed)
     ));
-    composite.clear();
+    assert!(matches!(composite.clear(), Err(VmxError::Disposed)));
     assert!(matches!(group.remove(&x), Err(VmxError::Disposed)));
     assert!(matches!(group.remove_at(0), Err(VmxError::Disposed)));
-    group.clear();
+    assert!(matches!(group.clear(), Err(VmxError::Disposed)));
 
     assert_eq!(composite.items(), vec![a, b]);
     assert!(composite.current().is_none());

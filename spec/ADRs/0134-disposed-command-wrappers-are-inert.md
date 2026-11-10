@@ -1,6 +1,6 @@
 # ADR 0134 — Disposed command wrappers are inert
 
-- **Status:** Accepted
+- **Status:** Accepted (Decision rule 7 extended by ADR-0222)
 - **Date:** 2026-09-30
 - **Spec version:** 3.24.0
 

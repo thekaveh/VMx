@@ -7,7 +7,7 @@ import threading
 from concurrent.futures import Future
 
 import pytest
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, future_result, join_thread, wait_event
 
 import vmx.commands.async_relay_command as commands
 from vmx import (
@@ -49,7 +49,7 @@ def on_loop(loop, coroutine):
     async def bounded():
         return await asyncio.wait_for(coroutine, HANG_GUARD)
 
-    return asyncio.run_coroutine_threadsafe(bounded(), loop).result(2 * HANG_GUARD)
+    return future_result(asyncio.run_coroutine_threadsafe(bounded(), loop), 2 * HANG_GUARD)
 
 
 class NativeCalls:
@@ -132,13 +132,13 @@ def test_no_loop_command_caller_cancels_on_operation_loop(action, monkeypatch):
     operation = None
     try:
         vm.load_command.execute()
-        assert started.wait(HANG_GUARD)
+        assert wait_event(started)
         operation = vm._operation
         inner = vm.load_command._current_task
         assert operation is not None
         getattr(vm, action)()
-        submitted[0].result(HANG_GUARD)
-        assert observed.wait(HANG_GUARD)
+        future_result(submitted[0])
+        assert wait_event(observed)
         recorder.assert_owned(operation.task, operation.cancelled, inner)
         assert any(c[0] is operation.cancelled and c[1] == "set_result" for c in recorder.calls)
         assert any(c[0] is operation.task and c[1] == "add_done_callback" for c in recorder.calls)
@@ -164,7 +164,7 @@ def test_no_loop_command_caller_cancels_on_operation_loop(action, monkeypatch):
 
         on_loop(loop, recover())
         if submitted:
-            submitted[0].result(HANG_GUARD)
+            future_result(submitted[0])
 
 
 @pytest.mark.asyncio
@@ -257,7 +257,7 @@ def test_true_completion_invalidation_race_claims_returned_value(action, monkeyp
         current = original_current(operation)
         if current and operation.task.done():
             at_check.set()
-            assert release_check.wait(HANG_GUARD)
+            assert wait_event(release_check)
         return current
 
     def disposing():
@@ -267,7 +267,7 @@ def test_true_completion_invalidation_race_claims_returned_value(action, monkeyp
     monkeypatch.setattr(vm, "_is_operation_current", checked)
     monkeypatch.setattr(vm, "_on_dispose" if action == "dispose" else "cancel", disposing)
     waiter = asyncio.run_coroutine_threadsafe(asyncio.wait_for(vm.load(), HANG_GUARD), loop)
-    assert at_check.wait(HANG_GUARD)
+    assert wait_event(at_check)
     errors = []
 
     def dispose():
@@ -279,12 +279,12 @@ def test_true_completion_invalidation_race_claims_returned_value(action, monkeyp
     thread = threading.Thread(target=dispose)
     thread.start()
     try:
-        assert disposal_entered.wait(HANG_GUARD)
+        assert wait_event(disposal_entered)
     finally:
         release_check.set()
-        thread.join(HANG_GUARD)
+        join_thread(thread)
     assert not thread.is_alive()
-    waiter.result(HANG_GUARD)
+    future_result(waiter)
     on_loop(loop, turns())
     assert errors == []
     if action == "cancel":
@@ -463,7 +463,7 @@ async def test_task_factory_can_wait_for_foreign_disposal_without_resource_gate(
         thread = threading.Thread(target=vm.dispose)
         threads.append(thread)
         thread.start()
-        thread.join(HANG_GUARD)
+        join_thread(thread)
         blocked.append(thread.is_alive())
         return asyncio.Task(coroutine, loop=loop, **kwargs)
 
@@ -476,7 +476,7 @@ async def test_task_factory_can_wait_for_foreign_disposal_without_resource_gate(
 
     await asyncio.wait_for(load(), 2 * HANG_GUARD)
     for thread in threads:
-        thread.join(HANG_GUARD)
+        join_thread(thread)
     await turns()
     assert blocked == [False]
     assert vm._operation is None
@@ -594,7 +594,7 @@ async def test_disposal_preserves_unrelated_enqueue_error_and_releases_accepted_
         patch.setattr(resources, "post_to_loop", fail_enqueue)
         thread = threading.Thread(target=dispose)
         thread.start()
-        thread.join(HANG_GUARD)
+        join_thread(thread)
         assert not thread.is_alive()
     assert len(errors) == 1
     assert str(errors[0]) == "unrelated enqueue failure"

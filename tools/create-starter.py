@@ -28,6 +28,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -120,6 +121,10 @@ _PYTHON_ENV_PREFIXES = ("PIP_", "PYTHON", "UV_", "VIRTUAL_ENV", "CONDA_")
 
 class StarterError(RuntimeError):
     """A starter check failed."""
+
+
+class PartialStarterError(StarterError):
+    """A step failed after files were written into a caller-supplied target."""
 
 
 def require_version(version: str) -> None:
@@ -632,27 +637,53 @@ def _remaining(deadline: float, maximum: float) -> float:
     return min(maximum, remaining)
 
 
+def _kill_process_tree(process: subprocess.Popen[str]) -> None:
+    """Kill ``process`` and, on POSIX, every process in its session's group.
+
+    ``subprocess.run`` kills only the direct child on a timeout. A timed-out
+    ``npm run test:browser`` would then leave the Node smoke script, the Vite
+    preview server and Chromium running (#1403).
+    """
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    else:
+        process.kill()
+    process.wait()
+
+
 def _run(
     args: list[str], *, cwd: Path, timeout: float, env: Mapping[str, str] | None = None
 ) -> str:
-    """Run a command, echo its output, and return stdout."""
+    """Run a command, echo its output, and return stdout.
+
+    On POSIX the command starts in a new session. A timeout or an interrupt
+    kills that whole process group, so no descendant outlives the call.
+    """
     print(f"$ {' '.join([Path(args[0]).name, *args[1:]])}", flush=True)
-    result = subprocess.run(
+    with subprocess.Popen(
         args,
         cwd=cwd,
-        check=False,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        timeout=timeout,
         env=None if env is None else dict(env),
-    )
-    if result.stdout:
-        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
-    if result.stderr:
-        print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
-    if result.returncode != 0:
-        raise StarterError(f"{' '.join(args)} exited {result.returncode}")
-    return result.stdout
+        start_new_session=os.name == "posix",
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except BaseException:
+            _kill_process_tree(process)
+            raise
+    if stdout:
+        print(stdout, end="" if stdout.endswith("\n") else "\n")
+    if stderr:
+        print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
+    if process.returncode != 0:
+        raise StarterError(f"{' '.join(args)} exited {process.returncode}")
+    return stdout
 
 
 def _platform_name() -> str:
@@ -682,8 +713,18 @@ def latest_version(npm: str, registry: str, *, timeout: float, package: str = PA
     return version
 
 
+def registry_prefix(registry: str) -> str:
+    """Return ``registry`` with exactly one trailing slash.
+
+    A bare prefix such as ``https://registry.npmjs.org`` would also match the
+    look-alike host ``https://registry.npmjs.org.evil.example/`` (#1403).
+    """
+    return registry.rstrip("/") + "/"
+
+
 def scan_lockfile(lock: Mapping[str, object], registry: str = DEFAULT_REGISTRY) -> list[str]:
     """Return every local or foreign reference in an npm v2/v3 lockfile."""
+    registry = registry_prefix(registry)
     issues: list[str] = []
     packages = lock.get("packages")
     if not isinstance(packages, dict) or "" not in packages:
@@ -1384,7 +1425,7 @@ def create_starter(
     )
     if target is not None:
         target = validate_target(target)
-    npm_registry = registry or DEFAULT_REGISTRY
+    npm_registry = registry_prefix(registry or DEFAULT_REGISTRY)
 
     if channel in NPM_CHANNELS:
         npm = _which("npm")
@@ -1409,28 +1450,46 @@ def create_starter(
 
     if target is None:
         target = validate_target(Path(tempfile.mkdtemp(prefix=f"vmx-starter-{channel}-")))
-    target.mkdir(parents=True, exist_ok=True)
-    pins = {
-        "typescript-node": f"{PACKAGE_NAME}@{version}",
-        "python-console": f"{PYTHON_PACKAGE_NAME}=={version} from PyPI",
-        "swift-package": f"VMx {version} from {SWIFT_PACKAGE_URL}",
-        "react-vite": f"{REACT_PACKAGE_NAME}@{version} and {PACKAGE_NAME}@{core_version}",
-    }[channel]
-    print(f"Generating {channel} starter for {pins} in {target}", flush=True)
-    written = write_template(channel, version, target, core_version=core_version)
-    print("Wrote " + ", ".join(path.as_posix() for path in written))
-
-    if channel == "typescript-node":
-        _finish_typescript_node(target, version, npm, node, npm_registry, deadline)
-    elif channel == "react-vite":
-        assert core_version is not None
-        _finish_react_vite(
-            target, version, core_version, npm, node, npm_registry, deadline, browser_deps
-        )
-    elif channel == "python-console":
-        _finish_python_console(target, version, deadline)
+        owned_target = True
     else:
-        _finish_swift_package(target, version, swift, git, deadline)
+        owned_target = False
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        pins = {
+            "typescript-node": f"{PACKAGE_NAME}@{version}",
+            "python-console": f"{PYTHON_PACKAGE_NAME}=={version} from PyPI",
+            "swift-package": f"VMx {version} from {SWIFT_PACKAGE_URL}",
+            "react-vite": f"{REACT_PACKAGE_NAME}@{version} and {PACKAGE_NAME}@{core_version}",
+        }[channel]
+        print(f"Generating {channel} starter for {pins} in {target}", flush=True)
+        written = write_template(channel, version, target, core_version=core_version)
+        print("Wrote " + ", ".join(path.as_posix() for path in written))
+
+        if channel == "typescript-node":
+            _finish_typescript_node(target, version, npm, node, npm_registry, deadline)
+        elif channel == "react-vite":
+            assert core_version is not None
+            _finish_react_vite(
+                target, version, core_version, npm, node, npm_registry, deadline, browser_deps
+            )
+        elif channel == "python-console":
+            _finish_python_console(target, version, deadline)
+        else:
+            _finish_swift_package(target, version, swift, git, deadline)
+    except BaseException as error:
+        if owned_target:
+            # The generator created this temporary directory, so removing the
+            # partial output loses nothing of the caller's.
+            shutil.rmtree(target, ignore_errors=True)
+            raise
+        if not isinstance(error, Exception):
+            raise
+        # A caller-supplied target keeps its partial output for inspection. A
+        # rerun with the same --target fails until the caller empties it.
+        raise PartialStarterError(
+            f"{error}; target {target} holds partial output from this run; "
+            "empty or remove it before a rerun"
+        ) from error
     return target
 
 

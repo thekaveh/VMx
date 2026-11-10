@@ -6,6 +6,27 @@ use vmx::{
     DecoratorCommand, Message, MessageHub, RelayCommand, VmxError,
 };
 
+/// Polls `condition` until it holds or [`SIGNAL_TIMEOUT`] passes. A settled
+/// confirmation runs the inner command on a VMx worker after `execute()`
+/// returns (spec/04 §8.3.1, CMDD-018).
+fn eventually(condition: impl Fn() -> bool) -> bool {
+    let deadline = std::time::Instant::now() + SIGNAL_TIMEOUT;
+    while !condition() {
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    true
+}
+
+/// A confirmation that stays pending until the test settles `decision`, so
+/// a declined decision is observed deterministically on the test thread.
+fn decided_by(decision: &AsyncValue<bool>) -> impl Fn() -> AsyncValue<bool> + Send + Sync {
+    let decision = decision.clone();
+    move || decision.clone()
+}
+
 fn recording_command(
     log: Arc<Mutex<Vec<&'static str>>>,
     label: &'static str,
@@ -145,13 +166,18 @@ fn confirmation_decorator_invokes_inner_only_when_confirmed() {
         ConfirmationDecoratorCommand::new(recording_command(log.clone(), "yes", true), || {
             AsyncValue::ready(true)
         });
-    let no = ConfirmationDecoratorCommand::new(recording_command(log.clone(), "no", true), || {
-        AsyncValue::ready(false)
-    });
+    let refusal = AsyncValue::pending();
+    let no = ConfirmationDecoratorCommand::new(
+        recording_command(log.clone(), "no", true),
+        decided_by(&refusal),
+    );
 
-    yes.execute();
     no.execute();
+    refusal.resolve(false);
+    assert!(log.lock().unwrap().is_empty());
+    yes.execute();
 
+    assert!(eventually(|| !log.lock().unwrap().is_empty()));
     assert_eq!(*log.lock().unwrap(), vec!["yes"]);
 }
 
@@ -300,6 +326,7 @@ fn decorators_compose() {
 
     decorated.execute();
 
+    assert!(eventually(|| !log.lock().unwrap().is_empty()));
     assert_eq!(*log.lock().unwrap(), vec!["relay"]);
 }
 
@@ -316,6 +343,7 @@ fn confirmation_decorator_surfaces_fire_and_forget_errors() {
 
     confirming.execute();
 
+    assert!(eventually(|| !errors.lock().unwrap().is_empty()));
     assert_eq!(
         *errors.lock().unwrap(),
         vec![VmxError::Other("command panicked: inner boom".to_string())]
@@ -413,6 +441,7 @@ fn confirmation_error_value_precedes_disposal_completion() {
     );
 
     confirming.execute();
+    assert!(eventually(|| !events.lock().unwrap().is_empty()));
     confirming.dispose();
     confirming.execute();
 
@@ -432,15 +461,17 @@ fn confirm_fluent_matches_explicit_confirmation_decorator() {
     assert_eq!(confirmed.can_execute(), explicit.can_execute());
     confirmed.execute();
     explicit.execute();
-    assert_eq!(*called.lock().unwrap(), 2);
+    assert!(eventually(|| *called.lock().unwrap() == 2));
 
     let declined = Arc::new(Mutex::new(0));
     let declined_inner = declined.clone();
     let command = RelayCommand::new(move || *declined_inner.lock().unwrap() += 1);
-    let confirmed = command.clone().confirm(|| AsyncValue::ready(false));
-    let explicit = ConfirmationDecoratorCommand::new(command, || AsyncValue::ready(false));
+    let refusal = AsyncValue::pending();
+    let confirmed = command.clone().confirm(decided_by(&refusal));
+    let explicit = ConfirmationDecoratorCommand::new(command, decided_by(&refusal));
     confirmed.execute();
     explicit.execute();
+    refusal.resolve(false);
     assert_eq!(
         *declined.lock().unwrap(),
         0,
@@ -762,9 +793,9 @@ fn confirmation_resolving_while_disposing_runs_the_inner_command_at_most_once() 
 }
 
 /// CMDD-011 — Disposing a decorator or confirmation decorator leaves the inner
-/// command's change hub, which they delegate to, open
+/// command's change hub open and sends its subscribers nothing
 #[test]
-fn decorator_disposal_leaves_the_delegated_inner_change_hub_open() {
+fn decorator_disposal_leaves_the_inner_change_hub_open() {
     let inner = RelayCommand::noop();
     let events = Arc::new(Mutex::new(Vec::new()));
     let (values, completions) = (events.clone(), events.clone());
@@ -1046,6 +1077,8 @@ fn trait_execute_reports_a_fault_once_on_the_error_stream() {
     gated.release.send(()).unwrap();
     changed.recv_timeout(SIGNAL_TIMEOUT).unwrap();
     changed.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    // The fault follows the completion notification (CMD-020).
+    assert!(eventually(|| !faults.lock().unwrap().is_empty()));
 
     assert_eq!(
         *faults.lock().unwrap(),
@@ -1095,4 +1128,106 @@ fn panicking_inner_command_still_runs_the_post_action_once() {
 
     assert!(result.is_err(), "the inner panic propagates");
     assert_eq!(posts.load(Ordering::SeqCst), 1);
+}
+
+/// CMDD-018 — `execute()` never runs the inner command inside its own call
+#[test]
+fn execute_never_runs_the_inner_command_inside_its_own_call() {
+    thread_local! {
+        static INSIDE_EXECUTE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    let (seen_sender, seen) = mpsc::channel();
+    let inner = RelayCommand::new(move || {
+        let _ = seen_sender.send(INSIDE_EXECUTE.with(std::cell::Cell::get));
+    });
+    let decorator = ConfirmationDecoratorCommand::new(inner, || AsyncValue::ready(true));
+
+    INSIDE_EXECUTE.with(|inside| inside.set(true));
+    decorator.execute();
+    INSIDE_EXECUTE.with(|inside| inside.set(false));
+
+    let inside = seen
+        .recv_timeout(SIGNAL_TIMEOUT)
+        .expect("the inner command ran");
+    assert!(!inside, "the inner command ran inside the execute() call");
+    assert!(
+        seen.recv_timeout(Duration::from_millis(50)).is_err(),
+        "the inner command ran exactly once"
+    );
+}
+
+/// CMDD-019 — Disposing a live wrapper notifies the wrapper's change-hub
+/// subscribers once; a second dispose and the inner subscribers get nothing
+/// (#1459, ADR-0222)
+#[test]
+fn wrapper_disposal_notifies_wrapper_subscribers_once() {
+    fn assert_once(wrapper: &dyn Command, inner: &RelayCommand, dispose: &dyn Fn()) {
+        let wrapper_seen = Arc::new(Mutex::new(0usize));
+        let inner_seen = Arc::new(Mutex::new(0usize));
+        let (w, i) = (wrapper_seen.clone(), inner_seen.clone());
+        let _wrapper_subscription = wrapper
+            .can_execute_changed()
+            .subscribe(move |_| *w.lock().unwrap() += 1);
+        let _inner_subscription = inner
+            .can_execute_changed()
+            .subscribe(move |_| *i.lock().unwrap() += 1);
+
+        dispose();
+        dispose();
+
+        assert_eq!(*wrapper_seen.lock().unwrap(), 1);
+        assert_eq!(*inner_seen.lock().unwrap(), 0);
+        assert!(!wrapper.can_execute());
+    }
+
+    let inner = RelayCommand::noop();
+    let composite = CompositeCommand::from_commands(vec![inner.clone()]);
+    assert_once(&composite, &inner, &|| composite.dispose());
+
+    let inner = RelayCommand::noop();
+    let decorator = DecoratorCommand::new(
+        inner.clone(),
+        None::<fn() -> bool>,
+        None::<fn()>,
+        None::<fn()>,
+    );
+    assert_once(&decorator, &inner, &|| decorator.dispose());
+
+    let inner = RelayCommand::noop();
+    let confirming = ConfirmationDecoratorCommand::new(inner.clone(), || AsyncValue::ready(true));
+    assert_once(&confirming, &inner, &|| confirming.dispose());
+}
+
+/// CMDD-019 — Disposing the inner command completes a decorator's change hub,
+/// so a decorator subscriber still receives the inner completion (#1459,
+/// ADR-0222)
+#[test]
+fn inner_disposal_completes_the_decorator_change_hub() {
+    fn assert_completes(wrapper: &dyn Command, inner: &RelayCommand) {
+        let events = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let (values, completions) = (events.clone(), events.clone());
+        let _subscription = wrapper.can_execute_changed().subscribe_with_completion(
+            move |_| values.lock().unwrap().push("value"),
+            move || completions.lock().unwrap().push("completion"),
+        );
+
+        inner.dispose();
+
+        assert_eq!(*events.lock().unwrap(), vec!["value", "completion"]);
+    }
+
+    let inner = RelayCommand::noop();
+    let decorator = DecoratorCommand::new(
+        inner.clone(),
+        None::<fn() -> bool>,
+        None::<fn()>,
+        None::<fn()>,
+    );
+    assert_completes(&decorator, &inner);
+    decorator.dispose();
+
+    let inner = RelayCommand::noop();
+    let confirming = ConfirmationDecoratorCommand::new(inner.clone(), || AsyncValue::ready(true));
+    assert_completes(&confirming, &inner);
+    confirming.dispose();
 }

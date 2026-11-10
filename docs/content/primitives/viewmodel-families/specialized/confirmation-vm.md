@@ -80,12 +80,22 @@ library surface is:
     vm.rejectCommand.execute()
     ```
 
+=== "Rust"
+
+    ```rust
+    let vm = ConfirmationVm::with_scheduler(notification, hub, scheduler, 300_000);
+    vm.reject_command().execute();
+    vm.dispose();
+    ```
+
 ## 6.2.8.5.6. Common Pitfalls
 
 - Expecting timeout to auto-resolve. It does not.
 - Using `ConfirmationVM` when the host already provides the correct blocking
   confirmation via `IDialogService`.
 - Forgetting that inherited dismiss resolves with approve semantics.
+- Dropping a Rust `ConfirmationVm` without `dispose()` while a command clone is
+  kept. The kept clone still resolves the hub until the VM is disposed.
 
 ## 6.2.8.5.7. Related Primitives
 

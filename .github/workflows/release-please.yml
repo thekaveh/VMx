@@ -3,15 +3,21 @@ name: release-please
 # release-please watches main for Conventional Commits and maintains a
 # long-lived "release PR" per package that bumps the version + updates
 # CHANGELOG.md according to what's accumulated since the last tag.
-# Merging that PR pushes a `python-v<X.Y.Z>` tag (the component prefix
-# comes from release-please-config.json's `component: python` setting,
-# which keeps tags coexisting with future `csharp-v*`, `typescript-v*`,
-# and `swift-v*` flavors), which fires `release.yml`'s tag-triggered
-# publish pipeline.
 #
-# Human gate stays on the release PR merge: review the version bump,
-# review the auto-generated CHANGELOG entry, then merge → tag fires →
-# publish runs → environment approval gates the actual PyPI upload.
+# release-please creates no tag and no GitHub Release
+# (`skip-github-release: true` in release-please-config.json). After the
+# release PR merges, the owner pushes the annotated `python-v<X.Y.Z>` tag
+# on the merge commit, as for every other flavor. The tag fires
+# `release.yml`, which creates the GitHub Release only after PyPI
+# verification. Because release-please builds no release, it never moves
+# the merged release PR from `autorelease: pending` to `autorelease: tagged`,
+# and while a merged PR keeps the pending label it opens no new release PR.
+# The `python-release-notes` job of `release.yml` therefore relabels the PR
+# after it creates the GitHub Release (#1447). The "Check merged release PR
+# labels" step below fails and names a merged PR that still keeps the
+# pending label after its GitHub Release exists; a PR whose tag or GitHub
+# Release does not exist yet passes. langs/python/RELEASING.md §2.1 keeps
+# the manual relabel commands as a recovery step.
 
 on:
   push:
@@ -21,9 +27,10 @@ on:
 # against main. A repository secret backed by a fine-grained PAT or GitHub App
 # token is required because PRs created with the default GITHUB_TOKEN do not
 # trigger the required pull_request workflows. Every write uses that secret,
-# so the default token only reads the repository.
+# so the default token only reads the repository and its pull requests.
 permissions:
   contents: read
+  pull-requests: read
 
 # Serialize release-PR maintenance: concurrent runs both push to the release
 # branch / update the release PR and can conflict (the action recommends a
@@ -41,6 +48,10 @@ jobs:
       - name: Check release-please source and manifest state
         id: release-state
         run: python3 tools/check-release-please-state.py --github-output "$GITHUB_OUTPUT"
+      - name: Check merged release PR labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/release-please-labels.py check
       - name: Require RELEASE_PLEASE_TOKEN
         if: steps.release-state.outputs.ready == 'true'
         env:
@@ -91,6 +102,8 @@ jobs:
           ref: ${{ steps.release-pr.outputs.head }}
           path: release-pr
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+      # The script also rewrites Release Please's `*` bullets and blank-line
+      # runs, so the release PR passes the conformance mdformat step (#1391).
       - name: Restore the canonical Unreleased changelog section
         if: steps.release-pr.outputs.found == 'true'
         env:
@@ -100,7 +113,7 @@ jobs:
           python3 tools/ensure-release-changelog-unreleased.py \
             release-pr/langs/python/CHANGELOG.md
           if git -C release-pr diff --quiet -- langs/python/CHANGELOG.md; then
-            echo "The Python changelog already has its canonical Unreleased section."
+            echo "The Python changelog already has its canonical Unreleased section and format."
             exit 0
           fi
           git -C release-pr config user.name "github-actions[bot]"

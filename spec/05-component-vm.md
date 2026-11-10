@@ -126,6 +126,9 @@ The established local-only raise primitive remains available for lifecycle and
 computed properties that intentionally do not publish a hub
 `PropertyChangedMessage`. Subclass-authored settable properties SHOULD use the
 dual-channel helper so a binding notification cannot be omitted accidentally.
+A call of the local-only primitive that begins after VM disposal is also a
+no-op (ADR-0223). The library's own terminal `Status` and `IsConstructed`
+notifications are part of disposal and still reach local observers.
 
 This is the only property-authoring convenience added by VMx. Per ADR-0040,
 VMx does not provide `IProperty` wrappers, decorators, implicit accessors,
@@ -163,17 +166,11 @@ ModeledHinter : (M) -> string
 
 If no `ModeledHinter` is configured, `ModeledHint` returns the empty string.
 
-Open Rust gap: Rust types `Hint` and `ModeledHint` as `Option<String>`. Its
-default hinter returns `None` instead of the empty string.
-
 ### 3.2 `OnModelChanged`
 
 The builder accepts an `OnModelChanged` callback (`(M) -> void`). When the model
 setter accepts a new value, this callback is invoked AFTER the
 `PropertyChangedMessage` is emitted. Use it to wire model-driven side effects.
-
-Open Rust gap: the Rust `ComponentVmBuilder` has no `OnModelChanged` callback.
-Rust consumers observe the `model` property-change notification instead.
 
 ### 3.3 Explicit model republish
 
@@ -265,9 +262,14 @@ can_deselect() returns true iff:
   - Parent.Current == this
 ```
 
-`select()` calls `parent.select_component(this)`. `deselect()` calls
-`parent.deselect_component(this)`. The selection contract is defined in
-`06-composite-vm.md`.
+`select()` asks the parent to select this VM, and `deselect()` asks it to
+clear this VM as `Current`. Both run the checks of `select_component(this)`
+and `deselect_component(this)` (chapter 06 §3.1, §4.3). If the parent refuses,
+the call changes nothing and raises nothing, in every flavor (ADR-0188).
+`can_select()` and `can_deselect()` check only `Parent`, `Parent.Current` and
+`Status`, so they do not predict every refusal. `parent.can_select_component(this)`
+tells a caller in advance whether the parent refuses `select()`. The selection
+contract is defined in `06-composite-vm.md`.
 
 `Parent.Current` denotes the container's `Current` slot, which only a `CompositeVM`
 owns. A `GroupVM` has no selection slot; its `Current` is conceptually always empty,
@@ -341,9 +343,14 @@ ExpandableState : IExpandable, ICollapsible, IExpansionTogglable:
     ToggleExpansionCommand : Command        # CanToggleExpansion() / ToggleExpansion()
 ```
 
-Open Rust gap: Rust's `ExpandableState` has no `Observable<bool>`. Its
-`expanded_changed()` method returns a `MessageHub` that publishes a
-`Message::Custom` whose `name` is `"true"` or `"false"` on each effective change.
+Rust exposes `IsExpandedChanged` as `expansion_changes()`, a hot
+`ValueStream<bool>` that sends the new value once per effective change and does
+not replay the current value to a new subscriber. Under concurrent changes, an
+older value is skipped when a newer change commits before it publishes, so the
+stream always ends on the current value (ADR-0206). Rust also keeps the
+`expanded_changed()` hub, which publishes a `Message::Custom` whose `name` is
+`"true"` or `"false"` on each effective change; the expansion commands use that
+hub as their trigger (ADR-0206).
 
 The helper is composition-friendly: VMs that want expand/collapse hold an
 `ExpandableState` and delegate the capability members to it. The

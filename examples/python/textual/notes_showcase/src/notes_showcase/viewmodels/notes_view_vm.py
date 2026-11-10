@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import cast
 
 from reactivex.abc import SchedulerBase
@@ -43,7 +43,7 @@ from vmx.messages.protocols import Message
 from vmx.notifications import INotificationHub
 from vmx.services.dispatcher import Dispatcher
 
-from notes_showcase.models.note_model import NoteModel
+from notes_showcase.models.note_model import NoteModel, note_matches
 from notes_showcase.models.note_repository import INoteRepository
 from notes_showcase.viewmodels.dialog_service import IDialogService
 from notes_showcase.viewmodels.note_vm import NoteVM
@@ -101,9 +101,13 @@ class NotesViewVM(
         search_scheduler: SchedulerBase | None = None,
         dialog_service: IDialogService | None = None,
         notification_hub: INotificationHub | None = None,
+        save_note: Callable[[NoteVM], Awaitable[None]] | None = None,
     ) -> None:
         super().__init__(name=name, hint=hint, hub=hub, dispatcher=dispatcher)
         self._repo = repository
+        # ADR-0201 §2.3: the host (WorkspaceVM) may route a note's Save through
+        # the editor. Without a hook, Save persists the note's stored model.
+        self._save_note_hook = save_note
         self._dialog_service = dialog_service
         self._notification_hub = notification_hub
         self._search_scheduler = search_scheduler or default_search_scheduler(
@@ -454,7 +458,13 @@ class NotesViewVM(
         note.dispose()
 
     async def _save_note(self, note: NoteVM) -> None:
-        """Persist ``note`` and surface repository failure through the command."""
+        """Persist ``note`` and surface repository failure through the command.
+
+        Uses the host's save hook when one is set (ADR-0201 §2.3).
+        """
+        if self._save_note_hook is not None:
+            await self._save_note_hook(note)
+            return
         await self._repo.save_note(note.model)
 
     def _close_note(self, closed: NoteVM) -> None:
@@ -465,17 +475,15 @@ class NotesViewVM(
 
     # ── Combined filter pipeline ───────────────────────────────────────────
     def _recompute_filtered(self) -> None:
-        term = self._search.search_term.lower()
+        term = self._search.search_term
         result: list[NoteVM] = []
         for n in self._inner:
             if self._show_starred_only and not n.model.starred:
                 continue
             if self._filter is not None and not self._filter(n):
                 continue
-            if term:
-                hay = " ".join((n.title, n.body, *n.tags)).lower()
-                if term not in hay:
-                    continue
+            if not note_matches(n.model, term):
+                continue
             result.append(n)
         self._filtered = result
         # The paged view reads ``_filtered`` through a factory, so it gets no
@@ -557,6 +565,7 @@ class NotesViewVMBuilder:
     _search_scheduler: SchedulerBase | None = None
     _dialog_service: IDialogService | None = None
     _notification_hub: INotificationHub | None = None
+    _save_note: Callable[[NoteVM], Awaitable[None]] | None = None
 
     def name(self, value: str) -> NotesViewVMBuilder:
         return dataclasses.replace(self, _name=value)
@@ -585,6 +594,13 @@ class NotesViewVMBuilder:
     def notification_hub(self, nh: INotificationHub) -> NotesViewVMBuilder:
         return dataclasses.replace(self, _notification_hub=nh)
 
+    def save_note(self, handler: Callable[[NoteVM], Awaitable[None]]) -> NotesViewVMBuilder:
+        """Set the handler that a note's Save runs (ADR-0201 §2.3).
+
+        Without one, Save persists the note's stored model.
+        """
+        return dataclasses.replace(self, _save_note=handler)
+
     def build(self) -> NotesViewVM:
         if self._name is None:
             raise ValueError("name is required")
@@ -603,4 +619,5 @@ class NotesViewVMBuilder:
             search_scheduler=self._search_scheduler,
             dialog_service=self._dialog_service,
             notification_hub=self._notification_hub,
+            save_note=self._save_note,
         )

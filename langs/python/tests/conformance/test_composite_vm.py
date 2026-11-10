@@ -13,12 +13,14 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
+import time
 from collections.abc import Callable
 from threading import Barrier, BrokenBarrierError, Event, Thread
+from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.collections import CollectionChangedEvent
 from vmx.components.base import _OWNERSHIP_TRANSACTION_GATE
 from vmx.components.builders import ComponentVMBuilder, ComponentVMOfBuilder
@@ -927,18 +929,18 @@ def test_COMP_026_blocked_current_flag_notification_leaves_final_current_flag() 
     def block_first_publication(property_name: str) -> None:
         if property_name == "is_current" and not first.is_current:
             entered.set()
-            assert release.wait(timeout=2 * HANG_GUARD)
+            assert wait_event(release, 2 * HANG_GUARD)
 
     subscription = first.property_changed.subscribe(block_first_publication)
     first_thread = Thread(target=lambda: setattr(composite, "current", second), daemon=True)
     second_thread = Thread(target=lambda: setattr(composite, "current", third), daemon=True)
     first_thread.start()
-    assert entered.wait(timeout=HANG_GUARD)
+    assert wait_event(entered)
     second_thread.start()
-    second_thread.join(timeout=HANG_GUARD)
+    join_thread(second_thread)
     later_completed_while_blocked = not second_thread.is_alive()
     release.set()
-    first_thread.join(timeout=HANG_GUARD)
+    join_thread(first_thread)
     subscription.dispose()
 
     assert later_completed_while_blocked, "the later assignment must not wait on the blocked one"
@@ -1001,8 +1003,8 @@ def test_COMP_026_opposing_current_callbacks_do_not_deadlock() -> None:
     thread_b = Thread(target=lambda: composite_b.select_component(child_b), daemon=True)
     thread_a.start()
     thread_b.start()
-    thread_a.join(2 * HANG_GUARD)
-    thread_b.join(2 * HANG_GUARD)
+    join_thread(thread_a, 2 * HANG_GUARD)
+    join_thread(thread_b, 2 * HANG_GUARD)
 
     assert not thread_a.is_alive()
     assert not thread_b.is_alive()
@@ -1016,6 +1018,7 @@ def test_COMP_026_collection_and_current_callbacks_do_not_deadlock() -> None:
     """A collection callback cannot wait on a coordinator held by a disposer."""
     script = textwrap.dedent(
         """
+        import time
         from threading import Event, Thread
 
         from vmx.components.builders import ComponentVMBuilder
@@ -1024,6 +1027,14 @@ def test_COMP_026_collection_and_current_callbacks_do_not_deadlock() -> None:
         from vmx.services.message_hub import MessageHub
 
         dispatcher = RxDispatcher.immediate()
+
+        def wait_event(event, bound=HANG_GUARD):
+            # tests.liveness.wait_event: wait again until a monotonic deadline passes.
+            deadline = time.monotonic() + bound
+            while not event.wait(max(0.0, deadline - time.monotonic())):
+                if time.monotonic() >= deadline:
+                    return event.is_set()
+            return True
 
         def child(name):
             return ComponentVMBuilder().name(name).services(MessageHub(), dispatcher).build()
@@ -1042,7 +1053,7 @@ def test_COMP_026_collection_and_current_callbacks_do_not_deadlock() -> None:
 
         def on_a_current(_):
             a_callback_entered.set()
-            assert b_transaction_entered.wait(HANG_GUARD)
+            assert wait_event(b_transaction_entered)
             b.dispose()
 
         a_item = child("a-item")
@@ -1069,7 +1080,7 @@ def test_COMP_026_collection_and_current_callbacks_do_not_deadlock() -> None:
 
         thread_a = Thread(target=lambda: run(lambda: a.select_component(a_item)))
         thread_a.start()
-        assert a_callback_entered.wait(HANG_GUARD)
+        assert wait_event(a_callback_entered)
         thread_b = Thread(target=lambda: run(lambda: b.add(b_item)))
         thread_b.start()
         thread_a.join()
@@ -1675,6 +1686,62 @@ def test_COMP_040_lifecycle_compensation_failure_is_surfaced() -> None:
 
 
 @pytest.mark.conformance("COMP-040")
+@pytest.mark.parametrize("kind", ["composite", "group"])
+@pytest.mark.parametrize("operation", ["add", "insert", "replace"])
+def test_COMP_040_rollback_error_carries_original_and_compensation_failure(
+    kind: str, operation: str
+) -> None:
+    """COMP-040: a failed add, insert or replacement whose compensation also
+    fails raises the first compensation failure from the original failure, so
+    ``__cause__`` is the original failure (ADR-0218)."""
+    hub = _hub()
+    dispatcher = _dispatcher()
+    builder: Any = CompositeVMBuilder() if kind == "composite" else GroupVMBuilder()
+    container: Any = (
+        builder.name("container")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+    member = _build_child("member", hub=hub, dispatcher=dispatcher)
+    container.add(member)
+    container.construct()
+
+    def fail_compensation() -> None:
+        raise RuntimeError("compensation failed")
+
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_destruct(fail_compensation)
+        .build()
+    )
+    hub.messages.subscribe(
+        lambda m: (
+            container.dispose()
+            if isinstance(m, ConstructionStatusChangedMessage)
+            and m.sender is child
+            and m.status is ConstructionStatus.CONSTRUCTED
+            else None
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="compensation failed") as failure:
+        if operation == "add":
+            container.add(child)
+        elif operation == "insert":
+            container.insert(0, child)
+        else:
+            container[0] = child
+
+    assert isinstance(failure.value.__cause__, RuntimeError)
+    assert "disposing" in str(failure.value.__cause__)
+    assert child._parent is None
+
+
+@pytest.mark.conformance("COMP-040")
 def test_COMP_040_deferred_disposal_failure_follows_committed_transfer_events() -> None:
     hub = _hub()
     dispatcher = _dispatcher()
@@ -1829,7 +1896,7 @@ def test_COMP_040_concurrent_old_parent_disposal_waits_for_transfer_commit() -> 
 
     def block_construct() -> None:
         hook_entered.set()
-        assert release_hook.wait(HANG_GUARD)
+        assert wait_event(release_hook)
 
     child = (
         ComponentVMBuilder()
@@ -1854,15 +1921,15 @@ def test_COMP_040_concurrent_old_parent_disposal_waits_for_transfer_commit() -> 
 
     transfer_thread = Thread(target=transfer, daemon=True)
     transfer_thread.start()
-    assert hook_entered.wait(HANG_GUARD)
+    assert wait_event(hook_entered)
     disposal_thread = Thread(target=dispose, daemon=True)
     disposal_thread.start()
-    assert disposal_started.wait(HANG_GUARD)
+    assert wait_event(disposal_started)
     assert not disposal_done.wait(0.05)
 
     release_hook.set()
-    transfer_thread.join(HANG_GUARD)
-    disposal_thread.join(HANG_GUARD)
+    join_thread(transfer_thread)
+    join_thread(disposal_thread)
     assert not transfer_thread.is_alive()
     assert not disposal_thread.is_alive()
     assert errors == []
@@ -1890,7 +1957,7 @@ def test_LIFE_015_dispose_during_admitted_hook_defers_cleanup_once() -> None:
     def block_construct() -> None:
         hook_active.set()
         hook_entered.set()
-        assert release_hook.wait(HANG_GUARD)
+        assert wait_event(release_hook)
         hook_active.clear()
 
     def children() -> list[ComponentVM]:
@@ -1933,15 +2000,15 @@ def test_LIFE_015_dispose_during_admitted_hook_defers_cleanup_once() -> None:
 
     constructor = Thread(target=construct, daemon=True)
     constructor.start()
-    assert hook_entered.wait(HANG_GUARD)
+    assert wait_event(hook_entered)
     disposer = Thread(target=composite.dispose, daemon=True)
     disposer.start()
     disposer.join(0.05)
     assert cleanups == [], "terminal cleanup must not run while the hook holds its lease"
 
     release_hook.set()
-    constructor.join(HANG_GUARD)
-    disposer.join(HANG_GUARD)
+    join_thread(constructor)
+    join_thread(disposer)
     assert not constructor.is_alive()
     assert not disposer.is_alive()
     composite.dispose()
@@ -1951,12 +2018,119 @@ def test_LIFE_015_dispose_during_admitted_hook_defers_cleanup_once() -> None:
     assert composite.status is ConstructionStatus.DISPOSED
     assert ConstructionStatus.CONSTRUCTED not in statuses
     assert statuses.count(ConstructionStatus.DISPOSED) == 1
-    # Terminal supersession: post-hook population is refused admission, so no
-    # child is attached or constructed by the superseded construct.
+    # Terminal supersession: the superseded construct calls no factory and
+    # attaches nothing, and construct() returns without an error (ADR-0218).
     assert list(composite) == []
     assert child._parent is None
     assert child.status is ConstructionStatus.DESTRUCTED
-    assert all("disposing" in str(error) for error in construct_errors)
+    assert construct_errors == []
+    assert factory_calls == 0
+
+
+def _superseded_container(
+    kind: str,
+    hub: MessageHub[object],
+    factory: Callable[[], list[object]],
+    on_construct: Callable[[], None],
+) -> object:
+    """A container of *kind* with children factory *factory* and hook *on_construct*."""
+    dispatcher = _dispatcher()
+    if kind == "composite":
+        return (
+            CompositeVMBuilder()
+            .name("comp")
+            .services(hub, dispatcher)
+            .on_construct(on_construct)
+            .children(factory)  # type: ignore[arg-type]
+            .build()
+        )
+    if kind == "composite-of":
+        return (
+            CompositeVMOfBuilder()
+            .name("comp")
+            .services(hub, dispatcher)
+            .on_construct(on_construct)
+            .children_models(factory)
+            .child_model_to_child_view_model(
+                lambda model: (
+                    ComponentVMOfBuilder()
+                    .name("child")
+                    .services(hub, dispatcher)
+                    .model(model)
+                    .build()
+                )
+            )
+            .build()
+        )
+    return (
+        GroupVMBuilder()
+        .name("group")
+        .services(hub, dispatcher)
+        .on_construct(on_construct)
+        .children(factory)  # type: ignore[arg-type]
+        .build()
+    )
+
+
+@pytest.mark.conformance("LIFE-015")
+@pytest.mark.parametrize("kind", ["composite", "composite-of", "group"])
+@pytest.mark.parametrize("returns_child", [False, True], ids=["empty", "one-child"])
+def test_LIFE_015_superseded_construct_calls_no_factory(kind: str, returns_child: bool) -> None:
+    """LIFE-015: a foreign dispose() that supersedes a container's construct
+    hook stops the factory population. The factory is not called, nothing is
+    attached, and construct() returns without an error (ADR-0218)."""
+    hook_entered = Event()
+    release_hook = Event()
+    factory_calls = 0
+
+    def factory() -> list[object]:
+        nonlocal factory_calls
+        factory_calls += 1
+        if not returns_child:
+            return []
+        if kind == "composite-of":
+            return [object()]
+        return [_build_child("child")]
+
+    def block_construct() -> None:
+        hook_entered.set()
+        assert wait_event(release_hook)
+
+    hub = _hub()
+    container: Any = _superseded_container(kind, hub, factory, block_construct)
+    statuses: list[ConstructionStatus] = []
+    hub.messages.subscribe(
+        lambda m: (
+            statuses.append(m.status)
+            if isinstance(m, ConstructionStatusChangedMessage) and m.sender is container
+            else None
+        )
+    )
+    construct_errors: list[BaseException] = []
+
+    def construct() -> None:
+        try:
+            container.construct()
+        except BaseException as error:
+            construct_errors.append(error)
+
+    constructor = Thread(target=construct, daemon=True)
+    constructor.start()
+    assert wait_event(hook_entered)
+    disposer = Thread(target=container.dispose, daemon=True)
+    disposer.start()
+    disposer.join(0.1)
+    release_hook.set()
+    join_thread(constructor)
+    join_thread(disposer)
+    assert not constructor.is_alive()
+    assert not disposer.is_alive()
+
+    assert construct_errors == []
+    assert factory_calls == 0
+    assert statuses == [ConstructionStatus.CONSTRUCTING, ConstructionStatus.DISPOSED]
+    assert list(container) == []
+    assert container.status is ConstructionStatus.DISPOSED
 
 
 @pytest.mark.conformance("LIFE-015")
@@ -2001,7 +2175,7 @@ def test_LIFE_015_opposing_hook_disposals_do_not_deadlock() -> None:
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(2 * HANG_GUARD)
+        join_thread(thread, 2 * HANG_GUARD)
 
     assert all(not thread.is_alive() for thread in threads)
     assert all(vm.status is ConstructionStatus.DISPOSED for vm in composites)
@@ -2047,7 +2221,7 @@ def test_LIFE_015_child_cascade_waits_for_admitted_composite_hook() -> None:
     def block_construct() -> None:
         log.append("hook-enter")
         hook_entered.set()
-        assert release_hook.wait(HANG_GUARD)
+        assert wait_event(release_hook)
         log.append("hook-exit")
 
     composite: CompositeVM[ComponentVM] = (
@@ -2078,7 +2252,7 @@ def test_LIFE_015_child_cascade_waits_for_admitted_composite_hook() -> None:
 
     constructor = Thread(target=construct, daemon=True)
     constructor.start()
-    assert hook_entered.wait(HANG_GUARD)
+    assert wait_event(hook_entered)
     disposer = Thread(target=dispose, daemon=True)
     disposer.start()
     disposer.join(0.1)
@@ -2087,8 +2261,8 @@ def test_LIFE_015_child_cascade_waits_for_admitted_composite_hook() -> None:
     )
 
     release_hook.set()
-    constructor.join(HANG_GUARD)
-    disposer.join(HANG_GUARD)
+    join_thread(constructor)
+    join_thread(disposer)
     assert not constructor.is_alive()
     assert not disposer.is_alive()
     composite.dispose()
@@ -2150,7 +2324,7 @@ def test_LIFE_015_opposing_composite_disposal_defers_child_cascade() -> None:
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(2 * HANG_GUARD)
+        join_thread(thread, 2 * HANG_GUARD)
 
     assert all(not thread.is_alive() for thread in threads), "disposals must not deadlock"
     for index in range(2):
@@ -2316,13 +2490,13 @@ def test_bulk_transfer_remove_callback_does_not_retain_ownership_coordinator() -
         )
         workers.append(worker)
         worker.start()
-        callback_observed_progress.append(worker_done.wait(HANG_GUARD))
+        callback_observed_progress.append(wait_event(worker_done))
 
     old_parent.on_collection_changed.subscribe(on_old_collection)
 
     destination.construct()
 
-    workers[0].join(HANG_GUARD)
+    join_thread(workers[0])
     assert not workers[0].is_alive()
     assert callback_observed_progress == [True]
     assert list(unrelated_old) == []
@@ -2370,10 +2544,26 @@ def test_colliding_bulk_wait_does_not_block_unrelated_callback_transfer() -> Non
 
     def run_bulk() -> None:
         bulk_started.set()
-        try:
-            bulk_destination.construct()
-        except BaseException as error:
-            bulk_errors.append(error)
+        # The first transfer releases the child's ownership when it commits,
+        # before first_destination's membership transaction ends. A population
+        # that meets that open transaction fails at once and rolls back
+        # (ADR-0187), so the worker retries until the transaction has ended.
+        deadline = time.monotonic() + HANG_GUARD
+        while True:
+            try:
+                bulk_destination.construct()
+                return
+            except RuntimeError as error:
+                if (
+                    "membership transaction is already in progress" not in str(error)
+                    or time.monotonic() >= deadline
+                ):
+                    bulk_errors.append(error)
+                    return
+                Event().wait(0.001)
+            except BaseException as error:
+                bulk_errors.append(error)
+                return
 
     def on_old_collection(event: CollectionChangedEvent) -> None:
         if event.action != "remove" or bulk_threads:
@@ -2381,7 +2571,7 @@ def test_colliding_bulk_wait_does_not_block_unrelated_callback_transfer() -> Non
         bulk_thread = Thread(target=run_bulk, daemon=True)
         bulk_threads.append(bulk_thread)
         bulk_thread.start()
-        assert bulk_started.wait(HANG_GUARD)
+        assert wait_event(bulk_started)
 
         # Under the former implementation the colliding bulk worker retained
         # this gate while waiting for ``child``. Detect that deterministic
@@ -2401,14 +2591,14 @@ def test_colliding_bulk_wait_does_not_block_unrelated_callback_transfer() -> Non
             daemon=True,
         )
         worker.start()
-        callback_progress.append(unrelated_done.wait(HANG_GUARD))
-        worker.join(HANG_GUARD)
+        callback_progress.append(wait_event(unrelated_done))
+        join_thread(worker)
 
     old_parent.on_collection_changed.subscribe(on_old_collection)
 
     first_destination.add(child)
 
-    bulk_threads[0].join(HANG_GUARD)
+    join_thread(bulk_threads[0])
     assert not bulk_threads[0].is_alive()
     assert callback_progress == [True]
     assert bulk_errors == []

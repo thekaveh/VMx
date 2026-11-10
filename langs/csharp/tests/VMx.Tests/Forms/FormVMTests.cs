@@ -451,21 +451,20 @@ public class FormVMTests
         sut.Model.Should().Be(new Model("B", 2), "deny on a disposed form must not revert");
     }
 
+    // spec/20 §5.4 and §10 (ADR-0215): a Dispose() from another thread while
+    // a deny prepares returns at once, and the deny reverts nothing.
     [Fact]
-    public async Task Admitted_Deny_Finishes_Before_Concurrent_Dispose()
+    public async Task Concurrent_Dispose_During_A_Deny_Preparation_Returns_And_The_Deny_Reverts_Nothing()
     {
         using var releaseSnapshot = new ManualResetEventSlim();
         var snapshotStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var disposeFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var pauseSnapshot = false;
         Model Snapshotter(Model model)
         {
             if (pauseSnapshot)
             {
                 snapshotStarted.SetResult();
-                // The test thread owns releaseSnapshot.Set() below; wait without a
-                // fixed deadline so CI thread-pool starvation can't trip a spurious
-                // timeout here. The outer WhenAll(...).WaitAsync() bounds the test.
+                // The test sets releaseSnapshot in a finally block.
                 releaseSnapshot.Wait();
             }
 
@@ -480,21 +479,18 @@ public class FormVMTests
         pauseSnapshot = true;
 
         var denier = Task.Run(() => sut.DenyCommand.Execute(null));
-        await snapshotStarted.Task.WaitAsync(HangGuard);
-
-        var disposer = Task.Run(() =>
+        try
         {
-            sut.Dispose();
-            disposeFinished.SetResult();
-        });
-        var disposedDuringSnapshot = await Task.WhenAny(
-            disposeFinished.Task,
-            Task.Delay(TimeSpan.FromMilliseconds(100))) == disposeFinished.Task;
-        releaseSnapshot.Set();
+            await snapshotStarted.Task.WaitAsync(HangGuard);
+            await Task.Run(sut.Dispose).WaitAsync(HangGuard);
+        }
+        finally
+        {
+            releaseSnapshot.Set();
+        }
 
-        await Task.WhenAll(denier, disposer).WaitAsync(HangGuard);
-        disposedDuringSnapshot.Should().BeFalse();
-        sut.Model.Should().Be(new Model("A", 1));
+        await denier.WaitAsync(HangGuard);
+        sut.Model.Should().Be(new Model("B", 2), "a disposed form reverts nothing");
     }
 
     [Fact]
@@ -547,42 +543,175 @@ public class FormVMTests
         completed.Should().BeTrue("ApproveErrors completes on Dispose");
     }
 
+    // spec/20 §5.5 (ADR-0176): the ApproveErrors delivery opens no scope, so
+    // another thread's Dispose does not wait for it. The teardown is deferred
+    // until the delivery returns, so the channel never completes under a
+    // running observer.
     [Fact]
-    public async Task Dispose_Waits_For_InFlight_ApproveError_Delivery()
+    public async Task Dispose_Defers_Teardown_Until_InFlight_ApproveError_Delivery_Returns()
     {
         using var observerEntered = new ManualResetEventSlim();
         using var releaseObserver = new ManualResetEventSlim();
-        using var disposeStarted = new ManualResetEventSlim();
+        var completed = 0;
+        var completedDuringDelivery = false;
         var sut = new FormVM<Model>(
             new Model("A", 1),
             _ => Task.FromException(new InvalidOperationException("boom")));
-        using var subscription = sut.ApproveErrors.Subscribe(_ =>
-        {
-            observerEntered.Set();
-            releaseObserver.Wait();
-        });
+        using var subscription = sut.ApproveErrors.Subscribe(
+            _ =>
+            {
+                observerEntered.Set();
+                releaseObserver.Wait(HangGuard).Should().BeTrue();
+                completedDuringDelivery = Volatile.Read(ref completed) != 0;
+            },
+            () => Interlocked.Exchange(ref completed, 1));
 
         var execute = Task.Run(() => sut.ApproveCommand.Execute(null));
         observerEntered.Wait(HangGuard).Should().BeTrue();
-        var dispose = Task.Run(() =>
-        {
-            disposeStarted.Set();
-            sut.Dispose();
-        });
-        disposeStarted.Wait(HangGuard).Should().BeTrue();
-
         try
         {
-            var first = await Task.WhenAny(dispose, Task.Delay(TimeSpan.FromMilliseconds(100)));
-            first.Should().NotBeSameAs(dispose,
-                "approve-error teardown must serialize with an admitted delivery");
+            await Task.Run(sut.Dispose).WaitAsync(HangGuard);
+            Volatile.Read(ref completed).Should().Be(0, "the delivery in progress defers the teardown");
         }
         finally
         {
             releaseObserver.Set();
         }
 
-        await Task.WhenAll(execute, dispose);
+        await execute.WaitAsync(HangGuard);
+        SpinWait.SpinUntil(() => Volatile.Read(ref completed) != 0, HangGuard).Should().BeTrue();
+        completedDuringDelivery.Should().BeFalse();
+    }
+
+    // spec/20 §5.5: only a nested approval's OnApproved delivery suspends the
+    // outer pre-publication window. An update from a nested failed
+    // settlement's CanExecuteChanged observer is queued, as in Python and Rust.
+    [Fact]
+    public async Task Nested_Failed_Settlement_Keeps_The_Outer_Window()
+    {
+        var persists = 0;
+        using var form = new FormVM<Model>(new Model("initial", 0), _ =>
+            Interlocked.Increment(ref persists) == 2
+                ? Task.FromException(new InvalidOperationException("inner"))
+                : Task.CompletedTask);
+        form.SetModel(new Model("edited", 0));
+        var edges = 0;
+        Model? insideOuter = null;
+        form.ApproveCommand.CanExecuteChanged += (_, _) =>
+        {
+            edges++;
+            if (edges == 2)
+            {
+                // Outer settlement step 3: a nested approval fails at once.
+                form.ApproveAsync().IsFaulted.Should().BeTrue();
+                insideOuter = form.Model;
+            }
+            else if (edges == 4)
+            {
+                // The nested failed settlement's notification.
+                form.SetModel(new Model("from-inner-failure", 0));
+            }
+        };
+
+        await form.ApproveAsync().WaitAsync(HangGuard);
+
+        edges.Should().BeGreaterThanOrEqualTo(4);
+        insideOuter.Should().Be(new Model("edited", 0), "the update joined the outer queue");
+        form.Model.Should().Be(new Model("from-inner-failure", 0), "it replays after OnApproved");
+    }
+
+    // spec/20 §5.4, ADR-0180: an approval admitted from an ErrorsChanged
+    // observer of an update is nested. Its admission notification follows the
+    // update's own notifications, and its persister starts after them, before
+    // the update returns.
+    [Fact]
+    public async Task An_Approval_From_An_ErrorsChanged_Observer_Starts_After_The_Update_Notifies()
+    {
+        var log = new List<string>();
+        Task? approval = null;
+        using var hub = new MessageHub();
+        using var form = new FormVM<Model>(
+            new Model("x", 0),
+            model =>
+            {
+                log.Add($"persist:{model.Name}");
+                return Task.CompletedTask;
+            },
+            hub: hub,
+            snapshotter: model => model,
+            validators: new Dictionary<string, Func<Model, string?>>
+            {
+                ["Name"] = model => model.Name == "x" ? "rejected" : null,
+            });
+        using var errors = form.ErrorsChanged.Subscribe(map =>
+        {
+            log.Add($"errors:{map.Count}");
+            approval ??= form.ApproveAsync();
+            log.Add("nested returned");
+        });
+        form.ApproveCommand.CanExecuteChanged += (_, _) => log.Add("can_execute");
+        using var approved = form.OnApproved.Subscribe(model => log.Add($"approved:{model.Name}"));
+        using var messages = hub.Messages.Subscribe(message =>
+        {
+            if (message is PropertyChangedMessage<FormVM<Model>> { PropertyName: "Model" }) log.Add("model");
+        });
+
+        form.SetModel(new Model("ok", 0));
+        log.Add("outer returned");
+
+        approval.Should().NotBeNull();
+        await approval!.WaitAsync(HangGuard);
+        log.Should().Equal(
+            "errors:0", "nested returned", "can_execute", "model", "can_execute",
+            "persist:ok", "can_execute", "approved:ok", "outer returned");
+        form.Snapshot.Should().Be(new Model("ok", 0));
+    }
+
+    // spec/20 §5.3, ADR-0180: a nested approval whose admission observer
+    // throws never calls the persister, as a top-level admission does (#732).
+    // The failure reaches the outermost update's caller, the in-flight mark is
+    // released, and observers that saw the admission edge see a release edge.
+    [Fact]
+    public void A_Nested_Approval_Whose_Admission_Observer_Throws_Never_Persists()
+    {
+        var persisted = 0;
+        var canExecuteCalls = 0;
+        var nested = false;
+        FormVM<Model>? form = null;
+        using var hub = new MessageHub();
+        form = new FormVM<Model>(
+            new Model("x", 0),
+            _ =>
+            {
+                persisted++;
+                return Task.CompletedTask;
+            },
+            hub: hub,
+            snapshotter: model => model,
+            validators: new Dictionary<string, Func<Model, string?>>
+            {
+                ["Name"] = model =>
+                {
+                    if (model.Name == "a" && !nested)
+                    {
+                        nested = true;
+                        form!.ApproveCommand.Execute(null);
+                    }
+                    return null;
+                },
+            });
+        using var owned = form;
+        form.ApproveCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (++canExecuteCalls == 1) throw new InvalidOperationException("admission observer");
+        };
+
+        var act = () => form.SetModel(new Model("a", 0));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("admission observer");
+        persisted.Should().Be(0);
+        canExecuteCalls.Should().Be(2, "the release edge follows the failed admission edge");
+        form.ApproveCommand.CanExecute(null).Should().BeTrue("the in-flight mark is released");
     }
 
     // ── Test double helpers ───────────────────────────────────────────────────

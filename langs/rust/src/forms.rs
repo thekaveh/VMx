@@ -1,3 +1,6 @@
+use crate::runtime::wait_for_owner;
+use crate::wait_for_graph::{waits, Resource};
+
 use super::{
     catch_unwind, clone_locked, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe,
     AtomicBool, AtomicU64, BTreeMap, ComponentVm, Condvar, FormRevertedMessage, Message,
@@ -11,13 +14,22 @@ type FormResetOnApproved<M> = Arc<dyn Fn(&M) -> VmxResult<M> + Send + Sync>;
 type FieldValidator<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
 type ModelValidator<M> = Arc<dyn Fn(&M) -> BTreeMap<String, Option<String>> + Send + Sync>;
 type ApprovedCallback<M> = Arc<dyn Fn(M) + Send + Sync>;
+type ApprovedCompletion = Arc<dyn Fn() + Send + Sync>;
+
+/// One approval registration: its callback and, for
+/// [`FormVm::subscribe_approved_with_completion`], its completion callback.
+struct ApprovedEntry<M> {
+    id: u64,
+    callback: ApprovedCallback<M>,
+    completion: Option<ApprovedCompletion>,
+}
 
 /// Approval callbacks keyed by registration, so one can detach without
 /// disturbing the others. Disposal sets `closed` under the same lock, so a
 /// registration racing disposal is rejected instead of retained.
 struct ApprovedRegistry<M> {
     next_id: u64,
-    entries: Vec<(u64, ApprovedCallback<M>)>,
+    entries: Vec<ApprovedEntry<M>>,
     closed: bool,
 }
 
@@ -30,23 +42,54 @@ impl<M> ApprovedRegistry<M> {
         }
     }
 
-    fn register(&mut self, callback: ApprovedCallback<M>) -> Result<u64, ApprovedCallback<M>> {
-        if self.closed {
-            return Err(callback);
-        }
+    /// Registers a callback, or returns the rejected entry on a closed
+    /// registry.
+    fn register(
+        &mut self,
+        callback: ApprovedCallback<M>,
+        completion: Option<ApprovedCompletion>,
+    ) -> Result<u64, ApprovedEntry<M>> {
         let id = self.next_id;
+        let entry = ApprovedEntry {
+            id,
+            callback,
+            completion,
+        };
+        if self.closed {
+            return Err(entry);
+        }
         self.next_id += 1;
-        self.entries.push((id, callback));
+        self.entries.push(entry);
         Ok(id)
     }
 
     fn is_registered(&self, id: u64) -> bool {
-        self.entries.iter().any(|(entry, _)| *entry == id)
+        self.entries.iter().any(|entry| entry.id == id)
     }
 
-    fn remove(&mut self, id: u64) -> Option<ApprovedCallback<M>> {
-        let index = self.entries.iter().position(|(entry, _)| *entry == id)?;
-        Some(self.entries.remove(index).1)
+    fn remove(&mut self, id: u64) -> Option<ApprovedEntry<M>> {
+        let index = self.entries.iter().position(|entry| entry.id == id)?;
+        Some(self.entries.remove(index))
+    }
+
+    fn callback(&self, id: u64) -> Option<ApprovedCallback<M>> {
+        self.entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .map(|entry| Arc::clone(&entry.callback))
+    }
+}
+
+/// Releases the approval callbacks of `entries`, then runs their completion
+/// callbacks in registration order, with no lock held. A panicking
+/// completion is contained, as a hub completion is, so the rest still run.
+fn complete_approved<M>(entries: Vec<ApprovedEntry<M>>) {
+    let completions: Vec<ApprovedCompletion> = entries
+        .into_iter()
+        .filter_map(|entry| entry.completion)
+        .collect();
+    for completion in completions {
+        let _ = catch_unwind(AssertUnwindSafe(|| completion()));
     }
 }
 
@@ -120,117 +163,589 @@ fn error_updates(errors: BTreeMap<String, String>) -> BTreeMap<String, Option<St
         .collect()
 }
 
-/// Model edits deferred while a successful approval publishes the
-/// notifications that precede `OnApproved`, so its observers see the
-/// committed state.
-struct ApprovalPublication<M> {
-    /// Number of settlements publishing those notifications. It is a depth,
-    /// not a flag: an approval admitted by one of their observers settles
-    /// inside the outer publication and must not end it (ADR-0143).
-    pre_publishing: usize,
-    /// Per thread, the number of settlements still publishing, `OnApproved`
-    /// included. Only a thread's outermost settlement replays the deferred
-    /// edits (#1061). A nested approval started by an approval subscriber
-    /// leaves them until the outer subscribers have run. The depth is per
-    /// thread: another thread's settlement still replays when it ends.
-    publishing: Vec<(ThreadId, usize)>,
-    deferred_models: Vec<M>,
+/// A `set_model` or revert queued in an approval's pre-publication window
+/// (spec/20 §5.3, ADR-0174), or a refused call of another thread (spec/20
+/// §5.5, ADR-0176). It replays as a new call.
+enum QueuedUpdate<M> {
+    Assign(M),
+    Revert,
+    /// The revalidation of a validator registration whose wait was refused.
+    /// The validator is already registered; only its revalidation waits.
+    Revalidate,
 }
 
-impl<M> ApprovalPublication<M> {
+/// A form's publication state (spec/20 §5.3 and §5.5, ADR-0174, ADR-0176).
+///
+/// A *publication scope* is a span in which one thread, the publisher,
+/// delivers form notifications while other threads' form calls wait. An
+/// update holds one over its `errors_changed` send, and a settlement holds one
+/// from settlement step 1 until its approval subscribers have run, or, when it
+/// failed, until its eligibility change returns. Scopes nest on the
+/// publisher's thread, and a call never waits for a scope its own thread
+/// holds.
+///
+/// Each publisher keeps its own queue: the updates of its pre-publication
+/// windows, and the updates of other threads whose wait for its scope would
+/// have closed a wait-for cycle. Only that thread replays it, when its
+/// outermost publication ends, so another thread's settlement never replays
+/// it (#1160).
+struct Publications<M> {
+    publishers: Vec<Publisher<M>>,
+    /// Counts the threads waiting for a scope, so a closing scope with no
+    /// waiter skips the wait-for graph.
+    waiters: usize,
+    /// Counts the [`Delivery`] spans in progress on any thread.
+    deliveries: usize,
+    /// The threads whose update [`Delivery`] spans are still preparing, once
+    /// per span.
+    preparing: Vec<ThreadId>,
+    /// The deferred teardown of a disposed form. A `dispose()` leaves it here
+    /// when its wait for a scope was refused, or when a delivery outside a
+    /// scope was in progress. It runs when no publication and no delivery
+    /// remains, on the thread that ends the last one (spec/20 §5.5).
+    teardown: Option<Teardown>,
+}
+
+/// The deferred §10 teardown of a `dispose()`.
+type Teardown = Box<dyn FnOnce() + Send>;
+
+/// One thread's entry in [`Publications::publishers`].
+struct Publisher<M> {
+    thread: ThreadId,
+    /// The thread's open publications: approval windows, from the start of
+    /// the post-persist commit until the settlement ends, and updates that
+    /// opened a scope, until they return. The queue replays when it reaches
+    /// zero (#1061).
+    depth: usize,
+    /// The thread's open publication scopes. While it is above zero, other
+    /// threads' calls wait.
+    scopes: usize,
+    /// Whether the thread's innermost settlement is in its pre-publication
+    /// window: from the start of the post-persist commit until `OnApproved`
+    /// delivery starts. It is a flag, not a depth: each settlement saves the
+    /// enclosing value, clears the flag before its subscribers run and
+    /// restores it when it ends. A nested settlement's subscribers therefore
+    /// edit at once, even when the settlement started in an outer
+    /// settlement's notifications (#1160).
+    pre_publishing: bool,
+    /// The queued updates, in the order they joined.
+    queued: Vec<QueuedUpdate<M>>,
+}
+
+impl<M> Publications<M> {
+    fn entry(&mut self, thread: ThreadId) -> Option<&mut Publisher<M>> {
+        self.publishers
+            .iter_mut()
+            .find(|entry| entry.thread == thread)
+    }
+
+    fn pre_publishing(&self, thread: ThreadId) -> bool {
+        self.publishers
+            .iter()
+            .any(|entry| entry.thread == thread && entry.pre_publishing)
+    }
+
+    fn holds_scope(&self, thread: ThreadId) -> bool {
+        self.publishers
+            .iter()
+            .any(|entry| entry.thread == thread && entry.scopes > 0)
+    }
+
+    /// Returns a thread other than `current` that holds a scope.
+    fn foreign_publisher(&self, current: ThreadId) -> Option<ThreadId> {
+        self.publishers
+            .iter()
+            .find(|entry| entry.thread != current && entry.scopes > 0)
+            .map(|entry| entry.thread)
+    }
+
+    fn waiters(&mut self) -> &mut usize {
+        &mut self.waiters
+    }
+}
+
+/// The shared publication state of a form and the condition its waiters
+/// wait on.
+struct PublicationControl<M> {
+    state: Mutex<Publications<M>>,
+    closed: Condvar,
+}
+
+impl<M> PublicationControl<M> {
     fn new() -> Self {
         Self {
-            pre_publishing: 0,
-            publishing: Vec::new(),
-            deferred_models: Vec::new(),
+            state: Mutex::new(Publications {
+                publishers: Vec::new(),
+                waiters: 0,
+                deliveries: 0,
+                preparing: Vec::new(),
+                teardown: None,
+            }),
+            closed: Condvar::new(),
         }
     }
 
-    fn enter(&mut self, thread: ThreadId) {
-        match self
-            .publishing
-            .iter_mut()
-            .find(|(owner, _)| *owner == thread)
-        {
-            Some((_, depth)) => *depth += 1,
-            None => self.publishing.push((thread, 1)),
-        }
+    /// The form's publication scopes, as one wait-for graph resource.
+    fn resource(&self) -> Resource {
+        Resource::FormPublication(std::ptr::from_ref(self) as usize)
     }
 
-    /// Ends one settlement on `thread`. Returns whether it was the thread's
-    /// outermost one.
-    fn leave(&mut self, thread: ThreadId) -> bool {
-        let Some(index) = self
-            .publishing
-            .iter()
-            .position(|(owner, _)| *owner == thread)
-        else {
+    /// Waits until `owner` no longer holds a scope, recording the wait in
+    /// the wait-for graph (spec/20 §5.5, ADR-0176). Returns `false`, without
+    /// waiting, when the wait would close a live wait-for cycle. Returns
+    /// `true` at once when `owner` holds no scope or the form is disposed. A
+    /// wake for any reason returns `true`, and the caller checks again.
+    fn wait_for_scope(&self, owner: ThreadId, disposed: &Mutex<bool>) -> bool {
+        let state = lock(&self.state);
+        // Disposal is checked under the state lock, which a disposal holds
+        // while it marks the form and wakes the waiters, so no wake is lost.
+        if !state.holds_scope(owner) || *lock(disposed) {
             return true;
-        };
-        self.publishing[index].1 -= 1;
-        if self.publishing[index].1 > 0 {
-            return false;
         }
-        self.publishing.swap_remove(index);
-        true
+        let (_state, refused) = wait_for_owner(
+            &self.state,
+            &self.closed,
+            state,
+            Publications::waiters,
+            self.resource(),
+            owner,
+        );
+        !refused
+    }
+
+    /// Closes one of `thread`'s scopes. The last one removes the edges that
+    /// name the thread before it wakes the waiters (ADR-0172 rule 3).
+    fn close_scope(&self, thread: ThreadId) {
+        let mut state = lock(&self.state);
+        let Some(entry) = state.entry(thread) else {
+            return;
+        };
+        entry.scopes -= 1;
+        if entry.scopes > 0 {
+            return;
+        }
+        if state.waiters > 0 {
+            let holders = state
+                .publishers
+                .iter()
+                .filter(|entry| entry.scopes > 0)
+                .map(|entry| entry.thread)
+                .collect::<Vec<_>>();
+            waits().release_waiters(self.resource(), &holders);
+        }
+        drop(state);
+        self.closed.notify_all();
     }
 }
 
-/// Counts one settlement in [`ApprovalPublication::publishing`] until it
-/// finishes, even when a notification observer panics.
-struct ApprovalPublishingGuard<M> {
-    publication: Arc<Mutex<ApprovalPublication<M>>>,
+/// What a publication hands to its thread when it was the outermost one: the
+/// queued updates to replay, and a deferred teardown to run after them.
+struct Finished<M> {
+    queued: Vec<QueuedUpdate<M>>,
+    teardown: Option<Teardown>,
+}
+
+/// One publication on this thread: an approval window, or an update that
+/// opened a scope. It counts in [`Publisher::depth`] until it finishes, also
+/// when a notification observer panics, and then restores the enclosing
+/// settlement's pre-publication flag.
+struct Publication<M> {
+    control: Arc<PublicationControl<M>>,
     thread: ThreadId,
+    outer_pre_publishing: bool,
+    scope_open: bool,
     finished: bool,
 }
 
-impl<M> ApprovalPublishingGuard<M> {
-    fn new(publication: Arc<Mutex<ApprovalPublication<M>>>) -> Self {
+impl<M> Publication<M> {
+    /// Starts a publication on this thread. An approval window passes
+    /// `Some(true)`, which opens its pre-publication window; an update passes
+    /// `None`, which keeps the enclosing flag.
+    fn enter(control: &Arc<PublicationControl<M>>, pre_publishing: Option<bool>) -> Self {
         let thread = thread::current().id();
-        lock(&publication).enter(thread);
+        let mut state = lock(&control.state);
+        let outer_pre_publishing = if let Some(entry) = state.entry(thread) {
+            entry.depth += 1;
+            entry.pre_publishing
+        } else {
+            state.publishers.push(Publisher {
+                thread,
+                depth: 1,
+                scopes: 0,
+                pre_publishing: false,
+                queued: Vec::new(),
+            });
+            false
+        };
+        if let Some(pre_publishing) = pre_publishing {
+            if let Some(entry) = state.entry(thread) {
+                entry.pre_publishing = pre_publishing;
+            }
+        }
+        drop(state);
         Self {
-            publication,
+            control: Arc::clone(control),
             thread,
+            outer_pre_publishing,
+            scope_open: false,
             finished: false,
         }
     }
 
-    /// Ends this settlement's publication. Returns the deferred edits when it
-    /// is this thread's outermost settlement and no settlement is publishing
-    /// its notifications; returns none otherwise.
-    fn finish(mut self) -> Vec<M> {
-        self.finished = true;
-        let mut publication = lock(&self.publication);
-        if publication.leave(self.thread) && publication.pre_publishing == 0 {
-            std::mem::take(&mut publication.deferred_models)
-        } else {
-            Vec::new()
+    /// Opens this publication's scope. The caller holds the update lock, and
+    /// it checked under that lock that no other thread holds a scope, unless
+    /// its wait was refused.
+    fn open_scope(&mut self) {
+        if self.scope_open {
+            return;
         }
+        if let Some(entry) = lock(&self.control.state).entry(self.thread) {
+            entry.scopes += 1;
+            self.scope_open = true;
+        }
+    }
+
+    fn close_scope(&mut self) {
+        if std::mem::take(&mut self.scope_open) {
+            self.control.close_scope(self.thread);
+        }
+    }
+
+    /// Ends the pre-publication window and keeps the publication open.
+    fn end_pre_publication(&self) {
+        if let Some(entry) = lock(&self.control.state).entry(self.thread) {
+            entry.pre_publishing = false;
+        }
+    }
+
+    /// Ends this publication. Returns the thread's queue when it was the
+    /// thread's outermost publication, and a deferred teardown when no
+    /// publication and no [`Delivery`] remains on any thread.
+    fn finish(mut self) -> Finished<M> {
+        self.finished = true;
+        self.leave()
+    }
+
+    fn leave(&mut self) -> Finished<M> {
+        self.close_scope();
+        let mut state = lock(&self.control.state);
+        let mut finished = Finished {
+            queued: Vec::new(),
+            teardown: None,
+        };
+        let Some(index) = state
+            .publishers
+            .iter()
+            .position(|entry| entry.thread == self.thread)
+        else {
+            return finished;
+        };
+        let entry = &mut state.publishers[index];
+        entry.pre_publishing = self.outer_pre_publishing;
+        entry.depth -= 1;
+        if entry.depth > 0 {
+            return finished;
+        }
+        finished.queued = state.publishers.swap_remove(index).queued;
+        if state.publishers.is_empty() && state.deliveries == 0 {
+            finished.teardown = state.teardown.take();
+        }
+        finished
     }
 }
 
-impl<M> Drop for ApprovalPublishingGuard<M> {
+impl<M> Drop for Publication<M> {
     fn drop(&mut self) {
         if !self.finished {
-            lock(&self.publication).leave(self.thread);
+            // Only an unexpected unwind gets here. The thread's queue cannot
+            // replay during it and is dropped; a deferred teardown still runs.
+            let Finished { queued, teardown } = self.leave();
+            drop(queued);
+            if let Some(teardown) = teardown {
+                let _ = catch_unwind(AssertUnwindSafe(teardown));
+            }
         }
     }
 }
 
-struct ApprovalPrePublicationGuard<M> {
-    publication: Arc<Mutex<ApprovalPublication<M>>>,
+/// A span in which a form call delivers notifications outside a publication
+/// scope (spec/20 §5.5, ADR-0176 §2.2): an approval's admission notification,
+/// an update or a validator registration from its admission until it
+/// returns, or an `approve_errors` send. An update counts from its admission,
+/// so a `dispose()` on another thread during its preparation defers the
+/// teardown until it returns (spec/20 §5.4, ADR-0215).
+///
+/// Other threads' calls do not wait for it. A `dispose()` meanwhile marks the
+/// form disposed at once, but its teardown waits until no delivery and no
+/// publication remains, so no channel completes during a delivery. A
+/// `dispose()` from a preparation callback on the preparing thread is the
+/// exception: it tears down at once, as no notification is in progress. The
+/// span that ends last hands the teardown to its thread. Dropping an unended
+/// span during an unwind runs that teardown under an unwind guard.
+struct Delivery<M> {
+    control: Arc<PublicationControl<M>>,
+    /// The thread of an update span that is still preparing.
+    preparing: Option<ThreadId>,
+    ended: bool,
 }
 
-impl<M> ApprovalPrePublicationGuard<M> {
-    fn new(publication: Arc<Mutex<ApprovalPublication<M>>>) -> Self {
-        lock(&publication).pre_publishing += 1;
-        Self { publication }
+impl<M> Delivery<M> {
+    /// Starts a delivery, unless the form is disposed. Disposal is checked
+    /// under the state lock, which a disposal holds while it marks the form,
+    /// so a disposal either sees this delivery or this call sees the mark.
+    fn begin(control: &Arc<PublicationControl<M>>, disposed: &Mutex<bool>) -> Option<Self> {
+        Self::start(control, disposed, None)
+    }
+
+    /// Starts an update's span in its preparation, unless the form is
+    /// disposed.
+    fn begin_preparation(
+        control: &Arc<PublicationControl<M>>,
+        disposed: &Mutex<bool>,
+    ) -> Option<Self> {
+        Self::start(control, disposed, Some(thread::current().id()))
+    }
+
+    fn start(
+        control: &Arc<PublicationControl<M>>,
+        disposed: &Mutex<bool>,
+        preparing: Option<ThreadId>,
+    ) -> Option<Self> {
+        let mut state = lock(&control.state);
+        if *lock(disposed) {
+            return None;
+        }
+        state.deliveries += 1;
+        state.preparing.extend(preparing);
+        Some(Self {
+            control: Arc::clone(control),
+            preparing,
+            ended: false,
+        })
+    }
+
+    /// Ends the preparation of an update's span. The span then delivers.
+    fn prepared(&mut self) {
+        if let Some(thread) = self.preparing.take() {
+            Self::leave_preparation(&mut lock(&self.control.state), thread);
+        }
+    }
+
+    fn leave_preparation(state: &mut Publications<M>, thread: ThreadId) {
+        if let Some(index) = state.preparing.iter().position(|entry| *entry == thread) {
+            state.preparing.swap_remove(index);
+        }
+    }
+
+    /// Ends the delivery. Returns the deferred teardown for the caller to run
+    /// when this was the last delivery and no publication remains.
+    fn end(mut self) -> Option<Teardown> {
+        self.ended = true;
+        self.release()
+    }
+
+    fn release(&mut self) -> Option<Teardown> {
+        let mut state = lock(&self.control.state);
+        if let Some(thread) = self.preparing.take() {
+            Self::leave_preparation(&mut state, thread);
+        }
+        state.deliveries -= 1;
+        if state.deliveries == 0 && state.publishers.is_empty() {
+            state.teardown.take()
+        } else {
+            None
+        }
     }
 }
 
-impl<M> Drop for ApprovalPrePublicationGuard<M> {
+impl<M> Drop for Delivery<M> {
     fn drop(&mut self) {
-        lock(&self.publication).pre_publishing -= 1;
+        if !self.ended {
+            if let Some(teardown) = self.release() {
+                let _ = catch_unwind(AssertUnwindSafe(teardown));
+            }
+        }
+    }
+}
+
+/// How a form call proceeds after its wait for other threads' publication
+/// scopes (spec/20 §5.5), with the update lock held.
+struct Serialized<'a> {
+    guard: UpdateGuard<'a>,
+    /// The publisher whose scope the call's refused wait named, when that
+    /// wait would have closed a wait-for cycle.
+    refused_by: Option<ThreadId>,
+}
+
+/// Where a prepared update goes (spec/20 §5.3 and §5.5).
+enum Placement<M> {
+    /// No queue takes it: the caller commits it.
+    Commit(QueuedUpdate<M>),
+    /// It joined a queue, or its preparation was stale.
+    Done,
+    /// The publisher that refused its wait ended its publications during the
+    /// preparation, so the call runs again.
+    Retry(QueuedUpdate<M>),
+}
+
+/// A panic payload kept to resume after the queued updates replay.
+type PanicPayload = Box<dyn std::any::Any + Send>;
+
+/// The queued notifications of nested calls (spec/20 §5.4, ADR-0180).
+///
+/// A call is nested when it comes from a preparation callback of a
+/// `set_model`, `revert` or validator registration, or from an
+/// `errors_changed` subscriber that the outermost update on its thread
+/// delivers. It sends nothing before it returns: it adds its notifications to
+/// the queue of the outermost update, which sends them with no form lock held.
+struct NestedUpdates<M> {
+    /// The threads that run update frames. Only the owning thread adds to,
+    /// changes or removes its entry.
+    frames: Vec<Frames<M>>,
+    /// The threads that send the error maps of their outermost update, each
+    /// with the notifications that its `errors_changed` subscribers' calls
+    /// queued. Only the owning thread adds to or takes from an entry.
+    error_deliveries: Vec<(ThreadId, Notices<M>)>,
+}
+
+/// One thread's update frames (spec/20 §5.4, ADR-0215). The entry exists
+/// while at least one frame runs on the thread.
+struct Frames<M> {
+    thread: ThreadId,
+    /// The frames that run on the thread, nested ones included.
+    depth: usize,
+    /// The notifications that nested frames queued for the outermost one.
+    pending: Notices<M>,
+    /// Counts the commits that the thread made. A preparation that saw it
+    /// move was overtaken by a nested update, so it is stale.
+    commits: u64,
+    /// Counts the updates that the thread queued, with the same effect.
+    queued: u64,
+}
+
+impl<M> NestedUpdates<M> {
+    fn new() -> Self {
+        Self {
+            frames: Vec::new(),
+            error_deliveries: Vec::new(),
+        }
+    }
+
+    /// The frames of `thread`, while one runs.
+    fn frames(&mut self, thread: ThreadId) -> Option<&mut Frames<M>> {
+        self.frames.iter_mut().find(|entry| entry.thread == thread)
+    }
+
+    /// Starts a frame on `thread`.
+    fn enter(&mut self, thread: ThreadId) {
+        if let Some(entry) = self.frames(thread) {
+            entry.depth += 1;
+        } else {
+            self.frames.push(Frames {
+                thread,
+                depth: 1,
+                pending: Notices::default(),
+                commits: 0,
+                queued: 0,
+            });
+        }
+    }
+
+    /// The queue that a nested call on `thread` adds its notifications to:
+    /// the pending queue of its frames, else the queue of its
+    /// `errors_changed` delivery. `None` when the call is not nested.
+    fn nested_queue(&mut self, thread: ThreadId) -> Option<&mut Notices<M>> {
+        if let Some(index) = self.frames.iter().position(|entry| entry.thread == thread) {
+            return Some(&mut self.frames[index].pending);
+        }
+        self.error_delivery(thread)
+    }
+
+    /// The queue of `thread`'s `errors_changed` delivery, when it makes one.
+    fn error_delivery(&mut self, thread: ThreadId) -> Option<&mut Notices<M>> {
+        self.error_deliveries
+            .iter_mut()
+            .rev()
+            .find(|(entry, _)| *entry == thread)
+            .map(|(_, notices)| notices)
+    }
+}
+
+/// Notifications that an update sends with no form lock held.
+struct Notices<M> {
+    /// The update scopes of commits that changed the errors, in commit order.
+    /// Each sends one `errors_changed` inside its scope (spec/20 §5.5).
+    errors: Vec<Publication<M>>,
+    /// The other notifications, in the order the calls committed or were
+    /// admitted.
+    after: Vec<Notice>,
+    /// The admitted nested approvals, whose persisters start after the
+    /// notifications (spec/20 §5.4 rule 4).
+    starts: Vec<(ApprovalFlight, M)>,
+}
+
+impl<M> Default for Notices<M> {
+    fn default() -> Self {
+        Self {
+            errors: Vec::new(),
+            after: Vec::new(),
+            starts: Vec::new(),
+        }
+    }
+}
+
+impl<M> Notices<M> {
+    fn append(&mut self, other: Self) {
+        self.errors.extend(other.errors);
+        self.after.extend(other.after);
+        self.starts.extend(other.starts);
+    }
+
+    /// Marks these notifications as queued by a nested call, so they are
+    /// dropped once the form is disposed (spec/20 §5.4 rule 6).
+    fn nested(mut self) -> Self {
+        for notice in &mut self.after {
+            if let Notice::Reverted { nested } = notice {
+                *nested = true;
+            }
+        }
+        self
+    }
+}
+
+/// A queued notification other than `errors_changed`. Every kind but
+/// [`Notice::Reverted`] already sends nothing on a disposed form.
+enum Notice {
+    /// The approve command's eligibility change of an update, when the update
+    /// changed one of its gates.
+    Eligibility(bool),
+    /// The `"model"` hub message.
+    Model,
+    /// The [`FormRevertedMessage`] of a revert. A nested one is dropped once
+    /// the form is disposed; the outermost update's own one is not.
+    Reverted { nested: bool },
+    /// The eligibility change of a nested approval's admission.
+    Admission,
+}
+
+/// What an update's preparation and commit hand to [`FormVm::run_update`].
+struct Step<M> {
+    /// The update's own notifications.
+    notices: Notices<M>,
+    /// The update to run again, because the publisher that refused its wait
+    /// ended its publications during the preparation.
+    retry: Option<QueuedUpdate<M>>,
+    /// An uncommitted preparation, dropped after the update lock is released.
+    discarded: Option<PreparedUpdate<M>>,
+}
+
+impl<M> Default for Step<M> {
+    fn default() -> Self {
+        Self {
+            notices: Notices::default(),
+            retry: None,
+            discarded: None,
+        }
     }
 }
 
@@ -261,13 +776,13 @@ impl Drop for ApprovalFlight {
     }
 }
 
-/// Serializes a form's model updates (spec/20 §5.4, ADR-0144).
+/// Serializes a form's commits, approval admission and disposal (spec/20
+/// §5.4, ADR-0144, ADR-0215).
 ///
-/// The lock is re-entrant: a callback may update or dispose the form again
-/// from the thread that holds it, and another thread waits until that thread
-/// releases it. Its state mutex is held only to change the owner and depth,
-/// never while a callback runs, and [`UpdateGuard`] releases the lock on every
-/// exit path, a panic included.
+/// No consumer callback runs while it is held, so another thread waits only
+/// for a short commit. The lock is re-entrant, and [`UpdateGuard`] releases it
+/// on every exit path, a panic included. Its state mutex is held only to
+/// change the owner and depth.
 struct UpdateLock {
     owner: Mutex<UpdateOwner>,
     released: Condvar,
@@ -287,6 +802,11 @@ impl UpdateLock {
             }),
             released: Condvar::new(),
         }
+    }
+
+    /// Reports whether this thread holds the lock.
+    fn is_held_by_current(&self) -> bool {
+        lock(&self.owner).thread == Some(thread::current().id())
     }
 
     fn acquire(&self) -> UpdateGuard<'_> {
@@ -322,15 +842,22 @@ impl Drop for UpdateGuard<'_> {
 /// The next form state computed by a model update's preparation, before any
 /// of it is committed (spec/20 §5.4, ADR-0144).
 struct PreparedUpdate<M> {
-    /// The commit generation read before the preparation's first callback.
-    generation: u64,
     model: M,
     errors: BTreeMap<String, String>,
-    /// Whether the validity and strict-mode gates admitted approval before
-    /// the update.
-    was_eligible: bool,
-    /// Whether they admit approval after it.
-    eligible: bool,
+    /// Whether the update changes `is_valid`, or `is_dirty` in strict mode
+    /// (spec/20 §5.2, ADR-0196).
+    approve_gate_changed: bool,
+}
+
+/// What a preparation read before its first callback (spec/20 §5.4,
+/// ADR-0215).
+#[derive(Clone, Copy)]
+struct Base {
+    /// The form's commit generation.
+    generation: u64,
+    /// The thread's own commit and queue counts (see [`Frames`]).
+    commits: u64,
+    queued: u64,
 }
 
 /// The validation errors, kept in step with the model they belong to (#770).
@@ -365,6 +892,25 @@ impl ErrorState {
 /// [`with_model_validator`](Self::with_model_validator),
 /// [`with_clearing_model_validator`](Self::with_clearing_model_validator))
 /// has no effect.
+///
+/// # Re-entrant `Clone`
+///
+/// The form runs `M::clone` while it holds the lock of the value that it
+/// clones, the live model or the snapshot. These locks are not re-entrant. A
+/// model `Clone` must therefore not call a method of its own form that reads
+/// the model or the snapshot on the same thread, for example
+/// [`model`](Self::model), [`snapshot`](Self::snapshot),
+/// [`is_dirty`](Self::is_dirty) and [`set_model`](Self::set_model).
+/// [`approve`](Self::approve), [`revert`](Self::revert) and the
+/// [`approve_command`](Self::approve_command) and
+/// [`deny_command`](Self::deny_command) commands also read the model or the
+/// snapshot. [`can_approve`](Self::can_approve) calls `is_dirty` in strict
+/// mode, so the same limit applies to it there. Such a call never returns.
+///
+/// A model `Clone` can read the validation errors through
+/// [`is_valid`](Self::is_valid), [`errors`](Self::errors),
+/// [`error_map`](Self::error_map) and [`field_error`](Self::field_error).
+/// These reads take only the error lock, never the model or snapshot lock.
 pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     pub(crate) component: ComponentVm<M>,
     snapshot: Arc<Mutex<M>>,
@@ -381,18 +927,24 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     approve_command: Arc<OnceLock<RelayCommand>>,
     deny_command: Arc<OnceLock<RelayCommand>>,
     approved_callbacks: Arc<Mutex<ApprovedRegistry<M>>>,
-    approval_publication: Arc<Mutex<ApprovalPublication<M>>>,
+    /// Publication scopes, pre-publication windows and their queues
+    /// (spec/20 §5.3 and §5.5).
+    publication: Arc<PublicationControl<M>>,
     approval_in_flight: Arc<AtomicBool>,
-    /// Serializes model updates, approval admission, approval commits, and
-    /// disposal across threads (spec/20 §5.4, ADR-0144).
+    /// Serializes commits, approval admission, and disposal across threads
+    /// (spec/20 §5.4, ADR-0144). No callback runs while it is held
+    /// (ADR-0215).
     update_lock: Arc<UpdateLock>,
+    /// The notifications that nested calls queue for the outermost update
+    /// (spec/20 §5.4, ADR-0180).
+    nested: Arc<Mutex<NestedUpdates<M>>>,
     /// Counts the commits of model, snapshot, and error state, each made
-    /// under the update lock. Only a callback re-entering from the preparing
-    /// thread can advance it during a preparation, which is then stale.
+    /// under the update lock. A preparation that saw another thread advance
+    /// it runs again (spec/20 §5.4, ADR-0215).
     commit_generation: Arc<AtomicU64>,
-    /// Counts the revalidations that validator registrations start, each under
-    /// the update lock. While an approval validates its reset model, only a
-    /// registration re-entering from that thread can advance it (#1046).
+    /// Counts the revalidations that validator registrations start. An
+    /// approval that saw it move while it validated its reset model
+    /// validates again (#1046).
     revalidations: Arc<AtomicU64>,
     /// Odd while an approval commit replaces the snapshot, and for a reset
     /// also the model, under separate mutexes. `is_dirty` reads a pair that no
@@ -442,9 +994,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             approve_command: Arc::new(OnceLock::new()),
             deny_command: Arc::new(OnceLock::new()),
             approved_callbacks: Arc::new(Mutex::new(ApprovedRegistry::new())),
-            approval_publication: Arc::new(Mutex::new(ApprovalPublication::new())),
+            publication: Arc::new(PublicationControl::new()),
             approval_in_flight: Arc::new(AtomicBool::new(false)),
             update_lock: Arc::new(UpdateLock::new()),
+            nested: Arc::new(Mutex::new(NestedUpdates::new())),
             commit_generation: Arc::new(AtomicU64::new(0)),
             revalidations: Arc::new(AtomicU64::new(0)),
             pair_version: Arc::new(AtomicU64::new(0)),
@@ -471,7 +1024,6 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return self;
         }
-        let could_approve = self.can_approve();
         let mut validators = lock(&self.model_validators);
         let registration = validators.len();
         validators.push(Arc::new(move |model| {
@@ -483,11 +1035,21 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }));
         drop(validators);
         self.revalidate();
-        self.publish_approve_state_change(could_approve);
         self
     }
 
     /// Adds or replaces validation for one named field and revalidates immediately.
+    ///
+    /// The validator is registered at once. Its revalidation is an update: it
+    /// waits while another thread holds a publication scope, and it sends
+    /// `errors_changed` in its own scope (spec/20 §5.5, ADR-0176). When that
+    /// wait would close a wait-for cycle, the revalidation joins the
+    /// publishing thread's queue, and the call returns before the errors
+    /// change. A registration from a preparation callback or an
+    /// `errors_changed` subscriber of an update is nested (spec/20 §5.4,
+    /// ADR-0216): its revalidation commits at once, and the call returns
+    /// before its notifications, which the outermost update sends. The other
+    /// registration methods behave the same way.
     pub fn with_field_validator<F>(&self, field: impl Into<String>, validator: F)
     where
         F: Fn(&M) -> Option<String> + Send + Sync + 'static,
@@ -496,12 +1058,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return;
         }
-        let could_approve = self.can_approve();
         let replaced = lock(&self.field_validators).insert(field.into(), Arc::new(validator));
         // A replaced validator is dropped after the lock is released.
         drop(replaced);
         self.revalidate();
-        self.publish_approve_state_change(could_approve);
     }
 
     /// Adds a validator that returns a field-keyed error map.
@@ -530,13 +1090,16 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return;
         }
-        let could_approve = self.can_approve();
         lock(&self.model_validators).push(Arc::new(validator));
         self.revalidate();
-        self.publish_approve_state_change(could_approve);
     }
 
     /// Returns a clone of the current editable model.
+    ///
+    /// `M::clone` runs while this call holds the model lock, and that lock
+    /// is not re-entrant. A model `Clone` that calls this method, or another
+    /// method that reads the model, on its own thread never returns. See
+    /// [Re-entrant `Clone`](Self#re-entrant-clone).
     pub fn model(&self) -> M {
         self.component.model()
     }
@@ -561,16 +1124,51 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// Before the new model is installed, they report the previous model's
     /// errors. An approval that resets the model gives the same guarantee.
     ///
-    /// Updates are serialized: another thread's update, approval admission,
-    /// approval commit, or disposal waits until this preparation and commit
-    /// finish. A callback
-    /// may re-enter the form from this thread; when it disposes the form or
-    /// commits another update, this call commits and publishes nothing, and
-    /// the newer state stands.
+    /// No lock is held while `PartialEq` or a validator runs (spec/20 §5.4,
+    /// ADR-0215). Another thread's reads, updates, approval calls, and
+    /// disposal do not wait for this preparation. Commits stay serialized.
+    /// When the preparation completes, the call checks three cases in order:
+    ///
+    /// 1. The form was disposed: the call commits and publishes nothing.
+    /// 2. A callback on this thread committed or queued another update: the
+    ///    call commits and publishes nothing, and the newer state stands.
+    /// 3. Another thread committed meanwhile: the call runs again as a new
+    ///    call, so its validators can run more than once.
     ///
     /// A panic in a validator or in `PartialEq` unwinds with the form
     /// unchanged, nothing published, and no lock poisoned or held, so the form
     /// stays usable.
+    ///
+    /// A call made while an approval commits its post-persist state or
+    /// publishes the notifications that precede its approval subscribers
+    /// (from `reset_on_approved`, the snapshotter, a validator, or an
+    /// `errors_changed` or eligibility-change observer) is queued (spec/20
+    /// §5.3, ADR-0174). It prepares at once, so a panic still reaches this
+    /// caller and queues nothing, but a model equal to the live one is still
+    /// queued. It changes and publishes nothing until it replays, as a new
+    /// call, after the approval subscribers have run.
+    ///
+    /// While another thread delivers this form's notifications in a
+    /// publication scope, the call waits until no other thread holds one
+    /// (spec/20 §5.5, ADR-0176). An update holds a scope over its
+    /// `errors_changed` send, and a settlement from its first step until its
+    /// approval subscribers have run. The wait is recorded in the process-wide
+    /// wait-for graph. When it would close a wait-for cycle, the call prepares
+    /// at once, joins the publishing thread's queue, and returns before it
+    /// takes effect; that thread replays it when its publication ends. A
+    /// call made in this thread's own pre-publication window does not wait:
+    /// it joins this thread's queue at once.
+    ///
+    /// A call from a preparation callback of a `set_model`,
+    /// [`revert`](Self::revert) or validator registration, or from an
+    /// `errors_changed` subscriber of one, is nested (spec/20 §5.4,
+    /// ADR-0180). It commits at once, but it returns before its
+    /// notifications. The outermost update on the thread
+    /// sends them before it returns, with no form lock held: every
+    /// `errors_changed` first, in commit order, then the other notifications.
+    /// Once the form is disposed, they are dropped. A nested call never waits
+    /// for another thread's publication scope: while one is open, it joins
+    /// that thread's queue at once.
     ///
     /// ```
     /// use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -596,33 +1194,327 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return;
         }
-        {
-            let mut publication = lock(&self.approval_publication);
-            if publication.pre_publishing > 0 {
-                publication.deferred_models.push(model);
-                return;
+        let Some(refused_by) = self.begin_update(true) else {
+            return;
+        };
+        self.run_update(|| self.assign(model, refused_by));
+    }
+
+    /// Prepares a `set_model` with no lock held, then places or commits it
+    /// under the update lock, and returns its notifications.
+    fn assign(&self, model: M, refused_by: Option<ThreadId>) -> Step<M> {
+        let base = self.preparation_base();
+        let queueing = refused_by.is_some() || self.pre_publishing_here();
+        let live = self.model();
+        // A queued call compares too, but never skips the enqueue: earlier
+        // queued updates can change the live model before it replays.
+        let unchanged = live == model;
+        if unchanged && !queueing {
+            return Step::default();
+        }
+        let PreparedUpdate {
+            model,
+            errors,
+            approve_gate_changed,
+        } = self.prepare_update(Some(live), None, model);
+        let guard = self.update_lock.acquire();
+        let model = match self.place_prepared(base, QueuedUpdate::Assign(model), refused_by, true) {
+            Placement::Commit(QueuedUpdate::Assign(model)) => model,
+            Placement::Retry(update) => {
+                return Step {
+                    retry: Some(update),
+                    ..Step::default()
+                }
+            }
+            _ => return Step::default(),
+        };
+        // A queue that closed during the preparation leaves an equal
+        // candidate with nothing to do.
+        if unchanged {
+            drop(guard);
+            return Step::default();
+        }
+        let errors_changed = self.commit_update(model, errors);
+        let step = self.committed(
+            errors_changed,
+            vec![Notice::Eligibility(approve_gate_changed), Notice::Model],
+        );
+        drop(guard);
+        step
+    }
+
+    /// The notifications of a committed update: `errors_changed` in a scope
+    /// opened now, when the errors changed, then `after`. The caller holds
+    /// the update lock.
+    fn committed(&self, errors_changed: bool, after: Vec<Notice>) -> Step<M> {
+        Step {
+            notices: Notices {
+                errors: self.open_update_scope(errors_changed).into_iter().collect(),
+                after,
+                starts: Vec::new(),
+            },
+            ..Step::default()
+        }
+    }
+
+    /// Runs one `set_model`, `revert` or revalidation frame (spec/20 §5.4,
+    /// ADR-0180, ADR-0215). `update` prepares with no lock held, and takes
+    /// the update lock only to place or commit.
+    ///
+    /// A frame nested in another frame's preparation, or in an outermost
+    /// update's `errors_changed` delivery, queues its notifications for the
+    /// outermost update and returns. The outermost frame then sends the whole
+    /// queue. A panic in `update` still lets the notifications of the nested
+    /// calls it made go out, and then resumes.
+    ///
+    /// The frame counts as a delivery from its start, so a `dispose()` on
+    /// another thread during the preparation defers its teardown until the
+    /// frame returns (spec/20 §5.4 and §10).
+    fn run_update(&self, update: impl FnOnce() -> Step<M>) {
+        lock(&self.nested).enter(thread::current().id());
+        let mut delivery = Delivery::begin_preparation(&self.publication, &self.disposed);
+        let prepared = if delivery.is_some() {
+            catch_unwind(AssertUnwindSafe(update))
+        } else {
+            Ok(Step::default())
+        };
+        let (step, failure) = match prepared {
+            Ok(step) => (step, None),
+            Err(payload) => (Step::default(), Some(payload)),
+        };
+        let Step {
+            notices,
+            retry,
+            discarded,
+        } = step;
+        let notices = self.take_notices(notices);
+        if let Some(delivery) = delivery.as_mut() {
+            delivery.prepared();
+        }
+        drop(discarded);
+        let notified = self.deliver(notices, delivery);
+        if let Some(payload) = failure {
+            drop(notified);
+            resume_unwind(payload);
+        }
+        match retry {
+            Some(QueuedUpdate::Assign(model)) => self.set_model(model),
+            Some(QueuedUpdate::Revert) => self.revert(),
+            Some(QueuedUpdate::Revalidate) => self.revalidate(),
+            None => {}
+        }
+        if let Some(payload) = notified {
+            resume_unwind(payload);
+        }
+    }
+
+    /// Ends a frame's preparation and returns what it must send: nothing for
+    /// a nested frame, which queues `own` for the outermost update, and the
+    /// whole queue for the outermost frame.
+    fn take_notices(&self, own: Notices<M>) -> Notices<M> {
+        let current = thread::current().id();
+        let mut state = lock(&self.nested);
+        let Some(index) = state
+            .frames
+            .iter()
+            .position(|entry| entry.thread == current)
+        else {
+            return own;
+        };
+        let frames = &mut state.frames[index];
+        frames.depth -= 1;
+        if frames.depth > 0 {
+            frames.pending.append(own.nested());
+            return Notices::default();
+        }
+        let mut notices = state.frames.swap_remove(index).pending;
+        if let Some(scoped) = state.error_delivery(current) {
+            scoped.append(notices);
+            scoped.append(own.nested());
+            return Notices::default();
+        }
+        notices.append(own);
+        notices
+    }
+
+    /// Queues the admission notification and the persister start of an
+    /// approval admitted from a nested call, and returns `None`. Returns the
+    /// approval when the call is not nested. The caller holds the update
+    /// lock.
+    fn queue_nested_approval(
+        &self,
+        flight: ApprovalFlight,
+        model: M,
+    ) -> Option<(ApprovalFlight, M)> {
+        let mut state = lock(&self.nested);
+        let Some(queue) = state.nested_queue(thread::current().id()) else {
+            return Some((flight, model));
+        };
+        queue.after.push(Notice::Admission);
+        queue.starts.push((flight, model));
+        None
+    }
+
+    /// Reports whether a call on this thread is nested (spec/20 §5.4): it
+    /// comes from a preparation callback of a frame on this thread, or from
+    /// this thread's `errors_changed` delivery.
+    fn nested_here(&self) -> bool {
+        lock(&self.nested)
+            .nested_queue(thread::current().id())
+            .is_some()
+    }
+
+    /// Sends the notifications an outermost update took, with no form lock
+    /// held (spec/20 §5.4 and §5.5, ADR-0180), and ends `delivery`.
+    ///
+    /// Each `errors_changed` goes out in commit order, inside the update
+    /// scope its commit opened. An update made from one of those
+    /// subscribers queues its notifications here, and its error map follows
+    /// in a scope that is still open. The scopes then close, and the other
+    /// notifications follow in queue order. Nested approvals then start their
+    /// persisters, unless the form is disposed, and route a failure to
+    /// `approve_errors`. The thread's queue replays last. Returns the first
+    /// panic of the notifications, an approval, a replay, or the teardown.
+    ///
+    /// A panic in a send stops the later sends (spec/20 §5.4 rule 7,
+    /// ADR-0216). Each nested approval is then released: its in-flight mark
+    /// clears, its persister is never called, and the eligibility change is
+    /// raised once more when its admission change was sent.
+    fn deliver(&self, notices: Notices<M>, delivery: Option<Delivery<M>>) -> Option<PanicPayload> {
+        let current = thread::current().id();
+        let Notices {
+            errors: mut publications,
+            mut after,
+            mut starts,
+        } = notices;
+        // Read after the unwind guard, which a panic can leave with it set.
+        let delivering_errors = std::cell::Cell::new(false);
+        // Admissions and starts join the queue in the same order, so the
+        // first `announced` starts had their admission change sent or tried.
+        let announced = std::cell::Cell::new(0_usize);
+        let notified = catch_unwind(AssertUnwindSafe(|| {
+            if !publications.is_empty() {
+                lock(&self.nested)
+                    .error_deliveries
+                    .push((current, Notices::default()));
+                delivering_errors.set(true);
+                let mut sent = 0;
+                while sent < publications.len() {
+                    self.publish_validation_changed();
+                    sent += 1;
+                    if sent == publications.len() {
+                        let scoped = lock(&self.nested)
+                            .error_delivery(current)
+                            .map(std::mem::take)
+                            .unwrap_or_default();
+                        publications.extend(scoped.errors);
+                        after.extend(scoped.after);
+                        starts.extend(scoped.starts);
+                    }
+                }
+                delivering_errors.set(false);
+                self.end_error_delivery(current, &mut publications, &mut starts);
+                for publication in &mut publications {
+                    publication.close_scope();
+                }
+            }
+            for notice in after.drain(..) {
+                match notice {
+                    Notice::Eligibility(changed) => self.publish_eligibility_change(changed),
+                    Notice::Model => self.publish_model_changed(),
+                    Notice::Reverted { nested } => {
+                        if !(nested && *lock(&self.disposed)) {
+                            self.hub.send(Message::FormReverted(FormRevertedMessage {
+                                sender_id: self.component.id(),
+                                sender_name: "FormVm".to_string(),
+                            }));
+                        }
+                    }
+                    Notice::Admission => {
+                        // A failed admission send counts as sent, so the
+                        // release raises the change again, as in every
+                        // flavor. The approve command's forwarding
+                        // subscription isolates subscriber panics, so this
+                        // send fails only on an internal panic.
+                        announced.set(announced.get() + 1);
+                        self.raise_approve_can_execute_changed();
+                    }
+                }
+            }
+        }));
+        // An unexpected unwind can leave the error delivery open.
+        if delivering_errors.get() {
+            self.end_error_delivery(current, &mut publications, &mut starts);
+        }
+        let mut first_panic = notified.err();
+        let failed = first_panic.is_some();
+        for (index, (flight, model)) in starts.into_iter().enumerate() {
+            if failed {
+                drop(flight);
+                drop(model);
+                if index < announced.get() {
+                    // A failure of this send is discarded.
+                    let _ = catch_unwind(AssertUnwindSafe(|| {
+                        self.raise_approve_can_execute_changed();
+                    }));
+                }
+                continue;
+            }
+            // A disposal before the persister starts prevents the call, and
+            // the approval settles silently (spec/20 §10, ADR-0180).
+            if *lock(&self.disposed) {
+                drop(flight);
+                continue;
+            }
+            let approved = catch_unwind(AssertUnwindSafe(|| {
+                if let Err(error) = self.run_approval(flight, model) {
+                    self.publish_approve_error(&error);
+                }
+            }));
+            if let Err(payload) = approved {
+                first_panic.get_or_insert(payload);
             }
         }
-        let Some(serialized) = self.begin_update() else {
-            return;
-        };
-        let Some(update) = self.prepare_assignment(model) else {
-            return;
-        };
-        let (was_eligible, eligible) = (update.was_eligible, update.eligible);
-        let committed = self.commit_update(update);
-        drop(serialized);
-        let Some(errors_changed) = committed else {
-            return;
-        };
-        if errors_changed {
-            self.publish_validation_changed();
+        for publication in publications {
+            if let Some(payload) = self.finish_publication(publication) {
+                first_panic.get_or_insert(payload);
+            }
         }
-        self.publish_eligibility_change(was_eligible, eligible);
-        self.component.notify_property_changed("model");
+        let teardown_panic = delivery
+            .and_then(Delivery::end)
+            .and_then(|teardown| catch_unwind(AssertUnwindSafe(teardown)).err());
+        first_panic.or(teardown_panic)
+    }
+
+    /// Ends this thread's `errors_changed` delivery, when it is open, and
+    /// keeps the scopes and approvals that its subscribers' calls queued
+    /// after the last error map, so they still close and settle.
+    fn end_error_delivery(
+        &self,
+        current: ThreadId,
+        publications: &mut Vec<Publication<M>>,
+        starts: &mut Vec<(ApprovalFlight, M)>,
+    ) {
+        let rest = {
+            let mut state = lock(&self.nested);
+            let index = state
+                .error_deliveries
+                .iter()
+                .rposition(|(entry, _)| *entry == current);
+            index.map(|index| state.error_deliveries.remove(index).1)
+        };
+        if let Some(rest) = rest {
+            publications.extend(rest.errors);
+            starts.extend(rest.starts);
+        }
     }
 
     /// Returns a clone of the last approved or initial snapshot.
+    ///
+    /// `M::clone` runs while this call holds the snapshot lock, and that lock
+    /// is not re-entrant. A model `Clone` that calls this method, or another
+    /// method that reads the snapshot, on its own thread never returns. See
+    /// [Re-entrant `Clone`](Self#re-entrant-clone).
     pub fn snapshot(&self) -> M {
         clone_locked(&self.snapshot)
     }
@@ -694,6 +1586,13 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// another thread. [`set_model`](Self::set_model) and
     /// [`revert`](Self::revert) are not blocked by an approval in flight.
     ///
+    /// While another thread holds a publication scope on the form, admission
+    /// waits until no other thread holds one, and so does the settlement
+    /// before its first step (spec/20 §5.5, ADR-0176). Each wait is recorded
+    /// in the process-wide wait-for graph. When an admission wait would close
+    /// a wait-for cycle, the call is admitted without it. When a settlement
+    /// wait would, the settlement commits at once and holds its own scope.
+    ///
     /// An admitted approval raises the approve command's eligibility change
     /// once, then persists. Its settlement clears the in-flight mark first, so
     /// every observer it notifies sees an idle form and may approve again.
@@ -703,6 +1602,28 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// caller. A panic in the persister, reset, or snapshotter settles the
     /// same way before it resumes. Disposal during the approval suppresses
     /// settlement.
+    ///
+    /// A [`set_model`](Self::set_model) or [`revert`](Self::revert) made on
+    /// this thread from the post-persist commit (`reset_on_approved`, the
+    /// snapshotter, or a validator) or from a settlement `errors_changed` or
+    /// eligibility-change observer is queued, so the approval subscribers see
+    /// the committed state (spec/20 §5.3, ADR-0174). The queue replays in call
+    /// order after the subscribers return, or, when the commit fails, after
+    /// the failed settlement's eligibility change and before the failure is
+    /// returned. A panicking replay does not stop the later ones and does not
+    /// unsettle the approval. After the last replay, the first replay panic
+    /// resumes, unless the approval already carries a failure: a failed
+    /// commit or a panicking subscriber wins.
+    ///
+    /// A call from a preparation callback of [`set_model`](Self::set_model)
+    /// or [`revert`](Self::revert), or from an `errors_changed` subscriber of
+    /// one, is nested (spec/20 §5.4, ADR-0180). It is admitted at once and
+    /// returns `Ok(())`. Its eligibility change and its persister follow
+    /// after the outermost update on the thread has sent its notifications,
+    /// before that update returns. A failure then goes to
+    /// [`approve_errors`](Self::approve_errors), and a panic resumes from the
+    /// outermost update after its queued updates replay. A disposal before
+    /// the persister starts prevents the persister call (spec/20 §10).
     ///
     /// ```
     /// use std::sync::{Arc, Mutex};
@@ -741,24 +1662,43 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         let Some((flight, model)) = self.admit_approval() else {
             return Ok(());
         };
+        self.run_approval(flight, model)
+    }
+
+    /// Persists an admitted approval and settles it.
+    fn run_approval(&self, flight: ApprovalFlight, model: M) -> VmxResult<()> {
         // No lock is held while the persister runs. A panic is caught only to
-        // settle the approval before it resumes.
-        let outcome = catch_unwind(AssertUnwindSafe(|| self.persist_and_commit(&model)));
-        // Settlement step 1: every settlement observer sees an idle form.
-        drop(flight);
+        // settle the approval before it resumes. The pre-publication window
+        // opens when the post-persist commit starts (spec/20 §5.3).
+        let mut window = None;
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            self.persist_and_commit(&model, &mut window)
+        }));
         match outcome {
             Ok(Ok(Some(errors_changed))) => {
-                self.settle_approved(model, errors_changed);
+                let window = window.expect("a committed approval opened its window");
+                // Settlement step 1: every settlement observer sees an idle
+                // form. The commit already opened the settlement scope.
+                drop(flight);
+                self.settle_approved(model, errors_changed, window);
                 Ok(())
             }
-            // Disposal during the approval suppressed the commit and settlement.
-            Ok(Ok(None)) => Ok(()),
+            // Disposal during the approval suppressed the commit and
+            // settlement. Updates queued before it replay as no-ops.
+            Ok(Ok(None)) => {
+                drop(flight);
+                if let Some(window) = window {
+                    drop(self.finish_publication(window));
+                }
+                Ok(())
+            }
+            // A failed post-persist commit wins over any replay panic.
             Ok(Err(error)) => {
-                self.raise_approve_can_execute_changed();
+                self.settle_failed(flight, window);
                 Err(error)
             }
             Err(panic) => {
-                self.raise_approve_can_execute_changed();
+                self.settle_failed(flight, window);
                 resume_unwind(panic)
             }
         }
@@ -767,23 +1707,38 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// Admits an approval when the form is not disposed, is valid, and has
     /// none in flight. Admission sets the in-flight mark before it captures
     /// the model, then raises the approve command's eligibility change once.
+    ///
+    /// Admission first waits until no other thread holds a publication scope
+    /// (spec/20 §5.5). When that wait would close a wait-for cycle, the call
+    /// is admitted without it, and its settlement waits instead.
+    ///
+    /// A nested call (spec/20 §5.4, ADR-0180) queues the admission
+    /// notification and the persister start for the outermost update, and
+    /// returns `None`.
     fn admit_approval(&self) -> Option<(ApprovalFlight, M)> {
         // Check validity, mark the flight and capture the model under the
         // update lock, so a `set_model` on another thread cannot commit an
-        // invalid model between the check and the capture (#719). The lock is
-        // re-entrant, and it is released before the admission observers run.
-        let (flight, model) = {
-            let _serialized = self.update_lock.acquire();
+        // invalid model between the check and the capture (#719). No callback
+        // runs under it, and it is released before the admission observers
+        // run.
+        let (flight, model, delivery) = {
+            let Serialized {
+                guard: _serialized, ..
+            } = self.serialize();
             if *lock(&self.disposed) || !self.is_valid() {
                 return None;
             }
             let flight = ApprovalFlight::admit(&self.approval_in_flight)?;
-            if *lock(&self.disposed) {
-                return None;
-            }
-            (flight, self.model())
+            let (flight, model) = self.queue_nested_approval(flight, self.model())?;
+            let delivery = Delivery::begin(&self.publication, &self.disposed)?;
+            (flight, model, delivery)
         };
+        // The admission notification opens no publication scope, so another
+        // thread's `dispose()` defers its teardown until it returns.
         self.raise_approve_can_execute_changed();
+        if let Some(teardown) = delivery.end() {
+            teardown();
+        }
         // An admission observer that disposes the form prevents the persister
         // call (spec/20 §5.3). Dropping the flight clears the in-flight mark.
         if *lock(&self.disposed) {
@@ -795,11 +1750,21 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// Persists `model` and commits the post-persist state: the advanced
     /// snapshot, or the prepared reset transaction. Returns whether the commit
     /// changed the effective errors, or `None` when disposal suppressed it.
-    fn persist_and_commit(&self, model: &M) -> VmxResult<Option<bool>> {
+    ///
+    /// Once the persister succeeds, it opens the approval's pre-publication
+    /// window in `window`, so an update made by the reset callback, the
+    /// snapshotter, or a validator is queued (spec/20 §5.3, ADR-0174). A
+    /// commit opens the settlement scope in `window`.
+    fn persist_and_commit(
+        &self,
+        model: &M,
+        window: &mut Option<Publication<M>>,
+    ) -> VmxResult<Option<bool>> {
         (self.persister)(model)?;
         if *lock(&self.disposed) {
             return Ok(None);
         }
+        let window = window.insert(Publication::enter(&self.publication, Some(true)));
         let committed = if let Some(reset_on_approved) = &self.reset_on_approved {
             // Prepare the complete transition before mutating local state. The
             // callback or either snapshot operation may fail/panic without a
@@ -807,9 +1772,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             let reset = reset_on_approved(model)?;
             let next_model = (self.snapshotter)(&reset);
             let next_snapshot = (self.snapshotter)(&reset);
-            self.commit_approval(next_snapshot, Some(next_model))
+            self.commit_approval(next_snapshot, Some(next_model), window)
         } else {
-            self.commit_approval((self.snapshotter)(model), None)
+            self.commit_approval((self.snapshotter)(model), None, window)
         };
         Ok(committed)
     }
@@ -818,36 +1783,52 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// reset model, which it validates first.
     ///
     /// The commit is authoritative over edits made during the approval
-    /// (spec/20 §5.1) and yields only to disposal. Admission and this step
-    /// take the update lock, so each waits for an update another thread is
-    /// preparing, while the persister runs with edits unblocked (§5.3). It installs every
-    /// field in one step before the approval outcome is published, so
-    /// synchronous observers cannot see a reset model paired with the previous
-    /// snapshot or errors. Returns whether the effective errors changed, or
-    /// `None` when disposal suppressed the commit.
-    fn commit_approval(&self, snapshot: M, reset: Option<M>) -> Option<bool> {
-        let serialized = self.update_lock.acquire();
-        if *lock(&self.disposed) {
-            drop(serialized);
-            return None;
-        }
-        // The reset model is validated under the update lock, before any field
-        // changes (#1046). A validator registered on another thread meanwhile
-        // revalidates after this commit. A validator registered re-entrantly
-        // during a run makes the validation run again, until a run registers
-        // none. A re-entrant update needs no rerun: the reset is authoritative.
-        let reset = reset.map(|model| loop {
-            let revalidations = self.revalidations.load(Ordering::SeqCst);
-            let errors = self.validation_errors_for(&model);
-            if self.revalidations.load(Ordering::SeqCst) == revalidations {
-                break (model, errors);
+    /// (spec/20 §5.1) and yields only to disposal. The reset model's
+    /// validators run with no lock held, so another thread's `set_model` or
+    /// `revert` meanwhile commits at once, and the reset then overwrites it
+    /// (§5.3, ADR-0215). Before settlement step 1, this step waits until no
+    /// other thread holds a publication scope (§5.5). When that wait would
+    /// close a wait-for cycle, it commits at once, and two threads then hold
+    /// scopes. It installs every field in one step before the approval
+    /// outcome is published, so synchronous observers cannot see a reset
+    /// model paired with the previous snapshot or errors. A commit opens the
+    /// settlement scope in `window` before it releases the update lock.
+    /// Returns whether the effective errors changed, or `None` when disposal
+    /// suppressed the commit.
+    fn commit_approval(
+        &self,
+        snapshot: M,
+        reset: Option<M>,
+        window: &mut Publication<M>,
+    ) -> Option<bool> {
+        // The reset model is validated before any field changes (#1046). A
+        // validator registration on any thread during that run makes the
+        // validation run again. An update needs no rerun: the reset is
+        // authoritative.
+        let mut validated: Option<(u64, BTreeMap<String, String>)> = None;
+        let serialized = loop {
+            if let (Some(model), None) = (&reset, &validated) {
+                let revalidations = self.revalidations.load(Ordering::SeqCst);
+                validated = Some((revalidations, self.validation_errors_for(model)));
             }
-        });
-        if *lock(&self.disposed) {
+            let Serialized {
+                guard: serialized, ..
+            } = self.serialize();
+            if *lock(&self.disposed) {
+                drop(serialized);
+                return None;
+            }
+            let registered = validated.as_ref().is_some_and(|(revalidations, _)| {
+                self.revalidations.load(Ordering::SeqCst) != *revalidations
+            });
+            if !registered {
+                break serialized;
+            }
             drop(serialized);
-            return None;
-        }
-        self.commit_generation.fetch_add(1, Ordering::SeqCst);
+            validated = None;
+        };
+        let reset = reset.zip(validated.map(|(_, errors)| errors));
+        self.note_commit();
         // The odd pair version marks the snapshot write, and a reset's model
         // install, for `is_dirty` (#1073); no user code runs inside it.
         self.pair_version.fetch_add(1, Ordering::SeqCst);
@@ -860,6 +1841,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             None => (false, None),
         };
         self.pair_version.fetch_add(1, Ordering::SeqCst);
+        // The generation moves after the install, so a preparation that reads
+        // the new generation also reads the new state (spec/20 §5.4).
+        self.commit_generation.fetch_add(1, Ordering::SeqCst);
+        window.open_scope();
         drop(serialized);
         // Replaced values are dropped after the update lock is released.
         drop((replaced_snapshot, replaced_model));
@@ -867,53 +1852,128 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Settlement steps 2 to 4 of a committed approval. The in-flight mark is
-    /// already clear.
-    fn settle_approved(&self, model: M, errors_changed: bool) {
-        let publishing = ApprovalPublishingGuard::new(Arc::clone(&self.approval_publication));
-        {
-            // Model edits made by these observers wait until the approval
-            // subscribers have seen the committed state.
-            let _publication =
-                ApprovalPrePublicationGuard::new(Arc::clone(&self.approval_publication));
+    /// already clear, and `window` holds the settlement scope and is still in
+    /// its pre-publication window.
+    ///
+    /// The updates queued in the window replay after the approval subscribers
+    /// have run and the scope has closed (spec/20 §5.3, ADR-0174). A
+    /// subscriber panic wins over a replay panic; otherwise the first replay
+    /// panic resumes after the last replay (#740, #1050).
+    fn settle_approved(&self, model: M, errors_changed: bool, window: Publication<M>) {
+        // Updates made by these observers are queued until the approval
+        // subscribers have seen the committed state. Hub delivery isolates
+        // observer panics; the guard covers any other unwind.
+        let notified = catch_unwind(AssertUnwindSafe(|| {
             if errors_changed {
                 self.publish_validation_changed();
             }
             // The one settlement notification also covers any strict or
             // validity change made by the commit.
             self.raise_approve_can_execute_changed();
-        }
+        }));
+        // The subscribers run outside this approval's window, so their edits
+        // commit at once, also when the approval is nested (spec/20 §5.5).
+        window.end_pre_publication();
         // Snapshot only the identities: each callback is looked up when its
         // turn comes, so a callback detached (or a form disposed) earlier in
         // this emission neither runs nor stays alive until it ends (ADR-0139).
-        let ids: Vec<u64> = lock(&self.approved_callbacks)
-            .entries
-            .iter()
-            .map(|(id, _)| *id)
-            .collect();
-        // A panicking subscriber still lets the deferred edits replay, as the
-        // other flavors replay them in `finally`; the panic then continues
-        // to the approve caller (#740).
-        let published = catch_unwind(AssertUnwindSafe(|| {
-            for id in ids {
-                let callback = lock(&self.approved_callbacks)
+        // A disposal whose teardown waits for this publication stops the
+        // emission in the same way. A panicking subscriber still lets the
+        // queued updates replay, as the other flavors replay them in
+        // `finally`; the panic then continues to the approve caller (#740).
+        let published = notified.and_then(|()| {
+            catch_unwind(AssertUnwindSafe(|| {
+                let ids: Vec<u64> = lock(&self.approved_callbacks)
                     .entries
                     .iter()
-                    .find(|(entry_id, _)| *entry_id == id)
-                    .map(|(_, callback)| Arc::clone(callback));
-                if let Some(callback) = callback {
-                    callback(model.clone());
+                    .map(|entry| entry.id)
+                    .collect();
+                for id in ids {
+                    if *lock(&self.disposed) {
+                        break;
+                    }
+                    let callback = lock(&self.approved_callbacks).callback(id);
+                    if let Some(callback) = callback {
+                        callback(model.clone());
+                    }
                 }
-            }
-        }));
-        // An enclosing settlement on this thread, in its notifications or its
-        // subscribers, keeps the edits until its own subscribers have run.
-        let deferred_models = publishing.finish();
-        for deferred_model in deferred_models {
-            self.set_model(deferred_model);
-        }
+            }))
+        });
+        // An enclosing publication on this thread keeps the queue until its
+        // own scope has ended.
+        let replay_panic = self.finish_publication(window);
         if let Err(payload) = published {
+            drop(replay_panic);
             resume_unwind(payload);
         }
+        if let Some(payload) = replay_panic {
+            resume_unwind(payload);
+        }
+    }
+
+    /// Settlement of a failed post-persist commit, or of a failed persister
+    /// when `window` is `None`.
+    ///
+    /// Before step 1 it waits until no other thread holds a publication
+    /// scope, then holds its own scope over its eligibility change (spec/20
+    /// §5.5). The window ends with the failure, so the settlement's
+    /// eligibility-change observers update at once. The updates queued on
+    /// this thread then replay before the caller routes the failure, which
+    /// wins over any replay panic (spec/20 §5.3, ADR-0174).
+    fn settle_failed(&self, flight: ApprovalFlight, window: Option<Publication<M>>) {
+        let ended_window = window.is_some();
+        let mut publication = window.unwrap_or_else(|| Publication::enter(&self.publication, None));
+        {
+            let Serialized {
+                guard: _serialized, ..
+            } = self.serialize();
+            publication.open_scope();
+        }
+        // Settlement step 1.
+        drop(flight);
+        if ended_window {
+            publication.end_pre_publication();
+        }
+        let notified = catch_unwind(AssertUnwindSafe(|| {
+            self.raise_approve_can_execute_changed();
+        }));
+        drop(self.finish_publication(publication));
+        if let Err(payload) = notified {
+            resume_unwind(payload);
+        }
+    }
+
+    /// Ends one publication. When it was this thread's outermost, it closes
+    /// the scope first, then replays the thread's queue in the order the
+    /// updates joined, and then runs a teardown that a `dispose()` left for
+    /// it. Each update replays as a new call, under its own unwind
+    /// guard, so a panicking replay does not stop the later ones (spec/20
+    /// §5.3 and §5.5, ADR-0174, ADR-0176). The teardown runs under the same
+    /// guard, after the last replay. Returns the first panic of a replay or
+    /// the teardown; later ones are dropped.
+    fn finish_publication(&self, publication: Publication<M>) -> Option<PanicPayload> {
+        let Finished { queued, teardown } = publication.finish();
+        let mut first_panic = None;
+        for update in queued {
+            let replayed = catch_unwind(AssertUnwindSafe(|| match update {
+                QueuedUpdate::Assign(model) => self.set_model(model),
+                QueuedUpdate::Revert => self.revert(),
+                QueuedUpdate::Revalidate => self.revalidate(),
+            }));
+            if let Err(payload) = replayed {
+                if first_panic.is_none() {
+                    first_panic = Some(payload);
+                }
+            }
+        }
+        if let Some(teardown) = teardown {
+            if let Err(payload) = catch_unwind(AssertUnwindSafe(teardown)) {
+                if first_panic.is_none() {
+                    first_panic = Some(payload);
+                }
+            }
+        }
+        first_panic
     }
 
     /// Restores the last snapshot and publishes the revert outcome.
@@ -922,35 +1982,63 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// commits (spec/20 §5.4, ADR-0144): the snapshotter copies the snapshot
     /// and the validators run on that copy before the form changes. A panic in
     /// either unwinds with the form unchanged and nothing published, including
-    /// no [`FormRevertedMessage`]. A revert is serialized with other updates,
-    /// and when a callback on this thread disposes the form or commits another
-    /// update during preparation, the revert commits and publishes nothing.
+    /// no [`FormRevertedMessage`]. No lock is held while those callbacks run,
+    /// and the revert checks the same three cases as
+    /// [`set_model`](Self::set_model) when its preparation completes
+    /// (spec/20 §5.4, ADR-0215).
+    ///
+    /// A revert made while an approval commits or publishes the notifications
+    /// that precede its approval subscribers is queued like
+    /// [`set_model`](Self::set_model), after the same preparation, and
+    /// replays after those subscribers have run (spec/20 §5.3, ADR-0174).
+    /// It waits for another thread's publication scope, or is queued for that
+    /// thread, as [`set_model`](Self::set_model) is (spec/20 §5.5).
     pub fn revert(&self) {
         if *lock(&self.disposed) {
             return;
         }
-        let Some(serialized) = self.begin_update() else {
+        let Some(refused_by) = self.begin_update(true) else {
             return;
         };
-        let generation = self.commit_generation.load(Ordering::SeqCst);
+        self.run_update(|| self.restore(refused_by));
+    }
+
+    /// Prepares a revert with no lock held, then places or commits it under
+    /// the update lock, and returns its notifications.
+    fn restore(&self, refused_by: Option<ThreadId>) -> Step<M> {
+        let base = self.preparation_base();
         let snapshot = self.snapshot();
         let restored = (self.snapshotter)(&snapshot);
-        let update = self.prepare_update(generation, None, Some(snapshot), restored);
-        let (was_eligible, eligible) = (update.was_eligible, update.eligible);
-        let committed = self.commit_update(update);
-        drop(serialized);
-        let Some(errors_changed) = committed else {
-            return;
-        };
-        if errors_changed {
-            self.publish_validation_changed();
+        let update = self.prepare_update(None, Some(snapshot), restored);
+        let guard = self.update_lock.acquire();
+        match self.place_prepared(base, QueuedUpdate::Revert, refused_by, true) {
+            Placement::Commit(_) => {}
+            Placement::Retry(retry) => {
+                return Step {
+                    retry: Some(retry),
+                    discarded: Some(update),
+                    ..Step::default()
+                };
+            }
+            Placement::Done => {
+                return Step {
+                    discarded: Some(update),
+                    ..Step::default()
+                };
+            }
         }
-        self.hub.send(Message::FormReverted(FormRevertedMessage {
-            sender_id: self.component.id(),
-            sender_name: "FormVm".to_string(),
-        }));
-        self.component.notify_property_changed("model");
-        self.publish_eligibility_change(was_eligible, eligible);
+        let approve_gate_changed = update.approve_gate_changed;
+        let errors_changed = self.commit_update(update.model, update.errors);
+        let step = self.committed(
+            errors_changed,
+            vec![
+                Notice::Reverted { nested: false },
+                Notice::Model,
+                Notice::Eligibility(approve_gate_changed),
+            ],
+        );
+        drop(guard);
+        step
     }
 
     /// Returns the lazily created approval command.
@@ -959,9 +2047,16 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// [`approve_errors`](Self::approve_errors). Its eligibility is
     /// [`can_approve`](Self::can_approve), so it is disabled while an approval
     /// is in flight, and its eligibility change fires when an approval is
-    /// admitted and once when it settles. A settlement observer, such as an
+    /// admitted and once when it settles. An update also fires it once when
+    /// it changes [`is_valid`](Self::is_valid), or
+    /// [`is_dirty`](Self::is_dirty) in strict mode, also while an approval is
+    /// in flight (spec/20 §5.2, ADR-0196). A settlement observer, such as an
     /// approval or `approve_errors` subscriber, may execute it again: that
     /// approval is admitted and runs before the observer's `execute` returns.
+    /// Executed from a preparation callback or an update's `errors_changed`
+    /// subscriber, it is nested, and the approval persists after the
+    /// outermost update's notifications, as [`approve`](Self::approve)
+    /// states.
     pub fn approve_command(&self) -> RelayCommand {
         self.approve_command
             .get_or_init(|| {
@@ -969,11 +2064,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 RelayCommandBuilder::default()
                     .shared_action(move || {
                         if let Err(error) = form.approve() {
-                            form.approve_errors.send(Message::Custom {
-                                sender_id: form.component.id(),
-                                sender_name: form.component.name(),
-                                name: error.to_string(),
-                            });
+                            form.publish_approve_error(&error);
                         }
                     })
                     .can_execute({
@@ -1049,7 +2140,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     where
         F: Fn(M) + Send + Sync + 'static,
     {
-        let rejected = lock(&self.approved_callbacks).register(Arc::new(callback));
+        let rejected = lock(&self.approved_callbacks).register(Arc::new(callback), None);
         drop(rejected);
     }
 
@@ -1095,34 +2186,179 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     where
         F: Fn(M) + Send + Sync + 'static,
     {
-        let registered = lock(&self.approved_callbacks).register(Arc::new(callback));
+        self.register_approved(Arc::new(callback), None)
+    }
+
+    /// Subscribes like [`subscribe_approved`](Self::subscribe_approved), and
+    /// also calls `on_completed` once when the form is disposed (spec/20
+    /// §10, ADR-0210).
+    ///
+    /// `on_completed` runs once, after the form's `errors_changed()` and
+    /// `approve_errors()` hubs are disposed, with no form lock held. A
+    /// repeated [`dispose`](Self::dispose) does not run it again. On a form
+    /// that is already disposed it runs at once, `on_approved` never runs,
+    /// and the returned handle is inactive. Detaching the handle before the
+    /// form is disposed releases both callbacks, and `on_completed` never
+    /// runs.
+    ///
+    /// A panic in `on_completed` is contained, as a hub completion callback
+    /// is, so disposal still completes the other subscribers. A panic in
+    /// `on_approved` propagates out of [`approve`](Self::approve), as it does
+    /// for [`subscribe_approved`](Self::subscribe_approved) (ADR-0139).
+    ///
+    /// ```
+    /// use std::sync::atomic::{AtomicUsize, Ordering};
+    /// use std::sync::Arc;
+    /// use vmx::FormVm;
+    ///
+    /// let form = FormVm::new("profile", 1);
+    /// let completed = Arc::new(AtomicUsize::new(0));
+    /// let subscription = {
+    ///     let completed = completed.clone();
+    ///     form.subscribe_approved_with_completion(
+    ///         |_model| {},
+    ///         move || {
+    ///             completed.fetch_add(1, Ordering::SeqCst);
+    ///         },
+    ///     )
+    /// };
+    ///
+    /// form.dispose();
+    /// form.dispose();
+    ///
+    /// assert_eq!(completed.load(Ordering::SeqCst), 1);
+    /// assert!(!subscription.is_active());
+    /// ```
+    pub fn subscribe_approved_with_completion<F, C>(
+        &self,
+        on_approved: F,
+        on_completed: C,
+    ) -> ApprovalSubscription
+    where
+        F: Fn(M) + Send + Sync + 'static,
+        C: Fn() + Send + Sync + 'static,
+    {
+        self.register_approved(Arc::new(on_approved), Some(Arc::new(on_completed)))
+    }
+
+    fn register_approved(
+        &self,
+        callback: ApprovedCallback<M>,
+        completion: Option<ApprovedCompletion>,
+    ) -> ApprovalSubscription {
+        let registered = lock(&self.approved_callbacks).register(callback, completion);
         match registered {
             Ok(id) => ApprovalSubscription::new(id, Arc::downgrade(&self.approved_callbacks)),
             Err(rejected) => {
-                drop(rejected);
+                // The form is disposed: complete at once, with no lock held.
+                complete_approved(vec![rejected]);
                 ApprovalSubscription::inactive()
             }
         }
     }
 
     /// Disposes commands and notification hubs and makes later mutations inert.
+    ///
+    /// After the hubs complete, disposal releases the approval callbacks and
+    /// calls the completion callback of each
+    /// [`subscribe_approved_with_completion`](Self::subscribe_approved_with_completion)
+    /// subscription once, with no form lock held (spec/20 §10, ADR-0210).
+    ///
+    /// Disposal waits until no other thread holds a publication scope on the
+    /// form (spec/20 §5.5). When that wait would close a wait-for cycle, the
+    /// call marks the form disposed and returns at once, and later calls are
+    /// inert. Either way, calls on other threads that wait for a publication
+    /// scope stop waiting and find the form disposed.
+    ///
+    /// Work outside a publication scope does not make disposal wait: an
+    /// approval's admission notification, an update or a validator
+    /// registration from its preparation until it returns, or an
+    /// `approve_errors` send. When such work is in progress on any thread,
+    /// disposal marks the form disposed and returns at once. An update that
+    /// is preparing then commits nothing (spec/20 §5.4, ADR-0215). This also
+    /// applies to a disposal from an observer of that work. A disposal from
+    /// a preparation callback on the preparing thread, with no other such
+    /// work in progress, tears down at once.
+    ///
+    /// After a refused wait, or while a delivery outside a scope is in
+    /// progress, the teardown is deferred: no hub completes and no command is
+    /// disposed yet. The teardown runs when no publication and no delivery
+    /// remains on any thread, on the thread that ends the last one (spec/20
+    /// §5.5). That thread can be another thread than the publishing or
+    /// delivering thread that the disposal found. For example, when threads A
+    /// and C each deliver outside a scope and A returns first, the teardown
+    /// runs on C when C returns.
     pub fn dispose(&self) {
-        let should_dispose = {
-            // Disposal waits for an update in progress on another thread, so
-            // an admitted update completes (spec/20 §5.4).
-            let _serialized = self.update_lock.acquire();
-            let mut disposed = lock(&self.disposed);
-            if *disposed {
-                false
-            } else {
-                *disposed = true;
-                true
+        loop {
+            let Serialized { guard, refused_by } = self.serialize();
+            if let Some(owner) = refused_by {
+                if self.defer_teardown(owner) {
+                    return;
+                }
+                // The publisher ended its scope meanwhile: wait again.
+                drop(guard);
+                continue;
             }
-        };
-        if !should_dispose {
+            let tear_down_now = {
+                let mut state = lock(&self.publication.state);
+                let mut disposed = lock(&self.disposed);
+                if std::mem::replace(&mut *disposed, true) {
+                    return;
+                }
+                drop(disposed);
+                // Only this thread's own preparations are in progress: a
+                // disposal from a preparation callback tears down at once.
+                let current = thread::current().id();
+                let own = state
+                    .preparing
+                    .iter()
+                    .filter(|entry| **entry == current)
+                    .count();
+                if state.deliveries == own {
+                    true
+                } else {
+                    let form = self.clone();
+                    state.teardown = Some(Box::new(move || form.tear_down()));
+                    false
+                }
+            };
+            drop(guard);
+            self.wake_scope_waiters();
+            if tear_down_now {
+                self.tear_down();
+            }
             return;
         }
+    }
 
+    /// Marks the form disposed and leaves its teardown to the publishers, when
+    /// `owner` still holds a scope. Returns `false` when it no longer does.
+    fn defer_teardown(&self, owner: ThreadId) -> bool {
+        let mut state = lock(&self.publication.state);
+        if !state.holds_scope(owner) {
+            return false;
+        }
+        let mut disposed = lock(&self.disposed);
+        if !std::mem::replace(&mut *disposed, true) {
+            drop(disposed);
+            let form = self.clone();
+            state.teardown = Some(Box::new(move || form.tear_down()));
+            drop(state);
+            self.publication.closed.notify_all();
+        }
+        true
+    }
+
+    /// Wakes the calls that wait for a publication scope after this thread
+    /// marked the form disposed, so they stop waiting (spec/20 §5.5). Taking
+    /// the state lock first orders the mark before any waiter's next check.
+    fn wake_scope_waiters(&self) {
+        drop(lock(&self.publication.state));
+        self.publication.closed.notify_all();
+    }
+
+    /// The §10 teardown of a disposed form.
+    fn tear_down(&self) {
         if let Some(command) = self.approve_command.get() {
             command.dispose();
         }
@@ -1137,7 +2373,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             registry.closed = true;
             std::mem::take(&mut registry.entries)
         };
-        drop(released);
+        // Complete the approval subscribers after the hubs, with no lock
+        // held (spec/20 §10, ADR-0210).
+        complete_approved(released);
         let field_validators = std::mem::take(&mut *lock(&self.field_validators));
         let model_validators = std::mem::take(&mut *lock(&self.model_validators));
         drop(field_validators);
@@ -1165,61 +2403,270 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         self
     }
 
-    /// Revalidates the live model after a validator registration and
-    /// publishes an effective error change. The run is serialized with model
-    /// updates, and an update or registration that one of its validators
-    /// commits supersedes it.
+    /// Revalidates the live model after a validator registration, then
+    /// publishes an effective error change and, when the run changed
+    /// `is_valid`, the approve command's eligibility change (spec/20 §5.2,
+    /// ADR-0196).
+    ///
+    /// The run is an update frame (spec/20 §5.4 and §5.5, #1231, ADR-0216).
+    /// It waits like [`set_model`](Self::set_model) while another thread holds
+    /// a publication scope, runs the validators with no lock held, and sends
+    /// `errors_changed` in its own update scope. When its wait would close a
+    /// wait-for cycle, it joins the publisher's queue and replays there as a
+    /// new revalidation. In this thread's own pre-publication window it
+    /// commits at once. A registration from a preparation callback or an
+    /// `errors_changed` subscriber is nested: it commits at once, makes the
+    /// interrupted update stale, and returns before its notifications. An
+    /// update or registration that one of its validators commits supersedes
+    /// it, and a commit of another thread makes it run again.
     fn revalidate(&self) {
-        let serialized = self.update_lock.acquire();
-        self.revalidations.fetch_add(1, Ordering::SeqCst);
-        let generation = self.commit_generation.load(Ordering::SeqCst);
-        let errors = self.validation_errors_for(&self.model());
-        if self.commit_generation.load(Ordering::SeqCst) != generation {
+        if *lock(&self.disposed) {
             return;
         }
-        self.commit_generation.fetch_add(1, Ordering::SeqCst);
+        self.revalidations.fetch_add(1, Ordering::SeqCst);
+        let Some(refused_by) = self.begin_update(false) else {
+            return;
+        };
+        self.run_update(|| self.recheck(refused_by));
+    }
+
+    /// Prepares a revalidation with no lock held, then places or commits it
+    /// under the update lock, and returns its notifications. A refused one
+    /// joins the publisher's queue without preparing.
+    fn recheck(&self, refused_by: Option<ThreadId>) -> Step<M> {
+        let base = self.preparation_base();
+        let prepared = refused_by
+            .is_none()
+            .then(|| (self.is_valid(), self.validation_errors_for(&self.model())));
+        let guard = self.update_lock.acquire();
+        match self.place_prepared(base, QueuedUpdate::Revalidate, refused_by, false) {
+            Placement::Commit(_) => {}
+            Placement::Retry(retry) => {
+                return Step {
+                    retry: Some(retry),
+                    ..Step::default()
+                };
+            }
+            Placement::Done => return Step::default(),
+        }
+        let Some((was_valid, errors)) = prepared else {
+            return Step::default();
+        };
+        self.note_commit();
+        let validity_changed = was_valid != errors.is_empty();
         let errors_changed = self.replace_validation_errors(errors);
-        drop(serialized);
-        if errors_changed {
-            self.publish_validation_changed();
+        // The generation moves after the install (see `commit_update`).
+        self.commit_generation.fetch_add(1, Ordering::SeqCst);
+        let step = self.committed(errors_changed, vec![Notice::Eligibility(validity_changed)]);
+        drop(guard);
+        step
+    }
+
+    /// Routes a command-path approval failure to `approve_errors`. The send
+    /// opens no publication scope, so a `dispose()` meanwhile defers its
+    /// teardown until the send returns (spec/20 §5.5).
+    fn publish_approve_error(&self, error: &VmxError) {
+        let Some(delivery) = Delivery::begin(&self.publication, &self.disposed) else {
+            return;
+        };
+        self.approve_errors.send(Message::Custom {
+            sender_id: self.component.id(),
+            sender_name: self.component.name(),
+            name: error.to_string(),
+        });
+        if let Some(teardown) = delivery.end() {
+            teardown();
         }
     }
 
-    /// Takes the update lock for an update admitted before disposal. Returns
-    /// `None`, with the lock released, when a disposal that held the lock
-    /// first has ended the form.
-    fn begin_update(&self) -> Option<UpdateGuard<'_>> {
-        let serialized = self.update_lock.acquire();
+    /// Takes the update lock for a form call, after the call's wait for other
+    /// threads' publication scopes (spec/20 §5.5, ADR-0176).
+    ///
+    /// While another thread holds a scope, the call waits until no other
+    /// thread holds one, and each wait records an edge to one publisher in the
+    /// wait-for graph. When that wait would close a live wait-for cycle, the
+    /// call takes the lock without waiting and reports the publisher in
+    /// [`Serialized::refused_by`]. Disposal ends the wait.
+    ///
+    /// No callback runs under the update lock, so a call made while this
+    /// thread holds it comes from code such as a model `Clone`. It does not
+    /// wait.
+    ///
+    /// A nested call (spec/20 §5.4, ADR-0180) never waits for another
+    /// thread's scope. It takes the refused-wait result at once and reports a
+    /// publisher in [`Serialized::refused_by`].
+    fn serialize(&self) -> Serialized<'_> {
+        let current = thread::current().id();
+        if self.update_lock.is_held_by_current() {
+            let guard = self.update_lock.acquire();
+            let refused_by = if self.nested_here() && !*lock(&self.disposed) {
+                lock(&self.publication.state).foreign_publisher(current)
+            } else {
+                None
+            };
+            return Serialized { guard, refused_by };
+        }
+        loop {
+            let guard = self.update_lock.acquire();
+            let publisher = if *lock(&self.disposed) {
+                None
+            } else {
+                lock(&self.publication.state).foreign_publisher(current)
+            };
+            let Some(owner) = publisher else {
+                return Serialized {
+                    guard,
+                    refused_by: None,
+                };
+            };
+            if self.nested_here() {
+                return Serialized {
+                    guard,
+                    refused_by: Some(owner),
+                };
+            }
+            // Never wait for a scope while holding the update lock: the
+            // publisher may need it.
+            drop(guard);
+            if self.publication.wait_for_scope(owner, &self.disposed) {
+                continue;
+            }
+            let guard = self.update_lock.acquire();
+            if lock(&self.publication.state).holds_scope(owner) {
+                return Serialized {
+                    guard,
+                    refused_by: Some(owner),
+                };
+            }
+        }
+    }
+
+    /// Admits an update: its wait for other threads' publication scopes,
+    /// which leaves no lock held. Returns the publisher that refused the
+    /// wait, or `None` (outer) when the form is disposed.
+    ///
+    /// A `set_model` or `revert` passes `queues_in_own_window`. Made in this
+    /// thread's own pre-publication window, it does not wait: it joins this
+    /// thread's queue (spec/20 §5.5, ADR-0215). A revalidation there waits
+    /// and commits at once.
+    fn begin_update(&self, queues_in_own_window: bool) -> Option<Option<ThreadId>> {
+        let refused_by = if queues_in_own_window && self.pre_publishing_here() {
+            None
+        } else {
+            self.serialize().refused_by
+        };
         let disposed = *lock(&self.disposed);
-        (!disposed).then_some(serialized)
+        (!disposed).then_some(refused_by)
     }
 
-    /// Prepares assigning `model` (spec/20 §5.2 steps 3 to 6). Returns `None`
-    /// when `model` equals the live model.
-    fn prepare_assignment(&self, model: M) -> Option<PreparedUpdate<M>> {
+    /// Reports whether this thread's innermost settlement is in its
+    /// pre-publication window.
+    fn pre_publishing_here(&self) -> bool {
+        lock(&self.publication.state).pre_publishing(thread::current().id())
+    }
+
+    /// Reads the commit generation and this thread's own commit and queue
+    /// counts before a preparation's first callback. The caller runs a
+    /// frame.
+    fn preparation_base(&self) -> Base {
         let generation = self.commit_generation.load(Ordering::SeqCst);
-        let live = self.model();
-        if live == model {
-            return None;
+        let (commits, queued) = lock(&self.nested)
+            .frames(thread::current().id())
+            .map_or((0, 0), |entry| (entry.commits, entry.queued));
+        Base {
+            generation,
+            commits,
+            queued,
         }
-        Some(self.prepare_update(generation, Some(live), None, model))
+    }
+
+    /// Counts a commit of this thread, so its preparations in progress are
+    /// stale. The caller holds the update lock.
+    fn note_commit(&self) {
+        if let Some(entry) = lock(&self.nested).frames(thread::current().id()) {
+            entry.commits += 1;
+        }
+    }
+
+    /// Places a prepared call (spec/20 §5.3, §5.4 and §5.5, ADR-0174,
+    /// ADR-0176, ADR-0215). The caller holds the update lock.
+    ///
+    /// It checks, in order:
+    ///
+    /// 1. The form was disposed: the call is dropped.
+    /// 2. A callback on this thread committed or queued another update: the
+    ///    preparation is stale and is dropped, so that newer state stands.
+    /// 3. A call made in this thread's pre-publication window joins this
+    ///    thread's queue, when `own_window_queues` is set. A call whose wait
+    ///    was refused joins the queue of the publisher that refused it, or
+    ///    runs again when that publisher has ended its publications
+    ///    meanwhile. Another thread's commit does not affect a queued call.
+    /// 4. Another thread committed since the preparation started, or now
+    ///    holds a publication scope: the call runs again as a new call.
+    /// 5. Otherwise the call is returned for the caller to commit.
+    fn place_prepared(
+        &self,
+        base: Base,
+        update: QueuedUpdate<M>,
+        refused_by: Option<ThreadId>,
+        own_window_queues: bool,
+    ) -> Placement<M> {
+        let current = thread::current().id();
+        let stale = *lock(&self.disposed)
+            || lock(&self.nested)
+                .frames(current)
+                .is_some_and(|entry| entry.commits != base.commits || entry.queued != base.queued);
+        if stale {
+            drop(update);
+            return Placement::Done;
+        }
+        let mut state = lock(&self.publication.state);
+        let target = if own_window_queues && state.pre_publishing(current) {
+            Some(current)
+        } else {
+            refused_by
+        };
+        let Some(target) = target else {
+            let overtaken = self.commit_generation.load(Ordering::SeqCst) != base.generation
+                || state.foreign_publisher(current).is_some();
+            return if overtaken {
+                Placement::Retry(update)
+            } else {
+                Placement::Commit(update)
+            };
+        };
+        let Some(entry) = state.entry(target) else {
+            return Placement::Retry(update);
+        };
+        entry.queued.push(update);
+        drop(state);
+        if let Some(entry) = lock(&self.nested).frames(current) {
+            entry.queued += 1;
+        }
+        Placement::Done
+    }
+
+    /// Opens a committed update's scope when its errors changed, so its
+    /// `errors_changed` delivery reaches observers in commit order (spec/20
+    /// §5.5). The caller holds the update lock.
+    fn open_update_scope(&self, errors_changed: bool) -> Option<Publication<M>> {
+        errors_changed.then(|| {
+            let mut publication = Publication::enter(&self.publication, None);
+            publication.open_scope();
+            publication
+        })
     }
 
     /// Computes the rest of an update to `model` without changing the form:
-    /// the approval gates before and after it, and the model's validation
-    /// result. Every callback runs on copies, with no state mutex held; only
-    /// the re-entrant update lock is.
+    /// whether it changes an approval gate, and the model's validation
+    /// result. Every callback runs on copies, with no lock held (spec/20 §5.4,
+    /// ADR-0215).
     ///
     /// Only strict mode reads dirty state, so only a strict form runs the
-    /// dirty comparisons, and only while its validity gate is open. A missing
-    /// `live` or `snapshot` is copied from the form when needed.
-    fn prepare_update(
-        &self,
-        generation: u64,
-        live: Option<M>,
-        snapshot: Option<M>,
-        model: M,
-    ) -> PreparedUpdate<M> {
+    /// dirty comparisons, also while the form is invalid (spec/20 §5.2,
+    /// ADR-0216). A missing `live` or `snapshot` is copied from the form when
+    /// needed.
+    fn prepare_update(&self, live: Option<M>, snapshot: Option<M>, model: M) -> PreparedUpdate<M> {
         let strict = *lock(&self.strict);
         let dirty_inputs = strict.then(|| {
             (
@@ -1227,41 +2674,37 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 snapshot.unwrap_or_else(|| self.snapshot()),
             )
         });
-        let was_eligible = self.is_valid()
-            && dirty_inputs
-                .as_ref()
-                .is_none_or(|(live, snapshot)| live != snapshot);
+        let was_valid = self.is_valid();
+        let was_dirty = dirty_inputs
+            .as_ref()
+            .map(|(live, snapshot)| live != snapshot);
         let errors = self.validation_errors_for(&model);
-        let eligible = errors.is_empty()
-            && dirty_inputs
-                .as_ref()
-                .is_none_or(|(_, snapshot)| model != *snapshot);
+        let is_dirty = dirty_inputs
+            .as_ref()
+            .map(|(_, snapshot)| model != *snapshot);
+        // An update that changes both gates raises one change (spec/20 §5.2).
+        let approve_gate_changed = was_valid != errors.is_empty() || was_dirty != is_dirty;
         PreparedUpdate {
-            generation,
             model,
             errors,
-            was_eligible,
-            eligible,
+            approve_gate_changed,
         }
     }
 
-    /// Commits a completed preparation in one step: the model and its errors.
-    /// The caller holds the update lock.
+    /// Commits a placed preparation in one step: the model and its errors.
+    /// The caller holds the update lock and placed the update.
     ///
-    /// Returns whether the effective errors changed, or `None` for a stale
-    /// preparation: a callback re-entering from this thread disposed the form
-    /// or committed another update after the preparation began.
-    fn commit_update(&self, update: PreparedUpdate<M>) -> Option<bool> {
-        if self.commit_generation.load(Ordering::SeqCst) != update.generation
-            || *lock(&self.disposed)
-        {
-            return None;
-        }
-        self.commit_generation.fetch_add(1, Ordering::SeqCst);
+    /// Returns whether the effective errors changed.
+    fn commit_update(&self, model: M, errors: BTreeMap<String, String>) -> bool {
+        self.note_commit();
         // The replaced model is dropped after the model mutex is released.
-        let (errors_changed, replaced) = self.install(update.model, update.errors);
+        let (errors_changed, replaced) = self.install(model, errors);
         drop(replaced);
-        Some(errors_changed)
+        // The generation moves after the install, so a preparation that reads
+        // the new generation also reads the new model and errors. A
+        // preparation that reads the old generation runs again (spec/20 §5.4).
+        self.commit_generation.fetch_add(1, Ordering::SeqCst);
+        errors_changed
     }
 
     /// Installs `model` and its `errors` (see [`ErrorState`]). The caller
@@ -1336,6 +2779,11 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     fn publish_validation_changed(&self) {
+        // A disposal whose teardown waits for this thread's publication makes
+        // the rest of it inert, as an observer's own disposal does.
+        if *lock(&self.disposed) {
+            return;
+        }
         // Validation surfaces only on the dedicated errors-changed channel, never
         // on the main message hub. spec/20-form-vm.md §8 enumerates a closed set
         // of hub messages (model + FormReverted); C#/Python/TS/Swift never put
@@ -1348,18 +2796,20 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         });
     }
 
-    /// Raises the approve command's eligibility change when an update moved
-    /// its validity or strict-mode gate. While the form is disposed or an
-    /// approval is in flight, the command stays disabled whatever the update
-    /// changed.
-    fn publish_eligibility_change(&self, was_eligible: bool, eligible: bool) {
-        if was_eligible != eligible && !self.approval_in_flight.load(Ordering::SeqCst) {
-            self.raise_approve_can_execute_changed();
+    /// Publishes the `"model"` hub message of a committed update, unless the
+    /// form was disposed meanwhile.
+    fn publish_model_changed(&self) {
+        if !*lock(&self.disposed) {
+            self.component.notify_property_changed("model");
         }
     }
 
-    fn publish_approve_state_change(&self, previous: bool) {
-        if self.can_approve() != previous {
+    /// Raises the approve command's eligibility change when an update
+    /// `changed` its validity or strict-mode dirty gate (spec/20 §5.2,
+    /// ADR-0196). The rule compares the gates, not `can_approve`, so an
+    /// approval in flight does not suppress it. A disposed form sends nothing.
+    fn publish_eligibility_change(&self, changed: bool) {
+        if changed {
             self.raise_approve_can_execute_changed();
         }
     }
@@ -1519,9 +2969,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
             approve_command: Arc::new(OnceLock::new()),
             deny_command: Arc::new(OnceLock::new()),
             approved_callbacks: Arc::new(Mutex::new(ApprovedRegistry::new())),
-            approval_publication: Arc::new(Mutex::new(ApprovalPublication::new())),
+            publication: Arc::new(PublicationControl::new()),
             approval_in_flight: Arc::new(AtomicBool::new(false)),
             update_lock: Arc::new(UpdateLock::new()),
+            nested: Arc::new(Mutex::new(NestedUpdates::new())),
             commit_generation: Arc::new(AtomicU64::new(0)),
             revalidations: Arc::new(AtomicU64::new(0)),
             pair_version: Arc::new(AtomicU64::new(0)),

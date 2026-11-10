@@ -11,7 +11,7 @@
 // bounded, so a regression fails instead of hanging.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 import Combine
@@ -20,9 +20,6 @@ import Foundation
 
 final class LateChildStartTests: XCTestCase {
     private struct Boom: Error {}
-
-    /// The bound on every wait in these tests, in seconds.
-    private let bound: TimeInterval = 5
 
     /// A thread-safe log of `sender:status` entries and a hook-run counter.
     private final class Recorder {
@@ -51,13 +48,16 @@ final class LateChildStartTests: XCTestCase {
         let add: (ComponentVM) -> Bool
         let contains: (ComponentVM) -> Bool
         let setProbe: (((ComponentVMBase, LateChildStage) -> Void)?) -> Void
+        let collectionChanged: AnyPublisher<CollectionChangedEvent, Never>
         let log: Recorder
         let subscription: AnyCancellable
     }
 
     /// A container with auto-construct-on-add whose one factory child is a
     /// background child, so `construct()` leaves the container Constructing.
-    private func makeHarness(_ kind: String) throws -> Harness {
+    /// `rootDispatcher` replaces the container's dispatcher; the children
+    /// keep the manual one.
+    private func makeHarness(_ kind: String, rootDispatcher: Dispatcher? = nil) throws -> Harness {
         let hub = MessageHub()
         let dispatcher = ManualDispatcher()
         let log = Recorder()
@@ -71,7 +71,7 @@ final class LateChildStartTests: XCTestCase {
             .build()
         if kind == "composite" {
             let root = CompositeVM<ComponentVM>(
-                name: "root", hub: hub, dispatcher: dispatcher,
+                name: "root", hub: hub, dispatcher: rootDispatcher ?? dispatcher,
                 childrenFactory: { [first] }, autoConstructOnAdd: true
             )
             return Harness(
@@ -82,11 +82,12 @@ final class LateChildStartTests: XCTestCase {
                 },
                 contains: { child in root.snapshot().contains { $0 === child } },
                 setProbe: { root.lateChildProbeForTesting = $0 },
+                collectionChanged: root.collectionChanged,
                 log: log, subscription: subscription
             )
         }
         let root = GroupVM<ComponentVM>(
-            name: "root", hub: hub, dispatcher: dispatcher,
+            name: "root", hub: hub, dispatcher: rootDispatcher ?? dispatcher,
             childrenFactory: { [first] }, autoConstructOnAdd: true
         )
         return Harness(
@@ -97,6 +98,7 @@ final class LateChildStartTests: XCTestCase {
             },
             contains: { child in root.snapshot().contains { $0 === child } },
             setProbe: { root.lateChildProbeForTesting = $0 },
+            collectionChanged: root.collectionChanged,
             log: log, subscription: subscription
         )
     }
@@ -120,7 +122,7 @@ final class LateChildStartTests: XCTestCase {
 
     /// Spins until `condition` holds or the bound elapses; returns whether it held.
     private func waitUntil(_ condition: () -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(bound)
+        let deadline = Date().addingTimeInterval(hangGuard)
         while !condition() {
             if Date() >= deadline { return false }
             usleep(1_000)
@@ -151,7 +153,6 @@ final class LateChildStartTests: XCTestCase {
     ) -> Bool? {
         let paused = DispatchSemaphore(value: 0)
         let finished = DispatchSemaphore(value: 0)
-        let bound = self.bound
         let root = harness.root
         var pausedStatuses: (root: ConstructionStatus, late: ConstructionStatus)?
         var added: Bool?
@@ -160,7 +161,7 @@ final class LateChildStartTests: XCTestCase {
             guard child === late, stage == pauseAt else { return }
             pausedStatuses = (root.status, late.status)
             paused.signal()
-            let deadline = Date().addingTimeInterval(bound)
+            let deadline = Date().addingTimeInterval(hangGuard * 2)
             while !resume() && root.status == .constructing && Date() < deadline {
                 usleep(1_000)
             }
@@ -171,12 +172,12 @@ final class LateChildStartTests: XCTestCase {
             finished.signal()
         }
         adder.start()
-        XCTAssertEqual(paused.wait(timeout: .now() + bound), .success, "\(kind): add paused")
+        XCTAssertEqual(paused.wait(timeout: .now() + hangGuard), .success, "\(kind): add paused")
         XCTAssertEqual(pausedStatuses?.root, .constructing, kind)
         XCTAssertEqual(pausedStatuses?.late, .destructed, kind)
 
         pump(harness) // the original child settles; the walk pulls `late`
-        guard finished.wait(timeout: .now() + bound) == .success else {
+        guard finished.wait(timeout: .now() + hangGuard) == .success else {
             XCTFail("\(kind): the paused add did not finish")
             return nil
         }
@@ -243,10 +244,9 @@ final class LateChildStartTests: XCTestCase {
             let runs = Recorder()
             let inHook = DispatchSemaphore(value: 0)
             let releaseHook = DispatchSemaphore(value: 0)
-            let bound = self.bound
             let late = try lateChild(harness, runs: runs, during: {
                 inHook.signal()
-                _ = releaseHook.wait(timeout: .now() + bound)
+                _ = releaseHook.wait(timeout: .now() + hangGuard * 2)
             })
             let walkWaiting = Flag()
             harness.setProbe { child, stage in
@@ -260,14 +260,14 @@ final class LateChildStartTests: XCTestCase {
                 finished.signal()
             }
             adder.start()
-            XCTAssertEqual(inHook.wait(timeout: .now() + bound), .success, kind)
+            XCTAssertEqual(inHook.wait(timeout: .now() + hangGuard), .success, kind)
             XCTAssertEqual(late.status, .constructing, kind)
 
             pump(harness) // the original child settles; the walk pulls `late`
             _ = waitUntil { walkWaiting.isSet }
             XCTAssertEqual(harness.root.status, .constructing, kind)
             releaseHook.signal()
-            XCTAssertEqual(finished.wait(timeout: .now() + bound), .success, kind)
+            XCTAssertEqual(finished.wait(timeout: .now() + hangGuard), .success, kind)
             pump(harness)
 
             XCTAssertEqual(added, true, kind)
@@ -277,8 +277,9 @@ final class LateChildStartTests: XCTestCase {
     }
 
     /// A late child whose add-started construct fails while the walk waits on
-    /// it: the add fails and is undone, and the container rolls back.
-    func testFailedAddStartedLateChildFailsAddAndRollsBack() throws {
+    /// it: the add fails and is undone. The undo is a removal, so the
+    /// container still reaches Constructed (ADR-0186, #1313).
+    func testFailedAddStartedLateChildFailsAddAndContainerConstructs() throws {
         for kind in ["composite", "group"] {
             let harness = try makeHarness(kind)
             try harness.root.construct()
@@ -297,7 +298,57 @@ final class LateChildStartTests: XCTestCase {
             XCTAssertEqual(added, false, "\(kind): the add fails")
             XCTAssertFalse(harness.contains(late), "\(kind): the add is undone")
             XCTAssertEqual(late.status, .destructed, kind)
-            XCTAssertEqual(harness.root.status, .destructed, kind)
+            XCTAssertEqual(harness.root.status, .constructed, kind)
+            XCTAssertEqual(runs.runs, 1, kind)
+        }
+    }
+
+    /// #1371 — an add marks its start attempt done only after it ends its
+    /// membership transaction (ADR-0218 rule 4). The walk that waits on the
+    /// attempt then publishes `Constructed` outside that transaction, so a
+    /// `Constructed` subscriber can add a child. The container uses an
+    /// immediate dispatcher, so the resumed walk runs on the add's thread.
+    func testLateAddResumesWalkOutsideItsMembershipTransaction() throws {
+        for kind in ["composite", "group"] {
+            let harness = try makeHarness(kind, rootDispatcher: ImmediateDispatcher.INSTANCE)
+            try harness.root.construct()
+            XCTAssertEqual(harness.root.status, .constructing, kind)
+            let runs = Recorder()
+            let late = try lateChild(harness, runs: runs)
+            let extra = try ComponentVM.builder()
+                .name("extra").services(hub: harness.hub, dispatcher: harness.dispatcher).build()
+            let walkWaiting = Flag()
+            let extraAdded = Flag()
+            let changes = harness.collectionChanged
+                .filter { $0.action == .add }
+                .sink { event in
+                    for item in event.newItems { harness.log.append("added:\(item.name)") }
+                }
+            defer { changes.cancel() }
+            let constructedSubscription = harness.hub.messages
+                .compactMap { $0 as? ConstructionStatusChangedMessage }
+                .filter { $0.senderName == "root" && $0.status == .constructed }
+                .sink { _ in
+                    if harness.add(extra) { extraAdded.set() }
+                }
+            defer { constructedSubscription.cancel() }
+
+            let added = addPausedWhileWalkPulls(
+                harness, late, pauseAt: .attached,
+                onProbe: { child, stage in
+                    if child === late && stage == .walkWaitingOnAdd { walkWaiting.set() }
+                },
+                resume: { walkWaiting.isSet }, kind
+            )
+
+            XCTAssertEqual(added, true, kind)
+            XCTAssertTrue(walkWaiting.isSet, kind)
+            XCTAssertTrue(extraAdded.isSet, "\(kind): the Constructed subscriber adds a child")
+            XCTAssertTrue(harness.contains(extra), kind)
+            assertConstructedAfterLate(harness, late, kind)
+            let log = harness.log.snapshot
+            let rootConstructed = log.firstIndex(of: "root:constructed") ?? -1
+            XCTAssertGreaterThan(rootConstructed, log.firstIndex(of: "added:late") ?? Int.max, kind)
             XCTAssertEqual(runs.runs, 1, kind)
         }
     }

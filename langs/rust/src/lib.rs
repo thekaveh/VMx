@@ -7,7 +7,6 @@
 #![deny(missing_docs)]
 
 use serde::{Deserialize, Serialize};
-use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::future::Future;
@@ -34,8 +33,92 @@ pub use async_resource_vm::{
 };
 pub use async_value::{AsyncValue, AsyncValuePanic};
 pub use value_stream::{ValueStream, ValueSubscription};
+#[cfg(feature = "test-seams")]
 #[doc(hidden)]
-pub use wait_for_graph::container_wait_registered_for_testing;
+pub use wait_for_graph::{container_wait_registered_for_testing, wait_registered_for_testing};
+
+/// Renders the doctests that pin the `test-seams` gate: each seam call
+/// compiles with the feature and fails to compile without it.
+#[cfg(doctest)]
+macro_rules! test_seam_probes {
+    ($fence:literal) => {
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _ = vmx::wait_registered_for_testing(std::thread::current().id());"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _ = vmx::container_wait_registered_for_testing(std::thread::current().id());"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let group = vmx::GroupVm::<vmx::ComponentVm<i32>>::new(\"probe\");"]
+        #[doc = "group.set_last_scan_probe_for_testing(|| {});"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let group = vmx::GroupVm::<vmx::ComponentVm<i32>>::new(\"probe\");"]
+        #[doc = "group.set_seal_probe_for_testing(|| {});"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let composite = vmx::CompositeVm::<vmx::ComponentVm<i32>>::new(\"probe\");"]
+        #[doc = "composite.set_seal_probe_for_testing(|| {});"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let vm: vmx::ComponentVm = vmx::ComponentVm::new(\"probe\");"]
+        #[doc = "let _ = vm.property_changed().subscriber_count_for_testing();"]
+        #[doc = "```"]
+        pub struct TestSeamProbes;
+    };
+}
+#[cfg(all(doctest, feature = "test-seams"))]
+test_seam_probes!("rust");
+#[cfg(all(doctest, not(feature = "test-seams")))]
+test_seam_probes!("compile_fail");
+
+/// Renders the doctests that pin the `notifications` gate: each
+/// notification path resolves with the feature and fails to compile without
+/// it, while `ModalVm` resolves in both builds (ADR-0211).
+#[cfg(doctest)]
+macro_rules! notification_feature_probes {
+    ($fence:literal) => {
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _ = vmx::NotificationHub::new();"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _ = vmx::NullNotificationHub;"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "fn _probe<H: vmx::NotificationHubApi>() {}"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _confirm = vmx::make_confirm(vmx::NullNotificationHub, \"ok?\");"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _ = vmx::NotificationVm::new;"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _ = vmx::ConfirmationVm::new;"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = "```rust"]
+        #[doc = "let modal = vmx::ModalVm::new(false);"]
+        #[doc = "modal.close(Some(true));"]
+        #[doc = "assert_eq!(modal.result(), Some(true));"]
+        #[doc = "```"]
+        pub struct NotificationFeatureProbes;
+    };
+}
+#[cfg(all(doctest, feature = "notifications"))]
+notification_feature_probes!("rust");
+#[cfg(all(doctest, not(feature = "notifications")))]
+notification_feature_probes!("compile_fail");
 
 /// Version of the compiled Rust package.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -45,18 +128,19 @@ pub const MIN_SPEC_VERSION: &str = "3.30.0";
 mod runtime;
 pub use runtime::*;
 pub(crate) use runtime::{
-    begin_membership_transaction, begin_parent_transfer, clone_locked, evaluate_command_predicate,
-    finish_with_first_error, finish_with_first_failure, lock, next_id, replace_locked,
-    retain_first_error, retain_first_failure, retain_parent_transfer_commit, spawn_worker, wait,
-    ComponentCore, FirstFailure, LateStarts, MembershipDisposeDisposition,
-    MembershipTransactionControl, MembershipTransactionGuard, ModelHint, ParentRegistration,
-    ParentTransfer, StartAttempt, HIERARCHY_TOPOLOGY_GATE,
+    begin_membership_transaction, begin_parent_transfer, clone_locked, compensate_auto_start,
+    evaluate_command_predicate, finish_with_first_error, finish_with_first_failure, lock, next_id,
+    replace_locked, retain_first_error, retain_first_failure, retain_parent_transfer_commit,
+    rollback_error, spawn_worker, wait, ComponentCore, FirstFailure, LateStarts,
+    MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
+    ModelHint, ParentRegistration, ParentTransfer, PublicationLease, StartAttempt,
+    HIERARCHY_TOPOLOGY_GATE,
 };
 
 mod components;
 pub use components::{
-    ChildTransitions, ComponentVm, ComponentVmBuilder, ComponentVmOptions, ReadonlyComponentVm,
-    ReadonlyComponentVmBuilder, ViewModelType,
+    ChildTransitions, ComponentVm, ComponentVmBuilder, ComponentVmOptions, ModelChangedCallback,
+    ReadonlyComponentVm, ReadonlyComponentVmBuilder, ViewModelType,
 };
 
 mod commands;
@@ -68,8 +152,9 @@ pub use commands::{
 
 mod collections;
 pub use collections::{
+    EventStream, EventSubscription, ItemAddedEvent, ItemRemovedEvent, ItemReplacedEvent,
     KeyedServicedObservableCollection, ObservableDictionary, ObservableList,
-    ObservableMultiDictionary, ServicedObservableCollection,
+    ObservableMultiDictionary, ReadOnlyObservableList, ServicedObservableCollection,
 };
 
 mod composites;
@@ -84,19 +169,28 @@ pub use groups::{GroupVm, GroupVmBuilder, GroupVmOptions};
 mod paged_composition;
 pub use paged_composition::PagedComposition;
 
+mod scheduler;
+pub use scheduler::{
+    DelayedTask, ScheduledAction, Scheduler, SystemScheduler, VirtualTimeScheduler,
+};
+
 mod searchable_state;
 pub use searchable_state::SearchableState;
 
 mod modeled_crud;
-pub use modeled_crud::ModeledCrudCommands;
+pub use modeled_crud::{ModeledCrudCommands, NO_CONFIRM};
 
 mod derived_property;
 pub use derived_property::DerivedProperty;
 
+// The notifications sub-package is opt-out through the default
+// `notifications` feature; the core never depends on it (spec/16, ADR-0211).
+#[cfg(feature = "notifications")]
 mod notifications;
+#[cfg(feature = "notifications")]
 pub use notifications::{
-    make_confirm, Notification, NotificationHub, NotificationReaction, NotificationType,
-    NotificationWaiter, NullNotificationHub,
+    make_confirm, Notification, NotificationHub, NotificationHubApi, NotificationReaction,
+    NotificationType, NotificationWaiter, NullNotificationHub,
 };
 mod dialogs;
 pub use dialogs::{
@@ -140,7 +234,9 @@ mod token_paging;
 pub use token_paging::TokenPagedComposition;
 
 mod specialized_vms;
-pub use specialized_vms::{ConfirmationVm, ModalVm, NotificationVm};
+pub use specialized_vms::ModalVm;
+#[cfg(feature = "notifications")]
+pub use specialized_vms::{ConfirmationVm, NotificationVm};
 
 #[cfg(test)]
 mod tests {

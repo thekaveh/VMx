@@ -9,7 +9,7 @@
 // Ports langs/typescript/tests/conformance/expandCollapse.test.ts.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 import Combine
@@ -96,7 +96,7 @@ final class ExpandCollapseTests: XCTestCase {
     }
 
     /// EXP-005 — walkExpanded prunes children of collapsed Expandable nodes; non-Expandable nodes are always descended.
-    func testExp005WalkExpandedPrunesCollapsed() {
+    func testExp005WalkExpandedPrunesCollapsed() throws {
         // Leaves
         let a  = try! ComponentVM.builder().name("a").withNullServices().build()
         let b1 = try! ComponentVM.builder().name("b1").withNullServices().build()
@@ -107,7 +107,7 @@ final class ExpandCollapseTests: XCTestCase {
         // root is Expandable and expanded → its children (a, b) ARE visited.
         let root = ExpandableComposite("root", children: [a, b], expanded: true)
 
-        let result = walkExpanded(root)
+        let result = try walkExpanded(root)
         XCTAssertTrue(result.contains { $0 === root }, "root must appear")
         XCTAssertTrue(result.contains { $0 === a },    "a must appear (root is expanded)")
         XCTAssertTrue(result.contains { $0 === b },    "b must appear (root is expanded)")
@@ -117,7 +117,7 @@ final class ExpandCollapseTests: XCTestCase {
 
         // After expanding b, its children appear.
         b.expand()
-        let expanded = walkExpanded(root)
+        let expanded = try walkExpanded(root)
         XCTAssertEqual(expanded.map(\.name), ["root", "a", "b", "b1", "b2"])
     }
 

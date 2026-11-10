@@ -12,7 +12,7 @@
 // throw.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 import Combine
@@ -52,6 +52,33 @@ private final class Rendezvous: @unchecked Sendable {
 }
 
 final class CompositeVMTests: XCTestCase {
+
+    /// Waits for the workers in `group`. On a timeout, fails the test and ends
+    /// the test process (#1461). A worker stuck in a COMP-026 deadlock keeps
+    /// the process-wide selection coordinator or a composite's membership
+    /// gate, so reading `current` here, or any later selection in this
+    /// process, would wait with no bound. `swift test --parallel` runs each
+    /// case in its own process; a single-process run would otherwise hang
+    /// after the failure.
+    private func waitForWorkersOrEndTheProcess(
+        _ group: DispatchGroup,
+        timeout: TimeInterval,
+        _ message: String,
+        test: String = #function,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard group.wait(timeout: .now() + timeout) != .success else { return }
+        XCTFail(message, file: file, line: line)
+        fputs(
+            "error: CompositeVMTests.\(test) failed: \(message). A deadlocked worker "
+                + "keeps a selection lock, so the test process ends here (#1461).\n",
+            stderr
+        )
+        fflush(stdout)
+        fflush(stderr)
+        _exit(EXIT_FAILURE)
+    }
 
     private func leaf(_ name: String) -> ComponentVM {
         try! ComponentVM.builder()
@@ -515,13 +542,13 @@ final class CompositeVMTests: XCTestCase {
         left = try CompositeVM<ComponentVM>.builder().name("left")
             .withNullServices().children { [leftChild] }
             .onCurrentChanged { _ in
-                if leftMet.value == nil { leftMet.value = rendezvous.meet(timeout: 10) }
+                if leftMet.value == nil { leftMet.value = rendezvous.meet(timeout: hangGuard) }
                 right.selectChild(rightChild)
             }.build()
         right = try CompositeVM<ComponentVM>.builder().name("right")
             .withNullServices().children { [rightChild] }
             .onCurrentChanged { _ in
-                if rightMet.value == nil { rightMet.value = rendezvous.meet(timeout: 10) }
+                if rightMet.value == nil { rightMet.value = rendezvous.meet(timeout: hangGuard) }
                 left.selectChild(leftChild)
             }.build()
         try left.construct()
@@ -544,11 +571,7 @@ final class CompositeVMTests: XCTestCase {
         start.signal()
         start.signal()
 
-        // A deadlocked worker keeps holding a gate that `current` needs, so
-        // stop here instead of hanging.
-        guard done.wait(timeout: .now() + 20) == .success else {
-            return XCTFail("opposing current callbacks must not deadlock")
-        }
+        waitForWorkersOrEndTheProcess(done, timeout: hangGuard * 2, "opposing current callbacks must not deadlock")
         XCTAssertEqual(leftMet.value, true, "the left callback met the right one")
         XCTAssertEqual(rightMet.value, true, "the right callback met the left one")
         XCTAssertTrue(left.current === leftChild)
@@ -570,6 +593,7 @@ final class CompositeVMTests: XCTestCase {
         let lock = NSLock()
         var currentCallbackAdded = false
         var collectionCallbackSelected = false
+        var addResults: [Result<Void, ContainerOwnershipError>] = []
         var bag = Set<AnyCancellable>()
         var left: CompositeVM<ComponentVM>!
         let right = try CompositeVM<ComponentVM>.builder().name("right")
@@ -582,7 +606,10 @@ final class CompositeVMTests: XCTestCase {
                 let go = !currentCallbackAdded
                 currentCallbackAdded = true
                 lock.unlock()
-                if go { right.add(self.leaf("from-current-callback")) }
+                if go {
+                    let result = right.addResult(self.leaf("from-current-callback"))
+                    lock.withLock { addResults.append(result) }
+                }
             }.build()
         try left.construct()
         try right.construct()
@@ -605,16 +632,27 @@ final class CompositeVMTests: XCTestCase {
         done.enter()
         DispatchQueue.global().async {
             start.wait()
-            right.add(self.leaf("from-thread"))
+            let result = right.addResult(self.leaf("from-thread"))
+            lock.withLock { addResults.append(result) }
             done.leave()
         }
         start.signal()
         start.signal()
 
-        XCTAssertEqual(done.wait(timeout: .now() + 10), .success,
-                       "crossing collection/current callbacks must not deadlock")
+        waitForWorkersOrEndTheProcess(
+            done, timeout: hangGuard, "crossing collection/current callbacks must not deadlock"
+        )
         XCTAssertNotNil(left.current)
-        XCTAssertEqual(right.count, 2)
+        // The adds may overlap: the second then fails at once (ADR-0187).
+        let results = lock.withLock { addResults }
+        let added = results.filter { if case .success = $0 { return true } else { return false } }.count
+        for case .failure(let error) in results {
+            guard case .attachmentFailed(let inner) = error, inner is ContainerMembershipTransactionError else {
+                return XCTFail("unexpected add failure \(error)")
+            }
+        }
+        XCTAssertGreaterThanOrEqual(added, 1)
+        XCTAssertEqual(right.count, added)
         bag.removeAll()
     }
 
@@ -623,13 +661,14 @@ final class CompositeVMTests: XCTestCase {
     /// selected on `left`, so that selection must complete while A is still
     /// inside `left`'s callback (callbacks retain neither the shared coordinator
     /// nor `left`'s membership transaction). A's add starts only after B's add
-    /// is delivering its change, so it waits for B's transaction if that is
-    /// still open and always lands second.
+    /// returned, because a membership change does not wait for another
+    /// thread's transaction (ADR-0187), so it always lands second.
     func testCOMP026CollectionAndCurrentCallbacksCrossingDeterministically() throws {
         let l1 = leaf("l1")
         let l2 = leaf("l2")
         let inCurrentCallback = DispatchSemaphore(value: 0)
         let collectionCallbackSelected = DispatchSemaphore(value: 0)
+        let threadAddReturned = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var collectionCallbackRan = false
         var currentCallbackAdd: Result<Void, ContainerOwnershipError>?
@@ -642,7 +681,8 @@ final class CompositeVMTests: XCTestCase {
             .onCurrentChanged { selected in
                 guard selected === l1 else { return }
                 inCurrentCallback.signal()
-                guard collectionCallbackSelected.wait(timeout: .now() + 10) == .success else {
+                guard collectionCallbackSelected.wait(timeout: .now() + hangGuard) == .success,
+                      threadAddReturned.wait(timeout: .now() + hangGuard) == .success else {
                     return
                 }
                 let result = right.addResult(self.leaf("from-current-callback"))
@@ -666,16 +706,18 @@ final class CompositeVMTests: XCTestCase {
             left.selectChild(l1)
             done.leave()
         }
-        XCTAssertEqual(inCurrentCallback.wait(timeout: .now() + 10), .success,
+        XCTAssertEqual(inCurrentCallback.wait(timeout: .now() + hangGuard), .success,
                        "thread A reaches left's current callback")
         done.enter()
         DispatchQueue.global().async {
             right.add(self.leaf("from-thread"))
+            threadAddReturned.signal()
             done.leave()
         }
 
-        XCTAssertEqual(done.wait(timeout: .now() + 10), .success,
-                       "crossing collection/current callbacks must not deadlock")
+        waitForWorkersOrEndTheProcess(
+            done, timeout: hangGuard * 2, "crossing collection/current callbacks must not deadlock"
+        )
         let added = lock.withLock { currentCallbackAdd }
         guard case .success? = added else {
             return XCTFail("the current callback's add must succeed, got \(String(describing: added))")
@@ -685,13 +727,11 @@ final class CompositeVMTests: XCTestCase {
         bag.removeAll()
     }
 
-    /// COMP-026 / ADR-0118 — a selection made while another thread holds the
-    /// composite's membership transaction waits for it and then completes. It
-    /// was dropped (`selectChild`), rejected as a non-member (`setCurrent`), or
-    /// trapped (`current =`), which also made the crossing test above flaky.
-    /// The add's construct hook parks until the selection reports that it
-    /// waits for the add's transaction; its wait is a hang guard only.
-    func testCOMP026SelectionFromAnotherThreadWaitsForAnOpenMembershipTransaction() throws {
+    /// COMP-026 / ADR-0173 — a selection made while another thread holds the
+    /// composite's membership transaction commits at once: it neither fails
+    /// nor waits (spec/06 §4.3 rule 1, #1145). The add's construct hook stays
+    /// parked until the selection has returned; its wait is a hang guard only.
+    func testCOMP026SelectionFromAnotherThreadCommitsWithoutWaitingForAnOpenMembershipTransaction() throws {
         let a = leaf("a")
         let b = leaf("b")
         let c = leaf("c")
@@ -699,20 +739,15 @@ final class CompositeVMTests: XCTestCase {
             .withNullServices().children { [a, b, c] }
             .autoConstructOnAdd(true).build()
         try composite.construct()
-        let selector = ThreadWaitGraph.currentThread
-        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
 
         func whileAnotherThreadAdds(_ name: String, _ select: () throws -> Void) rethrows {
             let entered = DispatchSemaphore(value: 0)
-            let selectionWaits = DispatchSemaphore(value: 0)
+            let selected = DispatchSemaphore(value: 0)
             let released = SharedValue<DispatchTimeoutResult?>(nil)
-            ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
-                if accepted, caller == selector { selectionWaits.signal() }
-            }
             let parked = try! ComponentVM.builder().name(name).withNullServices()
                 .onConstruct {
                     entered.signal()
-                    released.value = selectionWaits.wait(timeout: .now() + 10)
+                    released.value = selected.wait(timeout: .now() + hangGuard)
                 }.build()
             let added = DispatchGroup()
             added.enter()
@@ -720,25 +755,37 @@ final class CompositeVMTests: XCTestCase {
                 composite.add(parked)
                 added.leave()
             }
-            XCTAssertEqual(entered.wait(timeout: .now() + 10), .success)
+            XCTAssertEqual(entered.wait(timeout: .now() + hangGuard), .success)
             try select()
-            XCTAssertEqual(added.wait(timeout: .now() + 20), .success)
-            XCTAssertEqual(released.value, .success, "\(name): the selection waits for the add")
+            selected.signal()
+            XCTAssertEqual(added.wait(timeout: .now() + hangGuard * 2), .success)
+            XCTAssertEqual(released.value, .success, "\(name): the selection returned while the add was open")
         }
 
-        whileAnotherThreadAdds("parked-1") { composite.selectChild(a) }
-        XCTAssertTrue(composite.current === a, "selectChild waits instead of being dropped")
-        try whileAnotherThreadAdds("parked-2") { try composite.setCurrent(b) }
-        XCTAssertTrue(composite.current === b, "setCurrent waits instead of throwing")
-        whileAnotherThreadAdds("parked-3") { composite.current = c }
-        XCTAssertTrue(composite.current === c, "the current setter waits instead of trapping")
-        XCTAssertEqual(composite.count, 6)
+        whileAnotherThreadAdds("parked-1") {
+            composite.selectChild(a)
+            XCTAssertTrue(composite.current === a, "selectChild commits without waiting")
+        }
+        try whileAnotherThreadAdds("parked-2") {
+            try composite.setCurrent(b)
+            XCTAssertTrue(composite.current === b, "setCurrent commits without waiting")
+        }
+        whileAnotherThreadAdds("parked-3") {
+            composite.current = c
+            XCTAssertTrue(composite.current === c, "the current setter commits without waiting")
+        }
+        try whileAnotherThreadAdds("parked-4") {
+            try composite.selectComponent(a)
+            try composite.deselectComponent(a)
+            XCTAssertNil(composite.current, "selectComponent/deselectComponent commit without waiting")
+        }
+        XCTAssertEqual(composite.count, 7)
     }
 
-    /// COMP-026 — a selection waiting for another thread's membership
+    /// COMP-026 — a selection made during another thread's membership
     /// transaction does not retain the shared cross-composite coordinator, so
     /// that thread's construct hook can still select in another composite.
-    func testCOMP026SelectionWaitingForATransactionDoesNotRetainTheCoordinator() throws {
+    func testCOMP026SelectionDuringAForeignTransactionDoesNotRetainTheCoordinator() throws {
         let a = leaf("a")
         let o = leaf("o")
         let other = try CompositeVM<ComponentVM>.builder().name("other")
@@ -749,19 +796,13 @@ final class CompositeVMTests: XCTestCase {
             .autoConstructOnAdd(true).build()
         try composite.construct()
         let entered = DispatchSemaphore(value: 0)
-        let selectionWaits = DispatchSemaphore(value: 0)
-        let selector = SharedValue<UInt64?>(nil)
+        let selected = DispatchSemaphore(value: 0)
         let released = SharedValue<DispatchTimeoutResult?>(nil)
-        ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
-            if accepted, caller == selector.value { selectionWaits.signal() }
-        }
-        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
         let parked = try ComponentVM.builder().name("parked").withNullServices()
             .onConstruct {
                 entered.signal()
-                // Select only once the other thread's selection waits for
-                // this add's transaction.
-                released.value = selectionWaits.wait(timeout: .now() + 10)
+                // Select only once the other thread's selection has returned.
+                released.value = selected.wait(timeout: .now() + hangGuard)
                 other.selectChild(o)
             }.build()
 
@@ -771,20 +812,18 @@ final class CompositeVMTests: XCTestCase {
             composite.add(parked)
             done.leave()
         }
-        XCTAssertEqual(entered.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(entered.wait(timeout: .now() + hangGuard), .success)
         done.enter()
         DispatchQueue.global().async {
-            selector.value = ThreadWaitGraph.currentThread
             composite.selectChild(a)
+            selected.signal()
             done.leave()
         }
 
-        // A deadlocked worker keeps holding the shared selection coordinator,
-        // so stop here instead of reading `current`.
-        guard done.wait(timeout: .now() + 20) == .success else {
-            return XCTFail("a waiting selection must not block selection in another composite")
-        }
-        XCTAssertEqual(released.value, .success, "the selection waits for the add")
+        waitForWorkersOrEndTheProcess(
+            done, timeout: hangGuard * 2, "a selection must not block selection in another composite"
+        )
+        XCTAssertEqual(released.value, .success, "the selection returned while the add was open")
         XCTAssertTrue(other.current === o)
         XCTAssertTrue(composite.current === a)
     }

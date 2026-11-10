@@ -3,8 +3,9 @@
 //! Spec: `spec/21-collections.md`; ADR-0033.
 
 use super::{
-    lock, next_id, Arc, AsyncRelayCommand, CollectionChangeAction, CollectionChangedMessage,
-    Message, MessageHub, Mutex, MutexGuard, PropertyChangedMessage, VmNode,
+    clone_locked, lock, next_id, Arc, AsyncRelayCommand, CollectionChangeAction,
+    CollectionChangedMessage, Message, MessageHub, Mutex, MutexGuard, PropertyChangedMessage,
+    VmNode,
 };
 use std::{
     sync::{
@@ -179,6 +180,58 @@ fn publish_command_change(command_trigger: &MessageHub, id: usize) {
     });
 }
 
+/// One accumulated item, held as two copies behind their own locks (#1277).
+///
+/// `items()` clones the `read` copy, and a refresh clones the `compare` copy
+/// for its plan comparison. No commit takes either lock: a commit moves only
+/// the handles, under the items lock. So `T::clone` never runs under a lock
+/// that a load or refresh waits for, and a reader's clone never blocks a
+/// refresh's comparison of the same item. `Mutex<T>` is `Sync` when
+/// `T: Send`, so the pager keeps its `T: Clone + PartialEq + Send` bound.
+struct StoredItem<T> {
+    read: Arc<Mutex<T>>,
+    compare: Arc<Mutex<T>>,
+}
+
+impl<T> Clone for StoredItem<T> {
+    fn clone(&self) -> Self {
+        Self {
+            read: Arc::clone(&self.read),
+            compare: Arc::clone(&self.compare),
+        }
+    }
+}
+
+type StoredItems<T> = Mutex<Vec<StoredItem<T>>>;
+
+/// Clones a loaded page for its comparison copies. It runs `T::clone`, so
+/// callers run it before the commit begins and hold no pager lock.
+fn compare_copies<T: Clone>(page: &[T]) -> Vec<T> {
+    page.to_vec()
+}
+
+/// Stores a loaded page with its comparison copies. No user code runs.
+fn store_page<T>(page: Vec<T>, compare: Vec<T>) -> Vec<StoredItem<T>> {
+    debug_assert_eq!(page.len(), compare.len());
+    page.into_iter()
+        .zip(compare)
+        .map(|(read, compare)| StoredItem {
+            read: Arc::new(Mutex::new(read)),
+            compare: Arc::new(Mutex::new(compare)),
+        })
+        .collect()
+}
+
+/// Copies one copy of every stored item. The items lock is held only to copy
+/// the handles; each `T::clone` runs after it is released.
+fn copy_items<T: Clone>(
+    items: &StoredItems<T>,
+    copy: impl Fn(&StoredItem<T>) -> &Arc<Mutex<T>>,
+) -> Vec<T> {
+    let stored = lock(items).clone();
+    stored.iter().map(|item| clone_locked(copy(item))).collect()
+}
+
 /// How a refreshed first page is committed. `items` and the cursor must
 /// describe one loaded prefix (spec 21 §6.2, ADR-0136): a matching page as
 /// long as the accumulator refreshes its continuation; a shorter matching
@@ -200,6 +253,27 @@ impl RefreshPlan {
         }
     }
 
+    /// Clones `page` for its comparison copies when the plan replaces the
+    /// items. It runs `T::clone`, so callers run it before the commit begins.
+    fn compare_copies<T: Clone>(&self, page: &[T]) -> Vec<T> {
+        if self.replace_items {
+            compare_copies(page)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Stores `page` when the plan replaces the items. Otherwise it returns
+    /// no items and the unadopted page, which callers drop only after
+    /// releasing the commit. No user code runs.
+    fn store_page<T>(&self, page: Vec<T>, compare: Vec<T>) -> (Vec<StoredItem<T>>, Option<Vec<T>>) {
+        if self.replace_items {
+            (store_page(page, compare), None)
+        } else {
+            (Vec::new(), Some(page))
+        }
+    }
+
     /// Commits the plan's items through the held items lock and returns the
     /// displaced items, which callers drop only after releasing the commit.
     fn apply_items<T>(&self, items: &mut Vec<T>, page: Vec<T>) -> Vec<T> {
@@ -210,23 +284,56 @@ impl RefreshPlan {
         }
     }
 
-    /// Commits the plan's cursor and returns the displaced token, which
-    /// callers drop only after releasing the commit.
+    /// Commits the plan's cursor and returns the displaced token, or the
+    /// unadopted `next`, which callers drop only after releasing the commit.
     fn apply_token<Token>(
         &self,
-        token: &Mutex<Option<Token>>,
+        cursor: &Cursor<Token>,
         has_more: &Mutex<bool>,
         next: Option<Token>,
-    ) -> Option<Token> {
+    ) -> CursorWrite<Token> {
         if self.adopt_token {
-            let more = next.is_some();
-            let previous = std::mem::replace(&mut *lock(token), next);
-            *lock(has_more) = more;
-            previous
+            write_cursor(cursor, has_more, next)
         } else {
-            next
+            (None, next)
         }
     }
+}
+
+/// The stored continuation token. The lock guards only the slot, and readers
+/// hold it just long enough to clone the `Arc`. `Token::clone` runs with no
+/// lock held, so a clone can wait for any load, refresh or other cursor read
+/// of the same pager, or read the cursor again on its own thread (#1162,
+/// #1278, ADR-0202). Readers share the stored token, so the pager requires
+/// `Token: Sync`.
+type Cursor<Token> = Mutex<Option<Arc<Token>>>;
+
+/// Clones the stored token with no pager lock held while `Token::clone` runs.
+///
+/// The reader's `Arc` drops after the clone, also with no lock held, so a
+/// last-reference `Token::drop` runs outside every pager lock.
+fn read_cursor<Token: Clone>(cursor: &Cursor<Token>) -> Option<Token> {
+    let stored = lock(cursor).clone();
+    stored.map(|token| Token::clone(&token))
+}
+
+/// The values a cursor write displaced: the stored token it replaced, and a
+/// token it did not adopt. Callers drop them only after they release the
+/// commit, so `Token::drop` runs outside every pager lock.
+type CursorWrite<Token> = (Option<Arc<Token>>, Option<Token>);
+
+/// Stores `next` and its `has_more`, and returns the displaced token. No user
+/// code runs here: the slot swap moves an `Arc` and allocates a new one.
+fn write_cursor<Token>(
+    cursor: &Cursor<Token>,
+    has_more: &Mutex<bool>,
+    next: Option<Token>,
+) -> CursorWrite<Token> {
+    let more = next.is_some();
+    let stored = next.map(Arc::new);
+    let displaced = std::mem::replace(&mut *lock(cursor), stored);
+    *lock(has_more) = more;
+    (displaced, None)
 }
 
 /// Starts a load or refresh; a later start makes every earlier one stale.
@@ -234,12 +341,28 @@ impl RefreshPlan {
 /// The start takes `gate`, which a commit holds from its final check until it
 /// has written the items and the cursor. A start therefore lands before that
 /// check, which makes the commit stale, or after the writes (#1045). No user
-/// code runs under `gate`, but a commit holds it while it waits for the cursor
-/// lock. A `Token::clone` in [`TokenPagedComposition::current_token`] must
-/// therefore not wait for an operation of the same pager to start.
+/// code runs under `gate`. A commit holds it while it takes the cursor slot
+/// lock, but a reader holds that lock only to clone the stored `Arc`, never
+/// while `Token::clone` runs (#1162, #1278).
 fn begin_operation(gate: &Mutex<()>, generation: &AtomicUsize) -> usize {
     let _start = lock(gate);
     generation.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+/// Starts a command load, or returns `None` when the cursor is terminal.
+///
+/// A refresh or another load can commit a terminal token after the load
+/// command admitted this run. Such a load is not an operation start: it
+/// fetches nothing and supersedes nothing (spec 21 §6.2, ADR-0169). The check
+/// and the start share `gate`, and a commit writes `has_more` under `gate`, so
+/// no terminal commit lands between them. The lock order is `gate`, then
+/// `has_more`, which matches the commit order.
+fn begin_load(gate: &Mutex<()>, generation: &AtomicUsize, has_more: &Mutex<bool>) -> Option<usize> {
+    let _start = lock(gate);
+    if !*lock(has_more) {
+        return None;
+    }
+    Some(generation.fetch_add(1, Ordering::SeqCst) + 1)
 }
 
 /// The locks a current commit writes under: the items, and the operation gate,
@@ -325,13 +448,24 @@ impl Drop for TokenPagerCommit {
 
 #[derive(Clone)]
 /// An accumulated, forward-only page sequence driven by continuation tokens.
+///
+/// The token type is `Clone + Send + Sync + 'static`. Readers share one stored
+/// token and clone it with no pager lock held (spec/21 §6.1, ADR-0202). A
+/// `Send`-only token, such as one that holds a `Cell`, does not compile; keep
+/// its state in a `Mutex` or an atomic instead:
+///
+/// ```compile_fail
+/// use vmx::TokenPagedComposition;
+///
+/// let _pages = TokenPagedComposition::<i32, std::cell::Cell<u8>>::new(None);
+/// ```
 pub struct TokenPagedComposition<
     T: Clone + PartialEq + Send + 'static,
-    Token: Clone + Send + 'static,
+    Token: Clone + Send + Sync + 'static,
 > {
     id: usize,
-    items: Arc<Mutex<Vec<T>>>,
-    next_token: Arc<Mutex<Option<Token>>>,
+    items: Arc<StoredItems<T>>,
+    next_token: Arc<Cursor<Token>>,
     has_more: Arc<Mutex<bool>>,
     hub: MessageHub,
     command_change_trigger: MessageHub,
@@ -342,7 +476,7 @@ pub struct TokenPagedComposition<
     operation_gate: Arc<Mutex<()>>,
 }
 
-impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
+impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + Sync + 'static>
     TokenPagedComposition<T, Token>
 {
     /// Creates an empty pager whose default loader immediately reaches the end.
@@ -401,15 +535,21 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                 if load_more_lifecycle.is_terminal() {
                     return Ok(());
                 }
-                let operation = begin_operation(&load_more_gate, &load_more_generation);
-                let token = lock(&load_more_token).clone();
+                let Some(operation) =
+                    begin_load(&load_more_gate, &load_more_generation, &load_more_has_more)
+                else {
+                    return Ok(());
+                };
+                let token = read_cursor(&load_more_token);
                 if load_more_lifecycle.is_terminal() {
                     return Ok(());
                 }
                 let (page, next) = load_more_loader(token);
+                let compare = compare_copies(&page);
                 let Some(commit) = load_more_lifecycle.begin_commit() else {
                     return Ok(());
                 };
+                let page = store_page(page, compare);
                 let Some(current) = lock_current(
                     &load_more_items,
                     &load_more_gate,
@@ -422,12 +562,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                 let changed = !page.is_empty();
                 let ((), previous_token) = current.write(
                     |items| items.extend(page),
-                    || {
-                        let has_more = next.is_some();
-                        let previous = std::mem::replace(&mut *lock(&load_more_token), next);
-                        *lock(&load_more_has_more) = has_more;
-                        previous
-                    },
+                    || write_cursor(&load_more_token, &load_more_has_more, next),
                 );
                 publish_pager_changes(&load_more_hub, id, changed, &commit);
                 let publish_command = commit.is_allowed();
@@ -461,19 +596,24 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                 }
                 let operation = begin_operation(&refresh_gate, &refresh_generation);
                 let (page, next) = refresh_loader(None);
+                // Compare before the commit begins, on a copy, so no pager
+                // lock is held and no other commit waits while `T::clone` and
+                // `PartialEq` run: they may wait for another load or refresh
+                // (#1277). Items change only in a commit of a current
+                // operation, and every operation that starts after this one
+                // makes it stale, so a change after the comparison is
+                // rejected by the operation check in `lock_current`.
+                let current = copy_items(&refresh_items, |item| &item.compare);
+                let plan = RefreshPlan::new(&current, &page, next.is_some());
+                drop(current);
+                let compare = plan.compare_copies(&page);
                 let Some(commit) = refresh_lifecycle.begin_commit() else {
                     return Ok(());
                 };
                 if !commit.is_allowed() || !is_current_operation(&refresh_generation, operation) {
                     return Ok(());
                 }
-                // Compare a copy, so no lock is held while `PartialEq` runs.
-                // Every item write happens inside a commit, and this thread
-                // owns it, so only a re-entrant operation started by `eq`
-                // can change the items; the operation check rejects that.
-                let current = lock(&refresh_items).clone();
-                let plan = RefreshPlan::new(&current, &page, next.is_some());
-                drop(current);
+                let (page, unadopted) = plan.store_page(page, compare);
                 let Some(current) = lock_current(
                     &refresh_items,
                     &refresh_gate,
@@ -493,7 +633,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                 if publish_command {
                     publish_command_change(&refresh_trigger, id);
                 }
-                drop(displaced);
+                drop((displaced, unadopted));
                 Ok(())
             })
             .trigger(command_change_trigger.clone())
@@ -520,13 +660,32 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
     }
 
     /// Returns a snapshot of all items accumulated so far.
+    ///
+    /// The pager runs `T::clone` here with no pager lock held (#1277). A
+    /// clone can therefore wait for another thread to start or commit a load
+    /// or refresh of this pager, including a refresh that compares the same
+    /// item. Each loaded item is cloned once more when its page is stored,
+    /// for the refresh comparison. Two limits remain, because every
+    /// `items()` clone of one stored item runs under that item's own lock:
+    ///
+    /// - Clones of the same stored item take turns. A `T::clone` must not
+    ///   wait for another thread's `items()` call.
+    /// - The lock is not re-entrant. A `T::clone` must not call `items()`
+    ///   again on its own thread. That call blocks forever.
     pub fn items(&self) -> Vec<T> {
-        lock(&self.items).clone()
+        copy_items(&self.items, |item| &item.read)
     }
 
     /// Returns the continuation token for the next page.
+    ///
+    /// The pager runs `Token::clone` here, and in each load's cursor read,
+    /// with no pager lock held (#1162, #1278, ADR-0202). A clone can
+    /// therefore wait for another thread to start or commit a load or
+    /// refresh of this pager. Clones of one stored token can run at once,
+    /// because `Token: Sync`. A clone can also read the cursor again on its
+    /// own thread, for example through `current_token()`.
     pub fn current_token(&self) -> Option<Token> {
-        lock(&self.next_token).clone()
+        read_cursor(&self.next_token)
     }
 
     /// Reports whether the loader supplied another continuation token.
@@ -555,6 +714,11 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
     }
 
     /// Executes the configured refresh command.
+    ///
+    /// The refresh clones each item's comparison copy with no pager lock
+    /// held, so that `T::clone` may wait for a load or another operation of
+    /// this pager (#1277). Comparison clones of one stored item take turns,
+    /// so such a clone must not wait for another thread's refresh.
     pub fn refresh(&self) {
         if self.lifecycle.is_terminal() {
             return;
@@ -567,6 +731,22 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
     }
 
     /// Appends one page from an ad hoc loader and updates continuation state.
+    ///
+    /// This call does not check [`has_more()`](Self::has_more). The caller
+    /// supplies the loader, so the call calls it with the current
+    /// continuation token also when `has_more()` is false, and appends the
+    /// page that it returns (ADR-0169). The gated path is
+    /// [`load_more_command()`](Self::load_more_command) and
+    /// [`load_next()`](Self::load_next): a run of that command checks
+    /// `has_more()` when its load starts, and a run that finds a terminal
+    /// token fetches nothing and supersedes nothing.
+    ///
+    /// Each call starts a new operation. That operation supersedes every load
+    /// and refresh that started before it and is still in flight: their
+    /// results are discarded and do not commit. A load or refresh that starts
+    /// after this call supersedes it in the same way.
+    ///
+    /// After [`dispose()`](Self::dispose), the call does nothing.
     pub fn load_more<F>(&self, loader: F)
     where
         F: FnOnce(Option<Token>) -> (Vec<T>, Option<Token>),
@@ -575,14 +755,16 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
             return;
         }
         let operation = begin_operation(&self.operation_gate, &self.operation_generation);
-        let token = lock(&self.next_token).clone();
+        let token = read_cursor(&self.next_token);
         if self.lifecycle.is_terminal() {
             return;
         }
         let (page, next_token) = loader(token);
+        let compare = compare_copies(&page);
         let Some(commit) = self.lifecycle.begin_commit() else {
             return;
         };
+        let page = store_page(page, compare);
         let Some(current) = lock_current(
             &self.items,
             &self.operation_gate,
@@ -595,12 +777,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         let changed = !page.is_empty();
         let ((), previous_token) = current.write(
             |items| items.extend(page),
-            || {
-                let has_more = next_token.is_some();
-                let previous = std::mem::replace(&mut *lock(&self.next_token), next_token);
-                *lock(&self.has_more) = has_more;
-                previous
-            },
+            || write_cursor(&self.next_token, &self.has_more, next_token),
         );
         publish_pager_changes(&self.hub, self.id, changed, &commit);
         let publish_command = commit.is_allowed();
@@ -632,7 +809,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
     }
 }
 
-impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
+impl<T: VmNode, Token: Clone + Send + Sync + 'static> TokenPagedComposition<T, Token> {
     /// Creates a pager that constructs each loaded VM before publishing its reset.
     ///
     /// The token argument is retained for source compatibility and ignored.
@@ -665,18 +842,23 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 if load_lifecycle.is_terminal() {
                     return Ok(());
                 }
-                let operation = begin_operation(&load_gate, &load_generation);
-                let token = lock(&load_token).clone();
+                let Some(operation) = begin_load(&load_gate, &load_generation, &load_has_more)
+                else {
+                    return Ok(());
+                };
+                let token = read_cursor(&load_token);
                 if load_lifecycle.is_terminal() {
                     return Ok(());
                 }
                 let (page, next) = load_loader(token);
+                let compare = compare_copies(&page);
                 let Some(commit) = load_lifecycle.begin_commit() else {
                     return Ok(());
                 };
                 if !construct_while_current(&page, &load_generation, operation, &commit) {
                     return Ok(());
                 }
+                let page = store_page(page, compare);
                 let Some(current) = lock_current(
                     &load_items,
                     &load_gate,
@@ -689,12 +871,7 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 let changed = !page.is_empty();
                 let ((), previous_token) = current.write(
                     |items| items.extend(page),
-                    || {
-                        let has_more = next.is_some();
-                        let previous = std::mem::replace(&mut *lock(&load_token), next);
-                        *lock(&load_has_more) = has_more;
-                        previous
-                    },
+                    || write_cursor(&load_token, &load_has_more, next),
                 );
                 publish_pager_changes(&load_hub, id, changed, &commit);
                 let publish_command = commit.is_allowed();
@@ -728,19 +905,20 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 }
                 let operation = begin_operation(&refresh_gate, &refresh_generation);
                 let (page, next) = refresh_loader(None);
+                // Compare before the commit begins, on a copy, so no pager
+                // lock is held and no other commit waits while `T::clone` and
+                // `PartialEq` run: they may wait for another load or refresh
+                // (#1277). Items change only in a commit of a current
+                // operation, and every operation that starts after this one
+                // makes it stale, so a change after the comparison is
+                // rejected by the operation check in `lock_current`.
+                let current = copy_items(&refresh_items, |item| &item.compare);
+                let plan = RefreshPlan::new(&current, &page, next.is_some());
+                drop(current);
+                let compare = plan.compare_copies(&page);
                 let Some(commit) = refresh_lifecycle.begin_commit() else {
                     return Ok(());
                 };
-                if !is_current_operation(&refresh_generation, operation) {
-                    return Ok(());
-                }
-                // Compare a copy, so no lock is held while `PartialEq` runs.
-                // Every item write happens inside a commit, and this thread
-                // owns it, so only a re-entrant operation started by `eq`
-                // can change the items; the operation check rejects that.
-                let current = lock(&refresh_items).clone();
-                let plan = RefreshPlan::new(&current, &page, next.is_some());
-                drop(current);
                 if !commit.is_allowed() || !is_current_operation(&refresh_generation, operation) {
                     return Ok(());
                 }
@@ -749,6 +927,7 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 {
                     return Ok(());
                 }
+                let (page, unadopted) = plan.store_page(page, compare);
                 let Some(current) = lock_current(
                     &refresh_items,
                     &refresh_gate,
@@ -768,7 +947,7 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 if publish_command {
                     publish_command_change(&refresh_trigger, id);
                 }
-                drop(displaced);
+                drop((displaced, unadopted));
                 Ok(())
             })
             .trigger(command_change_trigger.clone())

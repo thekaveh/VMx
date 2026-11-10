@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+from collections.abc import Callable
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler
-from vmx import ConstructionStatus, MessageHub, RxDispatcher
+from vmx import AsyncRelayCommand, ConstructionStatus, MessageHub, RxDispatcher
 from vmx.messages.protocols import Message
-from vmx.notifications import Notification, NotificationHub
+from vmx.notifications import Notification, NotificationHub, NotificationType
 
 from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
+from notes_showcase.models.note_model import NoteModel
 from notes_showcase.models.seed import build_seed
 from notes_showcase.viewmodels.dialog_service import IDialogService
 from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
@@ -289,6 +292,101 @@ async def test_export_command_uses_dialog_service_and_writes_via_repo(tmp_path) 
     assert repo.last_export_path == out_path
 
 
+def _observe_notifications(
+    notification_hub: NotificationHub,
+    on_post: Callable[[Notification], object] | None = None,
+) -> list[Notification]:
+    """Records each notification once, when it first appears in ``pending``.
+    ``on_post`` runs for each new notification, so a test can check the
+    state at that moment."""
+    observed: list[Notification] = []
+
+    def _record(snapshot: tuple[Notification, ...]) -> None:
+        for notification in snapshot:
+            if notification not in observed:
+                observed.append(notification)
+                if on_post is not None:
+                    on_post(notification)
+
+    notification_hub.pending.subscribe(on_next=_record)
+    return observed
+
+
+async def test_export_command_posts_a_notification_after_the_export(tmp_path) -> None:
+    """A successful export posts one NOTIFICATION after the repository wrote
+    the file (#1329)."""
+    out_path = str(tmp_path / "notes-export.json")
+    repo = _CountingRepo(build_seed(), load_all_delay=0.0, export_delay=0.0)
+    notification_hub = NotificationHub()
+    exports_at_post: list[int] = []
+    observed = _observe_notifications(
+        notification_hub, lambda _n: exports_at_post.append(repo.export_count)
+    )
+    ws = (
+        WorkspaceVM.builder()
+        .name("ws")
+        .repository(repo)
+        .dialog_service(_StubDialogService(save_path=out_path))
+        .notification_hub(notification_hub)
+        .build()
+    )
+    await ws.construct_async()
+
+    await ws.export_command.execute_async()
+
+    assert [n.type for n in observed] == [NotificationType.NOTIFICATION]
+    assert observed[0].message == f"Exported to {out_path}"
+    assert exports_at_post == [1]
+
+
+async def test_export_command_cancelled_posts_no_notification() -> None:
+    """A cancelled dialog runs no export and posts nothing (#1329)."""
+    repo = _CountingRepo(build_seed(), load_all_delay=0.0, export_delay=0.0)
+    notification_hub = NotificationHub()
+    observed = _observe_notifications(notification_hub)
+    ws = (
+        WorkspaceVM.builder()
+        .name("ws")
+        .repository(repo)
+        .dialog_service(_StubDialogService(save_path=None))
+        .notification_hub(notification_hub)
+        .build()
+    )
+    await ws.construct_async()
+
+    await ws.export_command.execute_async()
+
+    assert repo.export_count == 0
+    assert observed == []
+
+
+class _FailingExportRepo(_CountingRepo):
+    async def export(self, notebooks, notes, path):  # type: ignore[override]
+        self.export_count += 1
+        raise OSError("disk full")
+
+
+async def test_export_command_failure_posts_only_an_error() -> None:
+    """A failed export posts one ERROR and no NOTIFICATION (#1329)."""
+    repo = _FailingExportRepo(build_seed(), load_all_delay=0.0, export_delay=0.0)
+    notification_hub = NotificationHub()
+    observed = _observe_notifications(notification_hub)
+    ws = (
+        WorkspaceVM.builder()
+        .name("ws")
+        .repository(repo)
+        .dialog_service(_StubDialogService(save_path="/no/such/dir/out.json"))
+        .notification_hub(notification_hub)
+        .build()
+    )
+    await ws.construct_async()
+
+    await ws.export_command.execute_async()
+
+    assert repo.export_count == 1
+    assert [n.type for n in observed] == [NotificationType.ERROR]
+
+
 async def test_export_command_cancelled_does_not_call_repo() -> None:
     """If the dialog returns ``None`` (user cancelled), the repo is not called."""
     repo = _CountingRepo(
@@ -432,3 +530,294 @@ async def test_selecting_a_note_then_deleting_it_clears_the_form() -> None:
     assert ws.note_form.has_bound_note is False
     assert ws.note_form.title == ""
     assert ws.note_form.body == ""
+
+
+# ── ADR-0201 interaction policies ──────────────────────────────────────────
+
+
+def _policy_workspace() -> tuple[WorkspaceVM, InMemoryNoteRepository, list[Notification]]:
+    repo = InMemoryNoteRepository(
+        build_seed(),
+        load_all_delay=0.0,
+        load_notes_delay=0.0,
+        save_note_delay=0.0,
+    )
+    notification_hub = NotificationHub()
+    observed: list[Notification] = []
+    notification_hub.pending.subscribe(
+        on_next=lambda snapshot: [observed.append(n) for n in snapshot if n not in observed]
+    )
+    ws = WorkspaceVM.builder().repository(repo).notification_hub(notification_hub).build()
+    return ws, repo, observed
+
+
+async def _stored_title(repo: InMemoryNoteRepository, notebook_id: str, note_id: str) -> str:
+    notes = await repo.load_notes(notebook_id)
+    return next(n.title for n in notes if n.id == note_id)
+
+
+def _save_action(ws: WorkspaceVM) -> AsyncRelayCommand:
+    action = next(a for a in ws.capability_actions.actions.value if a.label == "Save")
+    assert isinstance(action.command, AsyncRelayCommand)
+    return action.command
+
+
+async def test_a_search_that_hides_the_current_note_keeps_it_and_its_draft() -> None:
+    # ADR-0201 §2.1: a search never changes current; the editor keeps the note
+    # and its draft; the note is on the visible page again once it matches.
+    ws, _repo, _observed = _policy_workspace()
+    await ws.construct_async()
+    note = ws.notes_view.inner[0]
+    ws.notes_view.current = note
+    ws.note_form.title = "Draft title"
+
+    ws.notes_view.search_term = "no-note-matches-this-term"
+    await asyncio.sleep(0.3)  # the 150 ms search debounce
+
+    assert note not in ws.notes_view.visible_items
+    assert ws.notes_view.current is note
+    assert ws.note_form.title == "Draft title"
+    assert ws.note_form.is_dirty.value is True
+
+    ws.notes_view.search_term = ""
+    await asyncio.sleep(0.3)
+
+    assert ws.notes_view.current is note
+    assert note in ws.notes_view.visible_items
+    assert ws.note_form.title == "Draft title"
+
+
+async def test_selecting_another_note_discards_the_unsaved_draft() -> None:
+    # ADR-0201 §2.2: a note switch discards the draft with no prompt.
+    ws, repo, _observed = _policy_workspace()
+    await ws.construct_async()
+    first, second = ws.notes_view.inner[0], ws.notes_view.inner[1]
+    stored_title = first.title
+    ws.notes_view.current = first
+    ws.note_form.title = "Unsaved draft"
+
+    ws.notes_view.current = second
+
+    assert ws.note_form.title == second.title
+    assert ws.note_form.is_dirty.value is False
+
+    ws.notes_view.current = first
+
+    assert ws.note_form.title == stored_title
+    assert ws.note_form.is_dirty.value is False
+    assert await _stored_title(repo, first.model.notebook_id, first.model.id) == stored_title
+
+
+async def test_action_bar_save_on_the_edited_note_saves_the_editor_draft() -> None:
+    # ADR-0201 §2.3: the action-bar Save is the editor Save for the note that
+    # the editor holds: it persists the draft and posts the "Saved" toast.
+    ws, repo, observed = _policy_workspace()
+    await ws.construct_async()
+    note = ws.notes_view.inner[0]
+    ws.notes_view.current = note
+    ws.note_form.title = "Saved from the action bar"
+
+    await _save_action(ws).execute_async()
+
+    stored = await _stored_title(repo, note.model.notebook_id, note.model.id)
+    assert stored == "Saved from the action bar"
+    assert ws.note_form.is_dirty.value is False
+    assert any("Saved" in n.message for n in observed)
+
+
+async def test_action_bar_save_with_an_invalid_draft_writes_nothing() -> None:
+    ws, repo, observed = _policy_workspace()
+    await ws.construct_async()
+    note = ws.notes_view.inner[0]
+    stored_title = note.title
+    ws.notes_view.current = note
+    ws.note_form.title = ""
+    saved: list[str] = []
+    original_save = repo.save_note
+
+    async def _counting_save(model: NoteModel) -> None:
+        saved.append(model.id)
+        await original_save(model)
+
+    repo.save_note = _counting_save  # type: ignore[method-assign]
+
+    await _save_action(ws).execute_async()
+
+    assert saved == []
+    assert await _stored_title(repo, note.model.notebook_id, note.model.id) == stored_title
+    assert ws.note_form.title == ""
+    assert not any("Saved" in n.message for n in observed)
+
+
+async def test_action_bar_save_with_a_clean_draft_writes_nothing() -> None:
+    ws, repo, observed = _policy_workspace()
+    await ws.construct_async()
+    note = ws.notes_view.inner[0]
+    ws.notes_view.current = note
+    saved: list[str] = []
+    original_save = repo.save_note
+
+    async def _counting_save(model: NoteModel) -> None:
+        saved.append(model.id)
+        await original_save(model)
+
+    repo.save_note = _counting_save  # type: ignore[method-assign]
+
+    await _save_action(ws).execute_async()
+
+    assert saved == []
+    assert not any("Saved" in n.message for n in observed)
+
+
+async def test_action_bar_save_on_a_note_the_editor_does_not_hold_saves_its_model() -> None:
+    # ADR-0201 §2.3: for any other focused note, Save persists the stored model.
+    ws, repo, _observed = _policy_workspace()
+    await ws.construct_async()
+    edited, focused = ws.notes_view.inner[0], ws.notes_view.inner[1]
+    ws.notes_view.current = edited
+    ws.note_form.title = "Draft that stays unsaved"
+    focused.model = dataclasses.replace(focused.model, title="Model title")
+    ws.set_focus(focused)
+
+    await _save_action(ws).execute_async()
+
+    assert await _stored_title(repo, focused.model.notebook_id, focused.model.id) == "Model title"
+    assert await _stored_title(repo, edited.model.notebook_id, edited.model.id) == edited.title
+
+
+class _WriteFirstRepository(InMemoryNoteRepository):
+    """Writes each save when it starts, then holds its answer until the test
+    releases that save, so saves can settle out of order (#1379)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            build_seed(),
+            load_all_delay=0.0,
+            load_notes_delay=0.0,
+            save_note_delay=0.0,
+        )
+        self.held: list[asyncio.Event] = []
+        # Indexes of the saves that raise when released, before they write.
+        self.failing: set[int] = set()
+
+    async def save_note(self, note: NoteModel) -> None:
+        index = len(self.held)
+        if index not in self.failing:
+            await super().save_note(note)
+        release = asyncio.Event()
+        self.held.append(release)
+        await release.wait()
+        if index in self.failing:
+            raise OSError("disk full")
+
+
+async def _wait_for(condition: Callable[[], bool]) -> None:
+    for _ in range(200):
+        if condition():
+            return
+        await asyncio.sleep(0.005)
+    raise AssertionError("condition not reached")
+
+
+async def test_an_older_save_that_settles_last_keeps_the_newer_values() -> None:
+    repo = _WriteFirstRepository()
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    ws = (
+        WorkspaceVM.builder()
+        .name("workspace")
+        .repository(repo)
+        .message_hub(MessageHub[Message]())
+        .dispatcher(dispatcher)
+        .notification_hub(NotificationHub())
+        .build()
+    )
+    await ws.construct_async()
+    notes = ws.notes_view.inner
+    note, other = notes[0], notes[1]
+    note_id = note.model.id
+    form = ws.note_form
+
+    # The approve command admits one run at a time, so the test starts each
+    # save through approve_async, as a second Save path can.
+    ws.notes_view.current = note
+    form.title = "Older title"
+    save_a = asyncio.create_task(form.approve_async())
+    await _wait_for(lambda: len(repo.held) == 1)
+    # Leave the note and return while save A is held, then start save B.
+    ws.notes_view.current = other
+    ws.notes_view.current = note
+    assert form.title != "Older title"
+    form.title = "Newer title"
+    save_b = asyncio.create_task(form.approve_async())
+    await _wait_for(lambda: len(repo.held) == 2)
+
+    # The newer save settles first, then the older one.
+    repo.held[1].set()
+    await asyncio.wait_for(save_b, timeout=1)
+    repo.held[0].set()
+    await asyncio.wait_for(save_a, timeout=1)
+    await asyncio.sleep(0.01)
+
+    assert form.title == "Newer title"
+    assert form.is_dirty.value is False
+    row = next(n for n in ws.notes_view.inner if n.model.id == note_id)
+    assert row.title == "Newer title"
+
+    # A later save stores the newer values.
+    form.body = "Body after both saves"
+    save_c = asyncio.create_task(form.approve_async())
+    await _wait_for(lambda: len(repo.held) == 3)
+    repo.held[2].set()
+    await asyncio.wait_for(save_c, timeout=1)
+    _notebooks, stored = await repo.load_all()
+    saved = next(n for n in stored if n.id == note_id)
+    assert saved.title == "Newer title"
+    assert saved.body == "Body after both saves"
+    ws.dispose()
+
+
+@pytest.mark.parametrize("older_settles_first", [True, False])
+async def test_an_older_save_shows_when_the_newer_save_fails(older_settles_first: bool) -> None:
+    """The newer save of a note fails and the older one succeeds. The list row
+    shows the older save's values, which the repository keeps (#1379)."""
+    repo = _WriteFirstRepository()
+    repo.failing.add(1)
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    ws = (
+        WorkspaceVM.builder()
+        .name("workspace")
+        .repository(repo)
+        .message_hub(MessageHub[Message]())
+        .dispatcher(dispatcher)
+        .notification_hub(NotificationHub())
+        .build()
+    )
+    await ws.construct_async()
+    notes = ws.notes_view.inner
+    note, other = notes[0], notes[1]
+    note_id = note.model.id
+    form = ws.note_form
+
+    ws.notes_view.current = note
+    form.title = "Older title"
+    save_a = asyncio.create_task(form.approve_async())
+    await _wait_for(lambda: len(repo.held) == 1)
+    ws.notes_view.current = other
+    ws.notes_view.current = note
+    form.title = "Newer title"
+    save_b = asyncio.create_task(form.approve_async())
+    await _wait_for(lambda: len(repo.held) == 2)
+
+    order = [(0, save_a), (1, save_b)] if older_settles_first else [(1, save_b), (0, save_a)]
+    for index, save in order:
+        repo.held[index].set()
+        await asyncio.wait_for(asyncio.gather(save, return_exceptions=True), timeout=1)
+    await asyncio.sleep(0.01)
+
+    _notebooks, stored = await repo.load_all()
+    assert next(n for n in stored if n.id == note_id).title == "Older title"
+    row = next(n for n in ws.notes_view.inner if n.model.id == note_id)
+    assert row.title == "Older title"
+    # The failed save keeps its unsaved edits in the editor.
+    assert form.title == "Newer title"
+    ws.dispose()

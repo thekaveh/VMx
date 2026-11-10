@@ -40,9 +40,13 @@ import Combine
 /// - `invalidFactoryOutput`: the lazy children factory returned invalid output,
 ///   or a structural change re-entered while children were loading (HIER-032).
 ///   `addChild` and `removeChild` return it; `reparentChild` throws it.
+/// - `disposed`: a structural call reached a disposed node, or would take a
+///   child out of a disposed parent (spec/18 §7.1, ADR-0190, HIER-041).
+///   `addChild` and `removeChild` return it; `reparentChild` throws it.
 public enum HierarchyError: Error {
     case invalidReparent
     case invalidFactoryOutput
+    case disposed
 }
 
 /// Missing-parent retention policy for batch hierarchy ingestion.
@@ -88,6 +92,9 @@ private struct BatchAttachCandidate<TVM, Key: Hashable> {
     let key: Key
     let parentKey: Key?
     let retainIfMissing: Bool
+    /// Keys and nodes of the candidate's materialized descendants, in
+    /// pre-order (spec/18 §6, ADR-0212). They join the index on attach.
+    let subtree: [(key: Key, node: TVM)]
 }
 
 /// Abstract recursive tree ViewModel. Concrete subclasses follow the CRTP
@@ -209,6 +216,11 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// The ordered child nodes. Lazily materialized on first access — the
     /// factory runs once (seeding each child's `parent` to this node), then the
     /// result is cached for the lifetime of the node.
+    ///
+    /// Fails fast (traps) when the factory returns structurally invalid
+    /// output (spec/18 §4). Use `tryChildren()` to handle that case; the tree
+    /// utilities `walk`, `walkExpanded` and `find` read `tryChildren()` and
+    /// throw instead (spec/13 §6.1, ADR-0170).
     public var children: [TVM] {
         switch tryChildren() {
         case .success(let children):
@@ -262,7 +274,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     }
 
     /// `true` when this node has no children. Accessing this materializes
-    /// children if not already done.
+    /// children if not already done. Like `children`, it fails fast (traps)
+    /// on structurally invalid factory output (spec/18 §4, ADR-0170); call
+    /// `tryChildren()` first to handle that case.
     public var isLeaf: Bool { children.isEmpty }
 
     /// `true` when this is the first child in its parent's `children`
@@ -323,9 +337,13 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     ///
     /// 1. `PropertyChangedMessage("parent")` with `sender == child` (HIER-010).
     /// 2. `TreeStructureChangedMessage(.added, …)` (HIER-011).
+    ///
+    /// Returns `.failure(.disposed)` and changes nothing when this node or the
+    /// child's current parent is disposed (spec/18 §7.1, HIER-041).
     @discardableResult
     public func addChild(_ child: TVM) -> Result<Void, HierarchyError> {
         if rejectStructuralReentry() { return .failure(.invalidFactoryOutput) }
+        if isDisposedNode { return .failure(.disposed) }
         return attachChild(child, explicitReparent: false)
     }
 
@@ -335,9 +353,12 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// Lazy children are materialized first, as every other flavor does. Invalid
     /// factory output returns `.failure(.invalidFactoryOutput)` and changes nothing,
     /// as `addChild` does (spec/18 §6). A `child` that is not a member is a no-op.
+    /// A disposed node returns `.failure(.disposed)`, also for a non-member
+    /// (spec/18 §7.1, HIER-041).
     @discardableResult
     public func removeChild(_ child: TVM) -> Result<Void, HierarchyError> {
         if rejectStructuralReentry() { return .failure(.invalidFactoryOutput) }
+        if isDisposedNode { return .failure(.disposed) }
         let current: [TVM]
         switch tryChildren() {
         case .success(let children):
@@ -364,10 +385,13 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// - Throws: `HierarchyError.invalidReparent` when `child` is `self` or one of
     ///   `self`'s ancestors — attaching would create a parent cycle (HIER-018).
     ///   `HierarchyError.invalidFactoryOutput` when this node's lazy children
-    ///   factory returns invalid output. On rejection the tree is completely
-    ///   unchanged and no message is published.
+    ///   factory returns invalid output. `HierarchyError.disposed` when this
+    ///   node or the child's current parent is disposed (spec/18 §7.1,
+    ///   HIER-041). On rejection the tree is completely unchanged and no
+    ///   message is published.
     public func reparentChild(_ child: TVM) throws {
         if rejectStructuralReentry() { throw HierarchyError.invalidFactoryOutput }
+        if isDisposedNode { throw HierarchyError.disposed }
         switch attachChild(child, explicitReparent: true) {
         case .success:
             return
@@ -383,6 +407,10 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         // Already our child → no-op (parity with C#/Python/TS): re-appending would
         // reorder the sibling list and emit a spurious `.reparented` message.
         if node(child).parent === selfNode { return .success(()) }
+        // HIER-041: a disposed parent keeps its child list.
+        if let oldParent = node(child).parent, node(oldParent).isDisposedNode {
+            return .failure(.disposed)
+        }
         // HIER-018: child is self or one of self's ancestors → cycle.
         if path.contains(where: { $0 === child }) {
             return .failure(.invalidReparent)
@@ -427,7 +455,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
     /// Attaches an out-of-order, consumer-keyed batch beneath the structural
     /// root. A nil parent key means a direct child of that root. Ordinary
-    /// ingestion anomalies are returned as typed rejections.
+    /// ingestion anomalies are returned as typed rejections. When this node or
+    /// the structural root is disposed, every item is an `attachmentFailed`
+    /// rejection and nothing changes (spec/18 §7.1, HIER-041).
     public func attachMany<Key: Hashable>(
         _ items: [TVM],
         keyOf: (TVM) throws -> Key,
@@ -435,21 +465,13 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         onMissingParent: MissingParentPolicy = .park
     ) -> BatchAttachResult<TVM> {
         if rejectStructuralReentry() {
-            return BatchAttachResult(
-                added: [],
-                duplicates: [],
-                orphans: [],
-                rejections: items.map {
-                    BatchAttachRejection(
-                        item: $0,
-                        reason: .attachmentFailed,
-                        detail: "children factory structural reentry"
-                    )
-                }
-            )
+            return rejectAll(items, detail: "children factory structural reentry")
         }
         let rootNode = treeRoot()
         let root = node(rootNode)
+        if isDisposedNode || root.isDisposedNode {
+            return rejectAll(items, detail: "disposed")
+        }
         let parked = root.parkedAttachItems
         root.parkedAttachItems.removeAll()
         var added: [TVM] = []
@@ -482,6 +504,8 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
         var candidates: [BatchAttachCandidate<TVM, Key>] = []
         var candidateKeys = Set<Key>()
+        // The descendant claims of accepted candidates, by key (ADR-0212).
+        var descendantClaims: [Key: TVM] = [:]
         let active = parked.map { ($0, true) } + items.map { ($0, false) }
         for (item, wasParked) in active {
             let key: Key
@@ -504,6 +528,12 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
                 rejections.append(BatchAttachRejection(item: item, reason: .duplicateExistingKey))
                 continue
             }
+            if let claimHolder = descendantClaims[key], claimHolder === item {
+                // The item is a descendant of an earlier candidate, so it is
+                // attached outside the indexed tree (spec/18 §6, ADR-0212).
+                rejections.append(BatchAttachRejection(item: item, reason: .alreadyAttached))
+                continue
+            }
             if candidateKeys.contains(key) {
                 duplicates.append(item)
                 rejections.append(BatchAttachRejection(item: item, reason: .duplicateBatchKey))
@@ -513,12 +543,56 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
                 rejections.append(BatchAttachRejection(item: item, reason: .alreadyAttached))
                 continue
             }
-            candidateKeys.insert(key)
+            // The candidate also claims every key of its materialized subtree
+            // (spec/18 §6, ADR-0212); the first claim of a key stays
+            // authoritative.
+            var subtree: [(key: Key, node: TVM)] = []
+            var claimed: Set<Key> = [key]
+            var subtreeRejection: BatchAttachRejectionReason?
+            var subtreeDetail: String?
+            for descendant in node(item).materializedSubtree().dropFirst() {
+                let descendantKey: Key
+                do {
+                    descendantKey = try keyOf(descendant)
+                } catch {
+                    subtreeRejection = .selectorFailed
+                    subtreeDetail = String(describing: error)
+                    break
+                }
+                if existing[descendantKey] != nil {
+                    subtreeRejection = .duplicateExistingKey
+                    break
+                }
+                if candidateKeys.contains(descendantKey)
+                    || !claimed.insert(descendantKey).inserted {
+                    subtreeRejection = .duplicateBatchKey
+                    break
+                }
+                subtree.append((key: descendantKey, node: descendant))
+            }
+            if subtreeRejection == .selectorFailed {
+                if wasParked { root.parkedAttachItems.append(item) }
+                rejections.append(BatchAttachRejection(
+                    item: item,
+                    reason: .selectorFailed,
+                    detail: subtreeDetail
+                ))
+                continue
+            }
+            if let duplicateReason = subtreeRejection {
+                duplicates.append(item)
+                rejections.append(BatchAttachRejection(item: item, reason: duplicateReason))
+                continue
+            }
+
+            candidateKeys.formUnion(claimed)
+            for claim in subtree { descendantClaims[claim.key] = claim.node }
             candidates.append(BatchAttachCandidate(
                 item: item,
                 key: key,
                 parentKey: parentKey,
-                retainIfMissing: wasParked || onMissingParent == .park
+                retainIfMissing: wasParked || onMissingParent == .park,
+                subtree: subtree
             ))
         }
 
@@ -549,6 +623,7 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
                     continue
                 }
                 existing[candidate.key] = candidate.item
+                for claim in candidate.subtree { existing[claim.key] = claim.node }
                 added.append(candidate.item)
                 progressed = true
             }
@@ -556,7 +631,13 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             if !progressed { break }
         }
 
-        let unresolvedByKey = Dictionary(uniqueKeysWithValues: unresolved.map { ($0.key, $0) })
+        // A subtree key maps to the candidate that claims it, so a parent key
+        // that names the candidate's own descendant is a cycle (ADR-0212).
+        var unresolvedByKey: [Key: BatchAttachCandidate<TVM, Key>] = [:]
+        for candidate in unresolved {
+            unresolvedByKey[candidate.key] = candidate
+            for claim in candidate.subtree { unresolvedByKey[claim.key] = candidate }
+        }
         for candidate in unresolved {
             let isCycle = batchParentChainCycles(candidate, unresolved: unresolvedByKey)
             let reason: BatchAttachRejectionReason = isCycle ? .cycle : .missingParent
@@ -577,9 +658,11 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
     /// Drops this node's materialized child cache. The next `children` access
     /// invokes the children factory again. Invalidating an unmaterialized node
-    /// is a no-op.
+    /// is a no-op. A disposed node returns without a change (spec/18 §7.1,
+    /// HIER-041).
     public func invalidateChildren() {
         if rejectStructuralReentry() { return }
+        if isDisposedNode { return }
         guard let cached = _children else { return }
         for child in cached {
             let childNode = node(child)
@@ -597,11 +680,22 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     }
 
     /// Drops cached children for this node and all materialized descendants.
+    /// A disposed node returns without a change. A disposed descendant keeps
+    /// its own cache, but its materialized children are still visited
+    /// (spec/18 §7.1, HIER-041).
     public func invalidateSubtree() {
+        if rejectStructuralReentry() { return }
+        if isDisposedNode { return }
+        invalidateMaterializedSubtree()
+    }
+
+    /// Drops the materialized caches below and at this node, children first.
+    /// `invalidateChildren` skips a disposed node, so the walk only skips it.
+    private func invalidateMaterializedSubtree() {
         if rejectStructuralReentry() { return }
         guard let cached = _children else { return }
         for child in cached {
-            node(child).invalidateSubtree()
+            node(child).invalidateMaterializedSubtree()
         }
         invalidateChildren()
     }
@@ -617,6 +711,21 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         var current = selfNode
         while let parent = node(current).parent { current = parent }
         return current
+    }
+
+    /// `true` once this node's status is `.disposed` (spec/18 §7.1).
+    private var isDisposedNode: Bool { status == .disposed }
+
+    /// Rejects every batch item as `attachmentFailed` with `detail`.
+    private func rejectAll(_ items: [TVM], detail: String) -> BatchAttachResult<TVM> {
+        BatchAttachResult(
+            added: [],
+            duplicates: [],
+            orphans: [],
+            rejections: items.map {
+                BatchAttachRejection(item: $0, reason: .attachmentFailed, detail: detail)
+            }
+        )
     }
 
     private func rejectStructuralReentry() -> Bool {

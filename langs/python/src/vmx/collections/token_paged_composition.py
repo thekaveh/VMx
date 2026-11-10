@@ -86,7 +86,10 @@ class TokenPagedComposition(Generic[TVM, TToken]):
         return self._property_changed.pipe(ops.as_observable())
 
     async def _load_more(self) -> None:
-        if self._disposed:
+        # A refresh or another load can commit a terminal token after this
+        # command was admitted. Such a load is not an operation start: it
+        # fetches nothing and supersedes nothing (spec 21 §6.2, ADR-0169).
+        if self._disposed or not self.has_more:
             return
         self._operation_generation += 1
         generation = self._operation_generation

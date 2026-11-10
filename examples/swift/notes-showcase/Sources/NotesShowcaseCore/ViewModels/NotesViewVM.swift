@@ -41,6 +41,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     // MARK: - Private state
 
     private let _repo: any NoteRepository
+    private let _saveNote: ((NoteVM) async throws -> Void)?
     private let _dialogService: (any DialogService)?
     private let _notificationHub: NotificationHubProtocol?
 
@@ -194,9 +195,11 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         searchDebounce: DispatchQueue.SchedulerTimeType.Stride,
         searchScheduler: DispatchQueue?,
         dialogService: (any DialogService)?,
-        notificationHub: NotificationHubProtocol?
+        notificationHub: NotificationHubProtocol?,
+        saveNote: ((NoteVM) async throws -> Void)?
     ) {
         _repo = repo
+        _saveNote = saveNote
         _dialogService = dialogService
         _notificationHub = notificationHub
 
@@ -368,6 +371,11 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
             })
             .onSave({ [weak self] vm in
                 guard let self else { return }
+                // ADR-0201 §2.3: the host decides how a note saves.
+                if let saveNote = self._saveNote {
+                    try await saveNote(vm)
+                    return
+                }
                 let model = await self.runOnForeground { [weak vm] in
                     vm?.model
                 }
@@ -447,21 +455,17 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     }
 
     /// Recomputes `filteredItems` by blending `showStarredOnly` + custom `filter`
-    /// + the current search term (case-insensitive match on title / body / tags).
+    /// + the current search term (`NoteModel.matches(searchTerm:)`, the rule
+    /// every showcase shares).
     /// Updates the paged source and fires property-changed signals.
     private func recomputeFiltered() {
-        let term = _search.searchTerm.lowercased()
+        let term = _search.searchTerm
         var filtered: [NoteVM] = []
         for i in 0..<_inner.count {
             let n = _inner.at(i)
             if _showStarredOnly && !n.starred { continue }
             if let f = _filter, !f(n) { continue }
-            if !term.isEmpty {
-                let matchTitle = n.title.lowercased().contains(term)
-                let matchBody  = n.body.lowercased().contains(term)
-                let matchTags  = n.tags.contains { $0.lowercased().contains(term) }
-                if !matchTitle && !matchBody && !matchTags { continue }
-            }
+            if !n.model.matches(searchTerm: term) { continue }
             filtered.append(n)
         }
         _filteredItems = filtered
@@ -530,7 +534,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     /// Required: `name(_:)`, `services(hub:dispatcher:)`, `repository(_:)`.
     /// Optional: `hint(_:)`, `pageSize(_:)` (default 5), `searchDebounce(_:)`
     ///           (default 150 ms), `searchScheduler(_:)`, `dialogService(_:)`,
-    ///           `notificationHub(_:)`.
+    ///           `notificationHub(_:)`, `saveNote(_:)`.
     public struct NotesViewVMBuilder {
         private var _name: String?
         private var _hint: String = ""
@@ -542,6 +546,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         private var _searchScheduler: DispatchQueue?
         private var _dialogService: (any DialogService)?
         private var _notificationHub: NotificationHubProtocol?
+        private var _saveNote: ((NoteVM) async throws -> Void)?
 
         fileprivate init() {}
 
@@ -572,6 +577,11 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         public func notificationHub(_ hub: NotificationHubProtocol) -> NotesViewVMBuilder {
             var c = self; c._notificationHub = hub; return c
         }
+        /// Sets the optional save handler for each `NoteVM` (ADR-0201 §2.3).
+        /// Without it, a note save persists the note's stored model.
+        public func saveNote(_ handler: @escaping (NoteVM) async throws -> Void) -> NotesViewVMBuilder {
+            var c = self; c._saveNote = handler; return c
+        }
 
         /// Validates required fields and constructs a `NotesViewVM`.
         ///
@@ -599,7 +609,8 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
                 searchDebounce: _searchDebounce,
                 searchScheduler: _searchScheduler,
                 dialogService: _dialogService,
-                notificationHub: _notificationHub
+                notificationHub: _notificationHub,
+                saveNote: _saveNote
             )
         }
     }

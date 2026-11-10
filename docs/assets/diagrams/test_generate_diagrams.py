@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import re
+import shutil
 import sys
+import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GENERATOR_PATH = Path(__file__).resolve().parent / "generate_diagrams.py"
@@ -133,14 +138,10 @@ class GenerateDiagramsTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
-        conformance = (REPO_ROOT / "spec" / "12-conformance.md").read_text(encoding="utf-8")
         capability_spec = (REPO_ROOT / "spec" / "14-capabilities.md").read_text(encoding="utf-8")
         notes_parity = (REPO_ROOT / "examples" / "notes-showcase-parity.md").read_text(
             encoding="utf-8"
         )
-        conformance_ids = re.findall(r"^### ([A-Z]+-\d{3})\b", conformance, re.MULTILINE)
-        theme_count = sum(1 for item in conformance_ids if item.startswith("THEME-"))
-        total_count = len(conformance_ids)
         capability_count = int(
             re.search(
                 r"lists the (\d+) capability interfaces",
@@ -157,18 +158,25 @@ class GenerateDiagramsTests(unittest.TestCase):
             facts.spec_chapter_count, len(list((REPO_ROOT / "spec").glob("[0-9][0-9]-*.md")))
         )
         self.assertEqual(
-            facts.adr_count,
-            len(list((REPO_ROOT / "spec" / "ADRs").glob("[0-9][0-9][0-9][0-9]-*.md"))),
-        )
-        self.assertEqual(
             facts.fixture_count, len(list((REPO_ROOT / "spec" / "fixtures").glob("*.json")))
         )
-        self.assertEqual(facts.total_conformance_count, total_count)
-        self.assertEqual(facts.library_conformance_count, total_count - theme_count)
-        self.assertEqual(facts.theme_conformance_count, theme_count)
+        self.assertFalse(hasattr(facts, "adr_count"))
+        self.assertFalse(hasattr(facts, "library_conformance_count"))
         self.assertEqual(facts.capability_count, capability_count)
         self.assertEqual(facts.notes_feature_count, notes_feature_count)
         self.assertEqual(facts.registry_ids, tuple(item["id"] for item in registry))
+
+    def test_system_architecture_renders_no_adr_or_conformance_id_counts(self) -> None:
+        # Counts live only in spec/ADRs/README.md and spec/12-conformance.md (#1441).
+        svg = self.generator.svg_doc(self.generator.system_architecture())
+
+        self.assertIn("ADR registry", svg)
+        self.assertIsNone(
+            re.search(
+                r"\d+\s+(?:ADRs|(?:library|THEME scenario)\s+IDs)\b|\b\d+ total\b",
+                svg,
+            )
+        )
 
     def test_html_shell_uses_jetbrains_mono_and_dark_theme(self) -> None:
         html = self.generator.html_doc(
@@ -411,6 +419,116 @@ class GenerateDiagramsTests(unittest.TestCase):
         self.assertIn("IAsyncCommand", rendered_text)
         self.assertIn("RelayCommand", rendered_text)
         self.assertIn("AsyncRelayCommand", rendered_text)
+
+
+class PngFreshnessTests(unittest.TestCase):
+    """A PNG records the digest of the SVG it was rendered from (#1477)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.generator = load_generator_module()
+        cls.registry = json.loads(cls.generator.REGISTRY_PATH.read_text(encoding="utf-8"))
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="vmx-diagram-test-")
+        self.root = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def _copy_committed(self, destination: Path) -> None:
+        destination.mkdir(parents=True, exist_ok=True)
+        for item in self.registry:
+            for key in ("svg", "html", "png"):
+                shutil.copyfile(self.generator.DIAGRAM_DIR / item[key], destination / item[key])
+
+    def _pngs(self, directory: Path) -> dict[str, bytes]:
+        return {item["png"]: (directory / item["png"]).read_bytes() for item in self.registry}
+
+    def _refuse_rsvg(self):
+        real_run = self.generator.subprocess.run
+
+        def guarded_run(args, *rest, **kwargs):
+            if args and args[0] == "rsvg-convert":
+                raise AssertionError(f"unexpected rsvg-convert call: {args}")
+            return real_run(args, *rest, **kwargs)
+
+        return mock.patch.object(self.generator.subprocess, "run", guarded_run)
+
+    def test_generation_keeps_current_pngs_without_rendering(self) -> None:
+        self._copy_committed(self.root)
+        before = self._pngs(self.root)
+        rendered: list[Path] = []
+
+        with self._refuse_rsvg():
+            self.generator.generate(self.root, rendered=rendered)
+
+        self.assertEqual(len(self.registry), 26)
+        self.assertEqual(rendered, [])
+        self.assertEqual(self._pngs(self.root), before)
+
+    def test_generation_renders_only_the_png_of_a_changed_svg(self) -> None:
+        self._copy_committed(self.root)
+        before = self._pngs(self.root)
+        changed = self.registry[0]
+        original_svg_doc = self.generator.svg_doc
+
+        def changed_svg_doc(diagram):
+            svg = original_svg_doc(diagram)
+            return svg + "<!-- changed -->\n" if diagram.title == changed["title"] else svg
+
+        calls: list[Path] = []
+
+        def fake_rasterize(svg_path: Path, png_path: Path) -> None:
+            calls.append(png_path)
+            png_path.write_bytes(before[changed["png"]])
+
+        rendered: list[Path] = []
+        with (
+            mock.patch.object(self.generator, "svg_doc", changed_svg_doc),
+            mock.patch.object(self.generator, "rasterize_png", fake_rasterize),
+        ):
+            self.generator.generate(self.root, rendered=rendered)
+
+        png = self.root / changed["png"]
+        self.assertEqual(calls, [png])
+        self.assertEqual(rendered, [png])
+        svg = (self.root / changed["svg"]).read_bytes()
+        self.assertEqual(
+            self.generator.png_source_digest(png), self.generator.svg_render_digest(svg)
+        )
+        after = self._pngs(self.root)
+        self.assertEqual({name for name in before if after[name] != before[name]}, {changed["png"]})
+
+    def test_check_reports_a_png_rendered_from_an_older_svg(self) -> None:
+        committed = self.root / "diagrams"
+        self._copy_committed(committed)
+        stale = committed / self.registry[0]["png"]
+        self.generator.stamp_png(
+            stale, self.generator.svg_render_digest(b"<svg><!-- older --></svg>")
+        )
+        output = io.StringIO()
+
+        with (
+            mock.patch.object(self.generator, "DIAGRAM_DIR", committed),
+            self._refuse_rsvg(),
+            contextlib.redirect_stdout(output),
+        ):
+            status = self.generator.main(["--check"])
+
+        self.assertEqual(status, 1)
+        self.assertEqual(
+            output.getvalue().splitlines(),
+            [
+                f"stale generated diagram: {stale}",
+                "run: python docs/assets/diagrams/generate_diagrams.py",
+            ],
+        )
+
+    def test_check_passes_the_committed_diagrams(self) -> None:
+        output = io.StringIO()
+        with self._refuse_rsvg(), contextlib.redirect_stdout(output):
+            status = self.generator.main(["--check"])
+
+        self.assertEqual(status, 0, output.getvalue())
 
 
 if __name__ == "__main__":

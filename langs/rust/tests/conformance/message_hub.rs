@@ -310,7 +310,12 @@ fn hub_matches_message_ordering_fixture() {
 #[test]
 fn throwing_subscriber_does_not_break_hub() {
     let hub = MessageHub::new();
-    let _bad = hub.subscribe(|_| panic!("subscriber failed"));
+    let bad_runs = Arc::new(AtomicUsize::new(0));
+    let bad_runs_clone = bad_runs.clone();
+    let _bad = hub.subscribe(move |_| {
+        bad_runs_clone.fetch_add(1, Ordering::SeqCst);
+        panic!("subscriber failed");
+    });
     let received = Arc::new(Mutex::new(Vec::new()));
     let received_clone = received.clone();
     let _good = hub.subscribe(move |message| {
@@ -324,6 +329,8 @@ fn throwing_subscriber_does_not_break_hub() {
     hub.send(make_msg("msg2"));
 
     assert_eq!(*received.lock().unwrap(), vec!["msg1", "msg2"]);
+    // ADR-0191: the panicking subscriber stays attached and runs for both.
+    assert_eq!(bad_runs.load(Ordering::SeqCst), 2);
 }
 
 /// HUB-008 — Nested transactions defer and preserve every message
@@ -701,6 +708,242 @@ fn unrelated_hub_callback_send_waits_for_target_batch_and_delivery() {
         1
     );
     source_worker.join().unwrap();
+}
+
+/// Control for #1180: a live cross-hub cycle still borrows the hub. P holds an
+/// `h2` batch, and Q's `h` subscriber waits for it. P's `h.batch` would close
+/// the cycle, so its body runs as a borrowed scope during Q's subscriber call,
+/// and `h` delivers P's message once, after the scope exits (spec/03 §4,
+/// ADR-0119, ADR-0172).
+#[cfg(feature = "test-seams")]
+#[test]
+fn a_live_cross_hub_cycle_borrows_the_hub_and_delivers_once() {
+    use std::sync::atomic::AtomicBool;
+    use std::time::Instant;
+
+    const BOUND: Duration = Duration::from_secs(5);
+    fn eventually(condition: &dyn Fn() -> bool) -> bool {
+        let deadline = Instant::now() + BOUND;
+        while !condition() {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        true
+    }
+    let h = MessageHub::new();
+    let h2 = MessageHub::new();
+    let p1_deliveries = Arc::new(AtomicUsize::new(0));
+    let q_subscriber_returned = Arc::new(AtomicBool::new(false));
+    let _subscription = h.subscribe({
+        let (h2, p1_deliveries) = (h2.clone(), p1_deliveries.clone());
+        let q_subscriber_returned = q_subscriber_returned.clone();
+        move |message| match custom_name(message) {
+            "q0" => {
+                h2.send(make_msg("q1"));
+                q_subscriber_returned.store(true, Ordering::SeqCst);
+            }
+            "p1" => {
+                p1_deliveries.fetch_add(1, Ordering::SeqCst);
+            }
+            _ => {}
+        }
+    });
+    let p_in_h2 = Arc::new(AtomicBool::new(false));
+    let q = std::thread::spawn({
+        let (h, p_in_h2) = (h.clone(), p_in_h2.clone());
+        move || {
+            assert!(eventually(&|| p_in_h2.load(Ordering::SeqCst)));
+            h.send(make_msg("q0"));
+        }
+    });
+    let q_id = q.thread().id();
+    let p = std::thread::spawn({
+        let (h, h2) = (h.clone(), h2.clone());
+        let q_subscriber_returned = q_subscriber_returned.clone();
+        move || {
+            h2.batch(|| {
+                p_in_h2.store(true, Ordering::SeqCst);
+                assert!(
+                    eventually(&|| vmx::wait_registered_for_testing(q_id)),
+                    "Q never waited for P's h2 batch"
+                );
+                h.batch(|| {
+                    let during_q = !q_subscriber_returned.load(Ordering::SeqCst);
+                    h.send(make_msg("p1"));
+                    during_q
+                })
+            })
+        }
+    });
+    let deadline = Instant::now() + BOUND;
+    while !(p.is_finished() && q.is_finished()) {
+        assert!(Instant::now() < deadline, "the cycle deadlocked");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let body_ran_during_q = p.join().unwrap();
+    q.join().unwrap();
+
+    assert!(body_ran_during_q, "P's h.batch did not borrow h");
+    assert_eq!(p1_deliveries.load(Ordering::SeqCst), 1);
+}
+
+/// spec/03 §4.2 rule 3 with a batch owner: the last owner to release the hub
+/// finishes a borrower's disposal. O holds an `h` batch whose body sends on
+/// `h2`, which B batch-owns, so B's `h.batch` borrows `h`. B disposes `h` in
+/// the borrowed body and exits it while O's batch is still open. The borrowed
+/// exit leaves the disposal to O, and O's batch exit completes `h` on O.
+#[cfg(feature = "test-seams")]
+#[test]
+fn a_borrowers_dispose_is_finished_by_the_batch_owner_that_exits_last() {
+    use std::sync::atomic::AtomicBool;
+    use std::time::Instant;
+
+    const BOUND: Duration = Duration::from_secs(5);
+    fn eventually(condition: &dyn Fn() -> bool) -> bool {
+        let deadline = Instant::now() + BOUND;
+        while !condition() {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        true
+    }
+    let h = MessageHub::new();
+    let h2 = MessageHub::new();
+    let completed_on = Arc::new(Mutex::new(Vec::new()));
+    let _subscription = h.subscribe_with_completion(|_| {}, {
+        let completed_on = completed_on.clone();
+        move || {
+            completed_on
+                .lock()
+                .unwrap()
+                .push(std::thread::current().id());
+        }
+    });
+    let b_in_h2 = Arc::new(AtomicBool::new(false));
+    let o = std::thread::spawn({
+        let (h, h2, b_in_h2) = (h.clone(), h2.clone(), b_in_h2.clone());
+        move || {
+            assert!(eventually(&|| b_in_h2.load(Ordering::SeqCst)));
+            h.batch(|| h2.send(make_msg("x")));
+        }
+    });
+    let o_id = o.thread().id();
+    let b = std::thread::spawn({
+        let (h, h2, completed_on) = (h.clone(), h2.clone(), completed_on.clone());
+        move || {
+            h2.batch(|| {
+                b_in_h2.store(true, Ordering::SeqCst);
+                assert!(
+                    eventually(&|| vmx::wait_registered_for_testing(o_id)),
+                    "O never waited for B's h2 batch"
+                );
+                h.batch(|| h.dispose());
+                completed_on.lock().unwrap().len()
+            })
+        }
+    });
+    let deadline = Instant::now() + BOUND;
+    while !(o.is_finished() && b.is_finished()) {
+        assert!(Instant::now() < deadline, "the cycle deadlocked");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let completed_after_borrow = b.join().unwrap();
+    o.join().unwrap();
+
+    assert_eq!(
+        completed_after_borrow, 0,
+        "the borrowed scope's exit completed h while O's batch was open"
+    );
+    assert_eq!(*completed_on.lock().unwrap(), vec![o_id]);
+}
+
+/// spec/03 §4.2 rule 3 with a drainer: a drain that is still delivering
+/// finishes a borrower's disposal at its end. D drains `h`, and D's `h`
+/// handler sends on `h2`, which B batch-owns, so D waits for B. B's `h.batch`
+/// would close a cycle by waiting for D, so it borrows `h`. B disposes `h` in
+/// the borrowed body and exits it while D is still inside its handler. The
+/// borrowed exit leaves the disposal to D, whose drain completes `h` on D
+/// after the handler returns.
+#[cfg(feature = "test-seams")]
+#[test]
+fn a_borrowers_dispose_is_finished_by_the_drainer_that_is_still_delivering() {
+    use std::sync::atomic::AtomicBool;
+    use std::time::Instant;
+
+    const BOUND: Duration = Duration::from_secs(5);
+    fn eventually(condition: &dyn Fn() -> bool) -> bool {
+        let deadline = Instant::now() + BOUND;
+        while !condition() {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        true
+    }
+    let h = MessageHub::new();
+    let h2 = MessageHub::new();
+    let in_handler = Arc::new(AtomicBool::new(false));
+    let completed = Arc::new(Mutex::new(Vec::new()));
+    let _subscription = h.subscribe_with_completion(
+        {
+            let (h2, in_handler) = (h2.clone(), in_handler.clone());
+            move |_| {
+                in_handler.store(true, Ordering::SeqCst);
+                h2.send(make_msg("forwarded"));
+                in_handler.store(false, Ordering::SeqCst);
+            }
+        },
+        {
+            let (completed, in_handler) = (completed.clone(), in_handler.clone());
+            move || {
+                completed.lock().unwrap().push((
+                    std::thread::current().id(),
+                    in_handler.load(Ordering::SeqCst),
+                ));
+            }
+        },
+    );
+    let b_in_h2 = Arc::new(AtomicBool::new(false));
+    let d = std::thread::spawn({
+        let (h, b_in_h2) = (h.clone(), b_in_h2.clone());
+        move || {
+            assert!(eventually(&|| b_in_h2.load(Ordering::SeqCst)));
+            h.send(make_msg("m"));
+        }
+    });
+    let d_id = d.thread().id();
+    let b = std::thread::spawn({
+        let (h, h2, completed) = (h.clone(), h2.clone(), completed.clone());
+        move || {
+            h2.batch(|| {
+                b_in_h2.store(true, Ordering::SeqCst);
+                assert!(
+                    eventually(&|| vmx::wait_registered_for_testing(d_id)),
+                    "D never waited for B's h2 batch"
+                );
+                h.batch(|| h.dispose());
+                completed.lock().unwrap().len()
+            })
+        }
+    });
+    let deadline = Instant::now() + BOUND;
+    while !(d.is_finished() && b.is_finished()) {
+        assert!(Instant::now() < deadline, "the cycle deadlocked");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let completed_after_borrow = b.join().unwrap();
+    d.join().unwrap();
+
+    assert_eq!(
+        completed_after_borrow, 0,
+        "the borrowed scope's exit completed h while D was still delivering"
+    );
+    assert_eq!(*completed.lock().unwrap(), vec![(d_id, false)]);
 }
 
 #[test]

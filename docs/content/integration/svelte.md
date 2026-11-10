@@ -36,8 +36,9 @@ each value in a new object, so both render the mutation.
 ## 9.10.3. Adapter skeleton — store
 
 The store and component below are the exact files run by
-`examples/typescript/integration-recipes` against `svelte` 5.57.2. The store
-uses only the `svelte/store` contract shared with Svelte 4.
+`examples/typescript/integration-recipes` against `svelte` 5, the major version
+of the exact pin in the fixture's `package.json`. The store uses only the
+`svelte/store` contract shared with Svelte 4.
 
 <!-- checked-snippet: examples/typescript/integration-recipes/src/svelte/vmStore.ts -->
 

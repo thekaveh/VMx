@@ -287,6 +287,25 @@ fn subscriptions(counts: &Arc<Mutex<HashMap<usize, usize>>>, id: usize) -> usize
     locked(counts).get(&id).copied().unwrap_or(0)
 }
 
+/// The number of live change handlers on `item`'s stream, so a test can see
+/// a leaked item subscription (#1300). The count comes from a test seam, so
+/// a build without the `test-seams` feature reads `None`.
+fn live_handlers(item: &TestNode) -> Option<usize> {
+    #[cfg(feature = "test-seams")]
+    let count = Some(item.property_changed().subscriber_count_for_testing());
+    #[cfg(not(feature = "test-seams"))]
+    let count = {
+        let _ = item;
+        None
+    };
+    count
+}
+
+/// `count` plus `extra`, or `None` when the count is not available.
+fn above(count: Option<usize>, extra: usize) -> Option<usize> {
+    count.map(|count| count + extra)
+}
+
 fn reasons(changes: &Arc<Mutex<Vec<AggregateChange<TestNode>>>>) -> Vec<AggregateChangeReason> {
     locked(changes).iter().map(|change| change.reason).collect()
 }
@@ -522,25 +541,37 @@ fn aggregate_terminal_epoch_stays_silent_until_remove_and_readd() {
 fn aggregate_zero_refcount_detaches_before_membership_without_resubscribe() {
     let kept = TestNode::new(60, "kept");
     let removed = TestNode::new(61, "removed");
+    let baseline = live_handlers(&removed);
     let source = TestSource::new(vec![kept.clone(), removed.clone()]);
     let (aggregate, counts, _hooks) = counting_aggregate(source.clone());
     let changes = Arc::new(Mutex::new(Vec::new()));
     let capture = Arc::clone(&changes);
     let probe = removed.clone();
+    let handlers_at_membership = Arc::new(Mutex::new(Vec::new()));
+    let handlers_capture = Arc::clone(&handlers_at_membership);
     let _subscription = aggregate
         .observe(AggregateObserveOptions::default())
         .subscribe(move |change: AggregateChange<TestNode>| {
             let membership = change.reason == AggregateChangeReason::Membership;
             locked(&capture).push(change);
             if membership {
-                // Already detached: an emission from the removed epoch is silent.
+                // Already detached: the removed item's stream has no
+                // aggregate handler, and an emission from the removed epoch
+                // is silent.
+                locked(&handlers_capture).push(live_handlers(&probe));
                 probe.emit();
             }
         });
+    assert_eq!(live_handlers(&removed), above(baseline, 1));
 
     source.remove_id(removed.id());
     removed.emit();
     assert_eq!(reasons(&changes), vec![AggregateChangeReason::Membership]);
+    assert_eq!(
+        *locked(&handlers_at_membership),
+        vec![baseline],
+        "the removed item's subscription is released before Membership"
+    );
 
     // Move (reorder), identity-retaining Reset, retaining Replace, and
     // duplicate add of `kept` must not resubscribe it.
@@ -666,27 +697,39 @@ fn aggregate_duplicate_id_has_one_behavioral_subscription() {
 #[test]
 fn aggregate_duplicate_identity_subscribes_once_and_detaches_before_membership() {
     let item = TestNode::new(66, "duplicate");
+    let baseline = live_handlers(&item);
     let source = TestSource::new(vec![item.clone(), item.clone()]);
     let (aggregate, counts, _hooks) = counting_aggregate(source.clone());
     let changes = Arc::new(Mutex::new(Vec::new()));
     let capture = Arc::clone(&changes);
     let probe = item.clone();
+    let handlers_at_membership = Arc::new(Mutex::new(Vec::new()));
+    let handlers_capture = Arc::clone(&handlers_at_membership);
     let _subscription = aggregate
         .observe(AggregateObserveOptions::default())
         .subscribe(move |change: AggregateChange<TestNode>| {
             let membership = change.reason == AggregateChangeReason::Membership;
             locked(&capture).push(change);
             if membership {
+                locked(&handlers_capture).push(live_handlers(&probe));
                 probe.emit();
             }
         });
     assert_eq!(subscriptions(&counts, item.id()), 1);
+    assert_eq!(live_handlers(&item), above(baseline, 1));
 
     item.emit();
     assert_eq!(reasons(&changes), vec![AggregateChangeReason::Item]);
     source.remove_id(item.id());
     assert_eq!(subscriptions(&counts, item.id()), 1);
+    // One occurrence remains, so its one shared subscription stays live.
+    assert_eq!(live_handlers(&item), above(baseline, 1));
     source.remove_id(item.id());
+    // The final removal released the subscription before its Membership.
+    assert_eq!(
+        *locked(&handlers_at_membership),
+        vec![above(baseline, 1), baseline]
+    );
     // The in-handler probe during the first removal's Membership is delivered
     // (still positive refcount); the one during the final removal is silent.
     let final_reasons = reasons(&changes);
@@ -1017,4 +1060,308 @@ fn aggregate_over_container_sees_member_added_inside_hub_batch() {
     ];
     assert_eq!(reasons(&composite_changes), expected);
     assert_eq!(reasons(&group_changes), expected);
+}
+
+/// AGCH-011 — the subscribers of one envelope receive it in subscription order
+#[test]
+fn aggregate_subscribers_receive_each_envelope_in_subscription_order() {
+    let source = TestSource::new(vec![TestNode::new(1101, "first")]);
+    let aggregate = aggregate(source.clone());
+    let order = Arc::new(Mutex::new(Vec::<(&'static str, usize)>::new()));
+    let _subscriptions = (0..5)
+        .map(|label| {
+            let (next, complete) = (Arc::clone(&order), Arc::clone(&order));
+            aggregate
+                .observe(AggregateObserveOptions::default())
+                .subscribe_with_completion(
+                    move |change| {
+                        let reason = match change.reason {
+                            AggregateChangeReason::Batch => "batch",
+                            AggregateChangeReason::Membership => "membership",
+                            _ => "other",
+                        };
+                        locked(&next).push((reason, label));
+                    },
+                    move || locked(&complete).push(("completed", label)),
+                )
+        })
+        .collect::<Vec<_>>();
+    let expected = |reason: &'static str| (0..5).map(|label| (reason, label)).collect::<Vec<_>>();
+
+    source.add(TestNode::new(1102, "plain"));
+    assert_eq!(*locked(&order), expected("membership"));
+
+    locked(&order).clear();
+    aggregate.batch(|| source.add(TestNode::new(1103, "batched")));
+    assert_eq!(*locked(&order), expected("batch"));
+
+    locked(&order).clear();
+    aggregate.dispose();
+    assert_eq!(*locked(&order), expected("completed"));
+}
+
+/// AGCH-011 — a resubscription receives each envelope last
+#[test]
+fn aggregate_resubscription_receives_last() {
+    let source = TestSource::new(vec![TestNode::new(1111, "first")]);
+    let aggregate = aggregate(source.clone());
+    let order = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let subscribe = |label: usize| {
+        let sink = Arc::clone(&order);
+        aggregate
+            .observe(AggregateObserveOptions::default())
+            .subscribe(move |_| locked(&sink).push(label))
+    };
+    let mut subscriptions = (0..5).map(subscribe).collect::<Vec<_>>();
+
+    subscriptions[1].dispose();
+    subscriptions.push(subscribe(1));
+
+    source.add(TestNode::new(1112, "plain"));
+    assert_eq!(*locked(&order), vec![0, 2, 3, 4, 1]);
+
+    locked(&order).clear();
+    aggregate.batch(|| source.add(TestNode::new(1113, "batched")));
+    assert_eq!(*locked(&order), vec![0, 2, 3, 4, 1]);
+    aggregate.dispose();
+}
+
+// AGCH-012 (ADR-0214, #1325): the aggregate holds no state lock while it calls
+// the source, the selector, a selected stream's subscribe or a subscription's
+// disposal. A source that raises its structural callback under its own lock
+// therefore cannot deadlock with the aggregate. Rust already behaves this way;
+// these tests pin it.
+
+const JOIN_BOUND: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// A reentrant lock, as the C# `Monitor` and Python `RLock` sources use: the
+/// thread that raises the callback may drain the aggregate and snapshot again.
+#[derive(Default)]
+struct ReentrantLock {
+    state: Mutex<(Option<std::thread::ThreadId>, usize)>,
+    released: Condvar,
+}
+
+struct ReentrantGuard<'a>(&'a ReentrantLock);
+
+impl ReentrantLock {
+    fn acquire(&self) -> ReentrantGuard<'_> {
+        let me = std::thread::current().id();
+        let mut state = locked(&self.state);
+        while state.0.is_some_and(|owner| owner != me) {
+            state = self
+                .released
+                .wait(state)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+        state.0 = Some(me);
+        state.1 += 1;
+        ReentrantGuard(self)
+    }
+}
+
+impl Drop for ReentrantGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = locked(&self.0.state);
+        state.1 -= 1;
+        if state.1 == 0 {
+            state.0 = None;
+            self.0.released.notify_all();
+        }
+    }
+}
+
+/// A membership source that adds an item and raises its structural callback
+/// while it holds its own lock. Its snapshot takes that lock too.
+#[derive(Clone)]
+struct LockingSource {
+    lock: Arc<ReentrantLock>,
+    items: Arc<Mutex<Vec<TestNode>>>,
+    membership: MessageHub,
+    holding: Arc<(Mutex<bool>, Condvar)>,
+    while_holding_lock: Arc<Mutex<Option<std::time::Duration>>>,
+}
+
+impl LockingSource {
+    fn new() -> Self {
+        Self {
+            lock: Arc::new(ReentrantLock::default()),
+            items: Arc::new(Mutex::new(Vec::new())),
+            membership: MessageHub::new(),
+            holding: Arc::new((Mutex::new(false), Condvar::new())),
+            while_holding_lock: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn pulse(&self) {
+        self.membership.send(Message::Custom {
+            sender_id: 0,
+            sender_name: "LockingSource".to_string(),
+            name: "membership".to_string(),
+        });
+    }
+
+    fn add_under_lock(&self, item: TestNode) {
+        let _guard = self.lock.acquire();
+        locked(&self.items).push(item);
+        let (flag, ready) = self.holding.as_ref();
+        *locked(flag) = true;
+        ready.notify_all();
+        if let Some(pause) = *locked(&self.while_holding_lock) {
+            std::thread::sleep(pause);
+        }
+        self.pulse();
+    }
+
+    fn add_then_notify(&self, item: TestNode) {
+        {
+            let _guard = self.lock.acquire();
+            locked(&self.items).push(item);
+        }
+        self.pulse();
+    }
+
+    fn wait_until_holding(&self) -> bool {
+        let (flag, ready) = self.holding.as_ref();
+        let (guard, _) = ready
+            .wait_timeout_while(locked(flag), JOIN_BOUND, |held| !*held)
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *guard
+    }
+}
+
+impl ObservableMembershipSource<TestNode> for LockingSource {
+    fn snapshot(&self) -> Vec<TestNode> {
+        let _guard = self.lock.acquire();
+        locked(&self.items).clone()
+    }
+
+    fn subscribe_membership<F>(&self, handler: F) -> Subscription
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.membership.subscribe(move |_| handler())
+    }
+}
+
+/// Runs `action` on a new thread; the receiver gets a value when it ends.
+fn background<F>(action: F) -> std::sync::mpsc::Receiver<()>
+where
+    F: FnOnce() + Send + 'static,
+{
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        action();
+        let _ = done.send(());
+    });
+    finished
+}
+
+type AdderSlot = Arc<Mutex<Option<std::sync::mpsc::Receiver<()>>>>;
+
+/// A selector that, for `trigger`, starts a thread that adds `second` under
+/// the source lock, waits until that thread holds the lock, then waits 200 ms.
+fn waiting_selector(
+    source: &LockingSource,
+    trigger_id: usize,
+    second: &TestNode,
+    adder: &AdderSlot,
+) -> impl Fn(&TestNode) -> PropertyChangedStream + Send + Sync + 'static {
+    let (source, second, adder) = (source.clone(), second.clone(), Arc::clone(adder));
+    move |item: &TestNode| {
+        if item.id() == trigger_id && locked(&adder).is_none() {
+            let (source_for_adder, item_to_add) = (source.clone(), second.clone());
+            *locked(&adder) = Some(background(move || {
+                source_for_adder.add_under_lock(item_to_add)
+            }));
+            assert!(source.wait_until_holding());
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        item.property_changed()
+    }
+}
+
+fn finished(receiver: &std::sync::mpsc::Receiver<()>) -> bool {
+    receiver.recv_timeout(JOIN_BOUND).is_ok()
+}
+
+/// AGCH-012 — setup does not deadlock with a source that notifies under its lock
+#[test]
+fn aggregate_setup_does_not_deadlock_with_a_source_that_notifies_under_its_lock() {
+    let source = LockingSource::new();
+    let first = TestNode::new(1, "first");
+    let second = TestNode::new(2, "second");
+    source.add_then_notify(first.clone());
+    let adder: AdderSlot = Arc::new(Mutex::new(None));
+    let select = waiting_selector(&source, first.id(), &second, &adder);
+    let built: Arc<Mutex<Option<AggregateChangeStream<TestNode>>>> = Arc::new(Mutex::new(None));
+    let (slot, constructing_source) = (Arc::clone(&built), source.clone());
+
+    let constructed = background(move || {
+        *locked(&slot) = Some(AggregateChangeStream::new(constructing_source, select));
+    });
+
+    assert!(finished(&constructed));
+    assert!(finished(locked(&adder).as_ref().unwrap()));
+    let aggregate = locked(&built).take().unwrap();
+    let (changes, _subscription) = collect(&aggregate, AggregateObserveOptions::default());
+    second.emit();
+    assert_eq!(reasons(&changes), vec![AggregateChangeReason::Item]);
+    assert_eq!(
+        locked(&changes)[0].item.as_ref().map(TestNode::id),
+        Some(second.id())
+    );
+    aggregate.dispose();
+}
+
+/// AGCH-012 — a draining reconciliation does not deadlock with a source that notifies under its lock
+#[test]
+fn aggregate_drain_does_not_deadlock_with_a_source_that_notifies_under_its_lock() {
+    let source = LockingSource::new();
+    let trigger = TestNode::new(1, "trigger");
+    let second = TestNode::new(2, "second");
+    let adder: AdderSlot = Arc::new(Mutex::new(None));
+    let aggregate = AggregateChangeStream::new(
+        source.clone(),
+        waiting_selector(&source, trigger.id(), &second, &adder),
+    );
+    let (changes, _subscription) = collect(&aggregate, AggregateObserveOptions::default());
+
+    let drainer_source = source.clone();
+    let drained = background(move || drainer_source.add_then_notify(trigger));
+
+    assert!(finished(&drained));
+    assert!(finished(locked(&adder).as_ref().unwrap()));
+    locked(&changes).clear();
+    second.emit();
+    assert_eq!(reasons(&changes), vec![AggregateChangeReason::Item]);
+    assert_eq!(
+        locked(&changes)[0].item.as_ref().map(TestNode::id),
+        Some(second.id())
+    );
+    aggregate.dispose();
+}
+
+/// AGCH-012 — dispose does not deadlock with a source that notifies under its lock
+#[test]
+fn aggregate_dispose_does_not_deadlock_with_a_source_that_notifies_under_its_lock() {
+    let source = LockingSource::new();
+    source.add_then_notify(TestNode::new(1, "first"));
+    let aggregate = Arc::new(AggregateChangeStream::new(
+        source.clone(),
+        |item: &TestNode| item.property_changed(),
+    ));
+    // The adder holds the source lock and waits while dispose runs. Then it
+    // raises the callback. A Rust membership subscription is a hub
+    // subscription, so the unsubscribe cannot take the source lock here.
+    *locked(&source.while_holding_lock) = Some(std::time::Duration::from_millis(200));
+
+    let adder_source = source.clone();
+    let added = background(move || adder_source.add_under_lock(TestNode::new(2, "second")));
+    assert!(source.wait_until_holding());
+    let disposing = Arc::clone(&aggregate);
+    let disposed = background(move || disposing.dispose());
+
+    assert!(finished(&disposed));
+    assert!(finished(&added));
 }

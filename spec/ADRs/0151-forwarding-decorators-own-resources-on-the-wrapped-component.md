@@ -1,6 +1,6 @@
 # ADR 0151 — Forwarding decorators register owned resources on the wrapped component
 
-- **Status:** Accepted
+- **Status:** Accepted (Decision rule 3 superseded by ADR-0213; extended by ADR-0221)
 - **Date:** 2026-10-22
 - **Spec version:** 3.30.0
 - **Related:** [ADR-0090](0090-owned-resource-registration-and-public-hub.md) (owned-resource
@@ -52,7 +52,9 @@ Option 1. Chapter 09 §1 defines it:
    the resource at once, exactly once (`DISP-010`).
 1. The rule applies to `ForwardingCompositeVM` in C#, Python, Swift, and Rust.
    The TypeScript `ForwardingCompositeVM` does not extend `ComponentVMBase`
-   and has no helper (chapter 09 §2).
+   and has no helper (chapter 09 §2). *Superseded by ADR-0213: the TypeScript
+   class now extends `ComponentVMBase`, and the rule covers all five
+   flavors.*
 1. In C#, Python, and TypeScript a decorator may wrap a component that does
    not derive from the VMx base class. Such a decorator cannot register
    resources, and the call fails instead of keeping the resource.

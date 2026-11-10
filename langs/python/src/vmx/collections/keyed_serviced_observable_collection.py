@@ -14,6 +14,8 @@ from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
 from vmx._indexes import _reject_bool_index
+from vmx._subscriber_failures import FanOutSubject
+from vmx.collections._delivery import deliver_then_publish
 from vmx.messages.collection_changed import CollectionChangedMessage
 from vmx.services.message_hub import MessageHubProto
 
@@ -39,7 +41,7 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
         self._items: list[T] = []
         self._keys: list[TKey] = []
         self._index_by_key: dict[TKey, int] = {}
-        self._subject: Subject[CollectionChangedMessage[T]] = Subject()
+        self._subject: Subject[CollectionChangedMessage[T]] = FanOutSubject()
 
     @property
     def on_collection_changed(self) -> rx.Observable[CollectionChangedMessage[T]]:
@@ -144,6 +146,21 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
         """Append one uniquely keyed membership."""
         key = self._key_of(value)
         self._append_projected(value, key)
+
+    def extend(self, values: Iterable[T]) -> None:
+        """Append every value atomically, as ``self[len(self):] = values`` does.
+
+        The input is materialized and every key is projected and validated
+        before any change. A duplicate key, a projector failure or an input
+        iteration failure changes nothing and emits nothing. On success one
+        Reset is emitted; empty input emits nothing (spec/21 §2.10, ADR-0214).
+        """
+        self[len(self._items) :] = values
+
+    def __iadd__(self, values: Iterable[T]) -> KeyedServicedObservableCollection[TKey, T]:
+        """``+=`` is :meth:`extend`."""
+        self.extend(values)
+        return self
 
     def clear(self) -> None:
         """Remove every membership without managing any item lifecycle."""
@@ -303,6 +320,10 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
         self._index_by_key = index_by_key
 
     def _emit(self, message: CollectionChangedMessage[T]) -> None:
-        self._subject.on_next(message)
+        # A failing local subscriber does not suppress the hub message; the
+        # first failure is re-raised after publication (ADR-0171).
+        deliver_then_publish(lambda: self._subject.on_next(message), lambda: self._publish(message))
+
+    def _publish(self, message: CollectionChangedMessage[T]) -> None:
         if self._hub is not None:
             self._hub.send(message)

@@ -1,10 +1,26 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use vmx::{Message, MessageHub, SearchableState};
+use vmx::{Message, MessageHub, SearchableState, VirtualTimeScheduler};
 
 fn contains(item: &&'static str, term: &str) -> bool {
     term.is_empty() || item.to_lowercase().contains(&term.to_lowercase())
+}
+
+fn millis(value: u64) -> Duration {
+    Duration::from_millis(value)
+}
+
+fn count_notifications(
+    state: &SearchableState<&'static str>,
+) -> (Arc<AtomicUsize>, vmx::Subscription) {
+    let hits = Arc::new(AtomicUsize::new(0));
+    let seen = hits.clone();
+    let subscription = state.filtered_changed().subscribe(move |_| {
+        seen.fetch_add(1, Ordering::SeqCst);
+    });
+    (hits, subscription)
 }
 
 /// COMP-014 — SearchableState defaults to empty search term
@@ -19,7 +35,7 @@ fn searchable_state_defaults_to_empty_term() {
 /// COMP-015 — Setting SearchTerm triggers a debounced recompute
 #[test]
 fn setting_search_term_triggers_recompute_notification() {
-    let state = SearchableState::new(vec!["alpha", "beta"], contains);
+    let state = SearchableState::new(vec!["alpha", "beta"], contains).with_debounce(Duration::ZERO);
     let hits = Arc::new(Mutex::new(0));
     let seen = hits.clone();
     let _subscription = state.filtered_changed().subscribe(move |_| {
@@ -35,10 +51,30 @@ fn setting_search_term_triggers_recompute_notification() {
 /// COMP-016 — search() forces immediate recompute, bypassing debounce
 #[test]
 fn search_returns_current_filtered_projection() {
-    let state = SearchableState::new(vec!["alpha", "beta"], contains);
-    state.set_search_term("bet");
+    let scheduler = VirtualTimeScheduler::new();
+    let state = SearchableState::new(vec!["one", "two"], |item: &&'static str, term| {
+        term.is_empty() || *item == term
+    })
+    .with_debounce(Duration::from_secs(1))
+    .with_scheduler(scheduler.clone());
+    let snapshots = Arc::new(Mutex::new(Vec::new()));
+    let seen = snapshots.clone();
+    let observed = state.clone();
+    let _subscription = state.filtered_changed().subscribe(move |_| {
+        seen.lock().unwrap().push(observed.filtered());
+    });
 
-    assert_eq!(state.search(), vec!["beta"]);
+    state.set_search_term("two");
+    assert!(
+        snapshots.lock().unwrap().is_empty(),
+        "the term is debounced"
+    );
+    assert_eq!(state.search(), vec!["two"]);
+    assert_eq!(snapshots.lock().unwrap().as_slice(), &[vec!["two"]]);
+
+    // search() does not cancel the pending term delivery (ADR-0219).
+    scheduler.advance_by(Duration::from_secs(1));
+    assert_eq!(snapshots.lock().unwrap().len(), 2);
 }
 
 /// COMP-017 — Predicate is user-supplied
@@ -77,19 +113,35 @@ fn group_context_defaults_to_empty_term() {
 /// GRP-008 — Setting SearchTerm triggers debounced recompute (group context)
 #[test]
 fn group_context_search_term_filters() {
-    let state = SearchableState::new(vec!["one", "two"], contains);
-    state.set_search_term("tw");
+    let state = SearchableState::new(vec!["x", "yx", "z"], contains).with_debounce(Duration::ZERO);
+    let snapshots = Arc::new(Mutex::new(Vec::new()));
+    let seen = snapshots.clone();
+    let observed = state.clone();
+    let _subscription = state.filtered_changed().subscribe(move |_| {
+        seen.lock().unwrap().push(observed.filtered());
+    });
 
-    assert_eq!(state.filtered(), vec!["two"]);
+    state.set_search_term("x");
+
+    assert_eq!(snapshots.lock().unwrap().as_slice(), &[vec!["x", "yx"]]);
 }
 
 /// GRP-009 — search() forces immediate recompute (group context)
 #[test]
 fn group_context_search_forces_immediate_projection() {
-    let state = SearchableState::new(vec!["one", "two"], contains);
+    let scheduler = VirtualTimeScheduler::new();
+    let state = SearchableState::new(vec!["one", "two"], contains)
+        .with_debounce(Duration::from_secs(1))
+        .with_scheduler(scheduler.clone());
+    let (hits, _subscription) = count_notifications(&state);
+
     state.set_search_term("on");
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
 
     assert_eq!(state.search(), vec!["one"]);
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    scheduler.advance_by(Duration::from_secs(1));
+    assert_eq!(hits.load(Ordering::SeqCst), 2);
 }
 
 /// GRP-010 — Predicate is user-supplied (group context)
@@ -226,9 +278,10 @@ fn source_pulses_preserve_equality_and_upstream_coalescing() {
     assert_eq!(state.filtered(), vec!["same", "batched-1", "batched-2"]);
 }
 
-/// SRCH-004 — source and established synchronous term notifications are independent
+/// SRCH-004 — source refresh is independent of pending term work
 #[test]
 fn source_and_term_notifications_remain_independent() {
+    let scheduler = VirtualTimeScheduler::new();
     let items = Arc::new(Mutex::new(vec!["alpha", "beta"]));
     let source = items.clone();
     let source_changes = MessageHub::new();
@@ -236,7 +289,9 @@ fn source_and_term_notifications_remain_independent() {
         move || source.lock().unwrap().clone(),
         contains,
         source_changes.clone(),
-    );
+    )
+    .with_debounce(millis(1_000))
+    .with_scheduler(scheduler.clone());
     let snapshots = Arc::new(Mutex::new(Vec::new()));
     let seen = snapshots.clone();
     let observed = state.clone();
@@ -245,9 +300,21 @@ fn source_and_term_notifications_remain_independent() {
     });
 
     state.set_search_term("alp");
+    scheduler.advance_by(millis(500));
+    assert!(snapshots.lock().unwrap().is_empty());
+
     items.lock().unwrap().push("alpine");
     pulse(&source_changes);
+    assert_eq!(
+        snapshots.lock().unwrap().as_slice(),
+        &[vec!["alpha", "alpine"]],
+        "the pulse refreshes at once with the new term"
+    );
 
+    // The pulse neither cancelled nor restarted the term delivery.
+    scheduler.advance_by(millis(499));
+    assert_eq!(snapshots.lock().unwrap().len(), 1);
+    scheduler.advance_by(millis(1));
     assert_eq!(snapshots.lock().unwrap().len(), 2);
     assert_eq!(state.filtered(), vec!["alpha", "alpine"]);
 }
@@ -405,4 +472,124 @@ fn omitted_signal_preserves_explicit_refresh_and_item_ownership() {
     // Control: the counter is wired to real disposal.
     first.vm.dispose().unwrap();
     assert_eq!(first.dispose_count.load(Ordering::SeqCst), 1);
+}
+
+/// SRCH-008 — construction starts no term debounce
+///
+/// Construction sends no `filtered_changed` notification (ADR-0198).
+#[test]
+fn construction_starts_no_term_debounce() {
+    let scheduler = VirtualTimeScheduler::new();
+    let items = Arc::new(Mutex::new(vec!["one"]));
+    let source = items.clone();
+    let state = SearchableState::from_items(move || source.lock().unwrap().clone(), contains)
+        .with_debounce(millis(1_000))
+        .with_scheduler(scheduler.clone());
+    let recorder = state.filtered_changed().record(16);
+    let snapshots = Arc::new(Mutex::new(Vec::new()));
+    let seen = snapshots.clone();
+    let observed = state.clone();
+    let _subscription = state.filtered_changed().subscribe(move |_| {
+        seen.lock().unwrap().push(observed.filtered());
+    });
+
+    items.lock().unwrap().push("two");
+    scheduler.advance_by(millis(1_500));
+    assert!(recorder.is_empty(), "construction sends no notification");
+
+    assert_eq!(state.search(), vec!["one", "two"]);
+    assert_eq!(recorder.len(), 1);
+    assert_eq!(snapshots.lock().unwrap().as_slice(), &[vec!["one", "two"]]);
+
+    state.set_search_term("o");
+    assert_eq!(recorder.len(), 1, "the term waits for its debounce");
+    scheduler.advance_by(millis(1_000));
+    assert_eq!(recorder.len(), 2);
+}
+
+/// SRCH-009 — a failing predicate or filtered_changed subscriber keeps the helper live
+#[test]
+fn failing_predicate_or_filtered_subscriber_keeps_helper_live() {
+    let state = SearchableState::new(vec!["apple", "banana"], |item: &&'static str, term| {
+        assert!(term != "boom", "predicate failed");
+        item.contains(term)
+    })
+    .with_debounce(Duration::ZERO);
+    let counts = Arc::new(Mutex::new([0_usize; 2]));
+    let (a_seen, b_seen) = (counts.clone(), counts.clone());
+    let _a = state.filtered_changed().subscribe(move |_| {
+        a_seen.lock().unwrap()[0] += 1;
+        panic!("subscriber A failed");
+    });
+    let _b = state
+        .filtered_changed()
+        .subscribe(move |_| b_seen.lock().unwrap()[1] += 1);
+
+    // Setting the term returns normally; the pull API reports the failure.
+    state.set_search_term("boom");
+    let pulled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| state.filtered()));
+    assert!(
+        pulled.is_err(),
+        "filtered() must let the predicate panic reach the caller"
+    );
+
+    state.set_search_term("an");
+    assert_eq!(state.filtered(), vec!["banana"]);
+    assert_eq!(*counts.lock().unwrap(), [2, 2]);
+
+    assert_eq!(state.search(), vec!["banana"]);
+    assert_eq!(*counts.lock().unwrap(), [3, 3]);
+}
+
+#[test]
+fn term_debounce_defaults_to_one_second() {
+    let scheduler = VirtualTimeScheduler::new();
+    let state =
+        SearchableState::new(vec!["alpha", "beta"], contains).with_scheduler(scheduler.clone());
+    let (hits, _subscription) = count_notifications(&state);
+
+    state.set_search_term("alp");
+    scheduler.advance_by(millis(999));
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+
+    scheduler.advance_by(millis(1));
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert_eq!(state.filtered(), vec!["alpha"]);
+}
+
+#[test]
+fn term_changes_inside_the_window_send_one_message_after_the_last_change() {
+    let scheduler = VirtualTimeScheduler::new();
+    let state = SearchableState::new(vec!["alpha", "beta"], contains)
+        .with_debounce(millis(300))
+        .with_scheduler(scheduler.clone());
+    let (hits, _subscription) = count_notifications(&state);
+
+    state.set_search_term("a");
+    scheduler.advance_by(millis(200));
+    state.set_search_term("al");
+    scheduler.advance_by(millis(200));
+    state.set_search_term("alp");
+    scheduler.advance_by(millis(299));
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+
+    scheduler.advance_by(millis(1));
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    scheduler.advance_by(millis(1_000));
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn dispose_cancels_a_pending_term_delivery() {
+    let scheduler = VirtualTimeScheduler::new();
+    let state = SearchableState::new(vec!["alpha"], contains)
+        .with_debounce(millis(300))
+        .with_scheduler(scheduler.clone());
+    let (hits, _subscription) = count_notifications(&state);
+
+    state.set_search_term("alp");
+    state.dispose();
+    scheduler.advance_by(millis(1_000));
+
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
 }

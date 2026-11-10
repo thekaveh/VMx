@@ -61,7 +61,25 @@ fallback after this migration.
 1. Update `version` and, when required, `rust-version` in `Cargo.toml`,
    `MIN_SPEC_VERSION` in `src/lib.rs`, and the compatibility matrix.
 
-1. Add a matching `## [X.Y.Z] — YYYY-MM-DD` changelog section.
+1. In the release-prep PR, correct the files that ship inside the package
+   before the tag. crates.io keeps the README and CHANGELOG of each version and
+   cannot replace them.
+
+   - `langs/rust/README.md` is the crates.io page. Until the first release, it
+     says that the crate is not on crates.io and gives only the git and path
+     dependencies. Remove that status sentence.
+   - Make the crates.io dependency (`vmx-rs = "X.Y.Z"`) the first install form
+     in the README.
+   - Name the spec version in the README without a tag reference.
+   - State in the README that the tests cover every library conformance ID,
+     without a count (`CONTRIBUTING.md` §3.2).
+   - Make the release section of `langs/rust/CHANGELOG.md` describe the
+     published package.
+
+1. In the release-prep PR, immediately before the tag, replace
+   `unreleased source version` in the `## [X.Y.Z]` changelog heading with the
+   release date, so the heading reads `## [X.Y.Z] — YYYY-MM-DD` and the date
+   equals the tag date (`CONTRIBUTING.md` §4.3).
 
 1. From a clean checkout of current `origin/main`, run the release gates and
    prove the version and tag are unused:
@@ -94,13 +112,20 @@ Before publication, Rust 1.88 and stable jobs independently verify:
 - the tag commit is reachable from `origin/main` and tag/Cargo versions match;
 - `cargo fmt --check` and all-target/all-feature Clippy with warnings denied;
 - all-feature tests and warning-free documentation;
-- the exact package-content allowlist and Cargo's clean package build; and
+- the package contents (the fixed top-level and generated files plus every
+  Git-tracked file under `src/` and `tests/`) and Cargo's clean package
+  build; and
 - an extracted `.crate` consumer using the `vmx` namespace, exact version,
   lifecycle transitions, and command execution.
 
 A separate gate enforces 100% five-flavor conformance coverage and Rust fixture
-sync. The protected publish job repeats ancestry, version, package, and local
-consumer checks before either bootstrap or OIDC authentication.
+sync. Another runs `cargo audit --deny warnings` on `langs/rust/Cargo.lock`.
+The `release-metadata` preflight checks versions, tags, and release notes. The
+protected publish job waits for all of these jobs. It repeats the ancestry,
+version, and package-content checks before either bootstrap or OIDC
+authentication. It does not rerun the local consumer check, which runs
+`cargo test` without `id-token: write` in `rust-test`. The `cargo publish`
+verification build still compiles the crate's dependencies in the publish job.
 
 After crates.io accepts the version, Rust 1.88 and stable consumers poll both
 crates.io and docs.rs, execute `cargo add vmx-rs@=X.Y.Z` in fresh projects, and
@@ -117,9 +142,10 @@ gh release view rust-vX.Y.Z --repo thekaveh/VMx
 ```
 
 Inspect the crates.io version, docs.rs API page, owner list, workflow run, and
-GitHub Release through fresh requests. Only then update README, compatibility
-matrix, Rust README, installation guide, and Rust flavor page, as the release
-invariants describe, before marking the issue complete.
+GitHub Release through fresh requests. Only then update the root README,
+compatibility matrix, installation guide, and Rust flavor page, as the release
+invariants describe, before marking the issue complete. The Rust README already
+shipped in the package, so §2 corrects it before the tag.
 
 ## 5. Immutability, yank, and recovery
 

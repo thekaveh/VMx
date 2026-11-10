@@ -77,29 +77,57 @@ public class KeyedServicedObservableCollectionTests
     }
 
     [Fact]
-    public void RejectedReentrantMutationDoesNotCorruptIndex()
+    public void NestedMutationWithTwoHandlersKeepsIndexConsistent()
     {
+        // #1343, ADR-0214: a handler may mutate the collection while a second
+        // handler is attached. The nested Add succeeds, and the captured-key
+        // index matches the item order afterwards.
         var sut = new KeyedServicedObservableCollection<string, Item>(item => item.Key);
-        Exception? nestedError = null;
+        var nested = false;
         sut.CollectionChanged += (_, _) =>
         {
-            try
-            {
-                sut.Add(new Item("nested", "Nested"));
-            }
-            catch (Exception error)
-            {
-                nestedError = error;
-            }
+            if (nested) return;
+            nested = true;
+            sut.Add(new Item("nested", "Nested"));
         };
         sut.CollectionChanged += (_, _) => { };
 
         sut.Add(new Item("outer", "Outer"));
 
-        nestedError.Should().BeOfType<InvalidOperationException>();
-        sut.Select(item => item.Key).Should().Equal("outer");
+        sut.Select(item => item.Key).Should().Equal("outer", "nested");
+        sut.TryGetValue("outer", out Item? outer).Should().BeTrue();
+        outer!.Key.Should().Be("outer");
+        sut.TryGetValue("nested", out Item? inner).Should().BeTrue();
+        inner!.Key.Should().Be("nested");
+        sut.IndexOf(outer).Should().Be(0);
+        sut.IndexOf(inner).Should().Be(1);
+        sut.RemoveKey("outer").Should().BeTrue();
+        sut.TryGetValue("nested", out Item? moved).Should().BeTrue();
+        sut.IndexOf(moved!).Should().Be(0);
+    }
+
+    [Fact]
+    public void NestedUpsertSucceedsWhileAnAggregateChangeStreamObservesTheCollection()
+    {
+        // #1343: SubscribeMembership adds a CollectionChanged handler, so an
+        // observing aggregate made every other handler the second one.
+        var sut = new KeyedServicedObservableCollection<string, Item>(item => item.Key);
+        using var aggregate = new AggregateChangeStream<Item>(
+            sut,
+            _ => System.Reactive.Linq.Observable.Never<System.Reactive.Unit>());
+        var nested = false;
+        sut.CollectionChanged += (_, _) =>
+        {
+            if (nested) return;
+            nested = true;
+            sut.Upsert(new Item("nested", "Nested"));
+        };
+
+        sut.Upsert(new Item("outer", "Outer"));
+
+        sut.Select(item => item.Key).Should().Equal("outer", "nested");
         sut.ContainsKey("outer").Should().BeTrue();
-        sut.ContainsKey("nested").Should().BeFalse();
+        sut.ContainsKey("nested").Should().BeTrue();
     }
 
     [Fact]

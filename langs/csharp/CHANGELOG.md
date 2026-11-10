@@ -8,7 +8,68 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
-- Added: the opt-in `TreeSelection<TModel, TVM>` helper (`VMx.Hierarchical`)
+### VMx.Notifications
+
+### VMx.Extensions.DependencyInjection
+
+## [3.30.0] — unreleased source version
+
+### Added
+
+- `DelayedTask`: a disposable helper that holds at most one delayed
+
+- Added: `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
+  `Construct()` or `Reconstruct()` disposes the fresh candidate and keeps the
+  owned candidate's status and parent. C# already behaved this way.
+
+- Added: `DelayedTask`: a disposable helper that holds at most one delayed
+  action on an injected scheduler. `Schedule` replaces a pending action and
+  restarts its delay, `Cancel` stops it, `IsPending` reports it, and disposal
+  cancels it (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
+
+- `COMP-053` conformance tests (ADR-0218, #1312). The selector receives
+  the live membership. This flavor already behaved this way.
+
+- `COMP-040` tests now assert that the rollback error carries the
+  original and the first compensation failure (ADR-0218, #1305). This flavor
+  already behaved this way.
+
+- Protected `NotifyPropertyChanged` and `RaisePropertyChanged` helpers
+  on `ForwardingComponentVM<M>` and `ForwardingCompositeVM<VM>` (#1352). They
+  act on the wrapped VM: the hub message names the wrapped VM as its sender,
+  and the decorator's `PropertyChanged` event fires once.
+
+- `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220,
+  ADR-0221, ADR-0222). They cover the #1352 change in this subsection and the
+  #1367, #1430 and #1459 changes under Changed and Fixed.
+
+- `COL-071` and `AGCH-012` conformance tests (ADR-0214). A duplicate
+  `ObservableDictionary.Add` already threw `ArgumentException` and changed
+  nothing.
+
+- `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
+  and `find` report invalid children-factory output as a recoverable error,
+  assign no parent and retry the factory on the next walk; `find` returns a
+  match that it reaches before the failing node. C# already behaved this
+  way.
+
+- `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189).
+
+- `CMD-020` and `FORM-043` conformance tests (ADR-0195, ADR-0196,
+  #1327). C# already behaved this way.
+
+- `COL-067` conformance tests (#1176, ADR-0177). An
+  `ObservableDictionary` mutation changes the entries and `Count` first. Then
+  it updates each key view that changes, raises the dictionary events and
+  sends the hub message. The order of the two key-view notifications is not
+  specified. C# already behaved this way.
+
+- `FORM-044` conformance tests (#1415, ADR-0216). A failed send of an
+  update's queue stops the later sends and releases a nested approval without
+  calling its persister. C# already behaved this way.
+
+- The opt-in `TreeSelection<TModel, TVM>` helper (`VMx.Hierarchical`)
   holds one current node of a hierarchical tree (#667, ADR-0164,
   HIER-033..HIER-040). It is constructed on a root node and exposes `Current`,
   `CanSelect(node)`, `Select(node)`, `Clear()`, a hot
@@ -22,14 +83,15 @@ All notable changes to the C# flavor are documented here. The format is based on
   nothing to a hub and never changes a node. `Dispose()` releases the hub
   subscriptions, sets `Current` to null without emitting, completes the stream
   and rethrows the first failure. `HierarchicalVM` gains no member.
-- Added: `ExpandableState.ExpandCommand`, `CollapseCommand` and
+
+- `ExpandableState.ExpandCommand`, `CollapseCommand` and
   `ToggleExpansionCommand` (#660, ADR-0159, EXP-006..008). Each command's
   predicate is the matching `Can*` check, its task calls the verb, and its
   `CanExecuteChanged` fires on every expansion change. The helper builds each
   command on first read and owns it: `Dispose()` disposes the commands, which
   are then inert. An owner re-exports a command instead of building one.
-- Added: a `MessageHubExtensions.WhenPropertyChanged(IMessageHub, object,
-  params string[])` overload emits each message from the sender whose property
+
+- A `MessageHubExtensions.WhenPropertyChanged(IMessageHub, object, params string[])` overload emits each message from the sender whose property
   name is any of the names. It makes one hub subscription and emits each
   matching message once, in hub order. A null array throws
   `ArgumentNullException`; an empty array or a null name throws
@@ -39,7 +101,8 @@ All notable changes to the C# flavor are documented here. The format is based on
   group without parameters are now ambiguous and must name the overload. A
   call with no names now compiles and throws `ArgumentException` (spec/03 §7.2,
   ADR-0160, #664).
-- Added: opt-in reverse child order for container teardown (#662, ADR-0161,
+
+- Opt-in reverse child order for container teardown (#662, ADR-0161,
   GRP-014, COMP-046). The new `ChildOrder` enum (`VMx.Components`) has
   `Insertion` (the default) and `Reverse`. `GroupVMBuilder<VM>`,
   `CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` gain
@@ -50,12 +113,12 @@ All notable changes to the C# flavor are documented here. The format is based on
   disposed before the container publishes `Disposed` (LIFE-013). New protected
   `GroupVMBase<VM>` and `CompositeVMBase<VM>` constructor overloads take the
   order for custom containers.
-- Added: the child-transition helper and member disposal for leaf view-models
+
+- The child-transition helper and member disposal for leaf view-models
   (#661, ADR-0162, LIFE-016..LIFE-020). The protected
   `ComponentVMBase.TransitionChildrenAsync(children, construct, after)` and
   `CompleteLifecycleHookAfter(Task)` are now supported API: a subclass calls
-  `CompleteLifecycleHookAfter(TransitionChildrenAsync(members, construct:
-  true))` from its own hook. The walk takes the children in the given order,
+  `CompleteLifecycleHookAfter(TransitionChildrenAsync(members, construct: true))` from its own hook. The walk takes the children in the given order,
   skips a child already at the target, joins a child already in transit,
   waits for a background child, and rolls the parent back when a child fails.
   Pass the reversed list to destruct in reverse. The new protected
@@ -66,14 +129,486 @@ All notable changes to the C# flavor are documented here. The format is based on
   any thread returns at once and does nothing. A member registered after
   disposal started is disposed at once, and registering the VM itself throws
   `InvalidOperationException`.
-- Changed: the protected `CompositeVMBase.ConstructChildren()`,
+
+- `ComponentVMBase`, `ComponentVMBaseOfM<M>`, `CompositeVMBase<VM>`, and
+  `GroupVMBase<VM>` have protected constructor overloads without `hint`, which
+  default it to an empty string as the builders do (spec/10 §4). The
+  `ComponentVMBaseOfM<M>` overload also makes `modeledHinter` optional, with
+  an empty hint by default, and takes the remaining arguments as optional
+  parameters (#663).
+
+- `ForwardingComponentVM<M>` and `ForwardingCompositeVM<VM>` have protected
+  `Own<T>(T)` and `Own(Action)` overloads. They register a resource on the
+  wrapped VM's terminal cleanup: it is disposed, in LIFO order with the wrapped
+  VM's other resources, when that VM is disposed through any decorator or
+  directly, and at once if it is already disposed. A decorator that wraps a VM
+  not derived from `ComponentVMBase` throws `InvalidOperationException`. A
+  subclass that already declares a member named `Own` with the same signature
+  now hides the new one and gets warning CS0108, which fails a build that
+  treats warnings as errors (`FWD-005`, ADR-0151, spec 3.30.0) (#650).
+
+### Changed
+
+- Disposing a live `CompositeCommand`, `DecoratorCommand` or
+  `ConfirmationDecoratorCommand` now raises the wrapper's own
+  `CanExecuteChanged` once, as TypeScript and Swift do (#1459, spec/04 §8.4).
+  Handlers of the inner command receive nothing.
+
+- The construct walk of a composite or group now counts members only
+  (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
+  joins a child, and again after the child settles. A child that a removal or
+  a failed add takes out during the walk does not roll the container back, and
+  the walk does not construct a snapshot child removed before it reaches it.
+  `COMP-047` and `GRP-015` cover the four removal cases.
+
+- A container membership change never waits for another thread's
+  membership transaction (ADR-0187, spec/06 §4.2, #1314). While any thread
+  holds the transaction, add, insert, index replacement, population, transfer
+  detach, remove, `RemoveAt` and `Clear` fail at once with the "membership
+  transaction in progress" error and change nothing. Disposal still waits.
+  `COMP-048` and `GRP-016` cover the rule. Before, a `GroupVM` waited for an
+  add.
+
+- `ICollectionChangedMessage<T>` is covariant (`out T`) (#1356). A hub
+  filter on `ICollectionChangedMessage<IComponentVM>` now also receives the
+  `CollectionChangedMessage<VM>` of every `CompositeVM<VM>` and `GroupVM<VM>`
+  whose child type is a reference type that implements `IComponentVM`, and
+  the messages of collections whose element type derives from the filter's
+  type argument.
+
+- A refused child `Select()` or `Deselect()` now changes nothing and
+  throws nothing (ADR-0188, #1424). Before, it threw
+  `InvalidOperationException`.
+
+- The fire-and-forget `Execute()` of `ConfirmationDecoratorCommand`
+  no longer runs the inner command inside its own call when the confirmation
+  is already complete (ADR-0195, spec/04 §8.3.1, #1327, `CMDD-018`). The inner
+  command now runs after `Execute()` returns, on a thread-pool thread, not
+  through the caller's `SynchronizationContext`. Migration: code that needs
+  the inner command to have run calls `ExecuteAsync()` and awaits it, or waits
+  for the inner command. The post hook of an outer decorator and a
+  `SucceedWith` successor now run before a confirmed inner command.
+
+- The README now states that a confirmed inner command, the
+  completion notifications of an `AsyncRelayCommand` and a
+  `TokenPagedComposition` load can run on a thread-pool thread (documentation
+  only; ADR-0195, spec/11 §3.1, #1345). VMx keeps `ConfigureAwait(false)` and
+  does not marshal this work.
+
+- **Source-breaking:** `ObservableDictionary.Keys1` and `Keys2` now
+  return a read-only `ReadOnlyObservableList<TKey>` (#1316, ADR-0193,
+  `COL-070`). The view reads and notifies as before, but it has no mutator and
+  no batch member. Its `CollectionChanged`, `PropertyChanged` and granular
+  events carry the view as sender. Before, it was the backing
+  `ObservableList`, and a caller edit made it disagree with the entries. This
+  is a narrow 3.x exception (ADR-0009 §2.21). Migration: change an
+  `ObservableList<TKey>` annotation on a key view to
+  `ReadOnlyObservableList<TKey>`. Change keys through the dictionary.
+
+- A `CollectionChangedMessage` from a `CompositeVM` or `GroupVM` now
+  carries the container's `Name` as its `SenderName` (#1309, ADR-0194). Before,
+  it carried the runtime type name, such as `` CompositeVM`1 ``. A hub filter on
+  that type name must use the container's name or sender identity instead.
+  Plain collections and dictionaries keep their type name. `SenderName` is now
+  an `init` property; its default is still the sender's runtime type name.
+
+- A `SetModel` or deny made in the caller's own approval
+  pre-publication window no longer waits for another thread's publication
+  scope. It is queued at once (ADR-0215, spec/20 §5.5, #1426).
+
+- A non-strict `FormVM` update no longer compares the model with the
+  snapshot (ADR-0216, spec/20 §5.2, `FORM-045`, #1355). A non-strict
+  `SetModel` runs the equality once, and a non-strict deny not at all.
+
+- The protected `CompositeVMBase.ConstructChildren()`,
   `ComponentVMBase.CompleteLifecycleHookAfter(Task)` and
   `ComponentVMBase.TransitionChildrenAsync(children, construct, after)` now
   throw `InvalidOperationException` when they are called outside the VM's own
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
-- Fixed: `ObservableDictionary`: `Remove` and `Clear` now update `Keys2`
+
+- The `netstandard2.0` dependency floors of the `VMx` package move to the
+  10.0.14 servicing releases of `System.Text.Json`,
+  `System.Collections.Immutable`, and `Microsoft.Bcl.AsyncInterfaces` (#519,
+  #646).
+
+- `FormVM` no longer delivers a notification while it holds its
+  state lock or the old `ApproveErrors` lock (ADR-0176). `SetModel` and deny
+  deliver `ErrorsChanged` in an update scope, and `CanExecuteChanged` after
+  it. Other threads' form calls wait for that scope, so error maps still reach
+  observers in commit order. The admission `CanExecuteChanged` no longer opens
+  a scope, so another thread's `SetModel` or deny runs during it. A
+  `Dispose()` on another thread no longer waits for an `ApproveErrors`
+  delivery. It defers the teardown until that delivery returns. A `Dispose()`
+  from an `ApproveErrors` observer on the delivering thread also defers it.
+  Before, it completed the channels during that delivery.
+
+### Fixed
+
+- An add now ends its start attempt after it ends its membership
+  transaction (ADR-0218, spec/06 §5.1, #1371). A container that a late add
+  resumes publishes `Constructed` outside that add's transaction, so a
+  `Constructed` subscriber can add a child.
+
+- A container whose construct hook a foreign `dispose()` superseded no
+  longer calls its children factory, and its `construct()` returns without an
+  error (ADR-0218, spec/02 §2.4, #1369). An `add()` during disposal still
+  fails.
+
+- A walk or an auto-construct add no longer fails when another thread
+  starts the same child between its status check and its start call
+  (ADR-0218, spec/02 §6, spec/06 §5.1, #1370, #1375). The walk joins that
+  transition, and the add leaves it to the walk. This covers construct and
+  destruct.
+
+- A failed add, insert, replacement or population that started a
+  background child now returns that child to `Destructed` once its construct
+  settles `Constructed` with no parent (ADR-0218, spec/06 §4.2, #1372,
+  `COMP-054`, `GRP-017`). Before, the child reached `Constructed` with no
+  parent.
+
+- A throwing `ItemAdded`, `ItemRemoved`, `ItemReplaced` or `Reset`
+  handler of `ObservableList<T>` no longer skips `CollectionChanged` or
+  `PropertyChanged("Count")` (#1367, spec/21 §3.3). Every handler of each event
+  runs, and the first failure is rethrown after the last step. This covers
+  `Add`, `Insert`, `Remove`, `RemoveAt`, `Replace`, `Clear`, `ReplaceAll` and
+  the batch exit. `ReadOnlyObservableList<T>` also runs each of its own
+  handlers.
+
+- A throwing `Keys1` or `Keys2` subscriber of `ObservableDictionary` no
+  longer skips the other key view, the dictionary's events or its hub message
+  (#1430). After a failed `Keys2` add, `Keys1` lists the new key. A throwing
+  `PropertyChanged("Count")` or `PropertyChanged("Item[]")` handler of
+  `ServicedObservableCollection<T>` or
+  `KeyedServicedObservableCollection<TKey, TItem>` no longer skips
+  `CollectionChanged` or the hub message: every handler runs, and the mutation
+  rethrows the first failure after the hub send. Outside a mutation, such as a
+  subclass that raises its own property through `OnPropertyChanged`, every
+  handler runs and the first failure is rethrown at once.
+
+- `ComponentVMBase.RaisePropertyChanged` is now a no-op after the VM is
+  disposed, as in Python, TypeScript and Swift (ADR-0223, spec/05 §2.3,
+  spec/09 §1, #1542). The `ForwardingComponentVM` and `ForwardingCompositeVM`
+  helpers forward to it, so they raise nothing after the wrapped VM is
+  disposed. The terminal `Status` and `IsConstructed` events still fire.
+
+- A construct hook that raises after it started the container walk no
+  longer lets the walk's commit step set `Status` to `Constructed` (ADR-0186,
+  spec/06 §5.1, #1374). The commit step checks for an abandoned or stopped
+  walk under the lock that writes the status.
+
+- A null child from code that suppresses the nullable warning no longer
+  causes a `NullReferenceException` in the composite selection calls (#1467).
+  `CanSelectComponent(null)` returns false, `SelectComponent(null)` throws its
+  predicate `InvalidOperationException`, and `DeselectComponent(null)` throws
+  the "not the current selection" `InvalidOperationException` when a child is
+  current and does nothing otherwise.
+
+- `PagedComposition<T>` paging calls after `Dispose()` are inert
+  (#1299, ADR-0214). `PageSize` and `CurrentPageIndex` writes and the four
+  move calls change no state and raise no `PropertyChanged` event. Reads keep
+  the last page size and page index.
+
+- `AggregateChangeStream<T>` holds no gate while it calls the
+  membership source's `SubscribeMembership` and `Snapshot()`, the item
+  selector, a selected stream's `Subscribe` or a subscription's `Dispose()`
+  (#1325, ADR-0214, `AGCH-012`). A source that raises its structural callback
+  under its own lock no longer deadlocks the aggregate during construction, a
+  structural reconciliation or `Dispose()`.
+
+- A `CollectionChanged` handler of a `ServicedObservableCollection<T>`
+  or `KeyedServicedObservableCollection<TKey, TItem>` can mutate the
+  collection while other handlers are attached (#1343, ADR-0214). The
+  collections keep their own handler list, so the `ObservableCollection<T>`
+  reentrancy check no longer throws `InvalidOperationException`. This also
+  applies while an `AggregateChangeStream` observes the collection. The nested
+  mutation delivers its local event and hub message first.
+
+- A population that fails before its commit now disposes the
+  candidates it built (#1324). This covers a throwing `AggregateVM2` to
+  `AggregateVM6` factory on `Construct()` or `Reconstruct()`, a refused
+  aggregate preflight, and a throwing `CompositeVMOf` projector. The old slots
+  and parent links stay. A candidate that has a parent, that another ownership
+  transaction holds, or that owns the aggregate is not disposed. A
+  `FilteredCompositeVM` or `ScoredFilteredCompositeVM` whose first recompute
+  throws, or whose scorer is null, now detaches from its source before the
+  exception propagates.
+
+- `CompositeVM` and `GroupVM` `BatchUpdate` now change the batch depth
+  and dirty flag under a lock (#1344). Batches opened and closed on several
+  threads keep an exact depth, and a change made while another thread closes
+  the outermost batch still raises its `Reset`. A batch that closes after the
+  container's disposal is requested raises no local `Reset`, as it sends no hub
+  message.
+
+- `AttachMany` now indexes the materialized subtree of each attached
+  item (#1320, ADR-0212, `HIER-042`..`HIER-044`). A later item in the same
+  batch can name any node of that subtree as its parent; before, it became a
+  `MissingParent` orphan. A descendant key that is already in the tree, or
+  that an earlier item in the batch claimed, rejects the item as
+  `DuplicateExistingKey` or `DuplicateBatchKey`, so a batch no longer adds a
+  second node for a key. An item that is a node of an earlier item's subtree
+  is rejected as `AlreadyAttached` in either batch order, never as a
+  duplicate, so `Duplicates` never holds a live node. A parent key that names
+  the item's own descendant is now a `Cycle` rejection instead of a parked
+  orphan. Children that `AddChild` materializes from a lazy factory join the
+  index in the next batch.
+
+- A failing subscriber no longer stops the delivery to the other
+  subscribers or detaches a subscription (ADR-0191, spec/03 §3.6, #1304,
+  #1311). This covers the hub helpers, `DerivedProperty` value changes,
+  `SearchableState`, command `CanExecuteChanged` handlers and triggers, and the
+  local collection and container channels. A failure from a stream-fed delivery
+  no longer reaches the upstream publisher; it follows the hub's
+  subscriber-error route. Collection, container and raise-call failures are
+  still rethrown, after every subscriber has run. A failing `SearchableState`
+  predicate keeps the last snapshot (`HUB-007`, `DPROP-013`, `SRCH-009`,
+  `CMD-021`, `COL-069`).
+
+- `AggregateChangeStream` now delivers each envelope to its subscribers
+  in subscription order, for item, structural, final `Batch` and completion
+  delivery (ADR-0192, spec/21 §9.5, #1310, `AGCH-011`).
+
+- `SearchableState` construction no longer starts a term debounce
+  (ADR-0198, `SRCH-008`, #1307). Before, the seeded empty term emitted one
+  filtered snapshot one debounce window after construction, with no term
+  change or `Search()` call.
+
+- A disposed `HierarchicalVM` node now refuses `AddChild`,
+  `RemoveChild`, `ReparentChild`, `InvalidateChildren`, `InvalidateSubtree`
+  and `AttachMany`, also where the call would do nothing (ADR-0190, spec/18
+  §7.1, #1318). A transfer out of a disposed parent refuses too. A refused
+  call changes nothing and publishes nothing. `AttachMany` rejects a candidate
+  under a disposed parent, and `InvalidateSubtree` skips a disposed
+  descendant. A refused call throws `ObjectDisposedException`.
+
+- A `CompositeVM` or `GroupVM` now sends no `CollectionChangedMessage`
+  once its disposal is requested, also when the disposal is deferred
+  (ADR-0190, spec/01 §1.4, #1351). A local subscriber or `OnCurrentChanged`
+  callback that disposes the container now suppresses the hub message of that
+  change. In a transfer whose old container disposes itself, the hub receives
+  only the new container's `Add`.
+
+- A current `AsyncResourceVM` loader that ends with its own
+  cancellation now restores the saved stable state, as `Cancel` does, instead
+  of installing `Error` (ADR-0199, spec/23 §7, `ARES-012`, #1353). The
+  cancellation can come from any source, such as a shared request that another
+  owner cancels. A superseded loader's cancellation changes nothing. A
+  `TimeoutException` inner exception stays a failure.
+
+- A terminal cleanup that a wait cycle deferred to an admitted hook's
+  thread no longer loses its failure (ADR-0200, spec/02 §2.4 and §7, #1297).
+  When the hook succeeds, the hook's `Construct()`, `Destruct()` or
+  `Reconstruct()` call now raises the cleanup's first failure, such as a
+  failing child disposal. A hook failure stays first. The cycle-broken
+  `Dispose()` call returns normally. The async methods and the background form
+  report the failure as they report a hook failure.
+
+- Disposing the current child of a composite now clears the
+  composite's current child before `Dispose()` returns (ADR-0189, #1317). The
+  composite publishes the change once and calls `OnCurrentChanged(null)` once.
+  The disposed child reads `IsCurrent` false. A disposed child can no longer
+  become current: the setter throws the non-member error.
+
+- A composite, group or aggregate that holds a directly disposed child
+  now destructs, constructs and reconstructs (ADR-0189, #1383). Container
+  walks and the child-transition helper skip a disposed child. Before, every
+  `Destruct()` failed and the container stayed `Constructed`.
+
+- A non-null selection while a composite is `Destructing` now changes
+  nothing and throws nothing (ADR-0188, #1425). `Destruct()` and
+  `Reconstruct()` therefore return with no current child, also when an
+  `OnCurrentChanged` callback or a child's destruct hook selects a child.
+
+- `ObservableDictionary` Remove and Replace hub messages now carry the
+  entry's position in enumeration order (#1316, ADR-0193, `COL-068`). Remove
+  sets `Index` and `OldIndex` to the position before the removal, and
+  `NewIndex` to -1. Replace sets all three to the entry's position when the
+  message is sent, as Add does (#733). If a local handler removed the entry
+  first, Replace sends -1. Before, both sent -1.
+
+- A `FormVM` call nested in a preparation callback or an
+  `ErrorsChanged` observer of `SetModel` or deny now returns before its
+  notifications (ADR-0180, spec/20 §5.4, #1173). This covers `SetModel`, deny,
+  `ApproveAsync` and `ApproveCommand.Execute()`. The outermost update sends
+  them before it returns, with no lock held: error maps first, in commit
+  order, then the other notifications. A nested approval calls its persister
+  after that, so it no longer commits inside the callback. A nested call no
+  longer waits for another thread's publication scope; it takes the
+  refused-wait result. Queued notifications are dropped once the form is
+  disposed.
+
+- `FormVM` no longer holds a lock while its equality, validators,
+  snapshotter or `resetOnApproved` run (ADR-0215, spec/20 §5.4, #1427). A
+  callback that waited for another thread that called the same form
+  deadlocked. Another thread's reads now return the committed state at once,
+  and its calls no longer wait for the callback. An update that another
+  thread's commit overtakes runs again as a new call. A `Dispose()` from
+  another thread during a preparation returns at once, and the update commits
+  nothing.
+
+- `TokenPagedComposition`: a load that finds a terminal token when it
+  starts now fetches nothing (#1161, ADR-0169). A refresh or another load could
+  commit a terminal token after the load command was admitted. The load then
+  refetched page 1 and appended it again, and `HasMore` stayed true. The load
+  now changes nothing and does not supersede an in-flight refresh.
+
+- The `CompositeVMBase` index setter keeps the replaced child owned
+  until the commit (#1219). The commit now frees the child and clears
+  `Current` in one locked section. Before, the setter freed the child first
+  and cleared `Current` only at the commit. A construct hook of the
+  replacement could adopt the freed child into another composite and select
+  it there. The commit then reset the child's `IsCurrent` flag while the
+  other composite kept it current. A hook that adopted the child and then
+  failed left it in both composites. Now the adoption fails while the
+  replacement is in progress. A failed replacement still restores the child
+  and `Current` with no notification.
+
+- `SelectComponent` now checks `Constructed` again at the commit,
+  under the coordination lane and the membership gate, also at an
+  `AsyncSelection(true)` delivery (spec/06 §3.1, #1220). Before, a destruct on
+  another thread after `CanSelectComponent`, or before the delivery, let the
+  call select a `Destructed` child. Now the call throws its predicate error,
+  and the delivery does nothing.
+
+- Lifecycle publication waits and hook-lease waits now join the one
+  wait-for graph that hub, membership and ownership waits use (#1156,
+  ADR-0172). A thread that drains a VM's publications or runs its hook can
+  wait to send on a hub that another thread drains, while that thread
+  disposes the VM. These two threads no longer deadlock. The wait that would
+  close the cycle takes its escape instead: the hub send enqueues for the
+  active drain, the publication stays queued for its drainer, or terminal
+  cleanup is deferred to the hook's completion. The separate lifecycle graph
+  is gone.
+
+- A foreign `Dispose()` no longer returns before another thread's
+  admitted hook or delivery of `Disposed` finishes because of a wait that had
+  already ended (#1183). Each lifecycle wait edge is keyed by its delivery or
+  hook lease, and the finishing thread removes the edges on it before it wakes
+  the waiters. Before this fix, `OnDispose` could run on the hook's thread
+  after `Dispose()` returned, and a failure it threw was lost, or `OnDispose`
+  ran before subscribers received `Disposed`.
+
+- An open borrowed `MessageHub` batch scope is now a wait-for owner
+  (#1159, ADR-0172). A `Send`, `Batch`, `Dispose()` or drain that waits for a
+  borrowed scope records an edge to the borrower, so a borrower that waits for
+  the waiting thread no longer deadlocks both threads. A drainer whose queue
+  is empty releases the drain instead of waiting, and the borrowed scope's
+  exit drains what its body sent. A drainer with queued messages whose wait
+  would close a cycle also releases the drain. Its outermost `Send` then
+  returns before those messages are delivered, and the exit of the last
+  borrowed scope delivers them on the borrower's thread (spec/03 §4.2). A
+  borrower that leaves while other borrowers remain wakes the waiters. A
+  `Send` from inside a hub callback to a hub with an open borrowed scope now
+  waits for that scope like any other `Send`, so it delivers before it returns
+  (HUB-013). It enqueues without waiting only when its wait would close a
+  cycle. After a borrower's `Dispose()`, the last of the batch owner and the
+  borrowers to release the hub completes `Messages`. The batch owner's exit no
+  longer completes it inside an open borrowed scope, and a borrower's exit no
+  longer completes it while the batch is still open (spec/03 §4.2 rule 3).
+
+- The thread that owns a `MessageHub` batch now waits for another
+  thread's open borrowed scope before its nested `Batch` body runs (#1223,
+  ADR-0172). The wait records an edge to the borrower, as the owner's `Send`
+  and `Dispose()` already did. Before this fix, the nested body ran inside the
+  other thread's borrowed scope. When the wait would close a cycle, the
+  nested `Batch` enters a borrowed scope (spec/03 §4.1 and §4.2 rule 3).
+  Python and Swift already behaved this way.
+
+- A `Construct()`, `Destruct()` or `Reconstruct()` call, or its async
+  form, that starts during a VM's inline dispose cascade now throws
+  `StatusTransitionException(Disposed, operation)` (#1174, ADR-0175, spec/02
+  §7.2, LIFE-021). The inline cascade is the part of the first `Dispose()`
+  that disposes the children of a `CompositeVM`, `GroupVM` or
+  `AggregateVM1`–`AggregateVM6`, or the members that a leaf registered with
+  `OwnMember`, while no hook of the VM runs on another thread. The check runs
+  before the idempotent no-op, so `Construct()` from `Constructed` also
+  throws. The call publishes no status and runs no hook. Before, a composite
+  or group published `Constructing` or `Destructing`, ran no hook and
+  returned, and an aggregate ran its hook. `CanConstruct()`, `CanDestruct()`
+  and `CanReconstruct()` still read `Status`.
+
+- Once the inline dispose cascade has started, a VM commits no status
+  other than `Disposed` (#1167, ADR-0175, LIFE-021). A transition whose hook
+  returned before a `Dispose()` on another thread started the cascade no
+  longer publishes `Constructed` or `Destructed` over its disposed children or
+  members. The same applies to its rollback after a failure, to the restore
+  after a failed publication, to the `Constructed` or `Destructed` commit that
+  a background transition queued on the foreground, and to the construct
+  phase of `Reconstruct()`. Such a call returns as a call that disposal
+  superseded: it raises no error of its own, and a hook failure still
+  propagates.
+
+- `AggregateVM1`–`AggregateVM6` dispose their slots at the same hook
+  boundary as `CompositeVM` and `GroupVM` (#1166, LIFE-015). A `Dispose()` on
+  another thread while the aggregate's construct or destruct hook runs now
+  publishes `Disposed` first and disposes no slot until the hook returns.
+  Before, it disposed the slots during the hook, so `Destruct()` threw
+  `InvalidOperationException` and the aggregate published `Constructed` before
+  `Disposed`, or it waited for the construct hook and the aggregate published
+  `Constructed` first. A `Construct()` racing `Dispose()`, and two aggregates
+  whose slot factories dispose each other, no longer deadlock. The slot
+  snapshot is taken when the cascade starts, and a further `Dispose()` call
+  during the cascade does nothing. A slot replacement checks for disposal and
+  assigns its slots in one step under the lifecycle lock, so a concurrent
+  `Dispose()` never leaves a slot committed to a disposed aggregate (spec/08
+  §4, AGG-007).
+
+- `ServicedObservableCollection<T>`,
+  `KeyedServicedObservableCollection<TKey, TItem>` and `ObservableDictionary`
+  now send the hub `CollectionChangedMessage` when a local handler throws
+  (#1051, ADR-0171, COL-066). The change stays committed, and the first
+  failure is rethrown after the hub send. In `ObservableDictionary`, a
+  throwing granular-event handler no longer skips `CollectionChanged`.
+
+- `CompositeVMBase` selection opens no membership transaction
+  (ADR-0173, spec/06 §4.3). The `Current` setter, `SelectComponent`,
+  `DeselectComponent`, the child `Select` and `Deselect` paths and the
+  `AsyncSelection(true)` setter commit under the coordination lane and the
+  membership gate only. Before, they raised `InvalidOperationException` while
+  another thread held a transaction, so a late child whose construct hook
+  selected during another thread's `Add` rolled its composite back (#1145). A
+  child that `Add`, `Insert`, index replacement or `AttachPopulation` attached
+  but has not admitted is not a member for selection: the setter throws the
+  non-member `InvalidOperationException`, `CanSelectComponent` returns false
+  and the construct walk ignores it. Before, a failed add or population left
+  `Current` on a child that was no longer a member (#1146, #1148). On the
+  thread that owns such an uncommitted transaction, every selection call
+  throws the "membership transaction in progress" `InvalidOperationException`,
+  also a null clear; from the commit on, including the add's
+  `CollectionChanged` publication, it commits. While disposal is requested or
+  deferred, a non-null selection throws `ObjectDisposedException`, also for
+  the child that is already current, and a null clear now succeeds.
+  Re-assigning the current child stays a no-op after `Dispose()`.
+  `CanSelectComponent` returns true only if `SelectComponent` would succeed
+  now. `Destruct()` and the destruct phase of `Reconstruct()` clear `Current`
+  without a transaction and are never refused. Before, the clear threw while
+  another thread held a transaction or while disposal was deferred, and the
+  destruct rolled back (#1144). When `Add`, `Insert`, index replacement or
+  `AttachPopulation` moves a child from another parent, the destination now
+  admits it after the old parent's detach commit. Before, another thread could
+  select the child in the destination before that commit, and the commit then
+  reset its `IsCurrent` flag while it stayed `Current` (`COMP-006`).
+
+- `CompositeVM.Remove` of an item that is not a child now ends its
+  membership transaction after it releases the shared coordination lane
+  (#1147). Before, a deferred `Dispose()` that waited for that transaction ran
+  its whole cascade under the lane. A `Current` change on any other composite
+  then waited for the cascade, and a child hook that made one deadlocked it.
+
+- A `GroupVMBase` whose owner thread called `Dispose()` inside its own
+  membership transaction now keeps that deferred disposal pending until the
+  handoff `Dispose()` admits it (#1153, spec/06 §4.2). Before, the transaction
+  end cleared the deferral before it called `Dispose()`. In that gap another
+  thread's `Add`, `Insert`, index replacement, `Remove`, `RemoveAt`, `Move` or
+  `Clear` was admitted, the disposal cascade then disposed an added child, and
+  the handoff `Dispose()` waited for that thread's transaction. A handler on
+  that thread that waited for the owner deadlocked both threads. Those calls
+  now throw `ObjectDisposedException` and change nothing. `CompositeVMBase`
+  already kept its deferral (#1064).
+
+- `ObservableDictionary`: `Remove` and `Clear` now update `Keys2`
   before `Keys1`, as `Add` does (#1075). A `Keys1` subscriber now sees the
   updated `Keys2`. Before, an entry that a `Keys1` subscriber added during
   `Clear` was missing from `Keys2`. `Clear` now empties the per-axis counts
@@ -81,7 +616,8 @@ All notable changes to the C# flavor are documented here. The format is based on
   added during `Clear` left its keys listed. If a `Keys2` subscriber changes
   the entries, `Keys1` then lists only the keys that the entries use. `Keys1`
   is also updated when a `Keys2` subscriber throws.
-- Fixed: `MessageHub` waits and container membership waits now share one
+
+- `MessageHub` waits and container membership waits now share one
   wait-for graph (#1055). A hub drainer can add to or dispose a container
   from a subscriber. The container's transaction owner can send on that hub
   at the same time. These two threads no longer deadlock. The wait that would
@@ -91,14 +627,16 @@ All notable changes to the C# flavor are documented here. The format is based on
   `ObjectDisposedException`. A `Send`, `Batch` or `Dispose()` inside a
   borrowed batch body on the same hub no longer waits for that hub's drainer.
   It enqueues, nests or records the intent, as spec/03 states.
-- Fixed: a wait for a child that another thread is transferring now joins the
+
+- A wait for a child that another thread is transferring now joins the
   membership wait-for graph (#1047). A wait that would close a wait-for cycle
   throws `InvalidOperationException` instead of deadlocking. The cycle can run
   through group or composite transactions, through other children's
   transfers, or both. A transfer that holds a child and waits for a group's
   transaction no longer deadlocks when that transaction's owner adds the same
   child elsewhere. The child keeps one parent.
-- Fixed: the construct walk of `CompositeVM` and `CompositeVMOfM<M, VM>`
+
+- The construct walk of `CompositeVM` and `CompositeVMOfM<M, VM>`
   assigns the `Current(selector)` result without a membership transaction
   (spec/06 §3.2, ADR-0165, #1064). Before, the assignment threw while another
   thread held the composite's membership transaction. That happens, for
@@ -114,30 +652,36 @@ All notable changes to the C# flavor are documented here. The format is based on
   `ObjectDisposedException` and rolls back. Before, the disposal waited for
   it. A transfer that detached the current child no longer clears a selection
   made after the detach.
-- Fixed: `CompositeVM` and `GroupVM` `Add`, `Insert` and the indexer setter
+
+- `CompositeVM` and `GroupVM` `Add`, `Insert` and the indexer setter
   throw `ArgumentNullException` for a null child and leave the children
   unchanged. Before, they threw `NullReferenceException` after they opened
   the membership transaction and never closed it. Every later membership
   change then failed or blocked, and a `Dispose()` from another thread did
   not return (#1048).
-- Fixed: `ObservableDictionary`: an entry added from a `Keys1` subscriber no
+
+- `ObservableDictionary`: an entry added from a `Keys1` subscriber no
   longer puts `Keys2` out of first-appearance order. `Keys2` now updates
   first, so a `Keys1` subscriber already sees the new Key2. When a `Keys2`
   subscriber changes the entries, the new Key1 goes to its first-appearance
   position in `Keys1` (#772).
-- Fixed: `ExpandableState.Dispose()` and `DiscriminatorVM<TKey>.Dispose()` now
+
+- `ExpandableState.Dispose()` and `DiscriminatorVM<TKey>.Dispose()` now
   dispose their subject when a completion observer throws, then rethrow that
   exception. Before, a later subscriber received completion instead of
   `ObjectDisposedException` (#768).
-- Fixed: the `eagerChildren` documentation on the `HierarchicalVM`
+
+- The `eagerChildren` documentation on the `HierarchicalVM`
   constructor and `HierarchicalVMBuilder.EagerChildren` no longer claims the
   entire subtree. The option applies to this node's children only. It continues
   deeper only through children that are eager themselves (#759, ADR-0156).
-- Fixed: the `PagedComposition` constructor documentation states that the
+
+- The `PagedComposition` constructor documentation states that the
   source must support repeated enumeration. Each read enumerates the source
   again, so materialize a one-shot source first, for example with `ToList()`
   (#758, ADR-0155).
-- Fixed: a `CompositeVM`, `GroupVM` or `AggregateVM1`–`AggregateVM6`
+
+- A `CompositeVM`, `GroupVM` or `AggregateVM1`–`AggregateVM6`
   disposed while its child walk waits for a background child no longer
   publishes a rollback status before `Disposed` (#755). Before, with an
   immediate foreground, the failed walk could publish `Destructed` (or
@@ -150,7 +694,8 @@ All notable changes to the C# flavor are documented here. The format is based on
   the awaited `ConstructAsync()`, `DestructAsync()` or `ReconstructAsync()`
   task with "Child did not reach Constructed"; Dispose completes it on
   `Disposed`, as Python does.
-- Fixed: `Destruct()` and `DestructAsync()` on a `CompositeVM`, `GroupVM` or
+
+- `Destruct()` and `DestructAsync()` on a `CompositeVM`, `GroupVM` or
   `AggregateVM` no longer throw `StatusTransitionException` when a child is
   already `Destructing` (#754, spec/02 §6). Before, the container rolled back
   to `Constructed` while the child still finished `Destructed`. The child walk
@@ -163,7 +708,8 @@ All notable changes to the C# flavor are documented here. The format is based on
   before, matching Python, TypeScript and Swift. A forwarding decorator
   joins its wrapped VM's in-flight destruct; any other destruct still goes
   through the decorator's own `DestructAsync()`, so an override still runs.
-- Fixed: with `AutoConstructOnAdd(true)`, a `CompositeVM` or `GroupVM` no
+
+- With `AutoConstructOnAdd(true)`, a `CompositeVM` or `GroupVM` no
   longer publishes `Constructed` while a child that an add started during
   `Constructing` still constructs (#744, spec/02 §6, spec/06 §5.1). Before, an
   add that read `Constructing` after the construct walk's last scan started
@@ -179,7 +725,8 @@ All notable changes to the C# flavor are documented here. The format is based on
   `StatusTransitionException` as during `Constructing`, and joins and
   `ConstructAsync()` wait until the publication starts. Components other than
   containers are unchanged.
-- Fixed: with `AutoConstructOnAdd(true)`, a `CompositeVM` or `GroupVM`
+
+- With `AutoConstructOnAdd(true)`, a `CompositeVM` or `GroupVM`
   construct walk no longer rolls the container back when it pulls a child
   that a cross-thread add attached but has not started yet (#743, spec/06
   §5.1). An add that will start its child while the container is
@@ -192,7 +739,8 @@ All notable changes to the C# flavor are documented here. The format is based on
   Records belong to the walk that was current when the add attached the
   child, so a stale walk never takes or clears another walk's records, and a
   walk's records are dropped when it ends.
-- Fixed: a `CompositeVM` or `GroupVM` `Dispose()` from another thread no
+
+- A `CompositeVM` or `GroupVM` `Dispose()` from another thread no
   longer cleans its children while the container's admitted `OnConstruct` or
   `OnDestruct` hook still runs (#742, LIFE-015). The child cascade now runs at
   the same hook-lease boundary as the base `Dispose()`: the container publishes
@@ -203,56 +751,58 @@ All notable changes to the C# flavor are documented here. The format is based on
   hook admission closes and the children are still disposed before the
   container publishes `Disposed`.
   A same-thread `Dispose()` from inside the hook still runs immediately.
-- Fixed: a container's deferred child walk stops once its owner is
+
+- A container's deferred child walk stops once its owner is
   `Disposed`. A `CompositeVM` or `GroupVM` disposed while the walk waits to
   resume on the foreground no longer runs the user `onDestruct` callback or
   the composite `Current` selector with `Status` already `Disposed`, and an
   aggregate or hierarchical owner drives no further children (#735,
   LIFE-015).
-- Fixed: a cross-thread `CompositeVM` or `GroupVM` `Dispose()` no longer
+
+- A cross-thread `CompositeVM` or `GroupVM` `Dispose()` no longer
   deadlocks when the transaction owner it waits for already waits for the
   disposing thread (#717, ADR-0153). The disposal registers its wait in the
   membership wait-for graph; on a cycle it records its intent, and the owner
   disposes the container when its transaction ends. A composite now records
   its transaction owner in that graph.
-- Added: `ComponentVMBase`, `ComponentVMBaseOfM<M>`, `CompositeVMBase<VM>`, and
-  `GroupVMBase<VM>` have protected constructor overloads without `hint`, which
-  default it to an empty string as the builders do (spec/10 §4). The
-  `ComponentVMBaseOfM<M>` overload also makes `modeledHinter` optional, with
-  an empty hint by default, and takes the remaining arguments as optional
-  parameters (#663).
-- Fixed: when an `ApproveCommand.CanExecuteChanged` observer throws during
+
+- When an `ApproveCommand.CanExecuteChanged` observer throws during
   approval admission, `FormVM` now raises `CanExecuteChanged` again after it
   releases the in-flight mark, so observers that saw the admission's `false`
   learn the form is approvable again. The observer's exception still reaches
   the caller, and a failure in the release notification does not replace it
   (#732).
-- Fixed: `AsyncResourceVM` no longer calls its loader when an observer of the
+
+- `AsyncResourceVM` no longer calls its loader when an observer of the
   `Loading` publication calls `Cancel()`. The operation's token was cancelled
   but the operation stayed current until its cancellation handler ran, so the
   loader received an already-cancelled token. The start now restores the
   stable baseline (for example `Idle`, a retained `Ready`, or `Error`) instead, as in
   Python, TypeScript, Swift and Rust (#729).
-- Fixed: a throwing local `CollectionChanged` handler on `CompositeVM` or
+
+- A throwing local `CollectionChanged` handler on `CompositeVM` or
   `GroupVM`, including a `FilteredCompositeVM` predicate that runs inside it,
   no longer suppresses the hub `CollectionChangedMessage` for the committed
   change. The container sends the hub message, then rethrows the first
   failure, the handler's exception, as Python does (spec/01 §1.4). A container
   already disposed by the handler still publishes no hub message (#723).
-- Fixed: `PropertyValueChangedMessagesFor(source, x => x.Prop)` now emits for
+
+- `PropertyValueChangedMessagesFor(source, x => x.Prop)` now emits for
   real viewmodel property changes. It matched only
   `IPropertyChangedMessage<TSource>` for the inferred concrete type, while VMs
   publish `PropertyChangedMessage<IComponentVM>`, so it never fired; it now
   matches by reference-equal sender (spec/03 §7.1), as TypeScript, Python, and
   Swift do.
-- Fixed: A raw `MessageHub.Messages` subscriber whose handler throws keeps its
+
+- A raw `MessageHub.Messages` subscriber whose handler throws keeps its
   subscription. Rx's auto-detach safeguard used to dispose it on the first
   throw; the hub now attaches observers through an isolating observer that
   swallows the exception (spec/03 §3.4, HUB-007) and keeps delivering. A
   handler behind an Rx operator chain (`Where`, `OfType`) is still detached by
   Rx on its first throw. A late subscriber after `Dispose` still receives
   `ObjectDisposedException` through `OnError`.
-- Fixed: two threads that move children between two `GroupVM` instances in
+
+- Two threads that move children between two `GroupVM` instances in
   opposite directions, through `Add`, `Insert` or the indexer (for example
   `g1.Add(b)` and `g2.Add(a)`), no longer block forever. A group still waits
   for another thread's membership transaction, but it refuses the one wait
@@ -260,28 +810,34 @@ All notable changes to the C# flavor are documented here. The format is based on
   `InvalidOperationException` before it changes either group, and the other
   call completes. A failed indexer set now also ends its membership
   transaction, so it no longer blocks later callers on other threads (#718).
-- Fixed: an abandoned child walk (its hook threw after deferring) constructs
+
+- An abandoned child walk (its hook threw after deferring) constructs
   no further children, as in Python and TypeScript.
-- Fixed: a construct walk over factory-started children checks each child
+
+- A construct walk over factory-started children checks each child
   against the joined set by reference in constant time. It was a linear scan
   per child, so quadratic in the child count.
-- Fixed: A lifecycle hook that defers completion and then throws abandons that
+
+- A lifecycle hook that defers completion and then throws abandons that
   deferral. The next transition starts clean instead of adopting the stale
   task or throwing "A lifecycle hook already deferred completion." forever, the
   abandoned child transition never runs its continuation, and its fault is
   observed (ADR-0109).
-- Fixed: A container whose child transition finishes asynchronously runs the
+
+- A container whose child transition finishes asynchronously runs the
   rest of its child walk, as well as its continuation, on the foreground
   dispatcher. Later siblings' `CollectionChanged`, `IsCurrent`,
   `OnCurrentChanged`, `onConstruct`, and `onDestruct`, the initial `Current`
   selection, and the user `onDestruct` callback no longer run on a pool thread
   (spec/11 §3). A walk whose children all settle synchronously still completes
   on the calling thread before `Construct()` or `Destruct()` returns.
-- Fixed: `ForwardingCompositeVM` shares parent membership with the composite it
+
+- `ForwardingCompositeVM` shares parent membership with the composite it
   wraps, as `ForwardingComponentVM` does. As a child it reports `IsCurrent`,
   moves between parents, and never belongs to two parents at once
   (spec/09 §1-2, FWD-002, FWD-004).
-- Fixed: `CompositeVM` and `GroupVM` with auto-construct-on-add construct a
+
+- `CompositeVM` and `GroupVM` with auto-construct-on-add construct a
   child added while the container is still `Constructing` (waiting on a
   background child) and wait for it before reaching `Constructed` (spec/02 §6,
   spec/06 §5.1). The child walk joins such a child like a population child, so
@@ -290,81 +846,148 @@ All notable changes to the C# flavor are documented here. The format is based on
   container was `Constructed` and the walk used a snapshot taken before the
   add, so the container reached `Constructed` with the added child still
   `Destructed`.
-- Fixed: a custom `IComponentVM` child that a children factory leaves
+
+- A custom `IComponentVM` child that a children factory leaves
   `Constructing` is driven through its own `ConstructAsync()`. Before, the
   container's construct failed with "did not reach Constructed".
-- Fixed: a lifecycle hook that defers and then throws marks its child walk
+
+- A lifecycle hook that defers and then throws marks its child walk
   abandoned before it releases the hook, so a child settling on another
   thread no longer starts the next child.
-- Fixed: `CompositeVM` and `GroupVM` join the background children that
+
+- `CompositeVM` and `GroupVM` join the background children that
   factory population starts and never construct them again. A later child that
   fails while the container waits on an earlier one rolls the container back,
   and its construct hook runs once (spec/02 §6, LIFE-014). Before, the child
   walk restarted the failed child and ran its hook a second time.
-- Fixed: `FormVM.SetModel(null)` throws `ArgumentNullException` to the caller
+
+- `FormVM.SetModel(null)` throws `ArgumentNullException` to the caller
   during an approval's settlement, instead of being queued and surfacing later
   from `ApproveAsync` (spec/20, failure-atomic).
-- Fixed: `FilteredCompositeVM.SetPredicate` and recomputation compute the
+
+- `FilteredCompositeVM.SetPredicate` and recomputation compute the
   projection before changing it, so a throwing predicate leaves the previous
   predicate, `Visible`, and `Current` in place, as in Python and TypeScript.
-- Fixed: `CompositeCommand` copies the inner command list and rejects null
+
+- `CompositeCommand` copies the inner command list and rejects null
   entries before subscribing, so a later change to the caller's list cannot
   desynchronize execution and unsubscription (spec/04 §8.4).
-- Fixed: `AsyncResourceVM` treats a loader that returns a null task as a failed
+
+- `AsyncResourceVM` treats a loader that returns a null task as a failed
   load: the state becomes `Error` and the load completes, instead of staying
   in `Loading` and throwing `ArgumentNullException` (spec/23 §7, ARES-003).
-- Fixed: `TokenPagedComposition` stops auto-constructing page items once a
+
+- `TokenPagedComposition` stops auto-constructing page items once a
   hook disposes it or starts a newer operation (spec/21 §6).
-- Fixed: `ConfirmationDecoratorCommand.CanExecute` re-checks disposal after the inner
+
+- `ConfirmationDecoratorCommand.CanExecute` re-checks disposal after the inner
   predicate, which may dispose the wrapper, as the other wrappers do
   (spec/04 §8.4).
-- Fixed: `AsyncResourceVM` never calls the loader for a load requested while
+
+- `AsyncResourceVM` never calls the loader for a load requested while
   the VM publishes its Disposed status, or after an observer of the Loading
   publication disposes it (spec/23 §4, ARES-011).
-- Fixed: a disposed view model's `Select` and `Deselect` are silent no-ops and
+
+- A disposed view model's `Select` and `Deselect` are silent no-ops and
   `CanDeselect` returns false, so a disposed child no longer changes its live
   parent's selection (spec/02 §3).
-- Fixed: a disposed `DerivedProperty` rejects writes: `CanSet` returns false and
+
+- A disposed `DerivedProperty` rejects writes: `CanSet` returns false and
   `SetValue` throws instead of running the write-back action (spec/15 §4).
-- Fixed: a disposed `FilteredCompositeVM` or `ScoredFilteredCompositeVM`
+
+- A disposed `FilteredCompositeVM` or `ScoredFilteredCompositeVM`
   ignores `SetPredicate`, `SetCurrent`, and the visible navigation methods,
   so it stays frozen as the disposal contract states (DISP-006).
-- Fixed: the `SelectNextCommand` and `SelectPreviousCommand` doc comments now
+
+- The `SelectNextCommand` and `SelectPreviousCommand` doc comments now
   say that the base commands are never executable (spec/05 §5).
-- Fixed: `ObservableDictionary` captures the add index before it updates
+
+- `ObservableDictionary` captures the add index before it updates
   `Keys1` and `Keys2` and raises the local events, so a key-view or local
   handler that adds another entry no longer shifts the first entry's reported
   hub index. If such a handler removes an entry or clears the dictionary, the
   hub message reports the key pair's current index, or -1 when the key pair is
   gone (#733).
-- Fixed: `CompositeVM` `Remove`, `RemoveAt`, `Clear`, and the indexer setter
+
+- `CompositeVM` `Remove`, `RemoveAt`, `Clear`, and the indexer setter
   raise `CollectionChanged` even when `OnCurrentChanged` throws, then rethrow.
-- Fixed: `NullDialogService.Present` and the `Present` extension return the
+
+- `NullDialogService.Present` and the `Present` extension return the
   result of a modal that was already dismissed, because the first result wins.
   Before, they returned the cancellation result (spec/19 §3, DIA-012).
-- Fixed: when a `FormVM` approval fails, a `CanExecuteChanged` handler that
+
+- When a `FormVM` approval fails, a `CanExecuteChanged` handler that
   throws during settlement no longer replaces the persister failure (§5.3
   step 4, FORM-033).
-- Fixed: `AsyncRelayCommand.Cancel()` and `Dispose()` tag the cancellation
+
+- `AsyncRelayCommand.Cancel()` and `Dispose()` tag the cancellation
   origin under the gate that swaps executions. A cancel that raced completion
   could tag the next execution and hide its external-token cancellation.
-- Fixed: a cancelled persister on the `ApproveCommand` path is now reported on
+
+- A cancelled persister on the `ApproveCommand` path is now reported on
   `ApproveErrors` as a `TaskCanceledException`. Before, the cancellation reached
   no channel (spec/20 §5.3).
-- The `netstandard2.0` dependency floors of all three packages move to the
-  10.0.13 servicing releases of `System.Text.Json`,
-  `System.Collections.Immutable`, and `Microsoft.Bcl.AsyncInterfaces` (#519,
-  #646).
-- Fixed: when `FormVM` is disposed during `SetModel` or a deny and the
+
+- When `FormVM` is disposed during `SetModel` or a deny and the
   mutation then throws, a failing deferred teardown no longer replaces the
   mutation's exception. Every teardown step still runs, and a teardown failure
   still surfaces when the mutation succeeds (#448).
-- Fixed: `DerivedProperty` and `SearchableState` now run every teardown step
+
+- `DerivedProperty` and `SearchableState` now run every teardown step
   when a completion observer throws, then rethrow the first failure. Before,
   the remaining subjects were never completed or disposed (#538).
 
-### VMx.Notifications
+- `FormVM` queues a `SetModel` or deny that the approving thread makes
+  during approval publication, and replays it after the `OnApproved` delivery
+  (#1168, #1050, ADR-0174, FORM-039, FORM-040). The queue now opens with the
+  post-persist commit, so it also covers calls from `resetOnApproved`, the
+  snapshotter and the validators. Before, such a call committed and published
+  at once, and the reset then overwrote it. A deny from a settlement observer
+  is now queued like `SetModel`, so `OnApproved` observers no longer see a
+  reverted model. A queued call now runs its full preparation (the equality
+  checks and the validators, and the snapshotter for deny) at call time, so a
+  failing callback throws to the caller and nothing is queued. Equality never
+  skips the enqueue. Each queued call replays as a new call. A replay failure
+  no longer stops the later replays or fails the settled approval in place.
+  After the last replay, the first replay failure reaches the `ApproveAsync`
+  awaiter, or `ApproveErrors` once on the command path. A failure that the
+  approval already carries wins, such as a failed reset or a failing
+  `OnApproved` subscriber. Calls queued by a failed reset replay after its
+  settlement's `CanExecuteChanged` and before the reset failure is routed.
+  Each queued update adds one validator call at call time.
 
+- `FormVM` publication waits now join the wait-for graph (#1170,
+  ADR-0176, spec/20 §5.5). A form notification sink can send on a hub that
+  another thread drains while that thread calls the form. The two threads no
+  longer deadlock. Another thread's `SetModel`, deny, approve admission,
+  settlement and `Dispose()` record an edge to the publishing thread. When
+  that edge would close a cycle, the call does not wait. A `SetModel` or deny
+  runs its preparation, joins the publisher's queue and returns before it
+  takes effect. A call in its own thread's pre-publication window joins that
+  thread's queue instead, as in the other flavors. The publisher replays its
+  queue after its outermost scope ends. An approve call is admitted, and a
+  settlement commits and opens its own scope.
+  A `Dispose()` marks the form disposed and returns, and the publisher tears
+  it down after its outermost scope ends.
+
+## [VMx.Notifications 1.2.0] — unreleased source version
+
+- Fixed: every command of a disposing `NotificationVM` or `ConfirmationVM` now
+  reports `CanExecute` false from the start of `Dispose()` (ADR-0196, spec/16
+  §6.2, #1458, `NOTIF-018`). Before, a command that was not yet disposed
+  reported true inside a disposal `CanExecuteChanged` notification, while its
+  `Execute` did nothing.
+- Fixed: `NotificationVM` and `ConfirmationVM` keep `RemainingTime` and
+  `Opacity` from their first resolution or disposal (ADR-0197, `NOTIF-019`,
+  #1306). Before, both values kept decaying with the scheduler clock after
+  resolution or `Dispose()`, and no change notification reported the new
+  values.
+  After auto-dismiss both values are 0, even when the expiry timer fires while
+  the clock still reads a little before expiry.
+- Fixed: a `Pending` subscription made after `NotificationHub` disposal
+  receives completion only, with no snapshot and no error (ADR-0197,
+  `NOTIF-020`, #1476). Before, it received `ObjectDisposedException`, and a
+  `NotificationVM` built over a disposed hub threw.
 - Fixed: when a `Pending` subscriber disposes the hub and then throws, the
   queued completion still runs, so `Pending` completes and its subject is
   disposed before any waiting thread wakes. Before, the abandoned queue
@@ -378,27 +1001,28 @@ All notable changes to the C# flavor are documented here. The format is based on
   after every step (#538).
 - The NuGet package ships its own README describing the notification hub and
   its dependency on `VMx` (#351).
+- Changed: the independently versioned notification package is prepared for
+  its first public NuGet artifact, including symbols. It depends on
+  `VMx >= 3.30.0`, the version of the `VMx` package built from the same
+  source. The public API does not change.
+- The `netstandard2.0` dependency floors move to the 10.0.14 servicing releases
+  of `System.Text.Json`, `System.Collections.Immutable`, and
+  `Microsoft.Bcl.AsyncInterfaces` (#519, #646).
 
-### VMx.Extensions.DependencyInjection
+## [VMx.Extensions.DependencyInjection 2.1.1] — unreleased source version
 
-- `Microsoft.Extensions.DependencyInjection.Abstractions` moves to 10.0.13
+- Changed: packaging-only patch for the first public NuGet artifact. The
+  package keeps its 2.1.x API and min-spec declaration and depends on
+  `VMx >= 3.30.0`, the version of the `VMx` package built from the same
+  source. Version 2.1.0 is not reused because `csharp-v2.1.0` is an existing
+  immutable historical core tag.
+- `Microsoft.Extensions.DependencyInjection.Abstractions` moves to 10.0.14
   (#519, #645).
+- The `netstandard2.0` dependency floors move to the 10.0.14 servicing releases
+  of `System.Text.Json`, `System.Collections.Immutable`, and
+  `Microsoft.Bcl.AsyncInterfaces` (#519, #646).
 - The NuGet package ships its own README describing `AddVMx()` registration
   and its dependency on `VMx` (#351).
-
-## [3.30.0] — unreleased source version
-
-### Added
-
-- `ForwardingComponentVM<M>` and `ForwardingCompositeVM<VM>` have protected
-  `Own<T>(T)` and `Own(Action)` overloads. They register a resource on the
-  wrapped VM's terminal cleanup: it is disposed, in LIFO order with the wrapped
-  VM's other resources, when that VM is disposed through any decorator or
-  directly, and at once if it is already disposed. A decorator that wraps a VM
-  not derived from `ComponentVMBase` throws `InvalidOperationException`. A
-  subclass that already declares a member named `Own` with the same signature
-  now hides the new one and gets warning CS0108, which fails a build that
-  treats warnings as errors (`FWD-005`, ADR-0151, spec 3.30.0) (#650).
 
 ## [3.29.0] — unreleased source version
 
@@ -475,6 +1099,7 @@ All notable changes to the C# flavor are documented here. The format is based on
   refetches and duplicates page two. A matching page as long as the accumulator
   adopts the refreshed token, and an empty or terminal first page shorter than
   the accumulator replaces it (`COL-065`, ADR-0136, spec 3.25.0) (#326).
+
 - `TokenPagedComposition<TVM, TToken>` rejects a non-nullable value-type token
   such as `int` with `NotSupportedException` at construction. Such a token could
   not represent the absent first and last token, so `HasMore` never became false
@@ -564,14 +1189,17 @@ All notable changes to the C# flavor are documented here. The format is based on
 - Hierarchy child factories now validate their complete snapshot before
   assigning parents, rejecting duplicate, cyclic, or already-parented nodes
   atomically and preserving retryability (HIER-031, ADR-0127).
+
 - Valid factory hydration now clears prewarmed descendant path caches, and
   same-receiver structural re-entry rejects without mutation or messages
   (HIER-031/032, ADR-0127).
+
 - Lazy aggregate reconstruction now reserves every proposed child from
   validation through disposal, assignment, and parent commit, preventing two
   concurrent aggregates or a re-entrant disposal hook from retaining the same
   slot. A factory that returns any currently owned slot is rejected before
   mutation.
+
 - Pre-owned and multiply decorated components now retain one canonical,
   transferable container identity (FWD-004, ADR-0124).
 
@@ -677,23 +1305,6 @@ Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
 - `HierarchicalVM.AddChild` now preflights cycles and atomically transfers a
   child from its old parent instead of leaving the identity in two child lists
   (HIER-018, ADR-0105).
-
-## [VMx.Extensions.DependencyInjection 2.1.1] — 2026-07-13
-
-### Changed
-
-- Packaging-only patch for the first public NuGet artifact. The package keeps
-  its 2.1.x API and min-spec declaration while recording the current
-  `VMx >= 3.22.1` dependency floor. Version 2.1.0 is not reused because
-  `csharp-v2.1.0` is an existing immutable historical core tag.
-
-## [VMx.Notifications 1.2.0] — 2026-07-13
-
-### Changed
-
-- Prepared the independently versioned notification package for its first
-  public NuGet artifact, including symbols and the current `VMx >= 3.22.1`
-  dependency floor. No notification behavior or public API changed.
 
 ## [3.20.0] — 2026-07-12
 

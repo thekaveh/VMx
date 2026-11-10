@@ -47,13 +47,10 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
         _ownershipParent ?? _ownershipIdentity._transferOwnershipParent
     }
 
-    override func _ownershipParentDidChange() {
-        let identity = _ownershipIdentity
-        if _ownershipParent != nil {
-            identity._forwardingOwner = self
-        } else if identity._forwardingOwner === self {
-            identity._forwardingOwner = nil
-        }
+    override func _ownershipParentDidChange(to newParent: OwnershipParentVM?) {
+        // Runs under this decorator's link lock and takes only the wrapped
+        // identity's (#1546).
+        _ownershipIdentity._updateForwardingOwner(newParent != nil ? self : nil, decorator: self)
     }
 
     // ── Identity / kind ─────────────────────────────────────────────────
@@ -65,6 +62,19 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     open override var isCurrent: Bool { _wrapped.isCurrent }
     open override var propertyChanged: AnyPublisher<String, Never> {
         _wrapped.propertyChanged
+    }
+
+    /// Raises `propertyName` on the wrapped VM's local channel only. The
+    /// decorator's `propertyChanged` is the wrapped VM's publisher, so the
+    /// helper acts on the wrapped VM (#1352).
+    public override func _raisePropertyChanged(_ propertyName: String) {
+        _wrapped._raisePropertyChanged(propertyName)
+    }
+
+    /// Publishes through the wrapped VM: the hub message names the wrapped VM
+    /// as its sender, and its `propertyChanged` emits once (#1352).
+    public override func _notifyPropertyChanged(_ propertyName: String) {
+        _wrapped._notifyPropertyChanged(propertyName)
     }
 
     // The parent flips the flag on the decorator it holds; route it to the
@@ -184,6 +194,10 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     }
     open override func remove(_ child: Child) -> Bool { _wrapped.remove(child) }
     open override func removeAt(_ index: Int) { _wrapped.removeAt(index) }
+    @discardableResult
+    open override func removeAtResult(_ index: Int) -> Result<Void, ContainerOwnershipError> {
+        _wrapped.removeAtResult(index)
+    }
     open override func replace(at index: Int, with child: Child) {
         _wrapped.replace(at: index, with: child)
     }

@@ -7,19 +7,19 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 
 - Package: `vmx-rs`, imported as the crate `vmx`; it ships the repository's
   Apache-2.0 text
-- Version: `vmx-rs` 0.36.0 implements spec 3.30.0; the MSRV is Rust 1.88
+- Version: `vmx-rs` 0.37.0 implements spec 3.30.0; the MSRV is Rust 1.88
 - Publication status: not published on crates.io
 - Reactive primitive: VMx-owned hot-stream facade (ADR-0103)
+- Cargo features: `notifications`, on by default, builds the notification
+  sub-package; `default-features = false` builds the core only (ADR-0211)
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
-- Conformance: behavioral Rust tests cover all 444 library IDs. Rust has no UI
-  scenario suite for the five THEME IDs.
+- Conformance: behavioral Rust tests cover every library ID. Rust has no UI
+  scenario suite for the THEME IDs.
 - Known gaps: the public surface and some behaviors are not fully aligned with
   the other flavors. The
   [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-  lists the open items and recorded differences in §12.4.7 and §12.7–§12.13. Two COMP-026
-  tests in `langs/rust/tests/conformance/composite_vm.rs` are `#[ignore]`d for
-  a composite-selection gap.
+  lists the recorded difference in §12.7 and the open item in §12.14.
 
 For hub delivery and callback ordering, see
 [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering).
@@ -61,7 +61,6 @@ fn start_in_background(
 ) -> VmxResult<(ComponentVm<(), DefaultDispatcher>, ValueSubscription)> {
     let vm = ComponentVm::builder()
         .name("loader")
-        .model(())
         .background(true)
         .services(MessageHub::new(), DefaultDispatcher::new())
         .build()?;
@@ -85,8 +84,13 @@ settle. Thus a container `construct`, `destruct`, or `reconstruct` call can
 return `Ok` while the container is still transient. A child failure rolls the
 container back and arrives on the container's `background_errors()` stream.
 Wrapper nodes should forward `VmNode::when_lifecycle_settled`. If a node does
-not forward `when_lifecycle_settled`, the container accepts that node while it
-is still in flight instead of failing.
+not forward it, the container watches its own message hub instead. The
+container waits when it started the node and, by the time the start call
+returned, the hub delivered or queued the node's Constructing or Destructing
+status. A node that then settles at another status rolls the container back.
+Otherwise, for example when the node publishes on another hub, the container
+accepts the node while it is still in flight, so it never waits without limit
+(ADR-0205).
 
 An admitted `AsyncRelayCommand` execution runs on one worker thread, and a
 rejected `execute()` starts none. A rejected `execute_async()` still returns a
@@ -147,6 +151,24 @@ replacement are no-ops.
 Rust messages carry the action, optional old and new positions, sender ID, and
 property name. They carry no legacy `index` and no typed item payload. Use
 `ObservableList<T>` for granular streams, batching, and `Count` notifications.
+`ObservableList::new(owner_id)` has no hub, and `with_hub(owner_id, hub)` also
+publishes to a hub. Its `item_added()`, `item_removed()`, `item_replaced()`, and
+`reset()` streams carry typed payloads, and `property_changed()` sends `Count`
+after each granular event that changed the count:
+
+```rust
+let list = ObservableList::new(owner_id);
+let added = list.item_added().subscribe(|event| render_row(&event.item, event.index));
+list.push(first.clone());
+assert!(list.remove(&first)); // first equal item; sends ItemRemoved
+```
+
+`ObservableMultiDictionary::new(owner_id)` also takes no hub. Its
+`collection_changed()` stream receives each change before the hub, and
+`keys1()` and `keys2()` return live, read-only `ReadOnlyObservableList` views.
+Both dictionaries find keys through a hash index, so a lookup makes O(1) key
+comparisons on average. `CompositeVm`, `GroupVm`, and `ModeledCompositeVm`
+expose their children's local stream as `collection_changed()` (ADR-0208).
 
 The caller owns the subscription and controls each stored VM's construct,
 destruct, and dispose operations. Membership retains an item as an ordinary

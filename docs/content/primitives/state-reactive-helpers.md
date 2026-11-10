@@ -79,24 +79,28 @@ VM thread-safety promise. See
 [Python asyncio dispatcher ownership](services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
 for the supported synchronous-command sequence and shutdown order.
 
-A loader can also end the current operation by cancelling itself. The flavors
-handle this case differently:
+A loader can also end the current operation by cancelling itself, even when
+the VM did not request it (ADR-0199, `ARES-012`). A typical source is a shared
+request that another owner cancels. When a current loader ends with its
+flavor's native cancellation signal, the VM restores the saved stable state, as
+`Cancel` does. Awaiters and commands complete normally, and nothing enters
+Error or a command error channel.
 
-- Python: a loader task that finishes with `asyncio.CancelledError` restores
-  the saved stable state, exactly like `Cancel`. The error can be raised
-  directly, come from cancelling the loader's own task, or come from a
-  cancelled operation that the loader awaited.
-- Swift: a loader that throws `CancellationError` restores the saved stable
-  state in the same way.
-- C# and TypeScript: cancellation that the VM did not request is an ordinary
-  loader fault. Examples are an `OperationCanceledException` from another
-  token, or a rejection while the operation's signal is not aborted.
-- Rust: loaders report outcomes through `VmxResult`, so an error is a fault.
+| Flavor     | Native cancellation signal                   |
+| ---------- | -------------------------------------------- |
+| C#         | `OperationCanceledException`, from any token |
+| Python     | `asyncio.CancelledError`                     |
+| TypeScript | a rejection whose `name` is `"AbortError"`   |
+| Swift      | `CancellationError`                          |
+| Rust       | `Err(VmxError::Cancelled)`                   |
 
-When Python or Swift restores the stable state, awaiters and commands
-complete, and nothing enters Error or a command error channel. The
-cancellation of a superseded loader never rolls back newer work. In every
-flavor, the VM leaves Loading with a visible terminal state.
+A timeout that the flavor reports with a timeout error installs Error, as any
+other loader error does. These errors are Python `TimeoutError`, TypeScript
+`TimeoutError`, Swift `URLError.timedOut`, and a C#
+`OperationCanceledException` whose `InnerException` is a `TimeoutException`. A
+timeout that the loader implements by cancelling a token is a cancellation, so
+it restores the saved stable state. The cancellation of a superseded loader is
+a stale completion, so it never rolls back newer work.
 
 <!-- checked-snippet: langs/python/tests/unit/state/test_async_resource_cancellation_recipe.py#loader-cancellation -->
 
@@ -155,7 +159,8 @@ state recipe in [Integration](../integration/index.md) instead.
 A resource never starts loading at construct, and only disposal cancels its
 load automatically (ADR-0100 §2.7, §4.6). The view-model below loads when it is
 constructed, polls while it stays constructed, offers retry after a failure,
-and cancels its load at destruct:
+and cancels its load at destruct. The poll is a `DelayedTask` whose action
+schedules the next tick (spec 11 §6.3):
 
 <!-- checked-snippet: langs/typescript/tests/unit/asyncResourceRecipes.test.ts#polling-panel -->
 
@@ -163,9 +168,14 @@ and cancels its load at destruct:
 class MetricsPanelVM extends ComponentVMBase {
   readonly resource: AsyncResourceVM<Metric[]>;
   readonly retryCommand: DecoratorCommand;
-  #poll: Subscription | null = null;
+  readonly #poll: DelayedTask;
 
-  constructor(api: MetricsApi, hub: IMessageHub, dispatcher: IDispatcher) {
+  constructor(
+    api: MetricsApi,
+    hub: IMessageHub,
+    dispatcher: IDispatcher,
+    scheduler: SchedulerLike,
+  ) {
     super({ name: "metrics-panel", hub, dispatcher });
     this.resource = this.own(
       new AsyncResourceVM({
@@ -184,6 +194,8 @@ class MetricsPanelVM extends ComponentVMBase {
         () => this.resource.state.status === AsyncResourceStatus.Error,
       ),
     );
+    // The poll runs on the injected scheduler, never through the dispatcher.
+    this.#poll = this.own(new DelayedTask(scheduler));
   }
 
   get type(): ViewModelType {
@@ -193,17 +205,20 @@ class MetricsPanelVM extends ComponentVMBase {
   // Poll while constructed: load at once, then reload every 30 s.
   protected override _onConstruct(): void {
     super._onConstruct();
-    this.#poll = timer(0, 30_000, this._dispatcher.foreground).subscribe(() => {
-      const { status } = this.resource.state;
-      if (status === AsyncResourceStatus.Idle) void this.resource.load();
-      // Skip a tick while a load runs; a reload would supersede it.
-      else if (status !== AsyncResourceStatus.Loading) void this.resource.reload();
-    });
+    this.#poll.schedule(0, this.#tick);
   }
 
+  // Each tick schedules the next one.
+  readonly #tick = (): void => {
+    const { status } = this.resource.state;
+    if (status === AsyncResourceStatus.Idle) void this.resource.load();
+    // Skip a tick while a load runs; a reload would supersede it.
+    else if (status !== AsyncResourceStatus.Loading) void this.resource.reload();
+    this.#poll.schedule(30_000, this.#tick);
+  };
+
   protected override _onDestruct(): void {
-    this.#poll?.unsubscribe();
-    this.#poll = null;
+    this.#poll.cancel();
     this.resource.cancel();
     super._onDestruct();
   }
@@ -225,24 +240,48 @@ class MetricsPanelVM extends ComponentVMBase {
   started, pass the signal of a per-construct `AbortController` to
   `load(signal)` and abort it at destruct.
 
-### 6.5.3.2. Poll Timers By Flavor
+### 6.5.3.2. Delayed Work By Flavor
 
-Start and stop the timer in the same construct and destruct hooks. The timer
-needs a scheduler that supports a delay:
+Delayed work runs on an injected scheduler through `DelayedTask` (spec 11 §6,
+ADR-0219). It never goes through `IDispatcher`. The action runs where the
+scheduler runs it, so a host that needs the UI thread passes a UI scheduler.
+Schedule the first run in the construct hook, and cancel it in the destruct
+hook. Own the task, so that disposal cancels it too.
 
-- C#: `Observable.Timer(TimeSpan.Zero, period, dispatcher.Foreground)` with a
-  real UI scheduler. `NullDispatcher` and `RxDispatcher.Immediate()` use
-  `ImmediateScheduler`, on which a periodic `Observable.Timer` does not return
-  from `Subscribe`, so the construct hook hangs.
-- Python: `RxDispatcher.asyncio(loop).foreground`, or an asyncio task on the
-  loop that runs the resource's operations (see
-  [Async Resource Operation Loops](services-messages-dispatching.md#6691-async-resource-operation-loops)).
-  The `ImmediateScheduler` of `NullDispatcher` and `RxDispatcher.immediate()`
-  raises `WouldBlockException` for a delayed action.
-- Swift: dispatchers take work without a delay. Use a `Timer` or a `Task` that
-  loops on `Task.sleep`.
-- Rust: dispatchers take work without a delay. Drive the tick from the host
-  event loop.
+| Flavor     | Real-time scheduler                           | Test scheduler                                 | Schedule a 30 s run                             |
+| ---------- | --------------------------------------------- | ---------------------------------------------- | ----------------------------------------------- |
+| C#         | `DefaultScheduler.Instance` or a UI scheduler | `Microsoft.Reactive.Testing.TestScheduler`     | `task.Schedule(TimeSpan.FromSeconds(30), Tick)` |
+| Python     | `TimeoutScheduler()` or `AsyncIOScheduler`    | `reactivex.testing.TestScheduler`              | `task.schedule(30.0, tick)`                     |
+| TypeScript | `asyncScheduler`                              | rxjs `TestScheduler` or a `SchedulerLike` fake | `task.schedule(30_000, tick)`                   |
+| Swift      | `DispatchQueue.main` or `RunLoop.main`        | `VirtualTimeScheduler`                         | `task.schedule(after: 30, tick)`                |
+| Rust       | `SystemScheduler`                             | `VirtualTimeScheduler`                         | `task.schedule(Duration::from_secs(30), tick)`  |
+
+- **Polling.** `isPending` is already false when the action starts. The
+  action can therefore schedule the next run on the same task.
+- **Replacing.** `schedule` replaces a pending action and restarts the delay.
+  After `schedule`, `cancel` or `dispose` returns, a replaced action never
+  starts.
+- **Immediate schedulers.** Do not pass an immediate scheduler. The C#
+  `ImmediateScheduler` blocks the caller for the delay, and the Python one
+  raises `WouldBlockException` for a delay.
+- **Tests.** Inject the virtual-time scheduler and advance it. Due actions run
+  on the advancing thread, in due-time order.
+
+### 6.5.3.3. Transient State
+
+A "Copied" label that reverts after two seconds needs one `DelayedTask`. Each
+copy schedules the revert again, so the label stays for two seconds after the
+last copy:
+
+```typescript
+copy(): void {
+  this.#copied.value = true;
+  this.#revert.schedule(2_000, () => (this.#copied.value = false));
+}
+```
+
+Dispose the task with the view-model. A test advances the virtual-time
+scheduler by two seconds and checks that the label is gone.
 
 ## 6.5.4. Reactive Search Sources
 
@@ -250,6 +289,10 @@ needs a scheduler that supports a delay:
 optional source-change signal when the supplier can mutate while the search
 term stays unchanged. Every signal immediately re-reads the supplier with the
 current term; it does not wait for, cancel, or restart term debounce.
+
+Construction starts no term debounce. Without a signal, a supplier change
+after construction reaches the filtered output only through `search()` or a
+term change (`SRCH-008`, ADR-0198).
 
 | Flavor     | Optional source input                          |
 | ---------- | ---------------------------------------------- |
@@ -406,8 +449,29 @@ class TreeNodeVM extends ComponentVMBase {
 }
 ```
 
-In Rust, the helper reports changes through its `expanded_changed()` hub
-instead of an observable, so the owner subscribes to that hub.
+In Rust, the helper reports each new value on its typed `expansion_changes()`
+stream. The owner subscribes to that stream and disposes the subscription and
+the helper with itself:
+
+<!-- checked-snippet: langs/rust/tests/conformance/expandable.rs#rust-expansion-forwarder -->
+
+```rust
+let expansion = ExpandableState::new();
+let owner = ComponentVm::new("tree-node");
+let forwarder_owner = owner.clone();
+let forwarder = expansion
+    .expansion_changes()
+    .subscribe(move |_expanded| forwarder_owner.notify_property_changed("is_expanded"));
+// The owner disposes the subscription and the helper with itself.
+let owned_expansion = expansion.clone();
+owner.own(move || {
+    forwarder.dispose();
+    owned_expansion.dispose();
+});
+```
+
+The helper also keeps its `expanded_changed()` hub, which the expansion
+commands use as their trigger.
 
 ## 6.5.6. Cross-Language Surface
 

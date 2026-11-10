@@ -1,7 +1,11 @@
 # 12. Rust Parity Status
 
-Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Open items found
-after closure: §12.7 to §12.13, plus the "Still open" notes in §12.4.7.
+Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Items found
+after closure: §12.7 to §12.14, plus the "Still open" notes in §12.4.7.
+§12.8, §12.10, §12.11 and §12.12 are now closed (ADR-0205, ADR-0197, ADR-0208
+and ADR-0207, in that order). §12.9, §12.13 and the §12.4.7 notes are resolved
+(ADR-0210, ADR-0226, and ADR-0207 with ADR-0210). §12.7 is a recorded
+difference. §12.14 is open.
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -12,7 +16,7 @@ pre-publication changes.
 
 The closure was revalidated against the current Rust implementation, its
 conformance and regression tests, the canonical spec, and the four-flavor
-consensus on **2026-07-26**. All five flavors cover all 444 library IDs. The
+consensus on **2026-07-26**. All five flavors cover every library ID. The
 focused Rust tests cited below now assert the canonical member shape and edge
 behavior rather than the earlier reduced Rust surface.
 
@@ -49,12 +53,22 @@ record does not introduce a package or spec version change.
 
 ### 12.2.1. Message Sender Identity Is An Accepted Idiom
 
-Rust's `sender_id: usize` plus `sender_name: String` message fields are the one
+Rust's `sender_id: usize` plus `sender_name: String` message fields are an
 intentional flavor-specific shape retained by this review. ADR-0120 records
 them as the ownership-safe Rust expression of the canonical sender-identity
 contract. The other four flavors retain runtime sender objects, while Rust
 messages remain owned values that do not retain or borrow a VM. Identity
 filtering behavior remains required across all five flavors.
+
+### 12.2.2. HierarchicalVm Node Data Is An Accepted Idiom
+
+Rust has no subclassing, so `HierarchicalVm<M, N = ()>` takes a node-data type
+`N` in place of the `TVM` subclass of the other flavors (ADR-0202, #1263).
+`parent()`, `children()` and `path()` return `HierarchicalVm<M, N>`, and
+`node_data()` returns the node's own `N`. A consumer keeps per-node state in
+`N` and adds node methods through an extension trait. `TreeSelection<M, N>`
+follows the same node type. The Rust `HIER-001` test builds a three-level tree
+of a consumer node-data type and reads it from each accessor.
 
 ## 12.3. Capability And Reusable-State Closure
 
@@ -93,9 +107,17 @@ clamping, pass-through mode, and navigation edge no-ops.
 
 **Resolved.** `Expandable` includes `is_expanded`, and expanded tree walking
 uses the expansion capability instead of a separate reduced tree hook.
+`HierarchicalVm::compose_expansion` composes an `ExpandableState` with a public
+hierarchy node, and `TreeNode` lists type-erased `TreeNodeRef` children, so
+`walk` and `walk_expanded` descend into composites, groups and aggregates
+(ADR-0207, #1262).
 
-Evidence: CAP-004 asserts the state read before and after `expand`; HIER-012 and
-the focused expandable-support tests verify lazy expanded-walk boundaries.
+Evidence: CAP-004 asserts the state read before and after `expand`. HIER-012
+and EXP-005 compose `ExpandableState` with `HierarchicalVm` and verify the
+expanded-walk boundaries. UTIL-001 to UTIL-003 walk the catalog `CompositeVm`
+tree, a `GroupVm` and an `AggregateVm3`, and
+`walk_expanded_descends_containers_and_stops_at_a_collapsed_node` mixes all
+four container kinds.
 
 ### 12.3.5. Searchable Term Mutation (CAP-008)
 
@@ -109,12 +131,15 @@ filtered projection through the concrete reusable helper.
 
 **Resolved.** `ExpandableState` provides collapsed, explicitly initialized,
 and initially-expanded construction. It implements `Expandable`,
-`Collapsible`, and `ExpansionTogglable`; `dispose` completes the owned hub and
-makes later mutation inert.
+`Collapsible`, and `ExpansionTogglable`. Its typed `expansion_changes()`
+stream sends the new value once per effective change and does not replay the
+current value (spec/05 §8, ADR-0206, #1254). `dispose` completes the owned hub
+and the typed stream and makes later mutation inert.
 
 Evidence: the expandable-support suite covers construction variants,
 capability dispatch, completion, idempotent disposal, and post-dispose no-op
-behavior.
+behavior. EXP-002, EXP-003, `expansion_changes_does_not_replay_the_current_value`
+and the dispose test in `expandable.rs` cover the typed stream.
 
 ### 12.3.7. SearchableState Post-Dispose Read
 
@@ -231,17 +256,30 @@ command, and composite suites contain focused assertions for each edge.
 `relay_disposal_emits_one_final_can_execute_notification` observe terminal
 callbacks directly and assert value-before-completion ordering.
 
-Still open (recorded in spec chapter 06): `FilteredCompositeVm` has no
-`Changed` stream, and `ModeledCrudCommands` has no `confirm_update` and a
-synchronous `with_confirm_delete`, which takes no `current_changed` trigger
-(`with_current_changed` takes the trigger but no confirmation). `CompositeVm` holds its
-membership transaction across `CollectionChanged` and current-change
-publication, so a selection from those callbacks or a concurrent selection
-fails with `OwnershipTransactionInProgress` (two `COMP-026` tests are ignored).
-The construct walk's `Current(selector)` assignment can select an unadmitted
-child and can assign while disposing. It does not defer a disposal from its
-callbacks, and a transfer commit always clears `current` (spec/06 §3.2,
-ADR-0165 §3).
+Resolved (ADR-0207, #1259): `FilteredCompositeVm` now has a `changed()`
+stream.
+
+Resolved (ADR-0210, #1258): `ModeledCrudCommands::with_options` takes
+optional async `confirm_update` and `confirm_delete` gates and an optional
+`current_changed` trigger. A supplied gate wraps that command in a
+`ConfirmationDecoratorCommand`, and the trigger also refreshes a gated
+command. The synchronous `with_confirm_delete` is removed, and the Update and
+Delete accessors return `Arc<dyn Command>`. `update_confirmation()` and
+`delete_confirmation()` return a gated command with its concrete type, and
+`dispose()` disposes every command the helper built. Evidence: the `COMP-024`
+conformance test and the `modeled_crud` unit tests.
+
+Selection follows the shared rules of spec/06 §4.3 (ADR-0173). `set_current`,
+`select_component` and `deselect_component` open no membership transaction. A
+selection from the `CollectionChanged` or current-change callbacks, or from
+another thread, commits instead of returning `OwnershipTransactionInProgress`,
+and the two `COMP-026` tests for these cases run again. A selection refused
+inside the caller's own uncommitted add still returns
+`OwnershipTransactionInProgress`. The construct walk's `Current(selector)`
+assignment skips an unadmitted child and a disposing composite. A disposal from
+a selection's callbacks, including the destruct clear's, is deferred through
+the publication lease. A transfer commit clears `current` only while the moved
+child is still current (spec/06 §3.2, ADR-0165).
 
 ### 12.4.8. Hot-Stream Completion And Notification Replay
 
@@ -298,93 +336,116 @@ recorded in §12.3 and §12.4 is resolved and backed by focused Rust tests. Rust
 is both catalog-complete and aligned with the canonical public concepts and
 observable behavior covered by this review.
 
-The ADR-0120 sender representation in §12.2.1 remains the sole intentional
-flavor-specific shape in this ledger. The §12.5 editorial note applies to all
-five flavors and is not a parity backlog. §12.7 to §12.13 record the open items and differences found
-after closure. Future differences still require
+The ADR-0120 sender representation in §12.2.1 and the ADR-0202 node-data
+parameter in §12.2.2 are the intentional flavor-specific shapes in this
+ledger. The §12.5 editorial note applies to all five flavors and is not a
+parity backlog. §12.7 to §12.14 record the items and differences found
+after closure; §12.8 to §12.13 are now closed or resolved, §12.7 is a
+recorded difference, and §12.14 is open. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
 
-## 12.7. Open Items: Background Child Settle
+## 12.7. Recorded Difference: Background Child Settle
 
 Containers (`CompositeVm`, `GroupVm`, the modeled composite, and the fixed
-aggregates) now stay transient until background children settle (spec/02 §6,
-LIFE-014). `HierarchicalVm` has no background option, so it never waits. Three
-Rust-specific items remain open:
+aggregates) stay transient until background children settle (spec/02 §6,
+LIFE-014). `HierarchicalVm` has no background option, so it never waits. The
+fixed aggregates join a slot child that is already Constructing, as the
+composite and group walks do (#1273). A node that does not forward
+`VmNode::when_lifecycle_settled` is watched on the container's own hub when
+the container started it and the hub delivered or queued its transient status. In every
+other case, the container accepts the node while it is in flight, so the
+container never waits without limit (spec/11 §4, ADR-0205, #1274).
 
-- **Container `background_errors()`.** A background child failure that rolls a
-  container back is reported on the container's `background_errors()` stream.
-  This is a Rust-only container surface; the other flavors route the same
-  failure through their background-hook error path.
-- **No join of an in-flight child in aggregates.** When `AggregateVm1`–
-  `AggregateVm6` construct a slot child that is already Constructing in the
-  background, Rust returns `ConcurrentOperation`. C# (`ConstructOrJoinAsync`),
-  Python, TypeScript, and Swift join the in-flight transition instead. The
-  `CompositeVm`, `ModeledCompositeVm`, and `GroupVm` construct walks join such a
-  child (#636).
-- **Nodes that do not forward the settle hook.** See the next paragraph.
+A background child failure that rolls a container back is reported on the
+container's `background_errors()` stream. This is a documented Rust container
+surface (spec/11 §2, ADR-0149); the other flavors route the same failure
+through their background-hook error path.
 
-Settle notification uses the documented `VmNode::when_lifecycle_settled` hook,
-which wrapper nodes should forward to the wrapped VM. A third-party node that
-keeps the default (`false`) is accepted while still Constructing/Destructing,
-matching the pre-settle-tracking behavior, so the container does not wait for
-it. A later failure of such a node therefore does not roll the container back:
-the container stays Constructed while the child ends Destructed. This is an open
-LIFE-014 gap for nodes that do not forward the hook. C# observes the child's
-status instead; Rust has no node-level hub accessor to do so without risking an
-unbounded wait on a child published elsewhere.
+## 12.8. Closed: Forwarding Composite as a Child
 
-## 12.8. Open Item: Forwarding Composite as a Child
+`ForwardingCompositeVm` implements `VmNode`, `PartialEq`, and `Eq` by
+forwarding to the wrapped composite, so a composite, group, or aggregate
+accepts it as a child with one ownership identity (spec/09 §2, ADR-0205). It
+forwards the rest of the `CompositeVm` surface: selection, expansion, the
+commands, `on_current_changed`, `background_errors`, and the configuration
+setters (#1271). It forwards the lifecycle hooks (ADR-0203).
 
-`ForwardingCompositeVm` does not implement `VmNode`, so it cannot be added to
-a composite, group, or aggregate. C#, Python, and Swift support a decorated
-composite as a child with one ownership identity (spec/09 §2). Adding the trait
-needs a forwarding `VmNode` implementation and its tests.
+## 12.9. Resolved: FormVm Approval Completion
 
-`ForwardingCompositeVm` also forwards only part of the `CompositeVm` surface.
-It does not forward `is_current`, the selection methods and commands
-(`can_select`, `select`, `can_deselect`, `deselect`, `select_command`,
-`deselect_command`, `select_next_command`, `select_previous_command`,
-`reconstruct_command`), expansion (`expand`, `collapse`, `toggle_expansion`,
-`is_expanded`), the lifecycle hooks, `on_current_changed`, or
-`background_errors`. spec/09 §2 requires the same delegation as §1.
-
-## 12.9. Open Item: FormVm Approval Completion
-
-`FormVm::subscribe_approved` (ADR-0139) has no completion callback, so a
-subscriber is not told when the form is disposed. The other flavors complete
-`OnApproved` on dispose (spec/20 §10). `errors_changed` and `approve_errors`
-do complete in Rust.
+**Resolved (ADR-0210, #1270).** `FormVm::subscribe_approved_with_completion`
+takes an approval callback and a completion callback. Disposal calls the
+completion once, after `errors_changed` and `approve_errors` complete, as the
+other flavors complete `OnApproved` (spec/20 §10). A subscription on a
+disposed form completes at once, and a detached one is not completed.
+`subscribe_approved` keeps its signature. Evidence:
+`tests/conformance/form_approval_completion.rs`.
 
 ## 12.10. Recorded Difference: Notification Hub Disposal Snapshot
 
-When `NotificationHub` is disposed, Rust emits a final empty `pending` snapshot
-before completion. C#, Python, TypeScript, and Swift complete without a final
-snapshot. Waiters resolve to `Pending` in every flavor (NOTIF-017).
+**Resolved.** ADR-0197 removes the final snapshot in every flavor. Rust
+dispose sends no value on `pending_stream()` and no `pending` message on
+`pending_changed()` before completion, as C#, Python, TypeScript and Swift
+already did. A `pending_stream()` subscription made after dispose completes at
+once with no replay (NOTIF-017, NOTIF-020).
+Waiters resolve to `Pending` in every flavor.
 
-## 12.11. Open Item: PagedComposition Notifications
+## 12.11. Closed: PagedComposition Notifications
 
-Rust `PagedComposition` raises no property notifications. C#, Python,
-TypeScript, and Swift publish `CurrentPageIndex`, `Items`, `PageCount`, and the
-other paging properties on every change. Rust consumers read the state after
-each call.
+**Closed (ADR-0208, #1269).** Rust `PagedComposition` raised no property
+notifications. It now publishes the snake_case paging properties on its hub in
+the Swift order, and `from_composite` follows a `CompositeVm` source, as C#,
+Python, TypeScript, and Swift do (COL-031).
 
-## 12.12. Open Item: FilteredCompositeVm Initial Cursor Policy
+Evidence: the Rust `paged_composition_notifications` conformance tests.
 
-Rust `FilteredCompositeVm::new` always reconciles under `SnapToFirst`. A caller
-sets `Clear` or `PreserveIfVisible` with `set_cursor_policy` after construction,
-and that call does not reconcile again. C#, Python, TypeScript, and Swift take
-the policy at construction, so a `Clear` or `PreserveIfVisible` view starts
-with no current item; the same Rust view starts on the first visible item.
+## 12.12. Resolved: FilteredCompositeVm Initial Cursor Policy
 
-## 12.13. Open Item: Leaf Member Disposal and Admitted Hooks
+**Resolved (ADR-0207, #1260).** Rust `FilteredCompositeVm::new` always
+reconciled under `SnapToFirst`, so a `Clear` or `PreserveIfVisible` view
+started on the first visible item. `with_cursor_policy` and
+`scored_with_cursor_policy` now take the policy at construction, as C#, Python,
+TypeScript, and Swift do, and such a view starts with no current item. `new`
+and `scored` keep `SnapToFirst`.
 
-Rust `ComponentVm::dispose` disposes the members registered with `own_member`
-before the core disposal starts. A `dispose()` from another thread therefore
-disposes those members while the component's admitted construct or destruct
-hook still runs. Spec 02 §7.1 applies the admitted-hook rule of §2.4 to member
-disposal, as C#, Python and Swift do. Rust containers follow the rule (#1062).
-A fix can pass the member disposals to `ComponentCore::dispose_with_cascade_then`.
-Leaf components also use `transition_background`, `run_background_hook` and
-`publish_reconstruct_status`, and these paths must then check the closed hook
-admission too.
+Evidence: `constructor_cursor_policy_sets_the_initial_current_item` and
+`scored_constructor_cursor_policy_sets_the_initial_current_item` in the Rust
+`filtered_composite` conformance tests.
+
+## 12.13. Resolved: Aggregate Preflight Candidate Cleanup
+
+**Resolved (ADR-0226, #1324).** When a population fails before its commit,
+C#, Python, TypeScript and Swift dispose the candidates that nobody owns
+(ADR-0224). Rust `AggregateVm1` to `AggregateVm6` returned the
+`validate_fixed_aggregate_candidate` error before they disposed any
+candidate. A refused `construct()` or `reconstruct()` now disposes each fresh
+lazy-slot candidate that nobody owns. The cleanup skips a candidate that has a
+parent, that another ownership claim holds, or that is an owner on the
+aggregate's ancestor chain. It disposes each identity once, and the preflight
+error propagates. An eager slot keeps its existing value. `AGG-008` covers the
+rule in all five flavors.
+
+Evidence: the Rust `failed_population_cleanup` conformance tests cover
+`construct()` and `reconstruct()`, arities two to six, a duplicate
+candidate, a failed candidate disposal and a candidate that another
+transaction holds. The existing cycle-preflight tests show that the aggregate
+and its ancestors are not disposed.
+
+## 12.14. Open Item: Container Destruct Walk Join
+
+Chapter 02 §6 says that a destruct walk joins a child whose destruct is in
+flight, also one that another thread started after the walk read the status
+(ADR-0218, #754, #1375). C#, Python and Swift join it. TypeScript has one
+thread, so the case does not arise.
+
+Rust containers do not join it. The `CompositeVm`, `GroupVm` and
+`AggregateVm1` to `AggregateVm6` destruct walks call `transition_child` for
+each child, and that call runs `destruct()` with no join. `destruct()` returns
+`VmxError::InvalidLifecycleTransition` from `Destructing` while the child's
+transition is in flight, so the container destruct fails. The `ComponentVm`
+child walk already joins through `transition_or_join_child`. Only the
+aggregate construct join is closed (§12.7).
+
+The fix moves the container destruct walks to a join that also covers a
+destruct started between the status read and the call. #1375 stays the
+evidence for this item.

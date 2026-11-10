@@ -4,8 +4,8 @@ This tutorial walks you through building viewmodels with the VMx Rust crate.
 You will build a `ComponentVm<Model>`, a `RelayCommand`, and a `CompositeVm<T>`
 with child selection — all in a plain Cargo binary.
 
-> The Rust source line v0.36.0 declares `MIN_SPEC_VERSION = "3.30.0"` and has
-> behavioral tests for all 444 library conformance IDs. The
+> The Rust source line v0.37.0 declares `MIN_SPEC_VERSION = "3.30.0"` and has
+> behavioral tests for every library conformance ID. The
 > [Rust flavor page](../flavors/rust.md) describes its status and parity
 > evidence.
 >
@@ -95,14 +95,14 @@ fn main() -> VmxResult<()> {
         hub.clone(),
         dispatcher,
     )
-    .with_model_hint(|model| Some(model.name.clone()));
+    .with_model_hint(|model| model.name.clone());
 
     user.construct()?;
     assert!(user.is_constructed());
 
     user.set_model(UserModel { name: "Alice Smith".into(), email: "asmith@example.com".into() });
     assert_eq!(user.model().name, "Alice Smith");
-    assert_eq!(user.modeled_hint(), Some("Alice Smith".to_string()));
+    assert_eq!(user.modeled_hint(), "Alice Smith");
     user.dispose()
 }
 ```
@@ -254,7 +254,7 @@ callers can branch on the result. Builders return `Err` from `build()` when a
 required field is missing.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
-> lifecycle contract (`LIFE-001..020`), including transition and disposal
+> lifecycle contract (`LIFE-001..022`), including transition and disposal
 > coordination.
 
 ## 3.6.7. Where to go next

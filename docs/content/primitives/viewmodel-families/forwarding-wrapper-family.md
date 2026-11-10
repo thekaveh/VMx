@@ -31,13 +31,10 @@ Flavor limits (spec/09 introduction and §2):
 - Rust has no subclass overrides. `ForwardingComponentVm` offers
   `with_hint_override` and `with_model_hint`; `ForwardingCompositeVm` offers no
   override hooks.
-- TypeScript `ForwardingCompositeVM` and Rust `ForwardingCompositeVm` cannot be
-  container children; the type checker rejects the add. The TypeScript one
-  also has no owned-resource helper.
-- Rust `ForwardingCompositeVm` forwards only part of the `CompositeVm` surface,
-  for example not the selection commands or `background_errors`. The
-  [Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md)
-  lists the gaps in §12.8.
+- Both TypeScript decorators expose the wrapped VM as `wrappedBase`. The
+  wrapped VM sends every hub message the decorator causes, so the React
+  `useVm` hook uses it to re-render a component bound to a decorator
+  (ADR-0213).
 
 The wrapped component and every decorator around it have one canonical
 ownership identity. Adding a decorator to a composite or group first removes
@@ -54,6 +51,14 @@ or directly, in one LIFO order with its other resources. A registration after
 that disposal is released at once (`FWD-005`, ADR-0151). In C#, Python, and
 TypeScript, a decorator around a component that does not derive from the VMx
 base class cannot register resources; the call throws.
+
+A decorator subclass reports a property change through the same identity. The
+dual-channel helper sends one hub message whose sender is the wrapped VM, and
+the decorator's property-changed stream, which is the wrapped VM's stream,
+emits the name once. The local-only raise primitive sends no hub message.
+After the wrapped VM is disposed, neither helper emits anything. C#
+decorators expose protected `NotifyPropertyChanged` and `RaisePropertyChanged`
+(`FWD-006`, ADR-0221, ADR-0223).
 
 ## 6.2.7.3. Lifecycle And Messaging
 
@@ -126,10 +131,10 @@ copying or re-implementing the wrapped VM:
         NullDispatcher::new(),
     );
     let first = ForwardingComponentVm::new(inner)
-        .with_hint_override(|| Some("OVERRIDE".to_string()));
+        .with_hint_override(|| "OVERRIDE".to_string());
     let forwarding = ForwardingComponentVm::wrap(first);
 
-    assert_eq!(forwarding.hint().as_deref(), Some("OVERRIDE"));
+    assert_eq!(forwarding.hint(), "OVERRIDE");
     ```
 
 Swift is the explicit divergence here: `name` and `hint` are stored `let`

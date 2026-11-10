@@ -1,5 +1,3 @@
-using System.Collections.Specialized;
-using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using VMx.Services;
 
@@ -67,12 +65,10 @@ public sealed class KeyedServicedObservableCollection<TKey, TItem>
         TKey key = _keySelector(item);
         if (_indexByKey.TryGetValue(key, out int index))
         {
-            CheckReentrancy();
             SetProjectedItem(index, item, key);
             return false;
         }
 
-        CheckReentrancy();
         InsertProjectedItem(Count, item, key);
         return true;
     }
@@ -109,7 +105,6 @@ public sealed class KeyedServicedObservableCollection<TKey, TItem>
 
         if (Count == 0 && snapshot.Length == 0) return;
 
-        CheckReentrancy();
         _capturedKeys.Clear();
         _capturedKeys.AddRange(candidateKeys);
         _indexByKey.Clear();
@@ -119,16 +114,13 @@ public sealed class KeyedServicedObservableCollection<TKey, TItem>
         Items.Clear();
         foreach (TItem item in snapshot) Items.Add(item);
 
-        OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
-        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
-        OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        RaiseResetNotifications();
     }
 
     /// <inheritdoc/>
     protected override void InsertItem(int index, TItem item)
     {
         ValidateInsertIndex(index);
-        CheckReentrancy();
         TKey key = _keySelector(item);
         if (_indexByKey.ContainsKey(key)) ThrowDuplicateKey(key);
 
@@ -139,7 +131,6 @@ public sealed class KeyedServicedObservableCollection<TKey, TItem>
     protected override void SetItem(int index, TItem item)
     {
         ValidateExistingIndex(index);
-        CheckReentrancy();
         TKey key = _keySelector(item);
         if (_indexByKey.TryGetValue(key, out int ownerIndex) && ownerIndex != index)
             ThrowDuplicateKey(key);
@@ -151,7 +142,6 @@ public sealed class KeyedServicedObservableCollection<TKey, TItem>
     protected override void RemoveItem(int index)
     {
         ValidateExistingIndex(index);
-        CheckReentrancy();
 
         TKey oldKey = _capturedKeys[index];
         _indexByKey.Remove(oldKey);
@@ -167,7 +157,6 @@ public sealed class KeyedServicedObservableCollection<TKey, TItem>
         ValidateExistingIndex(oldIndex, nameof(oldIndex));
         ValidateExistingIndex(newIndex, nameof(newIndex));
         if (oldIndex == newIndex) return;
-        CheckReentrancy();
 
         TKey key = _capturedKeys[oldIndex];
         _capturedKeys.RemoveAt(oldIndex);
@@ -181,7 +170,6 @@ public sealed class KeyedServicedObservableCollection<TKey, TItem>
     protected override void ClearItems()
     {
         if (Count == 0) return;
-        CheckReentrancy();
 
         _capturedKeys.Clear();
         _indexByKey.Clear();

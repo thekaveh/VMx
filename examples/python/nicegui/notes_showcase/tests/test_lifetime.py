@@ -11,9 +11,11 @@ from nicegui.testing.user_simulation import user_simulation
 from reactivex.disposable import Disposable
 from reactivex.scheduler import ThreadPoolScheduler
 from vmx import ComponentVMOf, ConstructionStatus, Message, MessageHub, RxDispatcher
+from vmx.notifications import Notification, NotificationHub, NotificationType
 
 from nicegui_notes.adapter import bind_property, release_on_delete
 from nicegui_notes.host import NotesHost
+from nicegui_notes.page import notifications_strip
 
 
 def _vm(hub: MessageHub[Message]) -> ComponentVMOf[str]:
@@ -63,6 +65,42 @@ async def test_bindings_survive_a_reconnect_and_are_released_when_the_client_is_
         vm.model = "after deletion"  # nothing is left to update
 
     assert vm.status is ConstructionStatus.CONSTRUCTED
+
+
+async def test_a_deleted_page_shows_no_later_notification() -> None:
+    from notes_showcase.viewmodels.notifications_vm import NotificationsVM
+
+    hub = MessageHub[Message]()
+    notification_hub = NotificationHub()
+    notifications = (
+        NotificationsVM.builder()
+        .name("notifications")
+        .services(hub, RxDispatcher.immediate())
+        .notification_hub(notification_hub)
+        .build()
+    )
+    notifications.construct()
+    strips: list[ui.label] = []
+    pages: list[Client] = []
+
+    def page() -> None:
+        pages.append(ui.context.client)
+        release_on_delete(notifications_strip(notifications))
+        strips.extend(e for e in ui.context.client.elements.values() if isinstance(e, ui.label))
+
+    async with user_simulation(page) as user:
+        await user.open("/")
+        notification_hub.post(Notification(NotificationType.NOTIFICATION, "first"))
+        await user.should_see(marker="notifications", content="first")
+        assert _hub_subscribers(hub) == 1
+
+        pages[0].delete()
+        assert _hub_subscribers(hub) == 0
+        notification_hub.post(Notification(NotificationType.NOTIFICATION, "second"))
+        await asyncio.sleep(0.05)
+        assert [strip.text for strip in strips] == ["first"]
+
+    notifications.dispose()
 
 
 async def test_a_worker_thread_change_updates_the_element_on_the_loop_inside_its_client() -> None:

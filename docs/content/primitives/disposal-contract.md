@@ -32,15 +32,15 @@ resource cancellation.
 
 ## 6.8.2. The Seven Disposal Families
 
-| Family                        | Representative surfaces                                             | Cross-cutting ID | Detailed coverage                                         |
-| ----------------------------- | ------------------------------------------------------------------- | ---------------- | --------------------------------------------------------- |
-| VM and owner cascades         | Component, composite, group, aggregate, hierarchy, forwarding       | `DISP-001`       | `LIFE-004`, `LIFE-012`, `LIFE-013`, `LIFE-018`, `CVM-009` |
-| Commands                      | Relay, async relay, composite/decorator, modeled CRUD               | `DISP-002`       | `CMD-012`, `CMD-013`, `CMDD-010`..`CMDD-013`              |
-| Hubs and services             | Message hub, notification hub                                       | `DISP-003`       | `HUB-012`, `NOTIF-017`                                    |
-| Interaction owners            | Form, modal, notification rendering VMs                             | `DISP-004`       | `DIA-011`, `DIA-012`, `FORM-014`, `NOTIF-017`             |
-| Reactive helpers              | Derived property, expansion/search state, discriminator             | `DISP-005`       | `DPROP-011`                                               |
-| Collection/projection helpers | Batch handles, paging, filtered projections, disposable collections | `DISP-006`       | `COMP-013`, `COMP-035`, `GRP-006`, `COL-024..031`         |
-| Async resource owners         | AsyncResourceVM loader, commands, and accepted value                | `ARES-010..011`  | `ARES-005`, `ARES-008`, `ARES-009`                        |
+| Family                        | Representative surfaces                                               | Cross-cutting ID | Detailed coverage                                                     |
+| ----------------------------- | --------------------------------------------------------------------- | ---------------- | --------------------------------------------------------------------- |
+| VM and owner cascades         | Component, composite, group, aggregate, hierarchy, forwarding         | `DISP-001`       | `LIFE-004`, `LIFE-012`, `LIFE-013`, `LIFE-018`, `LIFE-021`, `CVM-009` |
+| Commands                      | Relay, async relay, composite/decorator, modeled CRUD                 | `DISP-002`       | `CMD-012`, `CMD-013`, `CMDD-010`..`CMDD-013`                          |
+| Hubs and services             | Message hub, notification hub                                         | `DISP-003`       | `HUB-012`, `NOTIF-017`, `NOTIF-020`                                   |
+| Interaction owners            | Form, modal, notification rendering VMs                               | `DISP-004`       | `DIA-011`, `DIA-012`, `FORM-014`, `NOTIF-017`, `NOTIF-019`            |
+| Reactive helpers              | Derived property, expansion/search state, discriminator, delayed task | `DISP-005`       | `DPROP-011`, `DLY-004`                                                |
+| Collection/projection helpers | Batch handles, paging, filtered projections, disposable collections   | `DISP-006`       | `COMP-013`, `COMP-035`, `GRP-006`, `COL-024..031`                     |
+| Async resource owners         | AsyncResourceVM loader, commands, and accepted value                  | `ARES-010..011`  | `ARES-005`, `ARES-008`, `ARES-009`                                    |
 
 `AggregateChangeStream` disposal is covered by `AGCH-010`.
 
@@ -61,16 +61,24 @@ model.
 - Reconstruct and destruct do not release disposal-lifetime registrations.
   Per-construct resources remain explicit in `OnConstruct`/`OnDestruct`.
 - Container VMs (composites, groups, aggregates) dispose their children
-  depth-first before their own teardown (`LIFE-013`). The order is children,
-  the container's `Disposed` publication, subclass hook, LIFO owned
-  registrations, stream completion, then commands. A child reached through
-  several teardown paths has one observable terminal transition.
-- While a construct or destruct hook of the VM runs on another thread, the VM
-  publishes `Disposed` first and waits for that hook. After the hook returns,
-  the VM disposes its children and members, before its subclass hook
-  (`LIFE-015`, spec 02 §2.4, §7.1). C# fixed aggregates do not follow this rule
-  yet
-  ([open decision 2.11](../../maintenance/2026-10-18-open-cross-flavor-decisions.md#211-lifecycle-call-during-a-containers-inline-dispose-cascade)).
+  depth-first before their own teardown (`LIFE-013`). With no hook running on
+  another thread, the order is children, the container's `Disposed`
+  publication, subclass hook, LIFO owned registrations, stream completion,
+  then commands. A child reached through several teardown paths has one
+  observable terminal transition.
+- A foreign dispose is a `dispose()` call while a construct or destruct hook of
+  the VM runs on another thread. The VM then publishes `Disposed` first and
+  waits for that hook. After the hook returns, the VM disposes its children
+  and members, before its subclass hook (`LIFE-015`, spec 02 §7, §7.1,
+  ADR-0179).
+- With no hook running on another thread, the VM disposes its children and
+  members inline, before it publishes `Disposed`. A `construct()`,
+  `destruct()`, or `reconstruct()` call that starts during that cascade fails
+  with the error that the call raises on a `Disposed` VM. It publishes nothing
+  and runs no hook, even when a child's or member's dispose hook makes the
+  call. A transition that started before the cascade commits no status other
+  than `Disposed`, and its call returns as a call that disposal superseded
+  (`LIFE-021`, spec 02 §7.2, ADR-0175).
 - A child view-model registered with the owned-resource helper is not a
   container child. It is disposed parent-first: the parent publishes
   `Disposed`, runs its subclass hook, and then disposes owned registrations,
@@ -78,25 +86,41 @@ model.
 - A member view-model registered with the member-disposal helper (`OwnMember`
   in C#, `_own_member` in Python, `ownMember` in TypeScript and Swift,
   `own_member` in Rust) is disposed depth-first instead: members are disposed
-  in registration order before the parent publishes `Disposed`, after a
-  container's own children (`LIFE-018`, spec 02 §7.1).
+  in registration order, after a container's own children. For a dispose that
+  is not foreign, this happens before the parent publishes `Disposed`
+  (`LIFE-018`, spec 02 §7.1).
 - A terminal cascade does not stop at a failing child or subclass hook. The
   teardown of every sibling still runs. The base teardown of the parent also
   runs. Flavors that throw or return results report the first failure only
   after all mandatory cleanup completes.
 - Disposal deferred by an ownership transfer runs after commit or rollback.
-- A committed transfer publishes both membership events before it propagates a
-  disposal failure.
+- A committed transfer delivers both local membership events before it
+  propagates a disposal failure. The old container sends no hub message,
+  because its disposal is requested.
+- A composite or group sends no `CollectionChangedMessage` once its disposal is
+  requested, also when the disposal is deferred. A local subscriber or
+  current-changed callback that disposes the container therefore suppresses
+  the hub message of the change it observes. The local event is still
+  delivered (spec 01 §1.4, ADR-0190).
+- A disposed `HierarchicalVM` refuses `AddChild`, `RemoveChild`,
+  `ReparentChild`, `InvalidateChildren`, `InvalidateSubtree`, and
+  `AttachMany`, also where the call would do nothing. A transfer out of a
+  disposed parent refuses too. A refused call changes nothing and publishes
+  nothing. Spec 18 §7.1 lists the refusal channel of each flavor (ADR-0190).
 - If rollback also triggers failing disposal, an earlier attachment failure
   stays first.
 - Disposal requested from a current-changed callback is likewise deferred until
-  selection publication finishes, without blocking the callback on its own
-  membership transaction.
+  selection publication finishes. Selection holds no membership transaction,
+  so the callback never blocks on one (ADR-0173).
 - Disposal that races an admitted construct or destruct hook waits until the
   hook settles. Terminal resource and stream teardown follow.
 - Opposing hooks that cross-dispose use cycle-aware deferral. Neither thread
   deadlocks, and no post-hook child work begins after the parent becomes
-  terminal.
+  terminal. The admitted hook's lifecycle call runs the deferred cleanup. When
+  the hook succeeds, that call reports the cleanup's first failure (ADR-0200).
+  A hook failure stays first. The cycle-broken `dispose()` returns normally.
+  Swift disposal does not throw, so Swift reports nothing. TypeScript runs on
+  one thread and cannot form the cycle.
 - A forwarding VM delegates disposal to the wrapped VM; it does not introduce
   reference counting. Resources registered through a forwarding VM belong to
   the wrapped VM and are released with its other registrations (`FWD-005`).
@@ -124,34 +148,45 @@ table uses concept names;
 [Flavor Exceptions](#685-flavor-exceptions) lists spellings and every
 flavor-specific difference.
 
-| Type                                                                           | Dispose behavior                                                      | Later calls                                                                 | Released                                                                                                                                                                                           | Readable state            |
-| ------------------------------------------------------------------------------ | --------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| VM families: component, read-only, composite, group, aggregate 1–6             | One `Disposed` transition; VM-local streams complete                  | Lifecycle calls other than dispose fail; changes are inert                  | Children depth-first, then subclass hook, LIFO owned registrations, stream completion, commands                                                                                                    | Status                    |
-| `HierarchicalVM`                                                               | One `Disposed` transition; VM-local streams complete                  | Lifecycle calls other than dispose fail; changes are inert                  | No children, which stay live (see [Disposing A Subtree](viewmodel-families/hierarchical-family.md#6264-disposing-a-subtree)); subclass hook, LIFO owned registrations, stream completion, commands | Status                    |
-| Forwarding component and composite VMs                                         | Delegates to the wrapped VM, which completes once                     | Wrapped VM contract                                                         | Delegates to the wrapped VM                                                                                                                                                                        | Wrapped VM contract       |
-| Message hub                                                                    | Message stream completes once                                         | Sends are ignored                                                           | Pending transaction queue and subject                                                                                                                                                              | —                         |
-| Relay command, with and without parameter                                      | Terminal disabled state                                               | `CanExecute` is false; execute is inert                                     | Trigger subscriptions                                                                                                                                                                              | —                         |
-| Async relay command                                                            | Owned error channel completes once; the active operation is cancelled | Disabled; execute is inert                                                  | One active cancellation handle and trigger subscriptions                                                                                                                                           | —                         |
-| Composite, decorator, confirmation-decorator, and modeled-CRUD commands        | Owned error channel completes where present                           | `CanExecute` is false; no inner work starts                                 | Event subscriptions and owned relay commands only; caller-owned inner commands stay caller-owned                                                                                                   | —                         |
-| `FormVM`                                                                       | Approval, error, and validation streams complete once                 | Approve and deny are inert                                                  | Approve and deny commands                                                                                                                                                                          | Model and snapshot        |
-| Notification hub                                                               | Pending stream completes once; waiters resolve `Pending`              | Post resolves `Pending`; resolve is inert                                   | Pending queue and waiters                                                                                                                                                                          | —                         |
-| `NotificationVM`, `ConfirmationVM`                                             | Property-change stream completes once                                 | —                                                                           | Timers, pending subscription, commands                                                                                                                                                             | Last render state         |
-| `ModalVM`                                                                      | Idempotent dismiss; completion resolves once                          | —                                                                           | Waiters                                                                                                                                                                                            | First result              |
-| `DerivedProperty`                                                              | Value-change stream completes once                                    | No recompute emission                                                       | Source subscriptions                                                                                                                                                                               | Last value                |
-| `ExpandableState`                                                              | Expansion stream completes once                                       | Mutations and commands are inert                                            | Expansion subscribers; expand, collapse, and toggle commands that were read                                                                                                                        | Last expansion value      |
-| `TreeSelection`                                                                | Change stream completes once, without a value                         | `Current` is null; select and clear are inert                               | Hub subscriptions on the watched path; never a node                                                                                                                                                | —                         |
-| `SearchableState`                                                              | Search streams complete once                                          | Setters and search are inert                                                | Search and source subscriptions                                                                                                                                                                    | Search term reads empty   |
-| `FilteredCompositeVM`, `ScoredFilteredCompositeVM`                             | Projection stream completes once                                      | The projection stops changing                                               | Source subscription                                                                                                                                                                                | Frozen visible projection |
-| `PagedComposition`                                                             | Paging streams complete where exposed                                 | Pages are read without source tracking                                      | Source subscription                                                                                                                                                                                | Page reads                |
-| `TokenPagedComposition`                                                        | Command stream completes once                                         | Late fetch results cannot mutate or publish                                 | Load-more and refresh commands                                                                                                                                                                     | Accumulated state         |
-| Batch handles from list, composite, and group operations                       | At most one Reset at outer batch exit                                 | The handle has no other behavior                                            | One batch depth claim                                                                                                                                                                              | —                         |
-| `AggregateChangeStream`                                                        | Output subscriptions complete once                                    | New subscriptions complete at once; membership and item changes are ignored | Structural subscription and selected item subscriptions; never source items                                                                                                                        | —                         |
-| `DiscriminatorVM`                                                              | Active-change stream completes once                                   | Mutations are inert                                                         | Stream subject                                                                                                                                                                                     | Reads                     |
-| `AsyncResourceVM`                                                              | Active operation is invalidated; commands and state stream complete   | Late work cannot publish                                                    | Cancellation handle; accepted or late value is cleaned once                                                                                                                                        | Terminal state            |
-| `ObservableList`, `ObservableDictionary` (Python only)                         | Every VMx-owned collection subject completes once                     | Mutations emit nothing                                                      | Collection subjects                                                                                                                                                                                | Stored contents           |
-| Hub, property-change, approval, and aggregate-change subscriptions (Rust only) | No completion surface                                                 | The handle has no other behavior                                            | One subscriber registration                                                                                                                                                                        | —                         |
-| `MessageRecorder` (Rust only)                                                  | Recording stops; the hub detaches the recorder                        | No later message is recorded                                                | Hub registration                                                                                                                                                                                   | Recorded messages         |
-| Value streams and their subscriptions (Rust only)                              | Subscribers complete once; subscriptions detach                       | Later sends are inert                                                       | Subscribers                                                                                                                                                                                        | Last value                |
+| Type                                                                           | Dispose behavior                                                                | Later calls                                                                               | Released                                                                                                                                                                                           | Readable state            |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| VM families: component, read-only, composite, group, aggregate 1–6             | One `Disposed` transition; VM-local streams complete                            | Lifecycle calls other than dispose fail; container changes can refuse                     | Children depth-first, then subclass hook, LIFO owned registrations, stream completion, commands                                                                                                    | Status                    |
+| `HierarchicalVM`                                                               | One `Disposed` transition; VM-local streams complete                            | Lifecycle calls other than dispose fail; structural calls refuse; other changes are inert | No children, which stay live (see [Disposing A Subtree](viewmodel-families/hierarchical-family.md#6264-disposing-a-subtree)); subclass hook, LIFO owned registrations, stream completion, commands | Status                    |
+| Forwarding component and composite VMs                                         | Delegates to the wrapped VM, which completes once                               | Wrapped VM contract                                                                       | Delegates to the wrapped VM                                                                                                                                                                        | Wrapped VM contract       |
+| Message hub                                                                    | Message stream completes once                                                   | Sends are ignored                                                                         | Pending transaction queue and subject                                                                                                                                                              | —                         |
+| Relay command, with and without parameter                                      | Terminal disabled state                                                         | `CanExecute` is false; execute is inert                                                   | Trigger subscriptions                                                                                                                                                                              | —                         |
+| Async relay command                                                            | Owned error channel completes once; the active operation is cancelled           | Disabled; execute is inert                                                                | One active cancellation handle and trigger subscriptions                                                                                                                                           | —                         |
+| Composite, decorator, confirmation-decorator, and modeled-CRUD commands        | Owned error channel completes where present                                     | `CanExecute` is false; no inner work starts                                               | Event subscriptions and owned relay commands only; caller-owned inner commands stay caller-owned                                                                                                   | —                         |
+| `FormVM`                                                                       | Approval, error, and validation streams complete once                           | Approve and deny are inert                                                                | Approve and deny commands                                                                                                                                                                          | Model and snapshot        |
+| Notification hub                                                               | Pending stream completes once with no final snapshot; waiters resolve `Pending` | Post resolves `Pending`; resolve is inert; a new `Pending` subscription only completes    | Pending queue and waiters                                                                                                                                                                          | —                         |
+| `NotificationVM`, `ConfirmationVM`                                             | Property-change stream completes once                                           | —                                                                                         | Timers, pending subscription, commands                                                                                                                                                             | Last render state         |
+| `ModalVM`                                                                      | Idempotent dismiss; completion resolves once                                    | —                                                                                         | Waiters                                                                                                                                                                                            | First result              |
+| `DerivedProperty`                                                              | Value-change stream completes once                                              | No recompute emission                                                                     | Source subscriptions                                                                                                                                                                               | Last value                |
+| `ExpandableState`                                                              | Expansion stream completes once                                                 | Mutations and commands are inert                                                          | Expansion subscribers; expand, collapse, and toggle commands that were read                                                                                                                        | Last expansion value      |
+| `TreeSelection`                                                                | Change stream completes once, without a value                                   | `Current` is null; select and clear are inert                                             | Hub subscriptions on the watched path; never a node                                                                                                                                                | —                         |
+| `SearchableState`                                                              | Search streams complete once                                                    | Setters and search are inert                                                              | Search and source subscriptions                                                                                                                                                                    | Search term reads empty   |
+| `DelayedTask`                                                                  | Cancels the pending action once                                                 | Schedule and cancel are inert                                                             | The pending scheduler handle                                                                                                                                                                       | `IsPending` is false      |
+| `FilteredCompositeVM`, `ScoredFilteredCompositeVM`                             | Projection stream completes once                                                | The projection stops changing                                                             | Source subscription                                                                                                                                                                                | Frozen visible projection |
+| `PagedComposition`                                                             | Paging streams complete where exposed                                           | Paging calls are inert; page reads remain                                                 | Source subscription                                                                                                                                                                                | Page reads                |
+| `TokenPagedComposition`                                                        | Command stream completes once                                                   | Late fetch results cannot mutate or publish                                               | Load-more and refresh commands                                                                                                                                                                     | Accumulated state         |
+| Batch handles from list, composite, and group operations                       | At most one Reset at outer batch exit                                           | The handle has no other behavior                                                          | One batch depth claim                                                                                                                                                                              | —                         |
+| `AggregateChangeStream`                                                        | Output subscriptions complete once                                              | New subscriptions complete at once; membership and item changes are ignored               | Structural subscription and selected item subscriptions; never source items                                                                                                                        | —                         |
+| `DiscriminatorVM`                                                              | Active-change stream completes once                                             | Mutations are inert                                                                       | Stream subject                                                                                                                                                                                     | Reads                     |
+| `AsyncResourceVM`                                                              | Active operation is invalidated; commands and state stream complete             | Late work cannot publish                                                                  | Cancellation handle; accepted or late value is cleaned once                                                                                                                                        | Terminal state            |
+| `ObservableList`, `ObservableDictionary` (Python only)                         | Every VMx-owned collection subject completes once                               | Mutations emit nothing                                                                    | Collection subjects                                                                                                                                                                                | Stored contents           |
+| Hub, property-change, approval, and aggregate-change subscriptions (Rust only) | Detaches; no completion callback runs                                           | The handle has no other behavior                                                          | One subscriber registration                                                                                                                                                                        | —                         |
+| `MessageRecorder` (Rust only)                                                  | Recording stops; the hub detaches the recorder                                  | No later message is recorded                                                              | Hub registration                                                                                                                                                                                   | Recorded messages         |
+| Value streams and their subscriptions (Rust only)                              | Subscribers complete once; subscriptions detach                                 | Later sends are inert                                                                     | Subscribers                                                                                                                                                                                        | Last value                |
+
+In the VM families row, a container change is a composite or group membership
+or selection change: add, insert, remove, remove by index, replace, clear,
+move, or a selection. These changes can refuse after disposal; the flavor
+exceptions below state the result in each flavor. Every other change is inert.
+
+In the `AggregateChangeStream` row, a reconciliation that runs at the same
+time as disposal can hold a selected-item subscription that it staged but did
+not commit. That reconciliation releases the subscription when it sees the
+disposal, and the aggregate ignores its values (ADR-0214).
 
 Rows marked "only" exist in the named flavor. Every other row applies to every
 flavor unless the exceptions below say otherwise.
@@ -162,8 +197,11 @@ flavor unless the exceptions below say otherwise.
 
 - `MessageHub`, `AsyncRelayCommand`, and `TokenPagedComposition` claim disposal
   under a gate. `NotificationHub` claims it under a lock.
-- VM lifecycle calls other than dispose raise. Selection and property changes
-  are inert.
+- VM lifecycle calls other than dispose raise. Property changes are inert.
+- Composite and group `Add`, `Insert`, `Remove`, `RemoveAt`, `Clear`, `Move`,
+  and the indexer setter raise `ObjectDisposedException`. A composite selection
+  raises `ObjectDisposedException`, a null clear included, unless it assigns the
+  child that is already current, which changes nothing.
 - `RelayCommand` and `RelayCommand<T>` can raise one final `CanExecuteChanged`
   before the terminal disabled state.
 - The message stream is `Messages`; the derived-property stream is
@@ -172,7 +210,9 @@ flavor unless the exceptions below say otherwise.
 - `NotificationVM` and `ConfirmationVM` stop their property-change surface.
   Later resolution paths are inert.
 - Filtered projections expose no projection stream; the projection stops
-  changing. `PagedComposition<T>` has no completion surface.
+  changing. `PagedComposition<T>` has no completion surface. After disposal,
+  `PageSize` and `CurrentPageIndex` writes and the four move calls change no
+  state and raise no `PropertyChanged` event (ADR-0214).
 - `AsyncResourceVM<T>` releases its cancellation token source and loader
   registration.
 - `AggregateChangeStream<T>.Batch` throws `ObjectDisposedException` after
@@ -184,13 +224,19 @@ flavor unless the exceptions below say otherwise.
   `NotificationHub` use their own locks. `AsyncResourceVM` uses its resource
   gate.
 - The terminal status is `DISPOSED`; illegal lifecycle calls raise.
+- Composite and group `add`, `insert`, `remove`, `remove_at`, `clear`, `move`,
+  item assignment, and item deletion raise `RuntimeError`. A composite selection
+  raises `RuntimeError`, a null clear included, unless it assigns the child that
+  is already current, which changes nothing.
 - Commands complete their owned subjects once. The async relay command cancels
   one in-flight task.
 - `NotificationHub` futures resolve `PENDING`, and post resolves `PENDING`.
   `ModalVM` resolves its awaiting futures once.
 - `PagedComposition` and `TokenPagedComposition` complete paging streams where
   exposed and release source subscriptions and paging commands. Reads remain;
-  late token fetches cannot mutate.
+  late token fetches cannot mutate. After disposal, `PagedComposition`
+  `page_size` and `current_page_index` writes and the four move calls change no
+  state and emit nothing (ADR-0214).
 - `ObservableList` and `ObservableDictionary` are disposable only in Python.
 - `AsyncResourceVM` invalidates the active operation synchronously. Native
   cancellation and late-value cleanup run on the operation loop; see
@@ -200,6 +246,9 @@ flavor unless the exceptions below say otherwise.
 ### 6.8.5.3. TypeScript
 
 - The terminal status is `Disposed`; illegal lifecycle calls throw.
+- Composite and group `add`, `insert`, `remove`, `removeAt`, `setAt`, `clear`,
+  and `move` throw `Error`. Every composite selection after `Disposed` throws
+  `Error`, a null clear and the child that is already current included.
 - Commands complete their owned subjects once. The async relay command aborts
   one `AbortController`.
 - `NotificationHub` promises resolve `Pending`. `NotificationVM` and
@@ -211,10 +260,10 @@ flavor unless the exceptions below say otherwise.
 - `AsyncResourceVM<T>` releases an abort controller.
 - `AggregateChangeStream.withBatch` throws `Error` after disposal.
 - Lifecycle hooks run on one thread, so no hook runs on another thread during
-  disposal. A `construct()` or `destruct()` of a container from a child's
-  dispose hook runs the container's hook. C# composites and groups, and Python,
-  Swift and Rust containers, admit no hook during the child cascade
-  ([open decision 2.11](../../maintenance/2026-10-18-open-cross-flavor-decisions.md#211-lifecycle-call-during-a-containers-inline-dispose-cascade)).
+  disposal. A `construct()`, `destruct()`, or `reconstruct()` of a container
+  from a child's dispose hook, or of a leaf from a member's dispose hook,
+  throws `StatusTransitionError` for `Disposed` and runs no hook,
+  as in the other flavors ([Ownership Rules](#683-ownership-rules)).
 
 ### 6.8.5.4. Swift
 
@@ -222,6 +271,16 @@ flavor unless the exceptions below say otherwise.
   are outside this inventory.
 - Publishers finish rather than complete. The terminal status is `.disposed`;
   illegal lifecycle calls throw.
+- After `Disposed`, a composite `current` assignment or `setCurrent(_:)` of a
+  member or `nil` changes nothing and does not throw. A non-member is still
+  refused: `setCurrent(_:)` throws `CompositeMembershipError`, and the
+  `current` setter traps. Composite and group `addResult(_:)`,
+  `insertResult(_:at:)`, and `replaceResult(at:with:)` return
+  `.failure(.attachmentFailed)`. So `add(_:)` stops a debug build with
+  `assertionFailure` and changes nothing in a release build, and
+  `insert(_:at:)` and `replace(at:with:)` change nothing. `remove(_:)` returns
+  `false`, and `removeAt(_:)` and `clear()` return without a change.
+  `move(from:to:)` throws `ContainerOwnershipError.attachmentFailed`.
 - VM families claim disposal under the lifecycle lock. `MessageHub` and
   `NotificationHub` use their own locks. `TokenPagedComposition` claims it on
   its state queue.
@@ -232,7 +291,9 @@ flavor unless the exceptions below say otherwise.
   pending subscription, and commands.
 - The modal type is `BasicModalVM`; its continuations resume once.
 - `PagedComposition` finishes its property-change publisher once and releases
-  the source-composite cancellable. Reads and direct paging remain available.
+  the source-composite cancellable. Reads remain available. `pageSize` and
+  `currentPageIndex` writes, the four move calls and `setSource(_:)` change no
+  state and emit nothing (ADR-0214).
 - `TokenPagedComposition` finishes its collection, property, and command
   publishers once.
 - `BatchUpdateHandle` uses `deinit` as a safety net.
@@ -242,15 +303,23 @@ flavor unless the exceptions below say otherwise.
 
 ### 6.8.5.5. Rust
 
-- `PagedComposition`, rendering `NotificationVm`, `ConfirmationVm`, and
-  `ModeledCrudCommands` have no public disposal member. VMx does not treat them
-  as disposable. Adding one is a separate API decision with its own inventory
-  row and conformance coverage.
+- `PagedComposition` and `ModeledCrudCommands` have no public disposal member.
+  VMx does not treat them as disposable. Adding one is a separate API decision
+  with its own inventory row and conformance coverage.
+- `NotificationVm` and `ConfirmationVm` have no property-change stream.
+  `dispose()` disposes their stable dismiss, approve and reject commands, so a
+  kept command clone no longer resolves the hub. It stops the lifespan clock
+  and keeps `is_resolved()` at its value at disposal. Clones share the disposed
+  state (ADR-0178).
 - VM families, including modeled composite and forwarding, dispose through
   `VmNode::dispose`. It returns `Ok(())` on a repeated call with no new work.
 - A VM sends one `Disposed` message. It releases children, LIFO owned
   registrations, and its property-change stream. Illegal lifecycle calls return
-  `VmxError::Disposed`.
+  `VmxError::InvalidLifecycleTransition` from `Disposed` (ADR-0203).
+- Composite and group `add`, `insert`, `remove`, `remove_at`, `replace`,
+  `move_item` and `clear` return `VmxError::Disposed` and make no change
+  (ADR-0187). Composite `set_current` returns `VmxError::Disposed` for every
+  value, `None` and the child that is already current included.
 - `MessageHub` claims disposal under its state mutex. It removes subscribers and
   drops queued messages instead of completing a stream.
 - `Subscription` and `PropertyChangedSubscription` are the hub subscription
@@ -260,10 +329,11 @@ flavor unless the exceptions below say otherwise.
 - `AsyncRelayCommand`, `CompositeCommand`, `DecoratorCommand`, and
   `ConfirmationDecoratorCommand` claim disposal through an atomic disposed
   state.
-- `CompositeCommand` and `DecoratorCommand` dispose their change hub once and
-  release child-hub subscriptions. Clones share the disposed state.
-- `ConfirmationDecoratorCommand` disposes its error hub once and releases error
-  subscribers. Confirmation and execution are inert.
+- `CompositeCommand`, `DecoratorCommand`, and `ConfirmationDecoratorCommand`
+  release their inner-hub subscriptions, send one message on their own change
+  hub, and dispose it once. Clones share the disposed state.
+- `ConfirmationDecoratorCommand` also disposes its error hub once and releases
+  error subscribers. Confirmation and execution are inert.
 - `DerivedProperty`, `ExpandableState`, `SearchableState`, and
   `DiscriminatorVm` dispose their hubs once instead of completing streams.
   `DiscriminatorVm` also disposes its key stream. `DerivedProperty` recompute
@@ -271,26 +341,27 @@ flavor unless the exceptions below say otherwise.
 - `TreeSelection` disposes its `current_changed` value stream once. Clones
   share the disposed state.
 - `FilteredCompositeVm` covers predicate and scored projections. It captures
-  the frozen projection once and releases projection tracking state.
+  the frozen projection once, releases its source subscription, and completes
+  its `changed()` stream.
 - `TokenPagedComposition` claims disposal through a shared disposed gate. Its
   owned commands enter a terminal disabled state. Late work cannot commit pager
   state.
-- `NotificationHub` claims disposal atomically and keeps one terminal pending
-  snapshot. Waiters read `Pending`; post returns a pending result; resolve
-  cannot re-enqueue.
+- `NotificationHub` claims disposal atomically. Dispose sends no final
+  snapshot on `pending_stream()` and no `pending` message on
+  `pending_changed()`. A later `pending_stream()` subscription
+  completes at once with no replay. Waiters read `Pending`; post returns a
+  pending result; resolve cannot re-enqueue (ADR-0197).
 - `FormVm` enters a terminal inert state. It releases its command gate and
-  approval callbacks; new approval subscriptions are inactive.
+  approval callbacks; new approval subscriptions are inactive. Disposal calls
+  the completion callback of each `subscribe_approved_with_completion`
+  subscription once, after `errors_changed` and `approve_errors` complete. A
+  subscription made after disposal completes at once (ADR-0210).
 - `ModalVm` sets its result once.
 - `AggregateChangeSubscription` detaches one output subscription.
   `AggregateChangeStream::batch` panics after disposal.
-- A leaf `ComponentVm` disposes its `own_member` members before it waits for an
-  admitted hook on another thread
-  ([Rust parity ledger §12.13](../../maintenance/2026-07-16-rust-capability-parity.md#1213-open-item-leaf-member-disposal-and-admitted-hooks)).
-- A `construct()` or `destruct()` of a container during its inline child
-  cascade, before it publishes `Disposed`, returns `VmxError::Disposed` and
-  publishes nothing. C# composites and groups, and
-  Python and Swift containers, publish the transient status and run no hook
-  ([open decision 2.11](../../maintenance/2026-10-18-open-cross-flavor-decisions.md#211-lifecycle-call-during-a-containers-inline-dispose-cascade)).
+- A `construct()`, `destruct()`, or `reconstruct()` of a VM during its inline
+  cascade, before it publishes `Disposed`, returns
+  `VmxError::InvalidLifecycleTransition` from `Disposed` and publishes nothing ([Ownership Rules](#683-ownership-rules)).
 
 ## 6.8.6. Practical Teardown Pattern
 

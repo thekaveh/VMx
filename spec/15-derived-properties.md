@@ -81,6 +81,19 @@ When `Dispose()` is called:
 - Subsequent calls to `SetValue` are no-ops (or raise — implementation
   defined; the spec only forbids further emissions on `ValueChanged`).
 
+### 4.1 Failing `ValueChanged` subscribers (spec v3.30)
+
+`ValueChanged` follows chapter 03 §3.6 (ADR-0191). The property stores the new
+`Value` before it delivers the change. A failing subscriber does not stop the
+delivery to the other subscribers and detaches neither itself nor the
+property's own source subscription. The next distinct source value therefore
+updates `Value` and reaches every subscriber. Delivery is stream-fed, so the
+failure never reaches the code that made the source emit. Swift `ValueChanged`
+has the failure type `Never`, and its subscribers cannot fail.
+
+A throwing transform or a failing source is a separate case that this rule
+does not define (#374).
+
 ## 5. Write-back
 
 If both a validator and a write-back action are configured, `SetValue(v)`:
@@ -149,7 +162,7 @@ specified in [ADR-0011](ADRs/0011-derived-properties.md)).
 
 ## 9. Conformance
 
-`DPROP-001` through `DPROP-012` in `12-conformance.md` cover:
+`DPROP-001` through `DPROP-013` in `12-conformance.md` cover:
 
 - Single-source derived value computes on construction
 - Source change triggers recompute
@@ -165,6 +178,8 @@ specified in [ADR-0011](ADRs/0011-derived-properties.md)).
   "`DerivedProperty` distinct-emit")
 - `Dispose` ends subscriptions and `ValueChanged` completes
 - Fixture-driven scenarios
+- A failing `ValueChanged` subscriber stops neither the property nor the
+  other subscribers (`DPROP-013`, §4.1)
 
 `DISP-005` adds repeated-dispose coverage: completion occurs at most once,
 late sources do not emit, and the documented last value remains readable.

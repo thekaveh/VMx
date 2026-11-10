@@ -1,6 +1,35 @@
-use vmx::{walk_expanded, Command, ExpandableState, Message};
+use std::sync::{Arc, Mutex};
 
-use super::expandable_support::ExpandableHierarchy;
+use vmx::{
+    walk_expanded, Command, ComponentVm, ExpandableState, HierarchicalVm, Message, TreeNodeRef,
+    ValueSubscription,
+};
+
+/// Records every value the typed expansion stream sends.
+fn record_expansion_changes(state: &ExpandableState) -> (Arc<Mutex<Vec<bool>>>, ValueSubscription) {
+    let values = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&values);
+    let subscription = state
+        .expansion_changes()
+        .subscribe(move |value| sink.lock().unwrap().push(value));
+    (values, subscription)
+}
+
+fn node(name: &str, expansion: Option<bool>) -> HierarchicalVm<String> {
+    let node = HierarchicalVm::new(name, name.to_string());
+    if let Some(expanded) = expansion {
+        node.compose_expansion(ExpandableState::with_initial(expanded))
+            .unwrap();
+    }
+    node
+}
+
+fn models(nodes: Vec<TreeNodeRef>) -> Vec<String> {
+    nodes
+        .iter()
+        .map(|node| node.downcast::<HierarchicalVm<String>>().unwrap().model())
+        .collect()
+}
 
 /// EXP-001 — ExpandableState defaults to collapsed
 #[test]
@@ -23,10 +52,12 @@ fn expandable_state_supports_initially_expanded_construction() {
 fn expand_flips_state_and_emits_once() {
     let state = ExpandableState::new();
     let state_expanded_changed_record = state.expanded_changed().record(1024);
+    let (typed, _typed_subscription) = record_expansion_changes(&state);
 
     state.expand();
 
     assert!(state.is_expanded());
+    assert_eq!(*typed.lock().unwrap(), vec![true]);
     // The emission's payload is the new value, carried as the message name.
     let values = || {
         state_expanded_changed_record
@@ -48,6 +79,11 @@ fn expand_flips_state_and_emits_once() {
         vec!["true".to_string()],
         "repeat expand is a no-op"
     );
+    assert_eq!(
+        *typed.lock().unwrap(),
+        vec![true],
+        "repeat expand sends nothing on the typed stream"
+    );
 }
 
 /// EXP-003 — Collapse flips state back
@@ -56,10 +92,12 @@ fn collapse_flips_state_back() {
     let state = ExpandableState::new_expanded();
     assert!(state.is_expanded());
     let state_expanded_changed_record = state.expanded_changed().record(1024);
+    let (typed, _typed_subscription) = record_expansion_changes(&state);
 
     state.collapse();
 
     assert!(!state.is_expanded());
+    assert_eq!(*typed.lock().unwrap(), vec![false]);
     // The emission's payload is the new value, carried as the message name.
     let values = state_expanded_changed_record
         .messages()
@@ -85,10 +123,20 @@ fn toggle_expansion_alternates_state() {
 }
 
 #[test]
+fn expansion_changes_does_not_replay_the_current_value() {
+    let state = ExpandableState::new_expanded();
+
+    let (typed, _typed_subscription) = record_expansion_changes(&state);
+
+    assert!(typed.lock().unwrap().is_empty());
+}
+
+#[test]
 fn expandable_state_dispose_is_idempotent_and_makes_changes_inert() {
     let state = ExpandableState::new_expanded();
     let changes = state.expanded_changed();
     let recorder = changes.record(1024);
+    let (typed, _typed_subscription) = record_expansion_changes(&state);
 
     state.dispose();
     state.dispose();
@@ -101,31 +149,101 @@ fn expandable_state_dispose_is_idempotent_and_makes_changes_inert() {
 
     assert!(state.is_expanded());
     assert!(recorder.messages().is_empty());
+    assert!(typed.lock().unwrap().is_empty());
+    state.expansion_changes().send(false);
+    assert!(
+        typed.lock().unwrap().is_empty(),
+        "the disposed typed stream sends nothing"
+    );
+}
+
+/// Under concurrent changes the typed stream ends on the current value: an
+/// older value that loses the race to a newer commit is skipped (ADR-0206).
+#[test]
+fn expansion_changes_end_on_the_current_value_across_threads() {
+    let state = ExpandableState::new();
+    let (typed, _typed_subscription) = record_expansion_changes(&state);
+    let start = Arc::new(std::sync::Barrier::new(8));
+    let workers = (0..8)
+        .map(|_| {
+            let state = state.clone();
+            let start = Arc::clone(&start);
+            std::thread::spawn(move || {
+                start.wait();
+                for _ in 0..200 {
+                    state.toggle_expansion();
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+
+    let expanded = state.is_expanded();
+    assert_eq!(typed.lock().unwrap().last().copied(), Some(expanded));
+    assert_eq!(state.expansion_changes().value(), expanded);
+}
+
+/// The owner recipe in `docs/content/primitives/state-reactive-helpers.md`:
+/// the owner forwards each typed value as a property change and disposes the
+/// subscription and the helper with itself.
+#[test]
+fn owner_recipe_forwards_expansion_changes_and_disposes_with_the_owner() {
+    // docs-snippet:start rust-expansion-forwarder
+    let expansion = ExpandableState::new();
+    let owner = ComponentVm::new("tree-node");
+    let forwarder_owner = owner.clone();
+    let forwarder = expansion
+        .expansion_changes()
+        .subscribe(move |_expanded| forwarder_owner.notify_property_changed("is_expanded"));
+    // The owner disposes the subscription and the helper with itself.
+    let owned_expansion = expansion.clone();
+    owner.own(move || {
+        forwarder.dispose();
+        owned_expansion.dispose();
+    });
+    // docs-snippet:end rust-expansion-forwarder
+    let changes = owner.hub().record(1024);
+
+    expansion.expand();
+    owner.dispose().unwrap();
+    expansion.collapse();
+
+    let forwarded = changes
+        .messages()
+        .into_iter()
+        .filter(|message| {
+            matches!(message, Message::PropertyChanged(change) if change.property_name == "is_expanded")
+        })
+        .count();
+    assert_eq!(
+        forwarded, 1,
+        "one forwarded change before the owner's disposal"
+    );
+    assert!(
+        expansion.is_expanded(),
+        "the disposed helper ignores collapse"
+    );
 }
 
 /// EXP-005 — walk_expanded skips descendants of collapsed nodes
 #[test]
 fn walk_expanded_skips_collapsed_descendants() {
-    let root = ExpandableHierarchy::expandable("root", true);
-    let a = ExpandableHierarchy::plain("a");
-    let b = ExpandableHierarchy::expandable("b", false);
-    b.add_child(ExpandableHierarchy::plain("b1"));
-    b.add_child(ExpandableHierarchy::plain("b2"));
-    root.add_child(a);
-    root.add_child(b.clone());
+    let root = node("root", Some(true));
+    let a = node("a", None);
+    let b = node("b", Some(false));
+    b.add_child(node("b1", None)).unwrap();
+    b.add_child(node("b2", None)).unwrap();
+    root.add_child(a).unwrap();
+    root.add_child(b.clone()).unwrap();
 
-    let names = walk_expanded(&root)
-        .into_iter()
-        .map(|node| node.model())
-        .collect::<Vec<_>>();
+    let names = models(walk_expanded(&root).unwrap());
 
     assert_eq!(names, vec!["root", "a", "b"]);
 
     b.expansion().unwrap().expand();
-    let names = walk_expanded(&root)
-        .into_iter()
-        .map(|node| node.model())
-        .collect::<Vec<_>>();
+    let names = models(walk_expanded(&root).unwrap());
     assert_eq!(names, vec!["root", "a", "b", "b1", "b2"]);
 }
 

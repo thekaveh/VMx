@@ -75,15 +75,15 @@ fn field_defaults_are_applied() {
     let vm = ComponentVm::<&'static str>::builder()
         .name("vm")
         .model("model")
-        .model_hint(|model| Some(format!("modeled:{model}")))
+        .model_hint(|model| format!("modeled:{model}"))
         .services(MessageHub::new(), NullDispatcher::new())
         .build()
         .unwrap();
 
-    assert_eq!(vm.hint(), Some(String::new()));
+    assert_eq!(vm.hint(), "");
     assert_eq!(vm.parent_id(), None);
     assert_eq!(vm.view_model_type(), ViewModelType::Component);
-    assert_eq!(vm.modeled_hint(), Some("modeled:model".to_string()));
+    assert_eq!(vm.modeled_hint(), "modeled:model");
 }
 
 /// BLD-005 — Additive setters retain prior values across repeated calls
@@ -149,6 +149,7 @@ fn common_options_factories_match_builder_shape() {
         background: false,
         hub: MessageHub::new(),
         dispatcher: NullDispatcher::new(),
+        on_model_changed: None,
     })
     .unwrap();
     let builder_component = ComponentVm::builder()
@@ -181,7 +182,7 @@ fn common_options_factories_match_builder_shape() {
     .unwrap();
 
     assert_eq!(component.name(), "component");
-    assert_eq!(component.hint(), Some("hint".to_string()));
+    assert_eq!(component.hint(), "hint");
     assert_eq!(component.name(), builder_component.name());
     assert_eq!(component.hint(), builder_component.hint());
     assert_eq!(component.model(), builder_component.model());
@@ -190,6 +191,12 @@ fn common_options_factories_match_builder_shape() {
         component.view_model_type(),
         builder_component.view_model_type()
     );
+    // The children factory runs on the first construct (spec/06 §1,
+    // spec/07 §3, ADR-0204).
+    assert_eq!(composite.len(), 0);
+    assert_eq!(group.len(), 0);
+    composite.construct().unwrap();
+    group.construct().unwrap();
     assert_eq!(composite.len(), 1);
     assert_eq!(group.len(), 1);
     assert_eq!(composite.name(), "composite");
@@ -205,6 +212,7 @@ fn common_options_factories_match_builder_shape() {
         background: false,
         hub: MessageHub::new(),
         dispatcher: NullDispatcher::new(),
+        on_model_changed: None,
     });
     let builder_missing_name = ComponentVm::<&'static str>::builder()
         .model("model")
@@ -228,6 +236,7 @@ fn common_options_factories_match_builder_shape() {
         background: false,
         hub: MessageHub::new(),
         dispatcher: NullDispatcher::new(),
+        on_model_changed: None,
     });
     assert!(matches!(
         &options_missing_model,
@@ -380,4 +389,64 @@ fn destruct_order_options_field_matches_builder() {
         destruct_walk(&hub, || composite.destruct().unwrap()),
         ["a", "b", "c", "composite"]
     );
+}
+
+/// `ModeledCompositeVmBuilder::hint` sets the hint, and the modeled composite
+/// exposes its name, hint and identity (spec/10 §4; #1253).
+#[test]
+fn modeled_composite_builder_sets_hint_and_exposes_name_hint_and_id() {
+    let composite = vmx::ModeledCompositeVm::<&'static str, Child>::builder()
+        .name("modeled")
+        .hint("h")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .children_models(|| vec!["a"])
+        .child_model_to_child_view_model(child)
+        .build()
+        .unwrap();
+
+    assert_eq!(composite.hint(), "h");
+    assert_eq!(composite.name(), "modeled");
+    assert_eq!(composite.id(), vmx::VmNode::id(&composite));
+}
+
+/// An unset modeled-composite hint is the empty string, the
+/// `CompositeVmBuilder` default (spec/10 §4; #1253).
+#[test]
+fn modeled_composite_builder_defaults_hint_to_empty_string() {
+    let composite = vmx::ModeledCompositeVm::<&'static str, Child>::builder()
+        .name("modeled")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .children_models(Vec::new)
+        .child_model_to_child_view_model(child)
+        .build()
+        .unwrap();
+
+    assert_eq!(composite.hint(), "");
+}
+
+/// An unmodeled `ComponentVm<()>` needs only `name` and `services`, and so
+/// does the read-only builder that wraps it (spec/10 §3; #1253).
+#[test]
+fn unmodeled_component_builder_requires_only_name_and_services() {
+    let vm = ComponentVm::<()>::builder()
+        .name("unmodeled")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .build()
+        .unwrap();
+
+    assert_eq!(vm.name(), "unmodeled");
+    assert_eq!(vm.hint(), "");
+
+    let missing_services = ComponentVm::<()>::builder().name("unmodeled").build();
+    assert!(matches!(
+        missing_services,
+        Err(vmx::VmxError::BuilderValidation(message)) if message.contains("hub")
+    ));
+
+    let readonly = vmx::ReadonlyComponentVm::<()>::builder()
+        .name("readonly")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .build()
+        .unwrap();
+    assert_eq!(readonly.name(), "readonly");
 }

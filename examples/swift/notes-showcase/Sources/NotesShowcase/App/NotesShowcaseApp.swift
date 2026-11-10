@@ -38,10 +38,13 @@ final class AppState: ObservableObject {
         let repo = InMemoryNoteRepository(seed: SeedData.build())
         // Use DefaultDispatcher so foreground-marshalled work arrives on the
         // main thread regardless of which async continuation fires scheduleForeground.
+        // Notification lifespans run in real time on the main queue, the
+        // thread that renders the toasts.
         let workspace = try! WorkspaceVM.builder()
             .repository(repo)
             .dispatcher(DefaultDispatcher())
             .dialogService(AppKitDialogService())
+            .notificationScheduler(DispatchQueue.main)
             .build()
         self.workspace = workspace
         self.themeAdapter = ThemeAdapter(themeVM: workspace.theme)
@@ -55,13 +58,6 @@ final class AppState: ObservableObject {
             await transferableWorkspace.value.constructReportingFailure()
         }
 
-        // Notification lifespans run on a virtual clock; advance it in real
-        // time so toasts auto-dismiss in the running app.
-        let clock = workspace.notificationClock
-        Timer.publish(every: 1, on: .main, in: .common)
-            .autoconnect()
-            .sink { _ in clock.advance(by: .seconds(1)) }
-            .store(in: &hostSubscriptions)
         // Closing the app disposes the workspace, as in the C# host.
         NotificationCenter.default
             .publisher(for: NSApplication.willTerminateNotification)

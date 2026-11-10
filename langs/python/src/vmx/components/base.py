@@ -26,6 +26,7 @@ from reactivex import operators as ops
 from reactivex.abc import SchedulerBase
 from reactivex.subject import Subject
 
+from vmx._wait_for_graph import WAITS
 from vmx.commands.relay_command import RelayCommand
 from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
@@ -46,6 +47,50 @@ if TYPE_CHECKING:
 _OWNERSHIP_TRANSACTION_GATE = threading.RLock()
 
 
+def _hold_ownership_identity(identity: _ComponentVMBase) -> bool:
+    """Take one hold of *identity*'s ownership lock without waiting.
+
+    The first hold records the calling thread as the lock's holder in the
+    wait-for graph, so a thread that waits for the lock can see the cycle
+    (spec/03 §4.1, #1155). The lock is recursive, so the count keeps the
+    holder recorded until its last hold is released.
+    """
+    if not identity._ownership_lock.acquire(blocking=False):
+        return False
+    identity._ownership_holds += 1
+    if identity._ownership_holds == 1:
+        WAITS.acquire(identity._ownership_lock, threading.get_ident())
+    return True
+
+
+def _release_ownership_identity(identity: _ComponentVMBase) -> None:
+    """Release one hold; the last one clears the holder before it wakes waiters."""
+    identity._ownership_holds -= 1
+    if identity._ownership_holds == 0:
+        WAITS.release(identity._ownership_lock)
+    identity._ownership_lock.release()
+
+
+def _wait_for_ownership_identity(identity: _ComponentVMBase) -> None:
+    """Wait until another thread releases *identity*'s ownership lock.
+
+    The wait records an edge in the wait-for graph. When that edge would close
+    a cycle, raise ``RuntimeError`` before any mutation instead of waiting
+    (spec/03 §4.1, ADR-0172).
+    """
+    caller = threading.get_ident()
+    if not WAITS.try_begin_wait(identity._ownership_lock, caller):
+        raise RuntimeError(
+            "ownership transaction is in progress on a thread that waits for this "
+            "one; waiting would deadlock"
+        )
+    try:
+        identity._ownership_lock.acquire()
+        identity._ownership_lock.release()
+    finally:
+        WAITS.end_wait(caller)
+
+
 def _acquire_ownership_identities(
     identities: Iterable[_ComponentVMBase],
 ) -> list[_ComponentVMBase]:
@@ -56,7 +101,7 @@ def _acquire_ownership_identities(
         blocked: _ComponentVMBase | None = None
         with _OWNERSHIP_TRANSACTION_GATE:
             for identity in ordered:
-                if identity._ownership_lock.acquire(blocking=False):
+                if _hold_ownership_identity(identity):
                     acquired.append(identity)
                 else:
                     blocked = identity
@@ -64,12 +109,12 @@ def _acquire_ownership_identities(
             if blocked is None:
                 return acquired
             for identity in reversed(acquired):
-                identity._ownership_lock.release()
+                _release_ownership_identity(identity)
 
-        # Wait outside the coordinator and without retaining any other child.
-        # Once the blocker moves, retry the complete set atomically.
-        blocked._ownership_lock.acquire()
-        blocked._ownership_lock.release()
+        # Wait outside the coordinator and without retaining any child that
+        # this call acquired. Once the blocker moves, retry the complete set
+        # atomically.
+        _wait_for_ownership_identity(blocked)
 
 
 @contextmanager
@@ -80,7 +125,7 @@ def _ownership_reservation_batch(children: Iterable[_ComponentVMBase]) -> Iterat
         yield
     finally:
         for identity in reversed(identities):
-            identity._ownership_lock.release()
+            _release_ownership_identity(identity)
 
 
 @contextmanager
@@ -91,7 +136,7 @@ def _exclusive_ownership_reservation_batch(
     identities = _acquire_ownership_identities(child._ownership_identity for child in children)
     if any(identity._ownership_in_progress for identity in identities):
         for identity in reversed(identities):
-            identity._ownership_lock.release()
+            _release_ownership_identity(identity)
         raise RuntimeError("ownership transaction is already in progress")
     for identity in identities:
         identity._ownership_in_progress = True
@@ -101,7 +146,7 @@ def _exclusive_ownership_reservation_batch(
         for identity in identities:
             identity._ownership_in_progress = False
         for identity in reversed(identities):
-            identity._ownership_lock.release()
+            _release_ownership_identity(identity)
 
 
 # Child-walk futures that ``_transition_children`` creates. Only these are
@@ -109,25 +154,35 @@ def _exclusive_ownership_reservation_batch(
 _CHILD_WALK_FUTURES: weakref.WeakSet[Future[None]] = weakref.WeakSet()
 
 
-# Counts the lifecycle hooks running on each thread. The child-transition
-# helper checks it, so a call from outside any construct or destruct hook
-# raises before it starts a child (spec/02 §6.1, ADR-0162).
+# The VMs whose construct or destruct hooks run on each thread, innermost
+# last. The child-transition helper checks it, so a call from outside any
+# construct or destruct hook raises before it starts a child (spec/02 §6.1,
+# ADR-0162). A walk also records the innermost owner, so it stops once a
+# foreign dispose() has disposed that owner (spec/02 §2.4, #1163).
 _hook_scope = threading.local()
+
+
+def _lifecycle_hook_owners() -> list[_ComponentVMBase]:
+    owners: list[_ComponentVMBase] | None = getattr(_hook_scope, "owners", None)
+    if owners is None:
+        owners = []
+        _hook_scope.owners = owners
+    return owners
 
 
 def _lifecycle_hook_is_running() -> bool:
     """True while a construct or destruct hook runs on the calling thread."""
-    depth: int = getattr(_hook_scope, "depth", 0)
-    return depth > 0
+    return bool(_lifecycle_hook_owners())
 
 
 @contextmanager
-def _lifecycle_hook_scope() -> Iterator[None]:
-    _hook_scope.depth = getattr(_hook_scope, "depth", 0) + 1
+def _lifecycle_hook_scope(owner: _ComponentVMBase) -> Iterator[None]:
+    owners = _lifecycle_hook_owners()
+    owners.append(owner)
     try:
         yield
     finally:
-        _hook_scope.depth -= 1
+        owners.pop()
 
 
 class _Disposable(Protocol):
@@ -164,33 +219,36 @@ class _LifecycleHookLease:
         self.owner_thread = threading.get_ident()
         self.completed = threading.Event()
         self.deferred_disposal: Callable[[], None] | None = None
+        # Set under the VM's lifecycle lock when the hook raises. The commit
+        # step of the walk that this hook started reads it under the same
+        # lock, so an abandoned walk never writes Constructed, even after a
+        # later hook was admitted (ADR-0186, #1374).
+        self.walk_abandoned = False
 
 
-_lifecycle_wait_graph_gate = threading.RLock()
-_lifecycle_thread_waits_for: dict[int, int] = {}
+class _Completion(Protocol):
+    def wait(self) -> object: ...
 
 
-def _register_lifecycle_wait(waiter: int, owner: int) -> bool:
-    """Register a lifecycle wait edge; return true if it closes a cycle."""
-    with _lifecycle_wait_graph_gate:
-        _lifecycle_thread_waits_for[waiter] = owner
-        cursor = owner
-        visited: set[int] = set()
-        while cursor not in visited:
-            if cursor == waiter:
-                _lifecycle_thread_waits_for.pop(waiter, None)
-                return True
-            visited.add(cursor)
-            next_owner = _lifecycle_thread_waits_for.get(cursor)
-            if next_owner is None:
-                return False
-            cursor = next_owner
+def _wait_for_lifecycle_owner(resource: object, completed: _Completion) -> bool:
+    """Wait until *completed* is set, unless the wait would close a live cycle.
+
+    *resource* is one hook lease or one lifecycle publication. Its owner, the
+    hook's thread or the publication's drainer, is recorded in the shared
+    wait-for graph, so a cycle through lifecycle, hub, membership and
+    ownership waits is visible (spec/02 §2.4, spec/03 §4.1, ADR-0172). The
+    owner releases the resource in the graph before it sets *completed*, so a
+    finished hook or a delivered publication never counts in a later cycle
+    check (#1182). Return False, without waiting, when the wait is refused.
+    """
+    caller = threading.get_ident()
+    if not WAITS.try_begin_wait(resource, caller):
         return False
-
-
-def _unregister_lifecycle_wait(waiter: int) -> None:
-    with _lifecycle_wait_graph_gate:
-        _lifecycle_thread_waits_for.pop(waiter, None)
+    try:
+        completed.wait()
+    finally:
+        WAITS.end_wait(caller)
+    return True
 
 
 def _dispose_children(children: Iterable[_Disposable | None]) -> BaseException | None:
@@ -263,6 +321,13 @@ class _ParentCompositeVM(ABC):
     @abstractmethod
     def deselect_child(self, vm: _ComponentVMBase) -> None: ...
 
+    def _child_disposed(self, vm: _ComponentVMBase) -> None:  # noqa: B027
+        """Called once after *vm* published Disposed from its own ``dispose()``.
+
+        A composite clears ``current`` while *vm* is still current (spec/06
+        §4.3 rule 9, ADR-0189). Other parents keep this no-op.
+        """
+
     @abstractmethod
     def contains_child(self, vm: _ComponentVMBase) -> bool: ...
 
@@ -309,7 +374,7 @@ def _begin_parent_transfer(
     identity = child._ownership_identity
     _acquire_ownership_identities((identity,))
     if identity._ownership_in_progress:
-        identity._ownership_lock.release()
+        _release_ownership_identity(identity)
         raise RuntimeError(f"Cannot transfer {child.name!r}: ownership transaction is in progress")
     identity._ownership_in_progress = True
     try:
@@ -330,7 +395,7 @@ def _begin_parent_transfer(
         staged = None if ownership_parent is None else ownership_parent.detach_for_transfer(child)
     except BaseException:
         identity._ownership_in_progress = False
-        identity._ownership_lock.release()
+        _release_ownership_identity(identity)
         raise
 
     def finish(commit: bool) -> None:
@@ -339,7 +404,7 @@ def _begin_parent_transfer(
                 (staged.commit if commit else staged.rollback)()
         finally:
             identity._ownership_in_progress = False
-            identity._ownership_lock.release()
+            _release_ownership_identity(identity)
 
     return _ParentTransfer(lambda: finish(True), lambda: finish(False))
 
@@ -379,7 +444,9 @@ class _ComponentVMBase(ABC):
         self._background: bool = background
         self._owned_resources: list[Callable[[], None] | _Disposable] = []
         # Member VMs that ``dispose()`` disposes depth-first, in registration
-        # order, before this VM publishes Disposed (spec/02 §7.1).
+        # order. With no foreign hook running, they reach Disposed before this
+        # VM publishes Disposed; a foreign dispose publishes Disposed first and
+        # disposes them after the hook releases its lease (spec/02 §7.1).
         self._owned_members: list[_Disposable] = []
         # Set when disposal starts; a later registration is disposed at once.
         self._members_released: bool = False
@@ -398,12 +465,16 @@ class _ComponentVMBase(ABC):
         # §5.1). Cleared under the lifecycle lock when any publication starts.
         self._construct_publication_pending = False
         self._active_hook_lease: _LifecycleHookLease | None = None
-        # Set while a container disposes its children ahead of its own terminal
-        # transition, so no lifecycle hook is admitted during the cascade.
+        # Set when the inline dispose cascade starts: a container disposes its
+        # children, or a leaf its members, ahead of its own terminal
+        # transition. No lifecycle hook is admitted, a new construct, destruct
+        # or reconstruct raises the Disposed error, and no status other than
+        # Disposed commits until the cascade ends (spec/02 §7.2, ADR-0175).
         self._hook_admission_closed: bool = False
         # Set when disposal starts, before a container disposes its children.
         # The deferred child walk is then cancelled and publishes neither its
-        # success nor its rollback status (#755).
+        # success nor its rollback status (#755). A commit after a hook is
+        # dropped the same way (#1167).
         self._child_transition_abandoned: bool = False
         # The deferred completion this VM waits for, so disposal can abandon it.
         self._pending_deferred_future: Future[None] | None = None
@@ -429,6 +500,7 @@ class _ComponentVMBase(ABC):
         # commit/rollback. The recursive lock serializes competing threads;
         # the flag rejects same-thread reparenting from an auto-construct hook.
         self._ownership_lock = threading.RLock()
+        self._ownership_holds = 0
         self._ownership_in_progress = False
 
         # ── property_changed subject ────────────────────────────────────────
@@ -501,11 +573,14 @@ class _ComponentVMBase(ABC):
     def _commit_is_current(self, value: bool) -> bool:
         """Commit the current flag without invoking consumer notification code."""
         # Post-dispose guard: spec/02 invariant 3 — Disposed is terminal. A
-        # selection change on an already-disposed VM is a silent no-op (no
+        # selection change on an already-disposed VM publishes nothing (no
         # property_changed emit, no hub PropertyChangedMessage), mirroring Swift
-        # (VMX-006). Reads the terminal state under the same lock the
-        # lifecycle-race guards use.
+        # (VMX-006). Only a change to False still sets the flag, when the
+        # composite stops making this VM current (ADR-0189). Reads the
+        # terminal state under the same lock the lifecycle-race guards use.
         if self._is_disposed():
+            if not value:
+                self._is_current = False
             return False
         if self._is_current == value:
             return False
@@ -665,6 +740,7 @@ class _ComponentVMBase(ABC):
         Idempotent from Constructed (no-op, no message emitted).
         """
         with self._lifecycle_lock:
+            self._refuse_during_inline_cascade_locked("construct")
             # Idempotent: already Constructed → no-op (no message). A committed
             # Constructed whose publication is pending is still in flight.
             if self._status == ConstructionStatus.CONSTRUCTED:
@@ -719,7 +795,7 @@ class _ComponentVMBase(ABC):
                     # thread (delivering it to an awaiter is tracked by VMX-049).
                     def _fg_rollback(_scheduler: SchedulerBase, _state: object | None) -> None:
                         try:
-                            self._set_status(ConstructionStatus.DESTRUCTED)
+                            self._set_status(ConstructionStatus.DESTRUCTED, unless_abandoned=True)
                         finally:
                             self._clear_in_flight()
 
@@ -744,7 +820,7 @@ class _ComponentVMBase(ABC):
                 # on a disposed Subject (VMX-004).
                 def _fg_construct(_scheduler: SchedulerBase, _state: object | None) -> None:
                     try:
-                        self._set_status(ConstructionStatus.CONSTRUCTED)
+                        self._set_status(ConstructionStatus.CONSTRUCTED, unless_abandoned=True)
                     finally:
                         self._clear_in_flight()
 
@@ -766,7 +842,7 @@ class _ComponentVMBase(ABC):
                     # (Destructed) under the same lock _set_status uses, then
                     # re-raise so the caller sees the original failure. The VM is
                     # left recoverable instead of wedged in Constructing.
-                    self._set_status(ConstructionStatus.DESTRUCTED)
+                    self._set_status(ConstructionStatus.DESTRUCTED, unless_abandoned=True)
                     raise
                 deferred = self._take_deferred_lifecycle_future()
                 if deferred is not None:
@@ -777,7 +853,9 @@ class _ComponentVMBase(ABC):
                         rollback=ConstructionStatus.DESTRUCTED,
                     )
                     return
-                self._set_status(ConstructionStatus.CONSTRUCTED)
+                # A dispose() whose inline cascade started after the hook
+                # returned drops this commit (spec/02 §7.2, #1167).
+                self._set_status(ConstructionStatus.CONSTRUCTED, unless_abandoned=True)
             finally:
                 if not completion_deferred:
                     self._clear_in_flight()
@@ -789,6 +867,7 @@ class _ComponentVMBase(ABC):
         Idempotent from Destructed (no-op, no message emitted).
         """
         with self._lifecycle_lock:
+            self._refuse_during_inline_cascade_locked("destruct")
             if self._status == ConstructionStatus.DESTRUCTED:
                 return
 
@@ -834,7 +913,7 @@ class _ComponentVMBase(ABC):
                     # VMX-049 tracks delivering it to an awaiter).
                     def _fg_rollback(_scheduler: SchedulerBase, _state: object | None) -> None:
                         try:
-                            self._set_status(ConstructionStatus.CONSTRUCTED)
+                            self._set_status(ConstructionStatus.CONSTRUCTED, unless_abandoned=True)
                         finally:
                             self._clear_in_flight()
 
@@ -859,7 +938,7 @@ class _ComponentVMBase(ABC):
                 # on a disposed Subject (VMX-004).
                 def _fg_destruct(_scheduler: SchedulerBase, _state: object | None) -> None:
                     try:
-                        self._set_status(ConstructionStatus.DESTRUCTED)
+                        self._set_status(ConstructionStatus.DESTRUCTED, unless_abandoned=True)
                     finally:
                         self._clear_in_flight()
 
@@ -880,7 +959,7 @@ class _ComponentVMBase(ABC):
                     # VMX-007: roll _status back to the prior settled state
                     # (Constructed) under the lock, then re-raise. The VM is left
                     # recoverable instead of wedged in Destructing.
-                    self._set_status(ConstructionStatus.CONSTRUCTED)
+                    self._set_status(ConstructionStatus.CONSTRUCTED, unless_abandoned=True)
                     raise
                 deferred = self._take_deferred_lifecycle_future()
                 if deferred is not None:
@@ -891,7 +970,7 @@ class _ComponentVMBase(ABC):
                         rollback=ConstructionStatus.CONSTRUCTED,
                     )
                     return
-                self._set_status(ConstructionStatus.DESTRUCTED)
+                self._set_status(ConstructionStatus.DESTRUCTED, unless_abandoned=True)
             finally:
                 if not completion_deferred:
                     self._clear_in_flight()
@@ -903,6 +982,7 @@ class _ComponentVMBase(ABC):
         Emits four messages: Destructing, Destructed, Constructing, Constructed.
         """
         with self._lifecycle_lock:
+            self._refuse_during_inline_cascade_locked("reconstruct")
             require(self._status, "reconstruct")
 
             if self._in_flight:
@@ -933,7 +1013,7 @@ class _ComponentVMBase(ABC):
             except BaseException:
                 # VMX-007: a failed destruct phase rolls back to Constructed
                 # (the state reconstruct started from) so the VM stays recoverable.
-                self._set_status(ConstructionStatus.CONSTRUCTED)
+                self._set_status(ConstructionStatus.CONSTRUCTED, unless_abandoned=True)
                 raise
             deferred_destruct = self._take_deferred_lifecycle_future()
             if deferred_destruct is not None:
@@ -947,10 +1027,12 @@ class _ComponentVMBase(ABC):
                 self._clear_in_flight()
 
     def _continue_reconstruct_with_construct_phase(self) -> bool:
-        if not self._set_status(ConstructionStatus.DESTRUCTED):
+        # Once disposal started, the destruct phase commits nothing and the
+        # construct phase does not start (spec/02 §7.2, ADR-0175).
+        if not self._set_status(ConstructionStatus.DESTRUCTED, unless_abandoned=True):
             return False
         try:
-            admitted = self._set_status(ConstructionStatus.CONSTRUCTING)
+            admitted = self._set_status(ConstructionStatus.CONSTRUCTING, unless_abandoned=True)
         except BaseException as error:
             self._restore_status_after_publication_failure(ConstructionStatus.DESTRUCTED)
             self._fail_in_flight(error)
@@ -961,7 +1043,7 @@ class _ComponentVMBase(ABC):
             if not self._invoke_lifecycle_hook(self._on_construct, ConstructionStatus.CONSTRUCTING):
                 return False
         except BaseException:
-            self._set_status(ConstructionStatus.DESTRUCTED)
+            self._set_status(ConstructionStatus.DESTRUCTED, unless_abandoned=True)
             raise
 
         deferred_construct = self._take_deferred_lifecycle_future()
@@ -973,7 +1055,7 @@ class _ComponentVMBase(ABC):
             )
             return True
 
-        self._set_status(ConstructionStatus.CONSTRUCTED)
+        self._set_status(ConstructionStatus.CONSTRUCTED, unless_abandoned=True)
         return False
 
     def _continue_reconstruct_after_deferred_destruct(self, future: Future[None]) -> None:
@@ -1003,10 +1085,14 @@ class _ComponentVMBase(ABC):
     def dispose(self) -> None:
         """Transition to Disposed from any state. Terminal; idempotent.
 
-        Disposes the members registered with :meth:`_own_member` first, in
-        registration order, before this VM publishes Disposed (spec/02 §7.1).
-        Then disposes commands and completes the status trigger /
-        property_changed subjects.
+        Disposes the members registered with :meth:`_own_member` in
+        registration order (spec/02 §7.1). With no construct or destruct hook
+        of this VM running on another thread, every member reaches Disposed
+        before this VM publishes Disposed. For a foreign dispose, this VM
+        publishes Disposed first, waits for the hook or defers to its
+        completion (ADR-0126), and then disposes the members before
+        ``_on_dispose`` (LIFE-015, ADR-0179). Then disposes
+        commands and completes the status trigger / property_changed subjects.
         """
         self._dispose_at_hook_boundary(None)
 
@@ -1112,6 +1198,13 @@ class _ComponentVMBase(ABC):
             return
 
         attempt(lambda: self._await_lifecycle_publication(publication, should_drain))
+        # After Disposed is published, in both disposal orders, a composite
+        # parent clears this VM as current before dispose() returns (spec/06
+        # §4.3 rule 9, ADR-0189). The parent skips the clear during its own
+        # dispose cascade.
+        parent = self._parent
+        if parent is not None:
+            attempt(lambda: parent._child_disposed(self))
 
         def finish_disposal() -> None:
             nonlocal first_error
@@ -1145,18 +1238,17 @@ class _ComponentVMBase(ABC):
             if first_error is not None:
                 raise first_error
 
-        if hook_lease is not None and hook_lease.owner_thread != threading.get_ident():
-            caller = threading.get_ident()
-            if _register_lifecycle_wait(caller, hook_lease.owner_thread):
-                with self._lifecycle_lock:
-                    if self._active_hook_lease is hook_lease:
-                        hook_lease.deferred_disposal = finish_disposal
-                        return
-            else:
-                try:
-                    hook_lease.completed.wait()
-                finally:
-                    _unregister_lifecycle_wait(caller)
+        if (
+            hook_lease is not None
+            and hook_lease.owner_thread != threading.get_ident()
+            and not _wait_for_lifecycle_owner(hook_lease, hook_lease.completed)
+        ):
+            # The wait would close a live cycle: the hook's thread runs the
+            # terminal cleanup when the hook finishes (ADR-0126).
+            with self._lifecycle_lock:
+                if self._active_hook_lease is hook_lease:
+                    hook_lease.deferred_disposal = finish_disposal
+                    return
         finish_disposal()
 
     def _with_member_cascade(
@@ -1195,7 +1287,11 @@ class _ComponentVMBase(ABC):
         )
 
     def select(self) -> None:
-        """Select this VM in its parent composite (a no-op once disposed)."""
+        """Select this VM in its parent composite (a no-op once disposed).
+
+        A refusal by the parent changes nothing and raises nothing
+        (spec/05 §6, ADR-0188).
+        """
         if self._status is ConstructionStatus.DISPOSED:
             return
         if self._parent is not None:
@@ -1210,7 +1306,11 @@ class _ComponentVMBase(ABC):
         )
 
     def deselect(self) -> None:
-        """Deselect this VM in its parent composite (a no-op once disposed)."""
+        """Deselect this VM in its parent composite (a no-op once disposed).
+
+        A refusal by the parent changes nothing and raises nothing
+        (spec/05 §6, ADR-0188).
+        """
         if self._status is ConstructionStatus.DISPOSED:
             return
         if self._parent is not None:
@@ -1232,21 +1332,17 @@ class _ComponentVMBase(ABC):
                 return False
             lease = _LifecycleHookLease()
             self._active_hook_lease = lease
+            WAITS.acquire(lease, lease.owner_thread)
             # Each hook starts with a fresh deferral slot.
             self._deferred_lifecycle_future = None
+        hook_failed = False
+        deferred_failure: BaseException | None = None
         try:
-            with _lifecycle_hook_scope():
+            with _lifecycle_hook_scope(self):
                 hook()
         except BaseException:
-            # A hook that raises after deferring completion abandons the
-            # deferral, so the next transition starts clean. A child walk this
-            # VM created is cancelled: it takes no further step, but an
-            # ``after`` that has already started runs to its end (#745).
-            # A future the subclass supplied is only dropped, not cancelled,
-            # because its owner may still resolve it.
-            abandoned = self._take_deferred_lifecycle_future()
-            if abandoned is not None and abandoned in _CHILD_WALK_FUTURES:
-                abandoned.cancel()
+            hook_failed = True
+            self._abandon_deferred_lifecycle_future(lease)
             raise
         finally:
             with self._lifecycle_lock:
@@ -1254,16 +1350,40 @@ class _ComponentVMBase(ABC):
                     self._active_hook_lease = None
                 deferred_disposal = lease.deferred_disposal
                 lease.deferred_disposal = None
+            # Release before wake: a foreign dispose() that waits for this
+            # lease stops counting in cycle checks before it wakes (#1182).
+            WAITS.release(lease)
             lease.completed.set()
             if deferred_disposal is not None:
-                # The cycle-broken dispose call has already returned. A deferred
-                # cleanup failure must not replace an exception propagating from
-                # the admitted hook that released this lease.
+                # The cycle-broken dispose call has already returned, so this
+                # call reports the cleanup's failure. A hook failure stays first
+                # (ADR-0126, ADR-0200 §2.2).
                 try:
                     deferred_disposal()
-                except BaseException:
-                    pass
+                except BaseException as error:
+                    if not hook_failed:
+                        deferred_failure = error
+        if deferred_failure is not None:
+            self._abandon_deferred_lifecycle_future(lease)
+            raise deferred_failure
         return True
+
+    def _abandon_deferred_lifecycle_future(self, lease: _LifecycleHookLease) -> None:
+        """Drop the deferral of a hook call that fails.
+
+        The next transition then starts clean. A child walk this VM created is
+        cancelled: it takes no further step, but an ``after`` that has already
+        started runs to its end (#745). A future the subclass supplied is only
+        dropped, not cancelled, because its owner may still resolve it. The
+        hook's walk is marked abandoned under the lifecycle lock first, so a
+        walk already at its commit step writes no Constructed (ADR-0186,
+        #1374).
+        """
+        with self._lifecycle_lock:
+            lease.walk_abandoned = True
+        abandoned = self._take_deferred_lifecycle_future()
+        if abandoned is not None and abandoned in _CHILD_WALK_FUTURES:
+            abandoned.cancel()
 
     def _on_construct(self) -> None:
         """Called between Constructing and Constructed transitions.
@@ -1346,11 +1466,20 @@ class _ComponentVMBase(ABC):
           after the previous child settled. For a reverse-order destruct, pass
           the reversed list.
         - It skips a child that is already at the target status
-          (``Constructed`` for ``construct=True``, ``Destructed`` otherwise).
-          It joins a child that is already ``Constructing`` / ``Destructing``
-          and does not start it again.
+          (``Constructed`` for ``construct=True``, ``Destructed`` otherwise)
+          and a child that is ``Disposed`` (ADR-0189). It joins a child that
+          is already ``Constructing`` / ``Destructing`` and does not start it
+          again.
         - It waits for a background child: the future stays pending until
-          the child settles, then the walk continues.
+          the child settles, then the walk continues. A child that reaches
+          ``Disposed`` meanwhile settles the wait as a success.
+        - A walk that waited continues on this VM's foreground dispatcher,
+          not on the thread that settled the child. A walk whose children
+          all settle at once runs on the calling thread to its end
+          (spec/11 §4, ADR-0218).
+        - It joins a construct or destruct of a child that another thread
+          starts between the walk's status read and its start call
+          (ADR-0218).
         - A child that settles at any other status fails the walk with the
           child's error (or a ``RuntimeError``). The walk starts no later
           child, and it does not undo children that already reached the
@@ -1358,6 +1487,11 @@ class _ComponentVMBase(ABC):
         - ``after`` runs once, after every child settled at the target and
           before the VM publishes its terminal status. A raising ``after``
           fails the walk like a failing child.
+        - Once a ``dispose()`` has disposed the VM whose hook drives the
+          walk, the walk starts no further child and does not run ``after``.
+          A child whose transition already started finishes it. The future
+          then completes without error, and the VM publishes nothing more
+          (spec/02 §2.4).
 
         Args:
             children: The child VMs, in walk order.
@@ -1386,6 +1520,7 @@ class _ComponentVMBase(ABC):
         joined: Iterable[object] = (),
         join: Callable[[object], Future[None] | None] | None = None,
         seal: Callable[[], ComponentVMProto | None] | None = None,
+        is_member: Callable[[object], bool] | None = None,
     ) -> Future[None]:
         """Internal: the containers' variant of :meth:`_transition_children`.
 
@@ -1402,11 +1537,19 @@ class _ComponentVMBase(ABC):
         commit step ``seal`` returns a child added after the walk's last scan,
         which the walk then joins, or commits the Constructed state and returns
         ``None`` (spec/06 §5.1).
+
+        With ``is_member``, the walk counts members only (ADR-0186). It skips
+        a child that is no longer a member before it starts or joins it, and
+        it ignores the result of a child that left the container while the
+        walk waited on it.
         """
         if not _lifecycle_hook_is_running():
             raise RuntimeError(
                 "_transition_children must be called from a construct or destruct hook"
             )
+        # The VM whose hook drives this walk. Captured now, so a walk that
+        # resumes on another thread still reads its owner.
+        owner = _lifecycle_hook_owners()[-1]
         result: Future[None] = Future()
         _CHILD_WALK_FUTURES.add(result)
         iterator = iter(children)
@@ -1431,9 +1574,23 @@ class _ComponentVMBase(ABC):
             if not result.done():
                 result.set_exception(error)
 
+        def stopped() -> bool:
+            # A foreign dispose() published DISPOSED while the owner's hook
+            # ran: the walk starts no further child, runs no ``after`` and
+            # does not commit. It completes without error, and the owner's
+            # commit then observes DISPOSED and publishes nothing (spec/02
+            # §2.4, LIFE-015, #1163). C#, Swift and Rust stop the same way.
+            if not owner._is_disposed():
+                return False
+            if not result.done():
+                result.set_result(None)
+            return True
+
         def advance() -> None:
             nonlocal walked_all
             while not result.done():
+                if stopped():
+                    return
                 if not walked_all:
                     try:
                         child = next(iterator)
@@ -1441,7 +1598,7 @@ class _ComponentVMBase(ABC):
                         walked_all = True
                         # The iterator may have cancelled the walk as it
                         # ended; a cancelled walk never starts ``after``.
-                        if result.done():
+                        if result.done() or stopped():
                             return
                         try:
                             if after is not None:
@@ -1452,7 +1609,7 @@ class _ComponentVMBase(ABC):
                 if walked_all:
                     # ``after`` may have cancelled the walk; then it does not
                     # commit (#745).
-                    if result.done():
+                    if result.done() or stopped():
                         return
                     try:
                         late = seal() if seal is not None else None
@@ -1465,7 +1622,14 @@ class _ComponentVMBase(ABC):
                         return
                     child = late
 
+                if stopped():
+                    return
+                if child.status is ConstructionStatus.DISPOSED:
+                    # No lifecycle call on a Disposed child (spec/02 §6, ADR-0189).
+                    continue
                 try:
+                    if is_member is not None and not is_member(child):
+                        continue
                     child_joined = is_joined(child)
                     joining = join(child) if child_joined and join is not None else None
                     if joining is not None:
@@ -1495,6 +1659,10 @@ class _ComponentVMBase(ABC):
                     completed: Future[None],
                     current: ComponentVMProto = child,
                 ) -> bool:
+                    # A child that reached Disposed during the wait is skipped
+                    # as a success (spec/02 §6, ADR-0189).
+                    if current.status is ConstructionStatus.DISPOSED:
+                        return True
                     try:
                         completed.result()
                         if current.status is not expected:
@@ -1502,7 +1670,15 @@ class _ComponentVMBase(ABC):
                                 f"child '{current.name}' did not reach {expected.name}"
                             )
                     except BaseException as error:
-                        fail(error)
+                        failure: BaseException = error
+                        try:
+                            # A child that left the container while the walk
+                            # waited on it does not fail the walk (ADR-0186).
+                            if is_member is not None and not is_member(current):
+                                return True
+                        except BaseException as member_error:
+                            failure = member_error
+                        fail(failure)
                         return False
                     return True
 
@@ -1515,8 +1691,15 @@ class _ComponentVMBase(ABC):
                     continue
 
                 def child_settled(completed: Future[None]) -> None:
-                    if child_reached_expected(completed):
-                        advance()
+                    if not child_reached_expected(completed):
+                        return
+                    # The walk waited, so it continues on its owner's
+                    # foreground, not on the thread that settled the child
+                    # (spec/02 §6, spec/11 §4, ADR-0218).
+                    try:
+                        owner._dispatcher.foreground.schedule(lambda _s, _st: advance())
+                    except BaseException as error:
+                        fail(error)
 
                 pending.add_done_callback(child_settled)
                 return
@@ -1549,12 +1732,16 @@ class _ComponentVMBase(ABC):
 
             self.chart = self._own_member(ChartVM(...))
 
-        ``dispose()`` disposes the registered members before this VM
-        publishes ``Disposed``: in registration order, after a container's
-        own children, and before the subclass ``_on_dispose`` hook and the
-        resources registered with :meth:`_own`. Every member is attempted;
-        the first failure is raised after this VM's teardown finished
-        (ADR-0108). A member registered after this VM reached ``Disposed``
+        ``dispose()`` disposes the registered members in registration order,
+        after a container's own children, and before the subclass
+        ``_on_dispose`` hook and the resources registered with :meth:`_own`.
+        With no construct or destruct hook of this VM running on another
+        thread, every member reaches ``Disposed`` before this VM publishes
+        ``Disposed``. For a foreign dispose, this VM publishes ``Disposed``
+        first, waits for the hook or defers to its completion (ADR-0126),
+        and then disposes the members (LIFE-015, ADR-0179). Every member is
+        attempted; the first failure is raised after this VM's teardown
+        finished (ADR-0108). A member registered after this VM reached ``Disposed``
         is disposed at once, and its failure is raised from this call.
 
         A member is not a container child: it gets no parent link and no
@@ -1619,6 +1806,18 @@ class _ComponentVMBase(ABC):
         pass
 
     # ── Internal helpers ─────────────────────────────────────────────────────
+    def _refuse_during_inline_cascade_locked(self, operation: str) -> None:
+        """Raise the Disposed error for a call that starts during the cascade.
+
+        The inline cascade disposes this VM's children and members before it
+        publishes Disposed. A construct, destruct or reconstruct call that
+        starts in that window fails exactly as it fails on a Disposed VM,
+        before the idempotent no-op and the legality and concurrency checks.
+        It publishes nothing and admits no hook (spec/02 §7.2, LIFE-021).
+        """
+        if self._hook_admission_closed:
+            raise StatusTransitionError(ConstructionStatus.DISPOSED, operation)
+
     def _is_disposed(self) -> bool:
         """Read the terminal-state flag under the lock.
 
@@ -1658,7 +1857,10 @@ class _ComponentVMBase(ABC):
             # A container whose Constructed state is committed but not yet
             # published is still in flight (spec/06 §5.1).
             committing = self._construct_publication_pending
-            if self._status is ConstructionStatus.CONSTRUCTED and not committing:
+            # A walk skips a Disposed child (spec/02 §6, ADR-0189).
+            if (
+                self._status is ConstructionStatus.CONSTRUCTED and not committing
+            ) or self._status is ConstructionStatus.DISPOSED:
                 completed: Future[None] = Future()
                 completed.set_result(None)
                 return completed
@@ -1666,9 +1868,25 @@ class _ComponentVMBase(ABC):
                 waiter: Future[None] = Future()
                 self._lifecycle_waiters.append(waiter)
                 return waiter
-        return self._start_lifecycle_future(self.construct)
+        try:
+            return self._start_lifecycle_future(self.construct)
+        except StatusTransitionError:
+            # Another thread started the construct after the read above.
+            joined = self._join_raced_transition(construct=True)
+            if joined is None:
+                raise
+            return joined
 
-    def _mark_constructed_before_publication(self) -> None:
+    def _construct_commit_for_running_hook(self) -> Callable[[], None]:
+        """The commit step of the construct walk that the running hook starts.
+
+        Call it from that hook, so the step is bound to the hook's lease: a
+        stale walk never commits a later transition (ADR-0186, #1374).
+        """
+        lease = self._active_hook_lease
+        return lambda: self._mark_constructed_before_publication(lease)
+
+    def _mark_constructed_before_publication(self, lease: _LifecycleHookLease | None) -> None:
         """The container commit step: flip an in-flight construct to Constructed.
 
         The caller holds its membership gate, so an add reads either
@@ -1677,7 +1895,16 @@ class _ComponentVMBase(ABC):
         status is still published when the transition completes (spec/06 §5.1).
         """
         with self._lifecycle_lock:
-            if self._status is ConstructionStatus.CONSTRUCTING and self._in_flight:
+            # Once disposal started, the commit is dropped (spec/02 §7.2), so
+            # the state is not flipped either. A walk that its raising hook
+            # abandoned commits nothing, even after a later hook was admitted
+            # (ADR-0186, #1374).
+            if (
+                self._status is ConstructionStatus.CONSTRUCTING
+                and self._in_flight
+                and not self._child_transition_abandoned
+                and not (lease is not None and lease.walk_abandoned)
+            ):
                 self._status = ConstructionStatus.CONSTRUCTED
                 self._construct_publication_pending = True
 
@@ -1699,7 +1926,8 @@ class _ComponentVMBase(ABC):
             if status is transient or committing:
                 self._lifecycle_waiters.append(joined)
                 return joined
-        if status is expected:
+        if status is expected or status is ConstructionStatus.DISPOSED:
+            # A walk skips a Disposed child (spec/02 §6, ADR-0189).
             joined.set_result(None)
         else:
             joined.set_exception(RuntimeError(f"child '{self.name}' did not reach {expected.name}"))
@@ -1707,7 +1935,8 @@ class _ComponentVMBase(ABC):
 
     def _destruct_future(self) -> Future[None]:
         with self._lifecycle_lock:
-            if self._status is ConstructionStatus.DESTRUCTED:
+            # A walk skips a Disposed child (spec/02 §6, ADR-0189).
+            if self._status in (ConstructionStatus.DESTRUCTED, ConstructionStatus.DISPOSED):
                 completed: Future[None] = Future()
                 completed.set_result(None)
                 return completed
@@ -1715,7 +1944,48 @@ class _ComponentVMBase(ABC):
                 waiter: Future[None] = Future()
                 self._lifecycle_waiters.append(waiter)
                 return waiter
-        return self._start_lifecycle_future(self.destruct)
+        try:
+            return self._start_lifecycle_future(self.destruct)
+        except StatusTransitionError:
+            # Another thread started the destruct after the read above.
+            joined = self._join_raced_transition(construct=False)
+            if joined is None:
+                raise
+            return joined
+
+    def _join_raced_transition(self, *, construct: bool) -> Future[None] | None:
+        """Join a transition that started between a status read and a start call.
+
+        A walk, and an add that auto-constructs, start a child only when no
+        transition of that child is in flight (spec/02 §6, ADR-0218). When
+        the start call is refused because another caller started the same
+        transition after the read, this returns a waiter of that
+        transition. It returns ``None`` when no such transition is in
+        flight, and once the inline dispose cascade started (LIFE-021), so
+        the caller re-raises the refusal.
+        """
+        with self._lifecycle_lock:
+            if self._hook_admission_closed:
+                return None
+            status = self._status
+            pending = self._construct_publication_pending
+            if construct:
+                in_flight = (
+                    status is ConstructionStatus.CONSTRUCTING
+                    or pending
+                    # Admitted, before Constructing is published.
+                    or (status is ConstructionStatus.DESTRUCTED and self._in_flight)
+                )
+            else:
+                in_flight = status is ConstructionStatus.DESTRUCTING or (
+                    # Admitted, before Destructing is published.
+                    status is ConstructionStatus.CONSTRUCTED and self._in_flight and not pending
+                )
+            if not in_flight:
+                return None
+            waiter: Future[None] = Future()
+            self._lifecycle_waiters.append(waiter)
+            return waiter
 
     def _start_lifecycle_future(self, operation: Callable[[], None]) -> Future[None]:
         waiter: Future[None] = Future()
@@ -1828,11 +2098,13 @@ class _ComponentVMBase(ABC):
     ) -> bool:
         """Admit a state change atomically, then publish it outside the state lock.
 
-        With ``unless_abandoned``, a deferred completion publishes nothing once
-        disposal has started (#755).
+        Once the inline dispose cascade has started, no status other than
+        Disposed commits (spec/02 §7.2, ADR-0175). With ``unless_abandoned``,
+        a commit that follows a hook, or a deferred completion, publishes
+        nothing once disposal has started (#755, #1167).
         """
         with self._lifecycle_lock:
-            if self._status is ConstructionStatus.DISPOSED:
+            if self._status is ConstructionStatus.DISPOSED or self._hook_admission_closed:
                 return False
             if unless_abandoned and self._child_transition_abandoned:
                 return False
@@ -1847,8 +2119,10 @@ class _ComponentVMBase(ABC):
         return True
 
     def _restore_status_after_publication_failure(self, status: ConstructionStatus) -> None:
+        # Gated like a rollback: once disposal started, the restore commits
+        # nothing, and the VM's next status is Disposed (spec/02 §7.2).
         try:
-            self._set_status(status)
+            self._set_status(status, unless_abandoned=True)
         except BaseException:
             # The original transition publication failure remains primary.
             pass
@@ -1856,22 +2130,31 @@ class _ComponentVMBase(ABC):
     def _enqueue_lifecycle_publication_locked(
         self, status: ConstructionStatus
     ) -> tuple[_LifecyclePublication, bool]:
-        publication = _LifecyclePublication(status)
-        self._lifecycle_publications.append(publication)
-        if self._lifecycle_drainer_thread is None:
-            self._lifecycle_drainer_thread = threading.get_ident()
-            return publication, True
-        return publication, False
+        return self._enqueue_locked(_LifecyclePublication(status))
 
     def _enqueue_lifecycle_action_locked(
         self, action: Callable[[], None]
     ) -> tuple[_LifecyclePublication, bool]:
-        publication = _LifecyclePublication(action=action)
+        return self._enqueue_locked(_LifecyclePublication(action=action))
+
+    def _enqueue_locked(
+        self, publication: _LifecyclePublication
+    ) -> tuple[_LifecyclePublication, bool]:
+        """Queue *publication*; return True when the caller becomes the drainer.
+
+        The drainer keeps draining until the queue is empty, so it owns every
+        queued publication until it delivers it. The graph records that owner,
+        and the drainer releases each publication before it sets ``completed``
+        (spec/02 §2.4, ADR-0172).
+        """
         self._lifecycle_publications.append(publication)
-        if self._lifecycle_drainer_thread is None:
-            self._lifecycle_drainer_thread = threading.get_ident()
-            return publication, True
-        return publication, False
+        drainer = self._lifecycle_drainer_thread
+        should_drain = drainer is None
+        if drainer is None:
+            drainer = threading.get_ident()
+            self._lifecycle_drainer_thread = drainer
+        WAITS.acquire(publication, drainer)
+        return publication, should_drain
 
     def _enqueue_waiter_completion_locked(
         self, waiters: list[Future[None]]
@@ -1915,24 +2198,23 @@ class _ComponentVMBase(ABC):
             except BaseException as error:
                 publication.error = error
             finally:
+                # Release before wake (#1182).
+                WAITS.release(publication)
                 publication.completed.set()
 
     def _await_lifecycle_publication(
         self, publication: _LifecyclePublication, should_drain: bool
     ) -> None:
-        """Drain or wait, escaping only an actual cross-VM thread cycle."""
+        """Drain or wait, escaping only a wait that would close a live cycle.
+
+        A refused wait leaves the publication queued for its drainer, and the
+        call returns (ADR-0117). That includes a call from the drainer itself,
+        such as a status observer that disposes the VM it observes.
+        """
         if should_drain:
             self._drain_lifecycle_publications()
         elif not publication.completed.is_set():
-            caller = threading.get_ident()
-            with self._lifecycle_lock:
-                owner = self._lifecycle_drainer_thread
-            if owner is not None and owner != caller:
-                if not _register_lifecycle_wait(caller, owner):
-                    try:
-                        publication.completed.wait()
-                    finally:
-                        _unregister_lifecycle_wait(caller)
+            _wait_for_lifecycle_owner(publication, publication.completed)
 
         if publication.completed.is_set() and publication.error is not None:
             raise publication.error

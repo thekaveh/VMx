@@ -16,9 +16,11 @@ repos:
         args: ["--fix=lf"]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.0
+    rev: v0.17.4
     hooks:
-      - id: ruff
+      - id: ruff-check
+        # The alias keeps `pre-commit run ruff` working (#1335).
+        alias: ruff
         # tools/ sits outside langs/python/, so ruff's auto-discovery would
         # never find langs/python/pyproject.toml when invoked on tools/ paths
         # from the repo root. Pass --config explicitly to apply the same
@@ -28,6 +30,26 @@ repos:
       - id: ruff-format
         args: ["--config", "langs/python/pyproject.toml"]
         files: ^(langs/python|tools|scripts/docs|tests/docs|docs/assets/diagrams)/.*\.py$
+      # The Python console starter is its own project: `notes_app` is
+      # first-party and the published `vmx` is third-party. The same overrides
+      # run in .github/workflows/conformance.yml. Ruff writes no file into the
+      # template folder, so `template_files("python-console")` still passes.
+      - id: ruff-check
+        alias: ruff
+        name: ruff-check (starters/python-console)
+        args:
+          - "--fix"
+          - "--config"
+          - "langs/python/pyproject.toml"
+          - "--config"
+          - "lint.isort.known-first-party = ['notes_app']"
+          - "--config"
+          - "lint.isort.known-third-party = ['vmx']"
+        files: ^starters/python-console/.*\.py$
+      - id: ruff-format
+        name: ruff-format (starters/python-console)
+        args: ["--config", "langs/python/pyproject.toml"]
+        files: ^starters/python-console/.*\.py$
 
   - repo: https://github.com/executablebooks/mdformat
     # mdformat 1.0.0 is incompatible with mdformat-gfm (requires mdformat <0.8.0).
@@ -35,7 +57,8 @@ repos:
     rev: 0.7.22
     hooks:
       - id: mdformat
-        files: ^(spec|docs)/.*\.md$
+        # spec/ and docs/ Markdown plus the six release CHANGELOGs (#1391).
+        files: ^((spec|docs)/.*|(langs/[^/]+|packages/react)/CHANGELOG)\.md$
         # mdformat rewrites indented Material tab content into standalone fenced
         # blocks, which builds but renders as separate single-tab groups.
         exclude: |
@@ -56,15 +79,35 @@ repos:
     hooks:
       - id: dotnet-format
         name: dotnet format (C# only)
-        # Build --include args via array so paths with spaces survive intact.
+        # Library files: one VMx.sln run, with --include args built via an
+        # array so paths with spaces survive intact. Example files: each file's
+        # own project, the nearest directory above it with a .csproj (#1384).
+        # Both use --no-restore, so restore the solution or project first.
         entry: |
           bash -c '
-            args=();
-            for f in "$@"; do args+=("--include" "${f#langs/csharp/}"); done;
-            cd langs/csharp && dotnet format VMx.sln --verify-no-changes --no-restore "${args[@]}"
+            status=0;
+            lib=();
+            for f in "$@"; do
+              case "$f" in
+                langs/csharp/*) lib+=("--include" "${f#langs/csharp/}") ;;
+                examples/csharp/*)
+                  dir=$(dirname "$f");
+                  until compgen -G "$dir/*.csproj" > /dev/null || [ "$dir" = "examples/csharp" ]; do
+                    dir=$(dirname "$dir");
+                  done;
+                  for project in "$dir"/*.csproj; do
+                    [ -f "$project" ] || continue;
+                    dotnet format "$project" --verify-no-changes --no-restore --include "$f" || status=1;
+                  done ;;
+              esac;
+            done;
+            if [ ${#lib[@]} -gt 0 ]; then
+              (cd langs/csharp && dotnet format VMx.sln --verify-no-changes --no-restore "${lib[@]}") || status=1;
+            fi;
+            exit $status
           ' --
         language: system
-        files: ^langs/csharp/.*\.(cs|csproj|props)$
+        files: ^(langs|examples)/csharp/.*\.(cs|csproj|props)$
         pass_filenames: true
 
       - id: eslint-typescript

@@ -9,6 +9,7 @@ import {
   beginParentTransfer,
   captureParentTransferCommit,
   ContainerRollbackError,
+  compensateAutoConstruct,
   ComponentVMBase,
   ParentTransfer,
 } from "../components/componentVMBase.js";
@@ -17,9 +18,11 @@ import { disposeBestEffort } from "../components/disposal.js";
 import { emittedIndex } from "../collections/emittedIndex.js";
 import {
   constructWalk,
+  ContainerBatch,
   deliverCollectionChanged,
   destructWalk,
   maybeAutoConstruct,
+  requireChildOrder,
 } from "../components/vmContainer.js";
 import { ViewModelType } from "../components/types.js";
 import type { ChildOrder } from "../components/types.js";
@@ -51,6 +54,7 @@ class GroupParent<VM extends ComponentVMBase> implements IOwningParentVM {
   get ownerParent(): IOwningParentVM | null { return this.group._parent; }
   selectChild(_vm: ComponentVMBase): void { /* no-op */ }
   deselectChild(_vm: ComponentVMBase): void { /* no-op */ }
+  childDisposed(_vm: ComponentVMBase): void { /* no selection to clear */ }
   containsChild(vm: ComponentVMBase): boolean {
     return this.group._containsIdentity(vm);
   }
@@ -70,11 +74,10 @@ export class GroupVM<VM extends ComponentVMBase>
   #populated = false;
   /** Collects the children population started constructing (see `_onConstruct`). */
   #populationJoined: Set<ComponentVMBase> | null = null;
-  #batchDepth = 0;
+  readonly #batch = new ContainerBatch((event) => this.#deliverCollectionChanged(event));
   #disposeRequested = false;
   #disposeDeferred = false;
   #membershipTransactionActive = false;
-  #batchDirty = false;
   readonly #collectionChangedSubject = new Subject<CollectionChangedEvent>();
   readonly #groupParent: GroupParent<VM>;
 
@@ -94,7 +97,7 @@ export class GroupVM<VM extends ComponentVMBase>
     super(opts);
     this.#groupParent = new GroupParent(this);
     this.#autoConstructOnAdd = opts.autoConstructOnAdd ?? false;
-    this.#destructOrder = opts.destructOrder ?? "insertion";
+    this.#destructOrder = requireChildOrder(opts.destructOrder ?? "insertion");
     this.#childrenFactory = opts.childrenFactory ?? null;
   }
 
@@ -154,14 +157,7 @@ export class GroupVM<VM extends ComponentVMBase>
         if (index >= 0) this._children.splice(index, 1);
         if (item._parent === this.#groupParent) item._parent = null;
       }
-      if (
-        originalStatus === ConstructionStatus.Destructed &&
-        item.status === ConstructionStatus.Constructed
-      ) {
-        try { item.destruct(); } catch (rollbackError) {
-          compensationError = rollbackError;
-        }
-      }
+      compensationError = compensateAutoConstruct(item, originalStatus);
       try { transfer?.rollback(); } finally { this.#endMembershipTransaction(false); }
       if (compensationError !== undefined) {
         throw new ContainerRollbackError(error, compensationError);
@@ -209,14 +205,7 @@ export class GroupVM<VM extends ComponentVMBase>
         if (actual >= 0) this._children.splice(actual, 1);
         if (item._parent === this.#groupParent) item._parent = null;
       }
-      if (
-        originalStatus === ConstructionStatus.Destructed &&
-        item.status === ConstructionStatus.Constructed
-      ) {
-        try { item.destruct(); } catch (rollbackError) {
-          compensationError = rollbackError;
-        }
-      }
+      compensationError = compensateAutoConstruct(item, originalStatus);
       try { transfer?.rollback(); } finally { this.#endMembershipTransaction(false); }
       if (compensationError !== undefined) {
         throw new ContainerRollbackError(error, compensationError);
@@ -286,14 +275,7 @@ export class GroupVM<VM extends ComponentVMBase>
         old._parent = this.#groupParent;
         if (value._parent === this.#groupParent) value._parent = null;
       }
-      if (
-        originalStatus === ConstructionStatus.Destructed &&
-        value.status === ConstructionStatus.Constructed
-      ) {
-        try { value.destruct(); } catch (rollbackError) {
-          compensationError = rollbackError;
-        }
-      }
+      compensationError = compensateAutoConstruct(value, originalStatus);
       try { transfer?.rollback(); } finally { this.#endMembershipTransaction(false); }
       if (compensationError !== undefined) {
         throw new ContainerRollbackError(error, compensationError);
@@ -346,24 +328,15 @@ export class GroupVM<VM extends ComponentVMBase>
   // ── Batch updates (spec v1.1) ─────────────────────────────────────────────
 
   batchUpdate(): BatchUpdateHandle {
-    this.#batchDepth++;
-    return new BatchUpdateHandle(this);
+    return this.#batch.enter(this);
   }
 
   _exitBatch(): void {
-    this.#batchDepth--;
-    if (this.#batchDepth === 0 && this.#batchDirty) {
-      this.#batchDirty = false;
-      this.#deliverCollectionChanged(makeCollectionChangedEvent("reset"));
-    }
+    this.#batch.exit();
   }
 
   protected _emitCollectionChanged(event: CollectionChangedEvent): void {
-    if (this.#batchDepth > 0) {
-      this.#batchDirty = true;
-      return;
-    }
-    this.#deliverCollectionChanged(event);
+    this.#batch.emit(event);
   }
 
   // Local subscribers first, then one hub message (see `deliverCollectionChanged`).
@@ -446,6 +419,7 @@ export class GroupVM<VM extends ComponentVMBase>
       true,
       undefined,
       joined,
+      (child) => this._children.includes(child as VM),
     );
   }
 
@@ -466,7 +440,7 @@ export class GroupVM<VM extends ComponentVMBase>
     // Dispose cascade (LIFE-013): depth-first dispose each child, in the
     // configured destruct order (ADR-0161), then self.
     disposeBestEffort([
-      () => this._abandonChildTransition(),
+      () => this._beginDisposeCascade(),
       ...destructWalk(this._children, this.#destructOrder).map((child) => () => child.dispose()),
       () => super.dispose(),
     ]);
@@ -559,16 +533,14 @@ export class GroupVM<VM extends ComponentVMBase>
       while (this._children.length > start) {
         const child = this._children.pop();
         const originalStatus = originalStatuses[this._children.length - start];
-        if (
-          child !== undefined &&
-          originalStatus === ConstructionStatus.Destructed &&
-          child.status === ConstructionStatus.Constructed
-        ) {
-          try { child.destruct(); } catch (rollbackError) {
-            compensationError ??= rollbackError;
-          }
-        }
+        // Detached first: a deferred compensation destructs only a child
+        // with no parent (ADR-0218 rule 7).
         if (child?._parent === this.#groupParent) child._parent = null;
+        if (child !== undefined && originalStatus !== undefined) {
+          // Compensate every child; keep only the first failure.
+          const failure = compensateAutoConstruct(child, originalStatus);
+          compensationError ??= failure;
+        }
       }
       try {
         for (const transfer of [...transfers].reverse()) transfer.rollback();
@@ -730,7 +702,7 @@ export class GroupVMBuilder<VM extends ComponentVMBase> {
    */
   destructOrder(order: ChildOrder): GroupVMBuilder<VM> {
     const b = new GroupVMBuilder<VM>(this);
-    b.#destructOrder = order;
+    b.#destructOrder = requireChildOrder(order);
     return b;
   }
 

@@ -3,9 +3,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use vmx::{
-    AggregateVm1, AggregateVm2, AggregateVm3, ComponentVm, CompositeVm, ConstructionStatus,
-    GroupVm, LifecycleSettleCallback, ManualDispatcher, Message, MessageHub, ParentHandle,
-    Subscription, VmNode, VmxError, VmxResult,
+    AggregateVm1, AggregateVm2, AggregateVm3, AggregateVm6, ComponentVm, CompositeVm,
+    ConstructionStatus, GroupVm, LifecycleSettleCallback, ManualDispatcher, Message, MessageHub,
+    ParentHandle, Subscription, VmNode, VmxError, VmxResult,
 };
 
 type Child = ComponentVm<i32, ManualDispatcher>;
@@ -118,7 +118,7 @@ fn failing_background_child_rolls_composite_back() {
         .contains(&(composite.id(), ConstructionStatus::Constructed)));
     assert!(!matches!(
         composite.construct(),
-        Err(VmxError::ConcurrentOperation)
+        Err(VmxError::InvalidLifecycleTransition { .. })
     ));
 }
 
@@ -318,9 +318,8 @@ impl VmNode for Wrapper {
     }
 }
 
-/// LIFE-014 — a third-party node that does not forward the settle hook is
-/// accepted while its background transition is in flight instead of failing
-/// the container.
+/// LIFE-014 — a container waits on its own hub for a node that does not
+/// forward the settle hook and publishes there (ADR-0205).
 #[test]
 fn wrapper_without_settle_hook_does_not_fail_container() {
     let hub = MessageHub::new();
@@ -333,7 +332,7 @@ fn wrapper_without_settle_hook_does_not_fail_container() {
     composite.add(child.clone()).unwrap();
 
     composite.construct().unwrap();
-    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+    assert_eq!(composite.status(), ConstructionStatus::Constructing);
     dispatcher.drain();
     assert_eq!(child.status(), ConstructionStatus::Constructed);
     assert_eq!(composite.status(), ConstructionStatus::Constructed);
@@ -342,6 +341,330 @@ fn wrapper_without_settle_hook_does_not_fail_container() {
     dispatcher.drain();
     assert_eq!(child.status(), ConstructionStatus::Destructed);
     assert_eq!(composite.status(), ConstructionStatus::Destructed);
+}
+
+fn non_forwarding(inner: Child) -> Wrapper {
+    Wrapper {
+        inner,
+        forward_settle: false,
+    }
+}
+
+fn collect_errors(
+    stream: vmx::LifecycleErrorStream,
+) -> (mpsc::Receiver<VmxError>, vmx::ValueSubscription) {
+    let (send, receive) = mpsc::channel();
+    let subscription = stream.subscribe(move |error| {
+        let _ = send.send(error);
+    });
+    (receive, subscription)
+}
+
+/// LIFE-014 — a failing background child behind a wrapper that does not
+/// forward the settle hook rolls a composite, a group and an aggregate back
+/// to Destructed, and each container reports the failure on its
+/// `background_errors()` stream (ADR-0205).
+#[test]
+fn failing_child_behind_non_forwarding_wrapper_rolls_containers_back() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+
+    let in_composite = non_forwarding(failing_child(&hub, &dispatcher, "c"));
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(in_composite.clone()).unwrap();
+    let (composite_errors, _c) = collect_errors(composite.background_errors());
+
+    let in_group = non_forwarding(failing_child(&hub, &dispatcher, "g"));
+    let group = GroupVm::with_services("group", hub.clone(), dispatcher.clone());
+    group.add(in_group.clone()).unwrap();
+    let (group_errors, _g) = collect_errors(group.background_errors());
+
+    let in_aggregate = non_forwarding(failing_child(&hub, &dispatcher, "a"));
+    let aggregate = AggregateVm1::with_services(
+        "aggregate",
+        hub.clone(),
+        dispatcher.clone(),
+        in_aggregate.clone(),
+    );
+    let (aggregate_errors, _a) = collect_errors(aggregate.background_errors());
+
+    composite.construct().unwrap();
+    group.construct().unwrap();
+    aggregate.construct().unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructing);
+    assert_eq!(group.status(), ConstructionStatus::Constructing);
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructing);
+    dispatcher.drain();
+
+    for child in [&in_composite, &in_group, &in_aggregate] {
+        assert_eq!(child.status(), ConstructionStatus::Destructed);
+    }
+    assert_eq!(composite.status(), ConstructionStatus::Destructed);
+    assert_eq!(group.status(), ConstructionStatus::Destructed);
+    assert_eq!(aggregate.status(), ConstructionStatus::Destructed);
+    for errors in [&composite_errors, &group_errors, &aggregate_errors] {
+        assert!(matches!(errors.try_recv(), Ok(VmxError::Other(_))));
+        assert!(errors.try_recv().is_err());
+    }
+}
+
+/// LIFE-014 — a composite waits for each of several non-forwarding children
+/// in turn, so a later child's failure still rolls it back. The later child
+/// starts inside the hub delivery of the earlier child's status, where the
+/// hub queues its transient status instead of delivering it (ADR-0205).
+#[test]
+fn second_non_forwarding_child_failure_rolls_composite_back() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let first = non_forwarding(background_child(&hub, &dispatcher, "first"));
+    let second = non_forwarding(failing_child(&hub, &dispatcher, "second"));
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(first.clone()).unwrap();
+    composite.add(second.clone()).unwrap();
+    let (errors, _subscription) = collect_errors(composite.background_errors());
+
+    composite.construct().unwrap();
+    dispatcher.drain();
+
+    assert_eq!(first.status(), ConstructionStatus::Constructed);
+    assert_eq!(second.status(), ConstructionStatus::Destructed);
+    assert_eq!(composite.status(), ConstructionStatus::Destructed);
+    assert!(matches!(errors.try_recv(), Ok(VmxError::Other(_))));
+}
+
+/// LIFE-014 — a composite constructed inside a hub batch, where the hub
+/// queues the non-forwarding child's transient status, still waits for the
+/// child and rolls back on its failure (ADR-0205).
+#[test]
+fn non_forwarding_child_started_inside_a_hub_batch_is_awaited() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = non_forwarding(failing_child(&hub, &dispatcher, "batched"));
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(child.clone()).unwrap();
+    let (errors, _subscription) = collect_errors(composite.background_errors());
+
+    hub.batch(|| composite.construct()).unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructing);
+    dispatcher.drain();
+
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+    assert_eq!(composite.status(), ConstructionStatus::Destructed);
+    assert!(matches!(errors.try_recv(), Ok(VmxError::Other(_))));
+}
+
+/// LIFE-014 — a background child behind a non-forwarding wrapper whose
+/// destruct hook fails rolls the composite's destruct back to Constructed
+/// (ADR-0205).
+#[test]
+fn failing_destruct_behind_non_forwarding_wrapper_rolls_composite_back() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let inner = ComponentVm::builder()
+        .name("wrapped")
+        .model(1)
+        .background(true)
+        .on_destruct(|| Err(VmxError::Other("child destruct failed".to_string())))
+        .services(hub.clone(), dispatcher.clone())
+        .build()
+        .unwrap();
+    let child = non_forwarding(inner);
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(child.clone()).unwrap();
+    composite.construct().unwrap();
+    dispatcher.drain();
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+    let (errors, _subscription) = collect_errors(composite.background_errors());
+
+    composite.destruct().unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Destructing);
+    dispatcher.drain();
+
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+    assert!(matches!(errors.try_recv(), Ok(VmxError::Other(_))));
+}
+
+/// LIFE-014 — a status of the non-forwarding child that the hub queued
+/// before the container started it does not settle the container's wait.
+/// Here the child's earlier Destructing and Destructed are still queued
+/// inside the batch when the composite starts the child's construct
+/// (ADR-0205).
+#[test]
+fn stale_queued_status_does_not_settle_a_non_forwarding_wait() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = non_forwarding(background_child(&hub, &dispatcher, "stale"));
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(child.clone()).unwrap();
+    let (errors, _subscription) = collect_errors(composite.background_errors());
+    child.construct().unwrap();
+    dispatcher.drain();
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+
+    hub.batch(|| {
+        child.destruct().unwrap();
+        dispatcher.drain();
+        composite.construct()
+    })
+    .unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructing);
+    dispatcher.drain();
+
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+    assert!(errors.try_recv().is_err());
+}
+
+/// LIFE-014 — the same as above with the child's whole earlier construct
+/// and destruct queued inside the batch, so a stale transient status and a
+/// stale terminal status both precede the container's start (ADR-0205).
+#[test]
+fn stale_queued_cycle_does_not_settle_a_non_forwarding_wait() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = non_forwarding(background_child(&hub, &dispatcher, "stale"));
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(child.clone()).unwrap();
+    let (errors, _subscription) = collect_errors(composite.background_errors());
+
+    hub.batch(|| {
+        child.construct().unwrap();
+        dispatcher.drain();
+        child.destruct().unwrap();
+        dispatcher.drain();
+        composite.construct()
+    })
+    .unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructing);
+    dispatcher.drain();
+
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+    assert!(errors.try_recv().is_err());
+}
+
+/// LIFE-014 — a non-forwarding node that publishes on another hub is still
+/// accepted while in flight, so the container never waits without limit
+/// (ADR-0205).
+#[test]
+fn non_forwarding_child_on_another_hub_is_accepted_in_flight() {
+    let hub = MessageHub::new();
+    let other_hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = non_forwarding(background_child(&other_hub, &dispatcher, "elsewhere"));
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(child.clone()).unwrap();
+
+    composite.construct().unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+    assert_eq!(child.status(), ConstructionStatus::Constructing);
+    dispatcher.drain();
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+}
+
+fn counted_background_child(
+    hub: &MessageHub,
+    dispatcher: &ManualDispatcher,
+    name: &str,
+    constructs: &Arc<Mutex<usize>>,
+) -> Child {
+    let constructs = Arc::clone(constructs);
+    ComponentVm::builder()
+        .name(name)
+        .model(1)
+        .background(true)
+        .on_construct(move || {
+            *constructs.lock().unwrap() += 1;
+            Ok(())
+        })
+        .services(hub.clone(), dispatcher.clone())
+        .build()
+        .unwrap()
+}
+
+/// `AggregateVm1::construct` joins a slot child that is already Constructing
+/// in the background instead of failing with `ConcurrentOperation`, as the
+/// composite and group walks do (spec/02 §6, #1273).
+#[test]
+fn aggregate1_joins_an_in_flight_slot_child() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let constructs = Arc::new(Mutex::new(0));
+    let child = counted_background_child(&hub, &dispatcher, "slot", &constructs);
+    let aggregate =
+        AggregateVm1::with_services("aggregate", hub.clone(), dispatcher.clone(), child.clone());
+
+    child.construct().unwrap();
+    assert_eq!(child.status(), ConstructionStatus::Constructing);
+    assert_eq!(aggregate.construct(), Ok(()));
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructing);
+    dispatcher.drain();
+
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructed);
+    assert_eq!(*constructs.lock().unwrap(), 1);
+}
+
+/// `AggregateVm6::construct` joins the one slot child that is already
+/// Constructing (slot 1, so the walk reaches it before it settles) and
+/// constructs the other five (spec/02 §6, #1273).
+#[test]
+fn aggregate6_joins_an_in_flight_slot_child() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let constructs = Arc::new(Mutex::new(0));
+    let joined = counted_background_child(&hub, &dispatcher, "joined", &constructs);
+    let others: Vec<Child> = (0..5)
+        .map(|index| background_child(&hub, &dispatcher, &format!("slot{index}")))
+        .collect();
+    let aggregate = AggregateVm6::with_services(
+        "aggregate",
+        hub.clone(),
+        dispatcher.clone(),
+        joined.clone(),
+        others[0].clone(),
+        others[1].clone(),
+        others[2].clone(),
+        others[3].clone(),
+        others[4].clone(),
+    );
+
+    joined.construct().unwrap();
+    assert_eq!(joined.status(), ConstructionStatus::Constructing);
+    assert_eq!(aggregate.construct(), Ok(()));
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructing);
+    dispatcher.drain();
+
+    assert_eq!(joined.status(), ConstructionStatus::Constructed);
+    for other in &others {
+        assert_eq!(other.status(), ConstructionStatus::Constructed);
+    }
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructed);
+    assert_eq!(*constructs.lock().unwrap(), 1);
+}
+
+/// LIFE-014 — when the joined slot child's background construct fails, the
+/// aggregate rolls back to Destructed and reports the failure on its
+/// `background_errors()` stream.
+#[test]
+fn aggregate_rolls_back_when_a_joined_slot_child_fails() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = failing_child(&hub, &dispatcher, "slot");
+    let aggregate =
+        AggregateVm1::with_services("aggregate", hub.clone(), dispatcher.clone(), child.clone());
+    let (errors, _subscription) = collect_errors(aggregate.background_errors());
+
+    child.construct().unwrap();
+    assert_eq!(aggregate.construct(), Ok(()));
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructing);
+    dispatcher.drain();
+
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+    assert_eq!(aggregate.status(), ConstructionStatus::Destructed);
+    assert!(matches!(errors.try_recv(), Ok(VmxError::Other(_))));
 }
 
 /// LIFE-014 — a wrapper that forwards the settle hook holds the container
@@ -364,20 +687,33 @@ fn wrapper_forwarding_settle_hook_makes_container_wait() {
     assert_eq!(composite.status(), ConstructionStatus::Constructed);
 }
 
-/// LIFE-008 — reconstruct during another transition is a concurrent operation
+/// LIFE-008 — reconstruct during another transition raises the lifecycle
+/// transition error naming the transient status and `reconstruct`
 #[test]
-fn reconstruct_during_a_transition_reports_a_concurrent_operation() {
+fn reconstruct_during_a_transition_names_the_transient_status() {
     let hub = MessageHub::new();
     let dispatcher = ManualDispatcher::new();
     let child = background_child(&hub, &dispatcher, "child");
 
     child.construct().unwrap();
     assert_eq!(child.status(), ConstructionStatus::Constructing);
-    assert_eq!(child.reconstruct(), Err(VmxError::ConcurrentOperation));
+    assert_eq!(
+        child.reconstruct(),
+        Err(VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Constructing,
+            operation: "reconstruct",
+        })
+    );
 
     dispatcher.drain();
     child.dispose().unwrap();
-    assert_eq!(child.reconstruct(), Err(VmxError::Disposed));
+    assert_eq!(
+        child.reconstruct(),
+        Err(VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Disposed,
+            operation: "reconstruct",
+        })
+    );
 }
 
 /// LIFE-008 — the Reconstructable trait reconstructs only from Constructed
@@ -518,7 +854,7 @@ fn child_failing_during_composite_action_rolls_back_once() {
     assert!(errors.try_recv().is_err());
     assert!(!matches!(
         composite.construct(),
-        Err(VmxError::ConcurrentOperation)
+        Err(VmxError::InvalidLifecycleTransition { .. })
     ));
 }
 
@@ -678,7 +1014,9 @@ fn dispose_awaited_child_with_hook<C: VmNode>(
 }
 
 /// #738 — a panicking `on_dispose` hook on an awaited background child still
-/// releases the container's settle waiters, as a failing hook does.
+/// releases the container's settle waiters, as a failing hook does. The
+/// disposed child ends the wait as a success, so the container reaches
+/// Constructed (ADR-0189).
 #[test]
 fn panicking_dispose_hook_on_an_awaited_child_settles_the_composite() {
     for panics in [false, true] {
@@ -692,11 +1030,11 @@ fn panicking_dispose_hook_on_an_awaited_child_settles_the_composite() {
 
         assert_eq!(
             composite.status(),
-            ConstructionStatus::Destructed,
+            ConstructionStatus::Constructed,
             "panics: {panics}"
         );
-        // A later construct and destruct run normally, without
-        // `ConcurrentOperation`, once the disposed child is removed.
+        // A later construct and destruct run normally, with no
+        // transition still in flight, once the disposed child is removed.
         composite.remove(&child).unwrap();
         composite.construct().unwrap();
         dispatcher.drain();
@@ -721,11 +1059,11 @@ fn panicking_dispose_hook_on_an_awaited_child_settles_the_group() {
 
         assert_eq!(
             group.status(),
-            ConstructionStatus::Destructed,
+            ConstructionStatus::Constructed,
             "panics: {panics}"
         );
-        // A later construct and destruct run normally, without
-        // `ConcurrentOperation`, once the disposed child is removed.
+        // A later construct and destruct run normally, with no
+        // transition still in flight, once the disposed child is removed.
         group.remove(&child).unwrap();
         group.construct().unwrap();
         dispatcher.drain();
@@ -1110,6 +1448,10 @@ fn aggregate_reconstruct_waiting_on_an_unsettled_component_frees_its_tree() {
 
 /// #750 — a composite dropped while it waits abandons its transition: the
 /// background child still settles later, and nothing panics or blocks.
+///
+/// #1280 — the dropped composite publishes no terminal status: the hub
+/// carries only its `Constructing`. This is the deliberate Rust divergence
+/// that ADR-0009 §2.33 records.
 #[test]
 fn dropped_waiting_composite_lets_its_child_settle_alone() {
     let hub = MessageHub::new();
@@ -1117,6 +1459,8 @@ fn dropped_waiting_composite_lets_its_child_settle_alone() {
     let child = background_child(&hub, &dispatcher, "child");
     let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
     composite.add(child.clone()).unwrap();
+    let composite_id = composite.id();
+    let (log, _subscription) = record(&hub);
     composite.construct().unwrap();
     assert_eq!(composite.status(), ConstructionStatus::Constructing);
 
@@ -1124,6 +1468,19 @@ fn dropped_waiting_composite_lets_its_child_settle_alone() {
     dispatcher.drain();
 
     assert_eq!(child.status(), ConstructionStatus::Constructed);
+    let composite_statuses: Vec<ConstructionStatus> = log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(id, _)| *id == composite_id)
+        .map(|(_, status)| *status)
+        .collect();
+    assert_eq!(
+        composite_statuses,
+        vec![ConstructionStatus::Constructing],
+        "the dropped composite publishes no terminal status"
+    );
+    position(&log, child.id(), ConstructionStatus::Constructed);
 }
 
 /// #750 — an aggregate whose user keeps only one of its commands across a
@@ -1162,4 +1519,154 @@ fn aggregate_reconstruct_completes_while_only_a_command_is_held() {
         ]
     );
     drop(command);
+}
+
+/// Work queued on a [`HoldingDispatcher`].
+type HeldWork = Arc<Mutex<Vec<Box<dyn FnOnce() + Send>>>>;
+
+/// A dispatcher that either holds each action until the test runs it, or
+/// discards every action, so a background child it serves never settles.
+#[derive(Clone)]
+struct HoldingDispatcher {
+    held: Option<HeldWork>,
+}
+
+impl HoldingDispatcher {
+    fn holding() -> Self {
+        Self {
+            held: Some(HeldWork::default()),
+        }
+    }
+
+    fn discarding() -> Self {
+        Self { held: None }
+    }
+
+    /// Runs the held actions in order, including the ones they queue, until
+    /// none remains.
+    fn run_held(&self) {
+        let held = self
+            .held
+            .as_ref()
+            .expect("a discarding dispatcher holds no work");
+        loop {
+            let next = {
+                let mut queue = held.lock().unwrap();
+                (!queue.is_empty()).then(|| queue.remove(0))
+            };
+            match next {
+                Some(action) => action(),
+                None => break,
+            }
+        }
+    }
+}
+
+impl vmx::Dispatcher for HoldingDispatcher {
+    fn dispatch(&self, action: Box<dyn FnOnce() + Send>) {
+        if let Some(held) = &self.held {
+            held.lock().unwrap().push(action);
+        }
+    }
+
+    fn dispatch_background(&self, action: Box<dyn FnOnce() + Send>) {
+        self.dispatch(action);
+    }
+}
+
+type Held = ComponentVm<Arc<DropSentinel>, HoldingDispatcher>;
+
+/// A background component whose model sets the returned flag when it drops.
+fn held_child(
+    hub: &MessageHub,
+    dispatcher: &HoldingDispatcher,
+    name: &str,
+) -> (Held, Arc<AtomicBool>) {
+    let dropped = Arc::new(AtomicBool::new(false));
+    let child = ComponentVm::builder()
+        .name(name)
+        .model(Arc::new(DropSentinel(Arc::clone(&dropped))))
+        .background(true)
+        .services(hub.clone(), dispatcher.clone())
+        .build()
+        .unwrap();
+    (child, dropped)
+}
+
+/// Drives `container` into the late-child join and drops it there (#1281).
+///
+/// The container has auto-construct on and one background anchor child
+/// whose work is held. While the container is Constructing, the test adds a
+/// late background child whose work is discarded, then runs the anchor's
+/// work. The construct walk then joins the late child, which never settles,
+/// and keeps its next scan step queued. When the last container handle
+/// drops, both child models must drop.
+fn late_child_join_frees_both_children<C: VmNode>(
+    hub: &MessageHub,
+    container: C,
+    add: impl Fn(&C, Held),
+    items: impl Fn(&C) -> Vec<Held>,
+) {
+    let anchor_dispatcher = HoldingDispatcher::holding();
+    let late_dispatcher = HoldingDispatcher::discarding();
+    let (anchor, anchor_dropped) = held_child(hub, &anchor_dispatcher, "anchor");
+    add(&container, anchor);
+    container.construct().unwrap();
+    assert_eq!(container.status(), ConstructionStatus::Constructing);
+
+    let (late, late_dropped) = held_child(hub, &late_dispatcher, "late");
+    add(&container, late);
+    anchor_dispatcher.run_held();
+
+    let statuses: Vec<_> = items(&container).iter().map(VmNode::status).collect();
+    assert_eq!(
+        statuses,
+        vec![
+            ConstructionStatus::Constructed,
+            ConstructionStatus::Constructing
+        ],
+        "the anchor settles and the late child stays pending"
+    );
+    assert_eq!(container.status(), ConstructionStatus::Constructing);
+    drop(container);
+
+    assert!(
+        anchor_dropped.load(Ordering::SeqCst),
+        "the container waiting on a late child leaked its anchor child"
+    );
+    assert!(
+        late_dropped.load(Ordering::SeqCst),
+        "the container waiting on a late child leaked its late child"
+    );
+}
+
+/// #1281 — a composite dropped while its construct walk waits for a late
+/// background child frees both children.
+#[test]
+fn composite_waiting_on_a_late_child_frees_its_children() {
+    let hub = MessageHub::new();
+    let composite: CompositeVm<Held, HoldingDispatcher> =
+        CompositeVm::with_services("composite", hub.clone(), HoldingDispatcher::discarding());
+    composite.set_auto_construct_on_add(true);
+    late_child_join_frees_both_children(
+        &hub,
+        composite,
+        |composite, child| composite.add(child).unwrap(),
+        CompositeVm::items,
+    );
+}
+
+/// #1281 — the same for a group.
+#[test]
+fn group_waiting_on_a_late_child_frees_its_children() {
+    let hub = MessageHub::new();
+    let group: GroupVm<Held, HoldingDispatcher> =
+        GroupVm::with_services("group", hub.clone(), HoldingDispatcher::discarding());
+    group.set_auto_construct_on_add(true);
+    late_child_join_frees_both_children(
+        &hub,
+        group,
+        |group, child| group.add(child).unwrap(),
+        GroupVm::items,
+    );
 }

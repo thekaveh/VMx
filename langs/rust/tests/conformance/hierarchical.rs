@@ -3,11 +3,10 @@ use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use vmx::{
-    walk_expanded, Command, ConstructionStatus, HierarchicalVm, Message, MessageHub,
-    ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange, VmxError,
+    walk_expanded, Command, ConstructionStatus, ExpandableState, HierarchicalVm, Message,
+    MessageHub, ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange,
+    VmxError,
 };
-
-use super::expandable_support::ExpandableHierarchy;
 
 fn leaf(name: &str) -> HierarchicalVm<String> {
     HierarchicalVm::new(name, name.to_string())
@@ -466,12 +465,146 @@ fn rejected_factory_handoff_cannot_clear_the_successor_state() {
     assert!(child.parent().as_ref() == Some(&root));
 }
 
+/// Consumer node data: the Rust form of a `TVM` subclass (ADR-0202).
+struct FolderData {
+    size: u64,
+}
+
+type Folder = HierarchicalVm<String, FolderData>;
+
+/// Adds a method to every folder node, as a `TVM` subclass would.
+trait FolderExt {
+    fn size(&self) -> u64;
+}
+
+impl FolderExt for Folder {
+    fn size(&self) -> u64 {
+        self.node_data().size
+    }
+}
+
+/// A folder whose children factory returns `children` once.
+fn folder(name: &str, size: u64, children: Vec<Folder>) -> Folder {
+    let children = Mutex::new(Some(children));
+    HierarchicalVm::with_node_data(
+        name,
+        name.to_string(),
+        FolderData { size },
+        move |_| children.lock().unwrap().take().unwrap_or_default(),
+        false,
+        MessageHub::new(),
+    )
+}
+
 /// HIER-001 — Recursive generic constraint compiles
 #[test]
 fn recursive_generic_shape_compiles() {
     let root = leaf("root");
 
     assert_eq!(root.model(), "root");
+
+    // root (1) -> a (2) -> aa (3), each node of type `Folder`.
+    let aa = folder("aa", 3, Vec::new());
+    let a = folder("a", 2, vec![aa.clone()]);
+    let root: Folder = folder("root", 1, vec![a.clone()]);
+
+    assert_eq!(root.children()[0].node_data().size, 2);
+    assert_eq!(a.children()[0].size(), 3);
+    assert_eq!(aa.parent().unwrap().node_data().size, 2);
+    assert_eq!(
+        aa.path()
+            .iter()
+            .map(|node| node.node_data().size)
+            .collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+    assert_eq!(root.size(), 1);
+}
+
+#[test]
+fn node_data_builder_builds_a_root_with_data() {
+    let root = vmx::HierarchicalVmBuilder::with_node_data(FolderData { size: 7 })
+        .model("root".to_string())
+        .children_factory(|_: &Folder| vec![folder("child", 8, Vec::new())])
+        .services(MessageHub::new(), NullDispatcher::new())
+        .build()
+        .unwrap();
+
+    assert_eq!(root.node_data().size, 7);
+    assert_eq!(root.children()[0].size(), 8);
+
+    let missing_services = vmx::HierarchicalVmBuilder::with_node_data(FolderData { size: 7 })
+        .model("root".to_string())
+        .children_factory(|_: &Folder| Vec::new())
+        .build();
+    assert!(matches!(
+        missing_services,
+        Err(VmxError::BuilderValidation(message)) if message.contains("services")
+    ));
+}
+
+#[test]
+fn node_data_survives_attach_many_and_reparent() {
+    let root = folder("root", 1, Vec::new());
+    let a = folder("a", 2, Vec::new());
+    let b = folder("b", 3, Vec::new());
+    let result: vmx::BatchAttachResult<Folder> = root.attach_many(
+        vec![b.clone(), a.clone()],
+        |item| Ok(item.model()),
+        |item| Ok((item.model() == "b").then(|| "a".to_string())),
+        vmx::MissingParentPolicy::Reject,
+    );
+
+    assert_eq!(
+        result
+            .added
+            .iter()
+            .map(|node| node.node_data().size)
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
+    assert_eq!(b.parent().unwrap().size(), 2);
+
+    root.reparent_child(&b).unwrap();
+
+    assert_eq!(b.parent().unwrap().size(), 1);
+    assert_eq!(
+        root.children()
+            .iter()
+            .map(FolderExt::size)
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
+}
+
+#[test]
+fn clones_share_node_data() {
+    let child = HierarchicalVm::with_node_data(
+        "child",
+        "child".to_string(),
+        AtomicUsize::new(0),
+        |_| Vec::new(),
+        false,
+        MessageHub::new(),
+    );
+    let root = HierarchicalVm::with_node_data(
+        "root",
+        "root".to_string(),
+        AtomicUsize::new(0),
+        |_| Vec::new(),
+        false,
+        MessageHub::new(),
+    );
+    root.add_child(child.clone()).unwrap();
+
+    child.clone().node_data().store(5, Ordering::SeqCst);
+
+    assert_eq!(child.node_data().load(Ordering::SeqCst), 5);
+    assert_eq!(root.children()[0].node_data().load(Ordering::SeqCst), 5);
+    assert_eq!(
+        child.parent().unwrap().node_data().load(Ordering::SeqCst),
+        0
+    );
 }
 
 /// HIER-002 — Parent is null for root, non-null for non-root
@@ -955,19 +1088,30 @@ fn removing_a_non_child_is_a_noop() {
 /// HIER-012 — walk_expanded honors lazy boundaries via ExpandableState
 #[test]
 fn walk_expanded_honors_hierarchy_expansion_boundary() {
-    let root = ExpandableHierarchy::expandable("root", false);
-    root.add_child(ExpandableHierarchy::plain("child"));
+    let root = leaf("root");
+    root.compose_expansion(ExpandableState::new()).unwrap();
+    root.add_child(leaf("child")).unwrap();
 
-    assert_eq!(walk_expanded(&root).len(), 1);
+    assert_eq!(walk_expanded(&root).unwrap().len(), 1);
     root.expansion().unwrap().expand();
-    assert_eq!(walk_expanded(&root).len(), 2);
+    assert_eq!(walk_expanded(&root).unwrap().len(), 2);
+    assert!(
+        root.compose_expansion(ExpandableState::new()).is_err(),
+        "a node composes one expansion state"
+    );
 }
 
 /// HIER-013 — Composition with SearchableState filters materialized portion
 #[test]
 fn searchable_state_filters_materialized_nodes() {
     let root = leaf("root");
-    root.add_child(leaf("alpha")).unwrap();
+    // A grandchild that matches below a node whose children are materialized,
+    // so the search must cover deeper nodes, not only the root's children
+    // (#1399).
+    let alpha = leaf("alpha");
+    alpha.add_child(leaf("alpaca")).unwrap();
+    assert!(alpha.is_children_materialized());
+    root.add_child(alpha).unwrap();
     root.add_child(leaf("beta")).unwrap();
     root.add_child(leaf("alps")).unwrap();
     let lazy_calls = Arc::new(AtomicUsize::new(0));
@@ -1007,10 +1151,14 @@ fn searchable_state_filters_materialized_nodes() {
     state.set_search_term("alp");
 
     let filtered = state.filtered();
-    assert_eq!(filtered.len(), 2);
     assert_eq!(
         filtered.iter().map(|node| node.model()).collect::<Vec<_>>(),
-        vec!["alpha", "alps"]
+        vec!["alpha", "alpaca", "alps"],
+        "exactly the matching materialized nodes, in walk order"
+    );
+    assert!(
+        !filtered.iter().any(|node| node.model() == "alpine"),
+        "the un-materialized lazy child is not in the results"
     );
     assert_eq!(lazy_calls.load(Ordering::SeqCst), 0);
     assert!(!lazy.is_children_materialized());
@@ -1124,8 +1272,8 @@ fn hierarchical_builder_repeated_builds_are_distinct_equivalent() {
     assert_ne!(a.id(), b.id());
     assert_eq!(a.model(), "root");
     assert_eq!(b.model(), "root");
-    assert_eq!(a.hint(), Some("h".to_string()));
-    assert_eq!(b.hint(), Some("h".to_string()));
+    assert_eq!(a.hint(), "h");
+    assert_eq!(b.hint(), "h");
 
     // Eager children: constructing materializes each subtree without a
     // separate children access.
@@ -1154,7 +1302,7 @@ fn hierarchical_builder_defaults_are_lazy() {
         .build()
         .unwrap();
 
-    assert_eq!(node.hint(), Some(String::new()));
+    assert_eq!(node.hint(), "");
     assert_eq!(node.name(), "HierarchicalVm");
     // Lazy default: construction does not evaluate the children factory.
     node.construct().unwrap();
@@ -1382,4 +1530,23 @@ fn try_children_reports_factory_is_leaf_reentry_as_error() {
 
     *reenter.lock().unwrap() = false;
     assert_eq!(root.try_children().unwrap().len(), 1);
+}
+
+/// `HierarchicalVmBuilder::services` accepts any dispatcher, as the other
+/// builders do; the hierarchy keeps only the hub (#1268, ADR-0206).
+#[test]
+fn hierarchical_builder_accepts_any_dispatcher() {
+    let immediate = HierarchicalVm::<String>::builder()
+        .model("root".to_string())
+        .children_factory(|_| Vec::new())
+        .services(MessageHub::new(), vmx::ImmediateDispatcher::new())
+        .build();
+    let default = HierarchicalVm::<String>::builder()
+        .model("root".to_string())
+        .children_factory(|_| Vec::new())
+        .services(MessageHub::new(), vmx::DefaultDispatcher::new())
+        .build();
+
+    assert!(immediate.is_ok());
+    assert!(default.is_ok());
 }

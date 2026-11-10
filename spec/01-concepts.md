@@ -96,10 +96,8 @@ Each `CompositeVM<VM>` has an optional `Current` child. The contract:
 Every viewmodel exposes:
 
 - `Name : string` — immutable post-construction; an identifier for the VM.
-- `Hint : string` — immutable post-construction; a human-readable hint. Open
-  Rust gap: Rust types `Hint` as `Option<String>`. The builders default an unset
-  hint to `Some("")`, but the direct constructors leave it `None` instead of the
-  empty string.
+- `Hint : string` — immutable post-construction; a human-readable hint. It
+  defaults to the empty string.
 - `Type : ViewModelType` — enum (`Component`, `ReadOnlyComponent`, `Aggregate`,
   `Group`, `Composite`); immutable.
 - `IsCurrent : bool` — derived from parent's `Current` reference. Raised through
@@ -161,6 +159,33 @@ hub's ordinary `Send`, so hub transactions defer it (chapter 03 §3.3); a
 disposed container publishes nothing, and a forwarding wrapper publishes
 nothing of its own. Rust additionally publishes `PropertyChanged("Count")` when
 the size changes (ADR-0085). `COMP-042..045` and `GRP-012..013` are normative.
+
+A container sends no hub message once its disposal is requested, also when it
+defers the disposal (chapter 06 §4.2, §4.3 rule 5). It checks after its local
+subscribers return. So a local subscriber or an `OnCurrentChanged` callback
+that disposes the container suppresses the hub message of the change it
+observes, and the local event is still delivered. The result is the same
+whether the disposal runs at once or is deferred. In a transfer whose old
+container requests its own disposal before its `Remove` publication, the hub
+receives only the new container's `Add`. Rust's `Count` message follows the
+same rule (ADR-0190, `COMP-049`).
+
+A failing local subscriber does not undo the committed change and does not
+suppress its hub message. The container still sends exactly one
+`CollectionChangedMessage` for the change. C# and Python then rethrow the first
+failure, and a local failure takes precedence over a later hub failure.
+TypeScript reports the failure through rxjs, and the call returns normally.
+Rust containers deliver the local event through
+`ObservableMembershipSource::subscribe_membership`; Rust catches a panicking
+local subscriber, and the call returns normally. Swift local subscribers cannot
+fail (ADR-0171). Chapter 21 §2.5 applies the same rule to the hub-publishing
+collections.
+
+The failing subscriber does not stop the delivery to the other local
+subscribers. Each local subscriber receives the change once, and each
+completion observer completes at disposal. No subscriber is detached, and C#
+and Python rethrow the first failure only after the hub send (chapter 03 §3.6,
+ADR-0191).
 
 ## 2. Dependency philosophy
 

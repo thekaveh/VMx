@@ -19,11 +19,26 @@ release procedure for every flavor.
 - Branch from `develop`, open the feature PR to `develop`, and run the relevant
   flavor checks locally.
 - Promote `develop` to protected `main` only through a separate maintainer PR.
+- `develop` and `main` stay in sync by tree, not by history. `develop` permits
+  squash merges only and `main` permits merge commits only, so `develop` history
+  does not contain the `main` merge commits, and GitHub reports each promotion
+  PR as `BEHIND` `main`. That state is expected. After each promotion,
+  `git diff --quiet <promotion head> <main merge commit>` must exit 0. A change
+  that reaches `main` by another route, such as a merged release-please release
+  PR, returns to `develop` through a squash PR from a branch cut at that `main`
+  commit, before the next promotion. CONTRIBUTING.md §1.1 gives the full policy.
 - Direct pushes to `develop` and `main` are blocked. Both PR stages require the
   always-present conformance, C#, Python, TypeScript, Swift, Rust, docs,
   examples, security, and spec-discipline aggregate checks against the latest
   target branch. Maintainer review is expected when another reviewer is
   available; the single-collaborator repository does not require self-approval.
+- A new push to a PR cancels that PR's older run of each of the nine
+  pull-request CI workflows: `python`, `csharp`, `typescript`, `swift`, `rust`,
+  `conformance`, `spec-discipline`, `security-audit`, and
+  `examples-contract-checks`. Their runs on `develop` and `main`, scheduled
+  runs, and manual runs are never cancelled. The `docs`, `wiki`, `release`,
+  `release-please`, `starters`, and `typescript-windows-watch` workflows keep
+  their own concurrency groups.
 - For behavior changes, start in `spec/` and follow the ADR discipline.
 - Keep all supported flavors visible when a change affects shared behavior.
 
@@ -32,7 +47,8 @@ release procedure for every flavor.
 The main local check families are:
 
 - C#: restore, build, test, and `dotnet format`
-- Python: `uv run pytest`, `ruff`, and `mypy --strict`
+- Python: `uv sync --locked --all-extras`, then `uv run python -m pytest`,
+  `ruff`, and `mypy --strict`
 - TypeScript: `npm ci`, fixture sync, typecheck, lint, build, and test.
   Vitest global setup runs `npm run build`, including fixture and schema
   synchronization, before test workers start. This also applies to watch
@@ -100,6 +116,14 @@ Each technique answers a different question:
 The controls establish the named paths, not exhaustive freedom from races.
 Linux CPU affinity does not represent macOS scheduling. An external watchdog
 contains a stuck process but does not prove in-process cleanup.
+
+The Swift `thread sanitizer` job runs the library tests with
+`swift test --sanitize=thread` and `TSAN_OPTIONS=halt_on_error=1`, so a
+data-race report fails the job. A single-process `swift test` also stops when
+one case hangs: the test target's `TestCaseHangGuard` prints the case name and
+ends the process after 300 s (`VMX_TEST_CASE_TIMEOUT_SECONDS` changes the
+bound). A COMP-026 test that detects a deadlock ends the process at once,
+because the stuck worker keeps the shared selection coordinator.
 
 Run the selected regressions from the repository root with the same locked
 inputs used by CI:
@@ -175,7 +199,8 @@ python3 tools/check-coverage-floor.py --flavor rust --report rust-coverage.json
 ```
 
 Swift runs the library tests once with coverage on `macos-15` and the default
-Xcode:
+Xcode. CI runs the test command through `tools/swift-test-watchdog.py`, which
+names and kills a case that runs longer than four minutes:
 
 ```bash
 swift test --package-path langs/swift --enable-code-coverage \
@@ -295,13 +320,17 @@ versions cannot collide. The spec uses `spec-vX.Y.Z`; Swift also pairs its
 operational tag with the semantic `vX.Y.Z` tag required by SwiftPM.
 Registry-backed channels are protected by environment approval, OIDC,
 pre-publish checks of the exact locally built artifact, public-artifact checks,
-and fresh-consumer verification. The Python channel pins its isolated PEP 517
+and fresh-consumer verification. Only the publish job holds `id-token: write`:
+earlier jobs without it install, build, test, and upload the exact artifact,
+and the publish job publishes that artifact (Rust's `cargo publish` still runs
+its verification build there). The Python channel pins its isolated PEP 517
 backend and installs/smokes the wheel from `dist/` before the irreversible PyPI
 action, then repeats the consumer check from the public registry.
 
 Live channels: PyPI for Python, npm for the TypeScript core and the React
-adapter (`typescript-v*` and `react-v*` tags, npm trusted publishing), and
-repository tags for Swift through SwiftPM. The NuGet (C#) and crates.io (Rust)
+adapter (`typescript-v*` and `react-v*` tags), and repository tags for Swift
+through SwiftPM. A one-time npm bootstrap token published both npm packages.
+No npm trusted publish has succeeded yet. The NuGet (C#) and crates.io (Rust)
 channels are prepared but unpublished.
 
 Each registry channel's protected environment restricts deployments to its tag
@@ -326,7 +355,8 @@ Use this sequence for every flavor:
    (`git tag -a "<tag>" -m "<package> <version>" origin/main`) on the verified
    `main` commit. For Swift, create the paired semantic `vX.Y.Z` tag on the same
    commit. For C# companion packages, use their package-specific tag prefixes.
-   Python release-please tags are lightweight; the workflow accepts both.
+   This includes Python, because release-please creates no tags. Older
+   lightweight Python tags stay valid.
 1. Monitor the matching release workflow, approve its protected environment
    only after the pre-publish jobs identify the expected artifact, and do not
    bypass a failed gate.
@@ -347,7 +377,7 @@ Use this sequence for every flavor:
 Run `gh workflow run release.yml --ref develop` to validate only the
 five-version Ubuntu Python test matrix. Dispatch has no publication inputs.
 All other release jobs require a tag push, including when dispatch targets an
-existing release tag. This does not exercise the protected build/publish job;
+existing release tag. This does not exercise the build or protected publish jobs;
 normal Python CI separately checks wheel and extracted-sdist packaging. Real
 tag pushes retain their main-ancestry and publication gates.
 

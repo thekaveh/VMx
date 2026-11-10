@@ -10,20 +10,82 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_current_docs_match_adr_inventory() -> None:
-    adrs = sorted((ROOT / "spec/ADRs").glob("[0-9][0-9][0-9][0-9]-*.md"))
-    assert adrs
-    count = len(adrs)
-    last = adrs[-1].name[:4]
+# Issue #1441: ADR and conformance-ID counts live only in their canonical
+# sources (`spec/ADRs/README.md` and `spec/12-conformance.md`). Copies in other
+# current-facing files made every PR that adds an ADR or an ID conflict.
+COPIED_COUNT_PATTERN = (
+    r"[0-9]+ ADRs|[0-9]+ (library )?conformance IDs|[0-9]+ library IDs|[0-9]+-ID "
+    r"|\*\*[0-9]+ total\*\*|\(0001(\.\.|-)[0-9]{4}\)|\([0-9]+ IDs\)"
+)
+COPIED_COUNT_PATHS = (
+    "README.md",
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    "compatibility-matrix.md",
+    "spec/README.md",
+    "spec/00-overview.md",
+    "spec/12-conformance.md",
+    "langs/*/README.md",
+    "docs/content",
+    "docs/maintenance/2026-07-16-rust-capability-parity.md",
+)
+# Whitespace-normalized variants that the line-based grep cannot see, such as a
+# count split across a wrapped line or a "451/451" or "451 of 451" ratio.
+WRAPPED_COUNT = re.compile(
+    r"\b\d+\s+ADRs\b"
+    r"|\b\d+(?:\s*/\s*\d+|\*{0,2}\s+of\s+\d+\*{0,2})?\s+library\s+(?:conformance\s+)?IDs?\b"
+    r"|\b\d+\s+(?:normative\s+test\s+|conformance\s+|total\s+)IDs\b"
+    r"|\b\d+\s+(?:additional\s+)?THEME\s+scenario\s+IDs\b"
+    # Spelled-out THEME counts; numeric "230 library + 5 THEME" history notes stay.
+    r"|\b(?i:one|two|three|four|five|six|seven|eight|nine|ten)\s+`?THEME\b"
+    r"|\(0001\s*(?:\.\.|-|\u2013)\s*\d{4}\)"
+    r"|\bADR-0001\s*(?:\.\.|-|\u2013|to)\s*(?:ADR-)?\d{4}\b"
+)
 
-    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    spec_readme = (ROOT / "spec/README.md").read_text(encoding="utf-8")
 
-    assert f"{count} ADRs" in agents
-    assert readme.count(f"{count} ADRs") >= 2
-    assert f"(0001..{last})" in readme
-    assert f"(0001-{last})" in spec_readme
+def test_current_docs_state_no_copied_adr_or_conformance_id_counts() -> None:
+    result = subprocess.run(
+        ["git", "grep", "-nE", COPIED_COUNT_PATTERN, "--", *COPIED_COUNT_PATHS],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 1, result.stdout or result.stderr
+
+    listed = subprocess.run(
+        ["git", "ls-files", "--", *COPIED_COUNT_PATHS],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    ).stdout.split()
+    offenders = []
+    for name in listed:
+        if not name.endswith(".md"):
+            continue
+        text = " ".join((ROOT / name).read_text(encoding="utf-8").split())
+        offenders.extend(f"{name}: {m.group(0)}" for m in WRAPPED_COUNT.finditer(text))
+    assert offenders == []
+
+
+def test_copied_count_guard_rejects_known_count_shapes() -> None:
+    for sample in (
+        "184 ADRs",
+        "451 library conformance IDs",
+        "451/451 library\nconformance IDs",
+        "all **451 of 451** library conformance IDs",
+        "456 normative test IDs",
+        "5 additional THEME scenario IDs",
+        "the five `THEME-00x` scenarios",
+        "Four UI-backed examples cover the five THEME scenarios.",
+        "Architecture Decision Records (0001-0204)",
+    ):
+        assert WRAPPED_COUNT.search(" ".join(sample.split())), sample
+    for sample in ("184 ADRs", "the 456-ID conformance catalog", "**456 total**", "(456 IDs)"):
+        assert re.search(COPIED_COUNT_PATTERN, sample), sample
 
 
 def test_current_lifecycle_docs_match_the_normative_catalog_range() -> None:
@@ -131,26 +193,46 @@ def test_contract_ledger_matches_python_reactivex_locks() -> None:
         assert match, f"{path}: missing reactivex package"
         versions.add(match.group(1))
 
-    assert versions == {"5.1.0"}
-    assert "committed locks resolve stable `5.1.0`" in ledger
+    # One stable 5.x release in every lock; the ledger names the line, not the
+    # patch, so a lock-only update needs no ledger edit (#1363).
+    assert len(versions) == 1, versions
+    assert versions.pop().split(".")[0] == "5"
+    assert "committed locks resolve one stable 5.x release" in ledger
+
+
+JSDOM_MANIFESTS = (
+    "langs/typescript/package.json",
+    "packages/react/package.json",
+    "examples/typescript/react/notes-showcase/package.json",
+)
+
+
+def test_jsdom_hold_stays_below_30() -> None:
+    # Hold: jsdom 30.0.0 drops Node 20 (contract ledger section 2). A patch or
+    # minor update inside 29.x needs no edit here (#1363).
+    config = (ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
+    for relative in JSDOM_MANIFESTS:
+        manifest = (ROOT / relative).read_text(encoding="utf-8")
+        version = re.search(r'"jsdom": "(\^?(\d+)\.\d+\.\d+)"', manifest)
+        assert version, f"{relative} must pin jsdom"
+        assert version.group(2) == "29", (
+            f"hold: jsdom stays below 30.0.0 until the Node floor rises (contract ledger "
+            f"section 2); {relative} has jsdom {version.group(1)}"
+        )
+    assert re.search(r'dependency-name: jsdom\n\s+versions: \[">=30\.0\.0"\]', config), (
+        "hold: .github/dependabot.yml must ignore jsdom >=30.0.0"
+    )
 
 
 def test_contract_ledger_matches_docs_and_dom_tooling() -> None:
-    requirements = (ROOT / "docs/requirements.txt").read_text(encoding="utf-8")
     ledger = (ROOT / "docs/maintenance/2026-07-01-contract-ledger.md").read_text(encoding="utf-8")
-    for package, label in (("mkdocs-material", "MkDocs Material"), ("ruff", "Ruff")):
-        version = re.search(rf"^{re.escape(package)}==([^ ]+)", requirements, re.MULTILINE)
-        assert version
-        assert f"{label} is `{version.group(1)}`" in ledger
-
-    typescript_package = (ROOT / "langs/typescript/package.json").read_text(encoding="utf-8")
-    react_package = (ROOT / "examples/typescript/react/notes-showcase/package.json").read_text(
-        encoding="utf-8"
-    )
-    assert '"jsdom": "^29.1.1"' in typescript_package
-    assert '"jsdom": "^29.1.1"' in react_package
-    assert "jsdom `29.1.1`" in ledger
-    assert "TypeScript is `6.0.3`" in ledger
+    normalized = " ".join(ledger.split())
+    # The docs versions live only in the hash-locked requirements file (#1363).
+    assert "are the hash-locked pins in `docs/requirements.txt`" in normalized
+    for label in ("MkDocs Material", "Ruff", "pytest", "pip-audit"):
+        assert re.search(rf"{label} is `\d", ledger) is None, label
+    assert "jsdom 29.x is the reviewed DOM runtime" in ledger
+    assert "TypeScript stays on the 6.0.x line" in ledger
     assert "TypeScript 7 remains outside that public contract" in ledger
     assert "jsdom `30.0.0` drops Node 20" in ledger
     for engine_range in ("^22.22.2", "^24.15.0", ">=26.0.0"):
@@ -207,19 +289,6 @@ def test_release_runbooks_match_pinned_tooling_and_manifest_versions() -> None:
     assert result.stdout.splitlines() == expected
 
 
-def test_current_docs_match_library_conformance_catalog() -> None:
-    catalog = (ROOT / "spec/12-conformance.md").read_text(encoding="utf-8")
-    library_count = len(set(re.findall(r"^### (?!THEME-)[A-Z]+-[0-9]{3}\b", catalog, re.MULTILINE)))
-    assert library_count
-
-    overview = (ROOT / "spec/00-overview.md").read_text(encoding="utf-8")
-    rust_parity = (ROOT / "docs/maintenance/2026-07-16-rust-capability-parity.md").read_text(
-        encoding="utf-8"
-    )
-    assert f"{library_count} library IDs" in overview
-    assert f"all {library_count} library IDs" in rust_parity
-
-
 def test_current_rust_docs_match_cargo_package_version() -> None:
     cargo = (ROOT / "langs/rust/Cargo.toml").read_text(encoding="utf-8")
     version = re.search(r'^version = "([^"]+)"$', cargo, re.MULTILINE)
@@ -235,24 +304,38 @@ def test_current_rust_docs_match_cargo_package_version() -> None:
         assert "v0.25.1" not in text
 
 
-def test_compatibility_matrix_states_current_library_id_count() -> None:
-    catalog = (ROOT / "spec/12-conformance.md").read_text(encoding="utf-8")
-    library_count = len(set(re.findall(r"^### (?!THEME-)[A-Z]+-[0-9]{3}\b", catalog, re.MULTILINE)))
+def test_compatibility_matrix_has_no_history_ledger() -> None:
     matrix = (ROOT / "compatibility-matrix.md").read_text(encoding="utf-8")
 
-    assert f"Every flavor covers all {library_count} library conformance IDs." in matrix
+    assert "Every flavor covers every library conformance ID" in matrix
     assert "+50 leaf-area" not in matrix
 
 
+HISTORY_CATALOG_COUNT = re.compile(r"\b(\d+)\s+library\s+IDs\s+plus\s+5\s+scenario\s+IDs\b")
+
+
+def test_spec_history_release_sections_state_one_catalog_count() -> None:
+    # Issue #1478: per-change paragraphs each stated their own catalog count,
+    # so a release section gave a reader several conflicting counts.
+    history = (ROOT / "spec/HISTORY.md").read_text(encoding="utf-8")
+    sections = re.split(r"(?m)^(?=## )", history)
+
+    for section in sections:
+        counts = HISTORY_CATALOG_COUNT.findall(section)
+        assert len(counts) <= 1, f"{section.splitlines()[0]} states {counts}"
+
+
+def test_history_catalog_count_pattern_matches_wrapped_counts() -> None:
+    assert HISTORY_CATALOG_COUNT.findall(
+        "brings the catalog to 495 library IDs plus 5\nscenario IDs."
+    ) == ["495"]
+
+
 def test_swift_readme_summarizes_current_conformance_without_history_ledger() -> None:
-    catalog = (ROOT / "spec/12-conformance.md").read_text(encoding="utf-8")
-    library_count = len(set(re.findall(r"^### (?!THEME-)[A-Z]+-[0-9]{3}\b", catalog, re.MULTILINE)))
-    theme_count = len(set(re.findall(r"^### THEME-[0-9]{3}\b", catalog, re.MULTILINE)))
     readme = (ROOT / "langs/swift/README.md").read_text(encoding="utf-8")
     status = readme.split("## 1. Status", maxsplit=1)[1].split("## 2. Install", maxsplit=1)[0]
 
-    assert f"all **{library_count} of {library_count}** library conformance IDs" in status
-    assert f"**{library_count + theme_count} total**" in status
+    assert "every library conformance ID in `spec/12-conformance.md`" in status
     assert "+50 leaf-area" not in status
 
 

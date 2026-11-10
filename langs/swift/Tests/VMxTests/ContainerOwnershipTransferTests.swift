@@ -2,7 +2,7 @@
 // ContainerOwnershipTransferTests.swift — exclusive ownership conformance.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import Combine
 import XCTest
@@ -74,7 +74,7 @@ private final class AggregateFactoryBarrier: @unchecked Sendable {
             ready.signal()
             ready.signal()
         }
-        _ = ready.wait(timeout: .now() + 2)
+        _ = ready.wait(timeout: .now() + hangGuard)
     }
 }
 
@@ -96,7 +96,7 @@ private final class BlockingAggregateSlot: ComponentVMBase {
 
     override func _onDispose() {
         entered.signal()
-        _ = release.wait(timeout: .now() + 2)
+        _ = release.wait(timeout: .now() + hangGuard * 2)
     }
 }
 
@@ -350,10 +350,10 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(disposalEntered.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(disposalEntered.wait(timeout: .now() + hangGuard), .success)
         releaseDisposal.signal()
         releaseDisposal.signal()
-        XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(group.wait(timeout: .now() + hangGuard * 2), .success)
         XCTAssertEqual(results.successes, 1)
         XCTAssertEqual(results.errors.count, 1)
         XCTAssertEqual(
@@ -393,20 +393,28 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             reconstruction.run()
             group.leave()
         }
-        XCTAssertEqual(disposalEntered.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(disposalEntered.wait(timeout: .now() + hangGuard), .success)
         group.enter()
         DispatchQueue.global().async {
             disposal.run()
             group.leave()
         }
+        // Release the previous slot only once the foreign disposal request has
+        // landed, so it lands after the first check and before the final one.
+        let requestDeadline = Date().addingTimeInterval(hangGuard)
+        while !aggregate._isDisposalRequested() && Date() < requestDeadline {
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        XCTAssertTrue(aggregate._isDisposalRequested(), "the foreign disposal was never requested")
         XCTAssertEqual(disposalCompleted.wait(timeout: .now() + 0.05), .timedOut)
         releaseDisposal.signal()
 
-        XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(group.wait(timeout: .now() + hangGuard * 2), .success)
         XCTAssertEqual(results.successes, 1)
         XCTAssertTrue(results.errors.isEmpty)
         XCTAssertEqual(aggregate.status, .disposed)
         XCTAssertEqual(candidate.status, .disposed)
+        XCTAssertFalse(aggregate.component1 === candidate, "the candidate was committed to the slot")
     }
 
     /// COMP-038 — Adding an owned child transfers it between composite/group parents.
@@ -1048,7 +1056,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
                     _ = unrelatedDestination.addResult(unrelated)
                     workerDone.signal()
                 }
-                callbackObservedProgress = workerDone.wait(timeout: .now() + 1) == .success
+                callbackObservedProgress = workerDone.wait(timeout: .now() + hangGuard) == .success
             }
             .store(in: &cancellables)
 
@@ -1100,7 +1108,8 @@ final class ContainerOwnershipTransferTests: XCTestCase {
                     // back to Destructed and re-admission is legal, so retry
                     // briefly before recording the error as real.
                     var lastError: Error?
-                    for _ in 0..<50 {
+                    let retryDeadline = Date().addingTimeInterval(hangGuard)
+                    repeat {
                         do {
                             try bulkDestination.construct()
                             lastError = nil
@@ -1109,23 +1118,23 @@ final class ContainerOwnershipTransferTests: XCTestCase {
                             lastError = error
                             Thread.sleep(forTimeInterval: 0.002)
                         }
-                    }
+                    } while Date() < retryDeadline
                     if let lastError { errors.append(lastError) }
                     bulkDone.signal()
                 }
-                _ = bulkFactoryEntered.wait(timeout: .now() + 2)
+                _ = bulkFactoryEntered.wait(timeout: .now() + hangGuard)
                 Thread.sleep(forTimeInterval: 0.02)
                 DispatchQueue.global().async {
                     _ = unrelatedDestination.addResult(unrelated)
                     unrelatedDone.signal()
                 }
-                callbackObservedProgress = unrelatedDone.wait(timeout: .now() + 1) == .success
+                callbackObservedProgress = unrelatedDone.wait(timeout: .now() + hangGuard) == .success
             }
             .store(in: &cancellables)
 
         try firstDestination.addResult(child).get()
 
-        XCTAssertEqual(bulkDone.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(bulkDone.wait(timeout: .now() + hangGuard * 2), .success)
         XCTAssertTrue(callbackObservedProgress)
         XCTAssertTrue(errors.errors.isEmpty)
         XCTAssertEqual(bulkDestination.count, 1)
@@ -1177,12 +1186,12 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertTrue(group.at(0) === groupChild)
     }
 
-    func testPopulationWaitsForAnotherThreadsOpenTransactionOnTheOldParent() throws {
+    func testPopulationFailsAtOnceDuringAnotherThreadsOpenTransactionOnTheOldParent() throws {
         // The old parent commits its child's transfer, releasing the child's
         // reservation, then publishes `added` while its membership transaction
         // is still open. A population on another thread that moves the child
-        // must wait for that transaction to end, as C# does, instead of failing
-        // to detach it (#551).
+        // fails at once: the old parent refuses the detach, and the transfer
+        // rolls back (ADR-0187). After the transaction ends, it succeeds.
         let addedEntered = DispatchSemaphore(value: 0)
         let releaseAdded = DispatchSemaphore(value: 0)
         let child = try leaf("child")
@@ -1201,7 +1210,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             }
             guard first else { return }
             addedEntered.signal()
-            _ = releaseAdded.wait(timeout: .now() + 10)
+            _ = releaseAdded.wait(timeout: .now() + hangGuard * 2)
         }
         defer { subscription.cancel() }
         let destination = CompositeVM<ComponentVM>(
@@ -1218,23 +1227,34 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             do { try oldParent.construct() } catch { errors.append(error) }
             oldParentDone.signal()
         }
-        XCTAssertEqual(addedEntered.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(addedEntered.wait(timeout: .now() + hangGuard), .success)
         DispatchQueue.global().async {
             do { try destination.construct() } catch { errors.append(error) }
             destinationDone.signal()
         }
 
-        XCTAssertEqual(
-            destinationDone.wait(timeout: .now() + 0.2), .timedOut,
-            "the destination must wait for the open transaction: \(errors.errors)"
-        )
+        let destinationFinished = destinationDone.wait(timeout: .now() + 2)
+        XCTAssertEqual(destinationFinished, .success, "the destination must not wait for the open transaction")
+        XCTAssertEqual(errors.errors.count, 1, "\(errors.errors)")
+        XCTAssertTrue(errors.errors.allSatisfy(isMembershipTransactionInProgress), "\(errors.errors)")
+        XCTAssertEqual(destination.status, .destructed)
+        XCTAssertEqual(destination.count, 0)
         releaseAdded.signal()
-        XCTAssertEqual(oldParentDone.wait(timeout: .now() + 10), .success)
-        XCTAssertEqual(destinationDone.wait(timeout: .now() + 10), .success)
-        XCTAssertTrue(errors.errors.isEmpty, "\(errors.errors)")
+        XCTAssertEqual(oldParentDone.wait(timeout: .now() + hangGuard), .success)
+        if destinationFinished != .success { _ = destinationDone.wait(timeout: .now() + hangGuard) }
+        XCTAssertEqual(oldParent.count, 1)
+        XCTAssertTrue(child._parent != nil && child._parent !== destination)
+
+        try destination.construct()
         XCTAssertEqual(oldParent.count, 0)
         XCTAssertEqual(destination.count, 1)
-        XCTAssertTrue(destination.at(0) === child)
+        XCTAssertTrue(destination.snapshot().first === child)
+    }
+
+    /// Whether `error` is the "membership transaction in progress" refusal.
+    private func isMembershipTransactionInProgress(_ error: Error) -> Bool {
+        guard case ContainerOwnershipError.attachmentFailed(let inner) = error else { return false }
+        return inner is ContainerMembershipTransactionError
     }
 
     func testMembershipWaitGraphRefusesTheEdgeThatClosesACycle() {
@@ -1280,7 +1300,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             dispatcher: NullDispatcher.INSTANCE,
             childrenFactory: {
                 factoryAEntered.signal()
-                _ = factoryBEntered.wait(timeout: .now() + 2)
+                _ = factoryBEntered.wait(timeout: .now() + hangGuard)
                 return [first, second]
             }
         )
@@ -1290,7 +1310,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             dispatcher: NullDispatcher.INSTANCE,
             childrenFactory: {
                 factoryBEntered.signal()
-                _ = factoryAEntered.wait(timeout: .now() + 2)
+                _ = factoryAEntered.wait(timeout: .now() + hangGuard)
                 return [second, first]
             }
         )
@@ -1308,8 +1328,11 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             do { try destinationB.construct() } catch { errors.append(error) }
         }
 
-        XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
-        XCTAssertTrue(errors.errors.isEmpty, "\(errors.errors)")
+        XCTAssertEqual(done.wait(timeout: .now() + hangGuard * 2), .success)
+        // The second population either finds the first one's transaction
+        // ended and moves both children, or fails at once (ADR-0187).
+        XCTAssertLessThanOrEqual(errors.errors.count, 1, "\(errors.errors)")
+        XCTAssertTrue(errors.errors.allSatisfy(isMembershipTransactionInProgress), "\(errors.errors)")
         XCTAssertEqual([destinationA.count, destinationB.count].sorted(), [0, 2])
         XCTAssertEqual(
             destinationA.snapshot().filter { $0 === first || $0 === second }.count
@@ -1318,26 +1341,125 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         )
     }
 
+    /// COMP-040 — a population whose compensation also fails reports both
+    /// failures: the original construct failure and the first destruct
+    /// failure of the compensation (ADR-0218 rule 1, #1305).
     func testPopulationSurfacesLifecycleCompensationFailure() {
-        let first = CompensatingOwnershipChild("first", failDestruct: true)
-        let blocker = CompensatingOwnershipChild("blocker", failConstruct: true)
-        let destination = GroupVM<CompensatingOwnershipChild>(
-            name: "destination",
-            hub: NullMessageHub.INSTANCE,
-            dispatcher: NullDispatcher.INSTANCE,
-            childrenFactory: { [first, blocker] }
-        )
+        for kind in ["composite", "group"] {
+            let first = CompensatingOwnershipChild("first", failDestruct: true)
+            let blocker = CompensatingOwnershipChild("blocker", failConstruct: true)
+            let destination: ComponentVMBase = kind == "composite"
+                ? CompositeVM<CompensatingOwnershipChild>(
+                    name: "destination",
+                    hub: NullMessageHub.INSTANCE,
+                    dispatcher: NullDispatcher.INSTANCE,
+                    childrenFactory: { [first, blocker] }
+                )
+                : GroupVM<CompensatingOwnershipChild>(
+                    name: "destination",
+                    hub: NullMessageHub.INSTANCE,
+                    dispatcher: NullDispatcher.INSTANCE,
+                    childrenFactory: { [first, blocker] }
+                )
 
-        XCTAssertThrowsError(try destination.construct()) { error in
-            guard let ownershipError = error as? ContainerOwnershipError,
-                  case let .attachmentFailed(underlying) = ownershipError,
-                  let compensation = underlying as? OwnershipTestError,
-                  compensation == .destructFailed else {
-                return XCTFail("expected surfaced destruct compensation failure, got \(error)")
+            XCTAssertThrowsError(try destination.construct(), kind) { error in
+                guard let ownershipError = error as? ContainerOwnershipError,
+                      case let .attachmentFailed(underlying) = ownershipError,
+                      let rollback = underlying as? ContainerRollbackError else {
+                    return XCTFail("\(kind): expected ContainerRollbackError, got \(error)")
+                }
+                XCTAssertEqual(rollback.originalError as? OwnershipTestError, .constructFailed, kind)
+                XCTAssertEqual(
+                    rollback.compensationError as? OwnershipTestError, .destructFailed, kind
+                )
+            }
+            XCTAssertNil(first._ownershipParent, kind)
+            XCTAssertNil(blocker._ownershipParent, kind)
+        }
+    }
+
+    /// COMP-040 — an add, insert or index replacement whose compensation
+    /// also fails reports both failures (ADR-0218 rule 1, #1305). The
+    /// child's construct hook disposes the destination, so the change fails
+    /// after the child is `Constructed`; the compensating destruct fails.
+    func testCOMP040RollbackErrorCarriesOriginalAndCompensationFailures() throws {
+        for kind in ["composite", "group"] {
+            for operation in ["add", "insert", "replace"] {
+                let label = "\(kind) \(operation)"
+                var destination: ComponentVMBase!
+                let existing = CompensatingOwnershipChild("existing")
+                let child = RollbackProbeChild("child") { destination.dispose() }
+                let change: () -> Result<Void, ContainerOwnershipError>
+                if kind == "composite" {
+                    let composite = CompositeVM<ComponentVMBase>(
+                        name: "destination",
+                        hub: NullMessageHub.INSTANCE,
+                        dispatcher: NullDispatcher.INSTANCE,
+                        autoConstructOnAdd: true
+                    )
+                    try composite.addResult(existing).get()
+                    destination = composite
+                    change = {
+                        switch operation {
+                        case "add": return composite.addResult(child)
+                        case "insert": return composite.insertResult(child, at: 0)
+                        default: return composite.replaceResult(at: 0, with: child)
+                        }
+                    }
+                } else {
+                    let group = GroupVM<ComponentVMBase>(
+                        name: "destination",
+                        hub: NullMessageHub.INSTANCE,
+                        dispatcher: NullDispatcher.INSTANCE,
+                        autoConstructOnAdd: true
+                    )
+                    try group.addResult(existing).get()
+                    destination = group
+                    change = {
+                        switch operation {
+                        case "add": return group.addResult(child)
+                        case "insert": return group.insertResult(child, at: 0)
+                        default: return group.replaceResult(at: 0, with: child)
+                        }
+                    }
+                }
+                try destination.construct()
+
+                let result = change()
+
+                guard case .failure(.attachmentFailed(let inner)) = result,
+                      let rollback = inner as? ContainerRollbackError else {
+                    XCTFail("\(label): expected ContainerRollbackError, got \(result)")
+                    continue
+                }
+                guard case .attachmentFailed(let original)? =
+                        rollback.originalError as? ContainerOwnershipError else {
+                    XCTFail("\(label): unexpected original \(rollback.originalError)")
+                    continue
+                }
+                // The original failure is the container's private disposal
+                // admission error, not the compensation failure.
+                XCTAssertTrue(String(describing: type(of: original)).contains("DisposalAdmissionError"), label)
+                XCTAssertEqual(
+                    rollback.compensationError as? OwnershipTestError, .destructFailed, label
+                )
+                XCTAssertNil(child._ownershipParent, label)
+                XCTAssertEqual(destination.status, .disposed, label)
             }
         }
-        XCTAssertEqual(destination.count, 0)
-        XCTAssertNil(first._ownershipParent)
-        XCTAssertNil(blocker._ownershipParent)
+    }
+}
+
+/// A child whose construct hook runs `onConstruct` and whose destruct hook
+/// always fails.
+private final class RollbackProbeChild: ComponentVMBase {
+    init(_ name: String, onConstruct: @escaping () -> Void) {
+        super.init(
+            name: name,
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            onConstruct: onConstruct,
+            onDestruct: { throw OwnershipTestError.destructFailed }
+        )
     }
 }

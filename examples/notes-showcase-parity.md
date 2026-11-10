@@ -7,7 +7,7 @@ where every in-scope spec feature is exercised in each UI-backed flavor. Two
 separate checks back it:
 
 - **Structural:** `tools/check-showcase-parity.py` requires every flavor to ship
-  the same per-VM test files and the five `THEME-00x` scenario markers. It
+  the same per-VM test files and the `THEME-00x` scenario markers. It
   checks names and markers only, not what the tests assert.
 - **Behavioral:** two shared scenarios run in every flagship, and each
   flavor's suite compares every step's semantic snapshot with the same
@@ -94,16 +94,16 @@ shipping translated application catalogs is outside this example scenario.
 | 4   | `FormVM` snapshot/revert/validation (ch. 20) — note editor with title errors | Yes | Yes | Yes | Yes |
 | 5   | `DerivedProperty` (ch. 15) — status bar, `isDirty`, capability actions | Yes | Yes      | Yes                | Yes             |
 | 6   | `RelayCommand` + `AsyncRelayCommand` reactive `canExecute` (ch. 4) — persistence-backed workspace, notebook, form, capability, Save, and Delete actions are awaitable; repository failures remain observable and success notifications follow persistence | Yes | Yes | Yes | Yes |
-| 7   | `SearchableState` + `IFilterable<TItem>` (ch. 14 §2.5–2.6) — title search + starred filter | Yes | Yes | Yes | Yes |
+| 7   | `SearchableState` + `IFilterable<TItem>` (ch. 14 §2.5–2.6) — note search + starred filter. The notes list and the global search share one rule: the term is trimmed, an empty term matches every note, and otherwise a note matches when its title, its body or one of its tags contains the term, ignoring case | Yes | Yes | Yes | Yes |
 | 8   | `IPageable` + `PagedComposition` (ch. 14 §2.10, ch. 21) — notes pagination | Yes | Yes           | Yes                | Yes             |
 | 9   | `INotificationHub` + `NotificationVM` (ch. 16) — toast region | Yes   | Yes              | Yes                | Yes             |
 | 10  | Async `construct()` + dispatcher (ch. 2, 11) — workspace load + notebook switch + save[^dispatcher] | Yes | Yes | Yes | Yes |
 | 11  | `TreeStructureChangedMessage` (ch. 18) — add notebook re-publishes tree | Yes | Yes           | Yes                | Yes             |
 | 12  | `ConfirmationDecoratorCommand` (ch. 4) — delete confirm | Yes         | Yes              | Yes                | Yes             |
-| 13  | `IDialogService` (ch. 19) — export → save-file dialog | Yes           | Yes              | Yes                | Yes             |
+| 13  | `IDialogService` (ch. 19) — export → save-file dialog, then a notification once the file is written | Yes | Yes | Yes | Yes |
 | 14  | Capability-aware UI (ch. 14 §4) — capability action bar[^readonly] | Yes   | Yes              | Yes                | Yes             |
 | 15  | `AggregateVM6` (ch. 8) — `WorkspaceVM` composes 6 children | Yes | Yes         | Yes                | Yes             |
-| 16  | `ThemeVM` scenario contract (proposal 2026-06-02) — palette + accent + font scale + high contrast as a VM[^theme] | Yes | Yes | Yes | Yes |
+| 16  | `ThemeVM` scenario contract (proposal 2026-06-02) — palette + accent + font scale + high contrast as a VM, and the theme control strip of §2.2[^theme] | Yes | Yes | Yes | Yes |
 | 17  | `TokenPagedComposition` (ch. 21) — global all-notes search with forward tokens | Yes | Yes | Yes | Yes |
 | 18  | `DiscriminatorVM` (ch. 22) — edit/preview note editor mode | Yes | Yes | Yes | Yes |
 | 19  | `SearchableState<string>` — workspace tag autocomplete in `NoteFormVM` | Yes | Yes | Yes | Yes |
@@ -111,8 +111,8 @@ shipping translated application catalogs is outside this example scenario.
 Row 17 has an explicit item-lifetime boundary: each `GlobalSearchVM` owns every
 constructed `NoteVM` it creates until terminal disposal, including results
 replaced by refresh or discarded by equality/stale-operation handling. The Rust
-TUI counterpart stores cloned `NoteModel` values and therefore has no
-lifecycle-bearing search-result ownership obligation.
+TUI counterpart stores cloned `NoteModel` values with their search term and
+therefore has no lifecycle-bearing search-result ownership obligation.
 
 [^theme]: ThemeVM ships in each flavor's `viewmodels/` plus a per-framework
     `ThemeAdapter` in `views/adapter/` (Swift: `Sources/NotesShowcase/Adapter/`). `WorkspaceVM` owns the `ThemeVM` as a
@@ -152,6 +152,46 @@ lifecycle-bearing search-result ownership obligation.
     dispatcher so `constructAsync()` completes before the first paint (avoiding a
     render-before-construct flicker). Wire the shipped adapter when foreground
     marshalling onto the framework loop is desired.
+
+### 2.2. Interaction and theme policies
+
+ADR-0201 sets these policies for every app that has the feature. The reduced
+Rust companion has no theme VM and no capability action bar, so only the
+first two policies apply to it.
+
+1. **Selection after a refilter or a page change.** A search, the starred
+   filter or a page change never changes `current`. While the current note is
+   not on the visible page, the editor keeps that note and its draft. When
+   the note is visible again, the list marks it as selected again. While
+   the note is hidden, no list row is selected. The Rust TUI selects notes
+   with `j` and `k` on the visible page. Its `d` key deletes the current
+   note even while its row is hidden, and the prompt names that note.
+1. **Unsaved edits on a note switch.** A selection of another note discards
+   the unsaved draft with no prompt. The editor then shows the stored values
+   of the selected note. The dirty marker and the enabled Save and Revert
+   show an unsaved draft before the switch.
+1. **The action-bar Save.** The action-bar Save on the note that the editor
+   holds is the editor Save. It persists the draft with the same validation
+   and the same "Saved" notification. It persists nothing when the draft is
+   clean or not valid. For any other focused note, it persists the stored
+   model.
+1. **Theme controls.** All four flagships ship one theme control strip: a
+   button for each preset (`setThemeCommand`), a high-contrast toggle
+   (`toggleHighContrast`), and decrease and increase font-size buttons
+   (`setFontScale` with the current factor minus or plus 0.1). No flagship
+   ships an accent or follow-system control.
+1. **Accent validation.** `setAccentColor` accepts only `#RGB` or `#RRGGBB`.
+   It rejects any other value like an unknown preset in `THEME-002`: no
+   `ThemeChangedMessage` and no model change. Swift rejects through
+   `applyAccentColor(_:)`, and its command discards the rejection. A C#
+   `null` accent sent through the command does nothing, because
+   `RelayCommand<string>` does not run its task for `null`.
+1. **Follow-system with no provider.** No flagship passes a host theme
+   provider. With no provider, `followSystemCommand` keeps the theme values
+   and sets `followsSystem` to true.
+
+Each app tests each policy that applies to it in its VM tests. The C#,
+Python and TypeScript view tests also run each theme control.
 
 ## 3. Reading the matrix
 

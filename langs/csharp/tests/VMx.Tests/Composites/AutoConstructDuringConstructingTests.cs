@@ -355,7 +355,7 @@ public class AutoConstructDuringConstructingTests
     [Theory]
     [InlineData("composite")]
     [InlineData("group")]
-    public void Failed_Add_Started_Late_Child_Undoes_The_Add_And_Rolls_Back(string kind)
+    public void Failed_Add_Started_Late_Child_Undoes_The_Add_And_Root_Constructs(string kind)
     {
         var setup = Create(kind);
         setup.Root.Construct();
@@ -372,9 +372,60 @@ public class AutoConstructDuringConstructingTests
 
         addError.Should().BeOfType<InvalidOperationException>("the add's own construct failed");
         ((IEnumerable<IComponentVM>)setup.Root).Should().NotContain(late, "the failed add is undone");
-        setup.Root.Status.Should().Be(ConstructionStatus.Destructed, "the walk waited on the failing child");
+        setup.Root.Status.Should().Be(
+            ConstructionStatus.Constructed, "the undone add removed the child the walk waited on (ADR-0186)");
         late.Status.Should().Be(ConstructionStatus.Destructed);
         Volatile.Read(ref runs).Should().Be(1);
+    }
+
+    /// <summary>
+    /// An add ends its start attempt only after it ends its membership
+    /// transaction (ADR-0218 rule 4, #1371). A walk that waits on that attempt
+    /// therefore publishes the root's Constructed outside the transaction, so
+    /// a Constructed subscriber can add a child. The add's CollectionChanged
+    /// handler holds the transaction open for a bounded time, waiting for an
+    /// (incorrect) early Constructed.
+    /// </summary>
+    [Theory]
+    [InlineData("composite")]
+    [InlineData("group")]
+    public void Constructed_Subscriber_Can_Add_After_A_Late_Add_Resumed_The_Walk(string kind)
+    {
+        var setup = Create(kind);
+        var events = RecordStatuses(setup);
+        var extra = Child(setup, "extra", background: false);
+        Exception? extraError = null;
+        var extraAdded = 0;
+        setup.Hub.Messages.OfType<ConstructionStatusChangedMessage>().Subscribe(message =>
+        {
+            if (message.SenderName != "root" || message.Status != ConstructionStatus.Constructed ||
+                Interlocked.Exchange(ref extraAdded, 1) != 0) return;
+            try { setup.Add(extra); }
+            catch (Exception error) { extraError = error; }
+        });
+        var late = Child(setup, "late", background: false);
+        ((System.Collections.Specialized.INotifyCollectionChanged)setup.Root).CollectionChanged += (_, args) =>
+        {
+            if (args.NewItems is null || !args.NewItems.Contains(late)) return;
+            lock (events) events.Add("late:Added");
+            SpinWait.SpinUntil(
+                () => setup.Root.Status == ConstructionStatus.Constructed, TimeSpan.FromMilliseconds(300));
+        };
+        setup.Root.Construct();
+        var walkWaiting = RecordWalkWaiting(setup, late);
+        using var paused = PauseAddUntilWalkWaits(setup, late, walkWaiting);
+
+        var addError = AddWhileWalkPulls(setup, late, paused);
+        SpinWait.SpinUntil(() => Volatile.Read(ref extraAdded) == 1, Liveness.HangGuard)
+            .Should().BeTrue("the root publishes Constructed");
+
+        addError.Should().BeNull();
+        walkWaiting().Should().BeTrue("the walk waited for the late add");
+        extraError.Should().BeNull("the root publishes Constructed after the late add ended its transaction");
+        ((IEnumerable<IComponentVM>)setup.Root).Should().Contain(extra);
+        ShouldReachConstructedAfterLate(setup, late, events);
+        lock (events)
+            events.IndexOf("root:Constructed").Should().BeGreaterThan(events.IndexOf("late:Added"));
     }
 
     private sealed class ThrowOnceComposite(IMessageHub hub, IDispatcher dispatcher)

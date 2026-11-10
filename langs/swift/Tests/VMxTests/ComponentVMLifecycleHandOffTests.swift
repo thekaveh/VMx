@@ -44,9 +44,6 @@ private final class ParkedDispatcher: Dispatcher, @unchecked Sendable {
 
 final class ComponentVMLifecycleHandOffTests: XCTestCase {
 
-    /// The hang guard for one scenario.
-    private let hangGuard: TimeInterval = 10
-
     private var cancellables = Set<AnyCancellable>()
 
     override func tearDown() {

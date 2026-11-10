@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, future_result, join_thread, wait_event
 from vmx.aggregates.aggregate_vm import (
     AggregateVM1,
     AggregateVM2,
@@ -40,6 +40,7 @@ from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
 from vmx.composites.builders import CompositeVMBuilder
 from vmx.forwarding.component import ForwardingComponentVM
+from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -79,7 +80,7 @@ class _BlockingDisposeComponent(ComponentVM):
 
     def _on_dispose(self) -> None:
         self._entered.set()
-        if not self._release.wait(timeout=HANG_GUARD):
+        if not wait_event(self._release):
             raise TimeoutError("test did not release blocked slot disposal")
 
 
@@ -133,7 +134,7 @@ class _StatusReadBarrierAggregate(AggregateVM1[ComponentVM]):
         if self._pause_status_read:
             self._pause_status_read = False
             self._status_read.set()
-            if not self._disposal_attempted.wait(timeout=HANG_GUARD):
+            if not wait_event(self._disposal_attempted):
                 raise TimeoutError("test did not attempt aggregate disposal")
             # The foreign dispose publishes DISPOSED while this hook runs, so
             # the captured status is stale when it is returned.
@@ -214,12 +215,12 @@ def test_concurrent_aggregate_reconstruction_reserves_shared_candidate() -> None
     second = aggregate("second")
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(vm.reconstruct) for vm in (first, second)]
-        assert disposal_entered.wait(timeout=HANG_GUARD)
+        assert wait_event(disposal_entered)
         release_disposal.set()
         outcomes = []
         for future in futures:
             try:
-                future.result(timeout=2 * HANG_GUARD)
+                future_result(future, 2 * HANG_GUARD)
                 outcomes.append("success")
             except ValueError:
                 outcomes.append("rejected")
@@ -635,7 +636,7 @@ def test_aggregate_dispose_cannot_race_fixed_slot_commit(reconstruct: bool) -> N
     operation = aggregate.reconstruct if reconstruct else aggregate.construct
     with ThreadPoolExecutor(max_workers=2) as pool:
         operation_result = pool.submit(operation)
-        assert status_read.wait(timeout=HANG_GUARD)
+        assert wait_event(status_read)
 
         def dispose() -> None:
             disposal_attempted.set()
@@ -643,8 +644,8 @@ def test_aggregate_dispose_cannot_race_fixed_slot_commit(reconstruct: bool) -> N
 
         disposal_result = pool.submit(dispose)
         # The paused status read waits up to two HANG_GUARD bounds.
-        operation_result.result(timeout=3 * HANG_GUARD)
-        disposal_result.result(timeout=3 * HANG_GUARD)
+        future_result(operation_result, 3 * HANG_GUARD)
+        future_result(disposal_result, 3 * HANG_GUARD)
 
     candidate = created[-1]
     assert aggregate.status is ConstructionStatus.DISPOSED
@@ -911,7 +912,7 @@ def test_LIFE_015_aggregate_slot_cascade_waits_for_admitted_hook(arity: int, pha
         if blocking.is_set():
             log.append("hook-enter")
             hook_entered.set()
-            assert release_hook.wait(HANG_GUARD)
+            assert wait_event(release_hook)
             log.append("hook-exit")
 
     class _BlockingAggregate(_AGGREGATES[arity]):  # type: ignore[misc, valid-type]
@@ -958,7 +959,7 @@ def test_LIFE_015_aggregate_slot_cascade_waits_for_admitted_hook(arity: int, pha
     operator = threading.Thread(target=run_operation, daemon=True)
     operator.start()
     try:
-        assert hook_entered.wait(HANG_GUARD)
+        assert wait_event(hook_entered)
         disposer = threading.Thread(target=dispose, daemon=True)
         disposer.start()
         disposer.join(0.2)
@@ -969,8 +970,8 @@ def test_LIFE_015_aggregate_slot_cascade_waits_for_admitted_hook(arity: int, pha
     finally:
         # A failed assertion must not leave the hook thread blocked.
         release_hook.set()
-    operator.join(HANG_GUARD)
-    disposer.join(HANG_GUARD)
+    join_thread(operator)
+    join_thread(disposer)
     assert not operator.is_alive(), f"{phase}() deadlocked"
     assert not disposer.is_alive(), "dispose() deadlocked"
 
@@ -992,8 +993,9 @@ def test_LIFE_015_aggregate_slot_cascade_waits_for_admitted_hook(arity: int, pha
 @pytest.mark.conformance("LIFE-015")
 def test_LIFE_015_no_aggregate_hook_is_admitted_during_its_slot_cascade(arity: int) -> None:
     """LIFE-015 for AggregateVMN: no hook of the aggregate is admitted while
-    its slot cascade runs. A construct() from a slot's dispose hook creates no
-    slot, and the aggregate ends Disposed with no Constructed slot left."""
+    its slot cascade runs. A construct() from a slot's dispose hook fails with
+    the Disposed error (LIFE-021, ADR-0175), creates no slot, and the aggregate
+    ends Disposed with no Constructed slot left."""
     hub = _hub()
     log: list[str] = []
     created: list[_SlotCleanupProbe] = []
@@ -1025,7 +1027,11 @@ def test_LIFE_015_no_aggregate_hook_is_admitted_during_its_slot_cascade(arity: i
 
     aggregate.dispose()
 
-    assert construct_errors == []
+    assert len(construct_errors) == 1
+    error = construct_errors[0]
+    assert isinstance(error, StatusTransitionError)
+    assert error.current_status is ConstructionStatus.DISPOSED
+    assert error.attempted_operation == "construct"
     assert len(created) == arity, "no hook ran, so no candidate was created"
     assert aggregate.components() == slots
     assert all(slot.status is ConstructionStatus.DISPOSED for slot in created)
@@ -1070,18 +1076,18 @@ def test_LIFE_015_construct_before_the_slot_cascade_starts_is_disposed_whole(
 
     def paused(children: Callable[[], tuple[object, ...]]) -> None:
         cascade_reached.set()
-        assert release_cascade.wait(HANG_GUARD)
+        assert wait_event(release_cascade)
         start_cascade(children)  # type: ignore[arg-type]
 
     monkeypatch.setattr(aggregate, "_dispose_with_children_from", paused)
     disposer = threading.Thread(target=aggregate.dispose, daemon=True)
     disposer.start()
     try:
-        assert cascade_reached.wait(HANG_GUARD)
+        assert wait_event(cascade_reached)
         aggregate.construct()
     finally:
         release_cascade.set()
-        disposer.join(HANG_GUARD)
+        join_thread(disposer)
 
     assert not disposer.is_alive()
     assert slot_at_constructed == [ConstructionStatus.CONSTRUCTED]
@@ -1130,7 +1136,7 @@ def test_LIFE_015_opposing_aggregate_factories_dispose_each_other_without_deadlo
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(HANG_GUARD)
+        join_thread(thread)
 
     assert [thread.is_alive() for thread in threads] == [False, False], "no deadlock"
     assert errors == []

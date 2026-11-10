@@ -2,10 +2,12 @@
 
 ## 7.5.1. Snapshot
 
-- Current source: Swift 3.31.0 implementing spec 3.30.0
+- Current source: Swift 4.0.0 implementing spec 3.30.0
 - Install and package status: see [Installation](../installation.md) and
   [Availability](../index.md#11-availability).
-- Reactive primitive: `Combine`
+- Reactive primitive: `Combine`. `FormVM` channels and the `canExecuteChanged`
+  of its commands call sinks without a delivery lock (ADR-0174), as C# and
+  Python do, so one sink can run on two threads at once.
 - Naming idiom: camelCase
 - Hub delivery and notification replay: see
   [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering)
@@ -19,6 +21,22 @@ library boundary.
 Use `.product(name: "VMx", package: "vmx")` in the consuming target. The
 lowercase package value is SwiftPM's canonical identity for the repository;
 the imported module and product remain `VMx`.
+
+`VMx.Notification` has the same name as `Foundation.Notification`. In a file
+that imports both modules, the unqualified `Notification` in a type position
+fails with `'Notification' is ambiguous for type lookup in this context`.
+Write `VMx.Notification`, or declare a type alias:
+
+```swift
+import Foundation
+import VMx
+
+typealias VMxNotification = VMx.Notification
+
+func messages(of pending: [VMxNotification]) -> [String] {
+    pending.map(\.message)
+}
+```
 
 ## 7.5.3. Serviced Collections
 

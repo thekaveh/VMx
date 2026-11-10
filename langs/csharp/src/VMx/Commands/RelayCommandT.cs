@@ -1,6 +1,7 @@
 using System.Reactive;
 using System.Runtime.ExceptionServices;
 using System.Windows.Input;
+using VMx.Internal;
 
 namespace VMx.Commands;
 
@@ -37,7 +38,7 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
         _task = task;
         _predicate = predicate;
         foreach (var t in triggers)
-            _triggerSubscriptions.Add(t.Subscribe(_ => RaiseCanExecuteChanged()));
+            _triggerSubscriptions.Add(t.Subscribe(_ => RaiseFromTrigger()));
     }
 
     /// <inheritdoc/>
@@ -46,12 +47,25 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
     /// <summary>
     /// Notifies subscribers that <see cref="CanExecute"/> may have changed without
     /// evaluating the predicate or invoking the task. A no-op after disposal.
+    /// Every handler runs, even when an earlier one throws; the first failure
+    /// is then rethrown (spec/03 §3.6, ADR-0191).
     /// </summary>
     public void RaiseCanExecuteChanged()
     {
         if (_disposed) return;
-        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        RaiseToHandlers()?.Throw();
     }
+
+    // A trigger emission is stream-fed: a handler failure is discarded so it
+    // never reaches the trigger publisher (spec/03 §3.6, ADR-0191).
+    private void RaiseFromTrigger()
+    {
+        if (_disposed) return;
+        _ = RaiseToHandlers();
+    }
+
+    private ExceptionDispatchInfo? RaiseToHandlers()
+        => FanOut.Raise(CanExecuteChanged, handler => handler(this, EventArgs.Empty));
 
     /// <summary>
     /// Returns false when <paramref name="parameter"/> is not a T (a non-T command
@@ -86,14 +100,9 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        ExceptionDispatchInfo? firstError = null;
-        try { CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
-        catch (Exception error) { firstError = ExceptionDispatchInfo.Capture(error); }
+        ExceptionDispatchInfo? firstError = RaiseToHandlers();
         foreach (var subscription in _triggerSubscriptions)
-        {
-            try { subscription.Dispose(); }
-            catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
-        }
+            FirstFailure.Capture(ref firstError, subscription.Dispose);
         firstError?.Throw();
     }
 

@@ -3,9 +3,9 @@
 //
 // The initial-current selector's pick is assigned through a non-raising
 // validated assignment (spec/06 §3.2): a pick that is no longer a member
-// when the construct walk assigns it is a silent no-op, and a contained
-// pick becomes `current` even when the walk resumes on a thread that holds
-// the membership transaction.
+// when the construct walk assigns it is a silent no-op. When the walk resumes
+// on a thread inside its own uncommitted membership transaction, the
+// assignment is also a silent no-op (spec/06 §4.3 rule 4, ADR-0173).
 //
 
 import Combine
@@ -95,7 +95,13 @@ final class CompositeInitialCurrentLiveMembershipTests: XCTestCase {
         XCTAssertEqual(currentChanges(), 0)
     }
 
-    func testContainedPickIsSelectedWhenTheWalkResumesOnTheAddingThread() throws {
+    /// A late add's start attempt ends only after the add ended its
+    /// membership transaction, and the resumed walk runs on the composite's
+    /// foreground (ADR-0218 rules 3 and 4). The walk therefore never resumes
+    /// inside the add's uncommitted transaction, and the selector's pick is
+    /// assigned. (Before ADR-0218 the walk resumed inside that transaction,
+    /// where ADR-0173 rule 4 made the assignment a silent no-op.)
+    func testWalkNeverResumesInsideTheAddersUncommittedTransaction() throws {
         let hub = MessageHub()
         let dispatcher = ManualDispatcher()
         let lateStarted = DispatchSemaphore(value: 0)
@@ -104,12 +110,12 @@ final class CompositeInitialCurrentLiveMembershipTests: XCTestCase {
 
         // A background sibling defers the walk. `late` is then added from
         // another thread and auto-constructed inside that add; its hook holds
-        // until the background sibling has settled, so the walk resumes on
-        // the adding thread inside its membership transaction.
+        // until the background sibling has settled, so the walk waits on the
+        // add's start attempt while the add's transaction is open.
         let late = try ComponentVM.builder()
             .name("late")
             .services(hub: hub, dispatcher: dispatcher)
-            .onConstruct { _ = releaseLate.wait(timeout: .now() + 10) }
+            .onConstruct { _ = releaseLate.wait(timeout: .now() + hangGuard * 2) }
             .build()
         let picked = try ComponentVM.builder()
             .name("picked").services(hub: hub, dispatcher: dispatcher).build()
@@ -131,8 +137,8 @@ final class CompositeInitialCurrentLiveMembershipTests: XCTestCase {
             composite.add(late)
             addFinished.signal()
         }.start()
-        XCTAssertEqual(lateStarted.wait(timeout: .now() + 10), .success)
-        let deadline = Date().addingTimeInterval(10)
+        XCTAssertEqual(lateStarted.wait(timeout: .now() + hangGuard), .success)
+        let deadline = Date().addingTimeInterval(hangGuard)
         while late.status != .constructing && Date() < deadline {
             Thread.sleep(forTimeInterval: 0.001)
         }
@@ -140,7 +146,7 @@ final class CompositeInitialCurrentLiveMembershipTests: XCTestCase {
         dispatcher.flushBackground()
         dispatcher.flushForeground()
         releaseLate.signal()
-        XCTAssertEqual(addFinished.wait(timeout: .now() + 10), .success, "the add stalled")
+        XCTAssertEqual(addFinished.wait(timeout: .now() + hangGuard), .success, "the add stalled")
         for _ in 0..<10 {
             dispatcher.flushBackground()
             dispatcher.flushForeground()

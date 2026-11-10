@@ -1,12 +1,14 @@
 //! Containers publish their collection changes on the hub (spec ch. 01 §1.4,
 //! ch. 06 §4–§4.2, ch. 07, ch. 21 §2.4, ADR-0142).
 //!
-//! Rust's `CompositeVm` and `GroupVm` keep their children in a hub-bound
-//! `ObservableList`, so the container's hub is its collection-change channel:
-//! there is no separate local stream to order against. These tests therefore
-//! assert that each effective mutation delivers exactly one
-//! `CollectionChangedMessage` before the mutating call returns, in mutation
-//! order, sent by the container, with the positions of chapter 21 §2.4. Rust's
+//! Rust's `CompositeVm` and `GroupVm` keep their children in an
+//! `ObservableList`. Its local stream, `collection_changed()`, receives each
+//! change before the hub (ADR-0208), and
+//! `ObservableMembershipSource::subscribe_membership` listens on that local
+//! stream. These tests assert that each effective
+//! mutation delivers exactly one `CollectionChangedMessage` before the
+//! mutating call returns, in mutation order, sent by the container, with the
+//! positions of chapter 21 §2.4, and that the local event comes first. Rust's
 //! additional `PropertyChanged("Count")` message (ADR-0085) is ignored.
 
 use std::sync::{Arc, Mutex};
@@ -104,6 +106,21 @@ fn accepted(recorder: &MessageRecorder) -> Vec<Change> {
     recorder.messages().iter().filter_map(change_of).collect()
 }
 
+/// Sender names of the collection changes that `sender` publishes, in delivery
+/// order (spec/03 §1, ADR-0194).
+fn sender_names(hub: &MessageHub, sender: usize) -> (Arc<Mutex<Vec<String>>>, Subscription) {
+    let names = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&names);
+    let subscription = hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            if change.sender_id == sender {
+                sink.lock().unwrap().push(change.sender_name.clone());
+            }
+        }
+    });
+    (names, subscription)
+}
+
 /// Runs one mutation and asserts it delivered exactly `expected` before
 /// returning.
 fn step(delivered: &Delivered, mutate: impl FnOnce(), expected: &[Change]) {
@@ -197,14 +214,110 @@ impl VmNode for Nested {
     }
 }
 
-/// COMP-042 — each effective composite mutation publishes one hub message sent by the composite
+/// Local and hub collection changes of one container, in delivery order.
+struct Paired {
+    log: Arc<Mutex<Vec<(&'static str, Change)>>>,
+    _subscriptions: [Subscription; 2],
+}
+
+impl Paired {
+    fn on(local: &MessageHub, hub: &MessageHub, sender: usize) -> Self {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let record = |stream: &MessageHub, label: &'static str| {
+            let sink = Arc::clone(&log);
+            stream.subscribe(move |message| {
+                if let Some(change) = change_of(message).filter(|change| change.0 == sender) {
+                    sink.lock().unwrap().push((label, change));
+                }
+            })
+        };
+        let subscriptions = [record(local, "local"), record(hub, "hub")];
+        Self {
+            log,
+            _subscriptions: subscriptions,
+        }
+    }
+
+    /// Runs one mutation and asserts that each expected change was delivered
+    /// once locally, then once on the hub, before the call returned.
+    fn step(&self, mutate: impl FnOnce(), expected: &[Change]) {
+        let before = self.log.lock().unwrap().len();
+        mutate();
+        let expected: Vec<_> = expected
+            .iter()
+            .flat_map(|change| [("local", change.clone()), ("hub", change.clone())])
+            .collect();
+        assert_eq!(&self.log.lock().unwrap()[before..], expected.as_slice());
+    }
+}
+
+/// COMP-042 — each local composite event is followed by exactly one equal hub message
 #[test]
-fn comp_042_each_composite_mutation_publishes_one_hub_message() {
+fn comp_042_each_local_composite_event_precedes_its_hub_message() {
     let hub = MessageHub::new();
     let parent = composite(&hub, "parent");
     let id = parent.id();
     let [a, b, c, d] = ["a", "b", "c", "d"].map(|name| child(&hub, name));
+    let paired = Paired::on(&parent.collection_changed(), &hub, id);
+
+    // Membership after each step is shown in the trailing comment.
+    paired.step(|| parent.add(a.clone()).unwrap(), &[add(id, 0)]); // [a]
+    paired.step(|| parent.insert(0, b.clone()).unwrap(), &[add(id, 0)]); // [b, a]
+    paired.step(|| parent.move_item(0, 1).unwrap(), &[moved(id, 0, 1)]); // [a, b]
+    paired.step(|| parent.move_item(1, 1).unwrap(), &[]); // [a, b]
+    paired.step(
+        || assert_eq!(parent.replace(0, c.clone()).unwrap(), a),
+        &[replace(id, 0)],
+    ); // [c, b]
+    paired.step(
+        || assert_eq!(parent.remove_at(1).unwrap(), b),
+        &[remove(id, 1)],
+    ); // [c]
+    paired.step(|| parent.remove(&c).unwrap(), &[remove(id, 0)]); // []
+    paired.step(|| parent.add(d.clone()).unwrap(), &[add(id, 0)]); // [d]
+    paired.step(|| parent.clear().unwrap(), &[reset(id)]); // []
+    paired.step(|| parent.clear().unwrap(), &[]); // []
+
+    parent.dispose().unwrap();
+    paired.step(|| drop(parent.add(a.clone())), &[]);
+    assert_eq!(paired.log.lock().unwrap().len(), 16);
+}
+
+/// COMP-042 — a modeled composite forwards the local stream of its composite
+#[test]
+fn comp_042_modeled_composite_forwards_the_local_stream() {
+    let hub = MessageHub::new();
+    let modeled = vmx::ModeledCompositeVm::new(
+        "modeled",
+        hub.clone(),
+        NullDispatcher::new(),
+        || vec!["a", "b"],
+        {
+            let hub = hub.clone();
+            move |model| child(&hub, model)
+        },
+    );
+    let paired = Paired::on(&modeled.collection_changed(), &hub, modeled.id());
+    modeled.construct().unwrap();
+
+    let log = paired.log.lock().unwrap().clone();
+    assert!(!log.is_empty(), "construction attached the children");
+    for pair in log.chunks(2) {
+        assert_eq!(pair[0].0, "local");
+        assert_eq!(pair[1], ("hub", pair[0].1.clone()));
+    }
+    assert_eq!(modeled.items().len(), 2);
+}
+
+/// COMP-042 — each effective composite mutation publishes one hub message sent by the composite, named by it
+#[test]
+fn comp_042_each_composite_mutation_publishes_one_hub_message() {
+    let hub = MessageHub::new();
+    let parent = composite(&hub, "people");
+    let id = parent.id();
+    let [a, b, c, d] = ["a", "b", "c", "d"].map(|name| child(&hub, name));
     let delivered = Delivered::on(&hub);
+    let (names, _names) = sender_names(&hub, id);
 
     // Membership after each step is shown in the trailing comment.
     step(&delivered, || parent.add(a.clone()).unwrap(), &[add(id, 0)]); // [a]
@@ -230,9 +343,14 @@ fn comp_042_each_composite_mutation_publishes_one_hub_message() {
     ); // [c]
     step(&delivered, || parent.remove(&c).unwrap(), &[remove(id, 0)]); // []
     step(&delivered, || parent.add(d.clone()).unwrap(), &[add(id, 0)]); // [d]
-    step(&delivered, || parent.clear(), &[reset(id)]); // []
+    step(&delivered, || parent.clear().unwrap(), &[reset(id)]); // []
 
     assert_eq!(delivered.changes().len(), 8);
+    assert_eq!(
+        *names.lock().unwrap(),
+        vec!["people"; 8],
+        "each message carries the container's name (ADR-0194)"
+    );
     assert!(parent.is_empty());
 }
 
@@ -378,7 +496,7 @@ fn comp_044_failed_and_no_op_mutations_publish_nothing() {
     );
     assert_eq!(parent.move_item(0, 0), Ok(()));
     assert_eq!(parent.remove(&child(&hub, "stranger")), Ok(()));
-    destination.clear();
+    destination.clear().unwrap();
 
     assert_eq!(accepted(&recorder), vec![]);
     assert_eq!(parent.items(), vec![a]);
@@ -429,7 +547,7 @@ fn comp_045_disposed_composite_publishes_nothing() {
     parent.batch_update(|| {
         let _ = parent.remove(&b);
     });
-    parent.clear();
+    assert_eq!(parent.clear(), Err(VmxError::Disposed));
 
     assert_eq!(accepted(&recorder), vec![]);
 }
@@ -449,7 +567,7 @@ fn comp_045_forwarding_wrapper_publishes_each_change_once() {
     wrapper.insert(0, b.clone()).unwrap(); // [b, a]
     wrapper.move_item(0, 1).unwrap(); // [a, b]
     wrapper.remove(&a).unwrap(); // [b]
-    wrapper.batch_update(|| wrapper.clear()); // []
+    wrapper.batch_update(|| wrapper.clear().unwrap()); // []
 
     assert_eq!(
         delivered.changes(),
@@ -464,14 +582,15 @@ fn comp_045_forwarding_wrapper_publishes_each_change_once() {
     assert!(parent.is_empty());
 }
 
-/// GRP-012 — each effective group mutation publishes one hub message sent by the group
+/// GRP-012 — each effective group mutation publishes one hub message sent by the group, named by it
 #[test]
 fn grp_012_each_group_mutation_publishes_one_hub_message() {
     let hub = MessageHub::new();
-    let peers = group(&hub, "peers");
+    let peers = group(&hub, "team");
     let id = peers.id();
     let [a, b, c, d] = ["a", "b", "c", "d"].map(|name| child(&hub, name));
     let delivered = Delivered::on(&hub);
+    let (names, _names) = sender_names(&hub, id);
 
     // Membership after each step is shown in the trailing comment.
     step(&delivered, || peers.add(a.clone()).unwrap(), &[add(id, 0)]); // [a]
@@ -498,10 +617,46 @@ fn grp_012_each_group_mutation_publishes_one_hub_message() {
     ); // [b]
     step(&delivered, || peers.remove(&b).unwrap(), &[remove(id, 0)]); // []
     step(&delivered, || peers.add(d.clone()).unwrap(), &[add(id, 0)]); // [d]
-    step(&delivered, || peers.clear(), &[reset(id)]); // []
+    step(&delivered, || peers.clear().unwrap(), &[reset(id)]); // []
 
     assert_eq!(delivered.changes().len(), 8);
+    assert_eq!(
+        *names.lock().unwrap(),
+        vec!["team"; 8],
+        "each message carries the container's name (ADR-0194)"
+    );
     assert!(peers.is_empty());
+}
+
+/// GRP-012 — each local group event is delivered before its hub message
+#[test]
+fn grp_012_each_local_group_event_precedes_its_hub_message() {
+    let hub = MessageHub::new();
+    let peers = group(&hub, "peers");
+    let id = peers.id();
+    let [a, b, c, d] = ["a", "b", "c", "d"].map(|name| child(&hub, name));
+    let paired = Paired::on(&peers.collection_changed(), &hub, id);
+
+    // Membership after each step is shown in the trailing comment.
+    paired.step(|| peers.add(a.clone()).unwrap(), &[add(id, 0)]); // [a]
+    paired.step(|| peers.insert(0, b.clone()).unwrap(), &[add(id, 0)]); // [b, a]
+    paired.step(|| peers.move_item(0, 1).unwrap(), &[moved(id, 0, 1)]); // [a, b]
+    paired.step(|| peers.move_item(1, 1).unwrap(), &[]); // [a, b]
+    paired.step(
+        || assert_eq!(peers.replace(0, c.clone()).unwrap(), a),
+        &[replace(id, 0)],
+    ); // [c, b]
+    paired.step(
+        || assert_eq!(peers.remove_at(0).unwrap(), c),
+        &[remove(id, 0)],
+    ); // [b]
+    paired.step(|| peers.remove(&b).unwrap(), &[remove(id, 0)]); // []
+    paired.step(|| peers.add(d.clone()).unwrap(), &[add(id, 0)]); // [d]
+    paired.step(|| peers.clear().unwrap(), &[reset(id)]); // []
+
+    peers.dispose().unwrap();
+    paired.step(|| drop(peers.add(a.clone())), &[]);
+    assert_eq!(paired.log.lock().unwrap().len(), 16);
 }
 
 /// GRP-012 — the group's hub message observes the committed membership
@@ -563,7 +718,7 @@ fn grp_012_no_op_and_post_dispose_mutations_publish_nothing() {
     peers.batch_update(|| {
         let _ = peers.remove(&b);
     });
-    peers.clear();
+    assert_eq!(peers.clear(), Err(VmxError::Disposed));
 
     assert_eq!(accepted(&recorder), vec![]);
 }

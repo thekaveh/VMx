@@ -119,6 +119,180 @@ async def test_COL_026_terminal_token_disables_load_more() -> None:
     assert sut.load_more_command.can_execute() is False
 
 
+class _TerminalAfterAdmissionHarness:
+    """Pages [1] and [101] load, then a held refresh returns the terminal page.
+
+    Regression harness for #1161 (spec 21 §6.2, ADR-0169): a load admitted while
+    ``has_more`` is True must fetch nothing when a terminal token has landed by
+    the time its body starts.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[str | None] = []
+        self.refresh_page: asyncio.Future[tuple[list[int], str | None]] | None = None
+        self.held: asyncio.Future[tuple[list[int], str | None]] | None = None
+        self.refresh_entered = asyncio.Event()
+        self.resets = 0
+        self.sut: TokenPagedComposition[int, str] = TokenPagedComposition(fetch_next=self.fetch)
+        self.sut.on_collection_changed.subscribe(lambda _event: self._count_reset())
+
+    def _count_reset(self) -> None:
+        self.resets += 1
+
+    async def fetch(self, token: str | None) -> tuple[list[int], str | None]:
+        self.calls.append(token)
+        if token is None and self.refresh_page is not None:
+            page = self.refresh_page
+            self.refresh_page = None
+            self.refresh_entered.set()
+            return await page
+        if token is None:
+            # Page 1. Before the fix a gated-out load refetched it here.
+            return ([1], "1")
+        return ([101], "2")
+
+    async def load_two_pages(self) -> None:
+        await asyncio.wait_for(self.sut.load_more_command.execute_async(), HANG_GUARD)
+        await asyncio.wait_for(self.sut.load_more_command.execute_async(), HANG_GUARD)
+        assert self.sut.items == [1, 101]
+        assert self.sut.current_token == "2"
+
+    async def start_held_refresh(self) -> asyncio.Task[None]:
+        self.held = asyncio.get_running_loop().create_future()
+        self.refresh_page = self.held
+        refresh = asyncio.create_task(self.sut.refresh_command.execute_async())
+        await asyncio.wait_for(self.refresh_entered.wait(), HANG_GUARD)
+        self.resets = 0
+        return refresh
+
+    async def wait_idle(self) -> None:
+        async def idle() -> None:
+            while self.sut.load_more_command.is_executing or self.sut.refresh_command.is_executing:
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(idle(), HANG_GUARD)
+
+    def assert_single_terminal_prefix(self, calls_before_commit: int) -> None:
+        assert self.sut.items == [1, 101, 555]
+        assert self.sut.current_token is None
+        assert self.sut.has_more is False
+        # Only the refresh fetched; the gated-out load fetched nothing.
+        assert self.calls[calls_before_commit:] == [None]
+        assert self.resets == 1
+
+
+@pytest.mark.conformance("COL-026")
+async def test_COL_026_execute_in_the_tick_a_terminal_refresh_lands_fetches_nothing() -> None:
+    harness = _TerminalAfterAdmissionHarness()
+    await harness.load_two_pages()
+    calls_before_commit = len(harness.calls)
+    refresh = await harness.start_held_refresh()
+    future = harness.held
+    assert future is not None
+
+    # The refresh resumes before the scheduled load body runs.
+    future.set_result(([1, 101, 555], None))
+    assert harness.sut.load_more_command.can_execute() is True
+    harness.sut.load_more_command.execute()
+
+    await asyncio.wait_for(refresh, HANG_GUARD)
+    await harness.wait_idle()
+    harness.assert_single_terminal_prefix(calls_before_commit)
+
+
+@pytest.mark.conformance("COL-026")
+async def test_COL_026_execute_async_admitted_before_a_terminal_refresh_fetches_nothing() -> None:
+    harness = _TerminalAfterAdmissionHarness()
+    await harness.load_two_pages()
+    calls_before_commit = len(harness.calls)
+    refresh = await harness.start_held_refresh()
+    future = harness.held
+    assert future is not None
+
+    # The load task is admitted first; the refresh commits before its body starts.
+    load = asyncio.create_task(harness.sut.load_more_command.execute_async())
+    future.set_result(([1, 101, 555], None))
+
+    await asyncio.wait_for(load, HANG_GUARD)
+    await asyncio.wait_for(refresh, HANG_GUARD)
+    await harness.wait_idle()
+    harness.assert_single_terminal_prefix(calls_before_commit)
+
+
+@pytest.mark.conformance("COL-026")
+async def test_COL_026_gated_out_load_does_not_supersede_a_later_refresh() -> None:
+    """A gated-out load supersedes no refresh that started after the terminal commit.
+
+    #1161 / spec 21 §6.2 (ADR-0169), as the C# and Rust tests check. The load is
+    admitted while ``has_more`` is True. In its admission notification a refresh
+    commits a terminal page, and then a later refresh starts and holds its fetch
+    before the load body runs. The refresh command refuses a second run while
+    the first one executes, so the later refresh drives the refresh body. The
+    asyncio ready queue runs the terminal refresh's commit, then the later
+    refresh's start, then the load body.
+    """
+    loop = asyncio.get_running_loop()
+    terminal: asyncio.Future[tuple[list[int], str | None]] = loop.create_future()
+    later: asyncio.Future[tuple[list[int], str | None]] = loop.create_future()
+    held = [terminal, later]
+    terminal_entered = asyncio.Event()
+    later_entered = asyncio.Event()
+    entered = [terminal_entered, later_entered]
+    calls: list[str | None] = []
+    holding = False
+
+    async def fetch(token: str | None) -> tuple[list[int], str | None]:
+        calls.append(token)
+        if token is None and holding and held:
+            page = held.pop(0)
+            entered.pop(0).set()
+            return await page
+        # Page 1. Before the fix the gated-out load refetched it here.
+        return ([1], "1") if token is None else ([101], "2")
+
+    sut: TokenPagedComposition[int, str] = TokenPagedComposition(fetch_next=fetch)
+    await asyncio.wait_for(sut.load_more_command.execute_async(), HANG_GUARD)
+    await asyncio.wait_for(sut.load_more_command.execute_async(), HANG_GUARD)
+    assert sut.items == [1, 101]
+    assert sut.current_token == "2"
+
+    holding = True
+    calls_before = len(calls)
+    terminal_refresh = asyncio.create_task(sut.refresh_command.execute_async())
+    await asyncio.wait_for(terminal_entered.wait(), HANG_GUARD)
+
+    resets: list[object] = []
+    sut.on_collection_changed.subscribe(resets.append)
+    later_refresh: list[asyncio.Task[None]] = []
+
+    def in_admission(_: None) -> None:
+        if later_refresh or not sut.load_more_command.is_executing:
+            return
+        # The terminal refresh resumes first; the later refresh starts next.
+        terminal.set_result(([1, 101, 555], None))
+        later_refresh.append(asyncio.ensure_future(sut._refresh()))
+
+    sut.load_more_command.can_execute_changed.subscribe(in_admission)
+
+    await asyncio.wait_for(sut.load_more_command.execute_async(), HANG_GUARD)
+    await asyncio.wait_for(terminal_refresh, HANG_GUARD)
+    assert later_refresh, "the load was not admitted"
+    assert later_entered.is_set(), "the later refresh did not start before the load body"
+    assert sut.items == [1, 101, 555]
+    assert sut.current_token is None
+    assert sut.has_more is False
+    # Only the two refreshes fetched; the gated-out load fetched nothing.
+    assert calls[calls_before:] == [None, None]
+    assert len(resets) == 1
+
+    later.set_result(([7], "x"))
+    await asyncio.wait_for(later_refresh[0], HANG_GUARD)
+    assert sut.items == [7]
+    assert sut.current_token == "x"
+    assert sut.has_more is True
+    assert len(resets) == 2
+
+
 @pytest.mark.conformance("COL-027")
 async def test_COL_027_refresh_clears_and_refetches_first_page() -> None:
     pages = [([1, 2], "next"), ([9], None)]

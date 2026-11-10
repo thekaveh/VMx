@@ -17,7 +17,7 @@ from typing import Any, Protocol
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import join_thread, wait_event
 from vmx.components._late_child_starts import _LateChildStage, _LateChildStarts
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -207,7 +207,7 @@ class _Pause:
 
     def hold(self) -> None:
         self.paused.set()
-        self.resume.wait(HANG_GUARD)
+        wait_event(self.resume)
 
 
 def _pause_add_after_attach(root: _Container, late: ComponentVM, pause: _Pause) -> None:
@@ -248,12 +248,12 @@ def _add_while_walk_pulls(
     adder = threading.Thread(target=add, daemon=True)
     adder.start()
     try:
-        assert pause.paused.wait(HANG_GUARD), "the add pauses before the late child settles"
+        assert wait_event(pause.paused), "the add pauses before the late child settles"
         bg.run_first()  # the original child settles; the walk pulls ``late``
         while_paused()
     finally:
         pause.resume.set()
-        adder.join(HANG_GUARD)
+        join_thread(adder)
     assert not adder.is_alive(), "the paused add resumes and completes"
     bg.run_all()
     return errors
@@ -330,7 +330,7 @@ def test_walk_joins_a_late_child_its_add_is_starting(kind: str) -> None:
 
 
 @KINDS
-def test_failed_add_started_late_child_undoes_the_add_and_rolls_back(kind: str) -> None:
+def test_failed_add_started_late_child_undoes_the_add_and_root_constructs(kind: str) -> None:
     bg, child, _first, root = _setup(kind)
     root.construct()
     runs: list[None] = []
@@ -348,7 +348,8 @@ def test_failed_add_started_late_child_undoes_the_add_and_rolls_back(kind: str) 
 
     assert [str(error) for error in errors] == ["late failed"], "the add's own construct failed"
     assert all(member is not late for member in root.snapshot()), "the failed add is undone"
-    assert root.status is S.DESTRUCTED, "the walk waited on the failing child"
+    # The undo counts as a removal: the walk ignores the child (ADR-0186).
+    assert root.status is S.CONSTRUCTED, "the walk waited on the add, then skipped its child"
     assert late.status is S.DESTRUCTED
     assert waiting == [S.CONSTRUCTING]
     assert len(runs) == 1
@@ -411,3 +412,43 @@ def test_failed_walk_never_clears_the_next_walks_records(kind: str) -> None:
     bg.run_all()
     assert late.status is S.CONSTRUCTED
     assert root.status is S.CONSTRUCTED
+
+
+@KINDS
+def test_constructed_publishes_after_the_late_add_ends_its_transaction(kind: str) -> None:
+    """A walk that a late add resumes publishes Constructed after that add (#1371).
+
+    The add ends its start attempt only after it ends its membership
+    transaction (ADR-0218), so a Constructed subscriber can add a child.
+    """
+    bg, child, _first, root, statuses = _setup_recorded(kind)
+    container: Any = root
+    container.on_collection_changed.subscribe(
+        lambda event: statuses.append(f"root:collection:{event.action}")
+    )
+    extra = child("extra")
+    extra_errors: list[BaseException] = []
+
+    def add_extra(name: str) -> None:
+        if name != "status" or root.status is not S.CONSTRUCTED or extra_errors:
+            return
+        if any(member is extra for member in root.snapshot()):
+            return
+        try:
+            root.add(extra)
+        except BaseException as error:
+            extra_errors.append(error)
+
+    container.property_changed.subscribe(add_extra)
+    root.construct()
+    late = child("late")
+    pause = _Pause()
+    _pause_add_after_attach(root, late, pause)
+
+    errors = _add_while_walk_pulls(bg, root, late, pause)
+
+    assert errors == []
+    assert extra_errors == []
+    assert any(member is extra for member in root.snapshot())
+    assert statuses.index("root:CONSTRUCTED") > statuses.index("root:collection:add")
+    _assert_constructed_after_late(root, late, statuses)

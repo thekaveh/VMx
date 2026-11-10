@@ -24,6 +24,7 @@ export {
   type ItemRemovedEvent,
   type ItemReplacedEvent,
 } from "./observableList.js";
+export { ReadOnlyObservableList } from "./readOnlyObservableList.js";
 export {
   ObservableDictionary,
   type DictionaryItemAddedEvent,

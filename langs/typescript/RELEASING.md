@@ -19,15 +19,22 @@ Restrict its deployment refs to `typescript-v*` tags.
 
 ### 1.2 npm trusted publishing
 
-The npm trusted publisher is configured; the bootstrap procedure is in git
-history. It uses the shared trusted-publisher fields with provider GitHub
+No trusted publish has succeeded yet. The one-time `NPM_TOKEN` bootstrap
+published 3.30.0; npm records its publisher as the `thekaveh` account, not
+GitHub Actions. The bootstrap procedure is in git history at [commit `0c88386e`, §1.2 and §1.3](https://github.com/thekaveh/VMx/blob/0c88386eb3fffbe1d0620178bfd391745bd5db4e/langs/typescript/RELEASING.md#L24-L65).
+It records how the bootstrap token was scoped, stored, and revoked. The React adapter's
+first trusted publish failed with `E404`
+([#653](https://github.com/thekaveh/VMx/issues/653)), so confirm the publisher
+on npmjs.com before the next tag.
+
+The publisher uses the shared trusted-publisher fields with provider GitHub
 Actions and environment `npm-typescript`. Its permission must be publish
 ("Allow npm publish"); without it the publisher may only stage, and the
 workflow's public-install checks time out.
 
 The workflow uses OIDC when the environment has no `NPM_TOKEN` secret.
 Trusted publishing requires Node.js 22.14 or newer and npm CLI 11.5.1 or newer;
-the publish job pins Node 24 and npm 11.18.0. npm automatically attaches
+the `typescript-publish` job pins Node 24 and npm 11.18.0. npm automatically attaches
 provenance for an eligible GitHub-hosted trusted-publishing run.
 
 ## 2. Cutting a release
@@ -36,8 +43,9 @@ provenance for an eligible GitHub-hosted trusted-publishing run.
    PR flow.
 2. Confirm `langs/typescript/package.json` has the intended version and update
    `__minSpecVersion__` in `langs/typescript/src/version.ts` when required.
-3. Add a matching `## [X.Y.Z] — YYYY-MM-DD` entry to
-   `langs/typescript/CHANGELOG.md`.
+3. In `langs/typescript/CHANGELOG.md`, replace `unreleased source version` in
+   the matching `## [X.Y.Z]` heading with the release date, immediately before
+   the tag (`CONTRIBUTING.md` §4.3).
 4. From a clean checkout of current `origin/main`, verify the version and that
    neither the tag nor npm version exists:
 
@@ -59,10 +67,16 @@ provenance for an eligible GitHub-hosted trusted-publishing run.
 
 ### 2.1 Release gates
 
-Before publishing, CI verifies main ancestry and exact tag/package version,
-then runs fixture sync, both typechecks, lint, build, tests, audit, a strict
-package-content allowlist, and a packed local consumer smoke test. The publish
-job uses Node 24 and npm 11.18.0 without an npm dependency cache.
+Before publishing, the `release-metadata` preflight checks versions, tags, and
+release notes. The `typescript-build` job has no `id-token: write` and no
+publishing environment. It verifies main ancestry and exact tag/package
+version. It then runs the dependency-graph check, fixture sync, both
+typechecks, lint, build, tests, audit, a strict package-content allowlist, and
+a packed local consumer smoke test, then packs and uploads the release
+tarball. The `typescript-publish` job holds `id-token: write` in the
+`npm-typescript` environment. It installs only the pinned npm CLI, checks the
+tarball's name and version against the tag, and publishes that tarball. Both
+jobs use Node 24 and npm 11.18.0 without an npm dependency cache.
 
 After npm accepts the package, separate Node 20.5.0, 22, 24, and 26 jobs poll for
 and install the exact public version in clean consumers. They test ESM imports,

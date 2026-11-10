@@ -35,8 +35,10 @@ on:
       - "examples/typescript/react/notes-showcase/tests/recipes/**"
       - "packages/react/tests/migration.test.tsx"
       - "langs/csharp/tests/VMx.Tests/Integration/**"
+      - "langs/csharp/tests/VMx.Tests/Forms/FormVMRecordCollectionEqualityTests.cs"
       - "langs/python/tests/unit/state/test_async_resource_cancellation_recipe.py"
       - "langs/python/tests/unit/state/test_connection_state_recipe.py"
+      - "langs/rust/tests/conformance/expandable.rs"
       - "langs/swift/Tests/VMxTests/SwiftUIRecipeTests.swift"
       - "langs/typescript/tests/unit/asyncResourceRecipes.test.ts"
       - "langs/typescript/tests/unit/componentAuthoringRecipes.test.ts"
@@ -89,6 +91,10 @@ jobs:
       - name: Audit docs dependencies
         run: python -m pip_audit --local
       - name: Check docs
+        # Includes tests/docs/test_new_adr_diagram_generation.py: on this
+        # ubuntu-24.04 runner, both diagram generators run in write mode on a
+        # copy of the tree with a new spec/ADRs/9999-test.md, and no unrelated
+        # PNG may change (#1477).
         run: make docs-check
       - name: Configure Pages
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

@@ -344,6 +344,7 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
     public void FORM_037_A_Nested_SetModel_From_A_Validator_Wins()
     {
         FormVM<Model>? form = null;
+        Probe<Model>? trace = null;
         var nestedCalls = 0;
         var validated = new List<string>();
         var validators = new Dictionary<string, Func<Model, string?>>
@@ -351,7 +352,11 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
             ["Value"] = model =>
             {
                 validated.Add(model.Value);
-                if (model.Value == "a" && nestedCalls++ == 0) form!.SetModel(new Model("b"));
+                if (model.Value == "a" && nestedCalls++ == 0)
+                {
+                    form!.SetModel(new Model("b"));
+                    trace!.Trace.Add("nested returned");
+                }
                 return model.Value == "b" ? "b is rejected" : null;
             },
         };
@@ -364,7 +369,7 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
             snapshotter: model => model,
             validators: validators);
         using var disposeForm = form;
-        using var probe = new Probe<Model>(form, hub);
+        using var probe = trace = new Probe<Model>(form, hub);
         validated.Clear();
 
         form.SetModel(new Model("a"));
@@ -374,8 +379,8 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
         var nested = new FormState<Model>(new Model("b"), new Model("initial"), "Value=b is rejected", true, false, false);
         StateOf(form).Should().Be(nested, "the nested assignment is the newest committed state");
         probe.Trace.Should().Equal(
-            ["errors:Value=b is rejected", "can_execute", "model"],
-            "only the nested assignment commits and publishes; the outer call publishes nothing after it");
+            ["nested returned", "errors:Value=b is rejected", "can_execute", "model"],
+            "only the nested assignment commits and publishes, after it returns (ADR-0180); the outer call adds nothing");
         probe.Observed.Should().Equal(nested);
 
         // The form stays usable after the abandoned outer call.
@@ -385,10 +390,13 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
         probe.Trace.Should().Equal("errors:", "can_execute", "model");
     }
 
-    // Deny and an approval commit made from a validator are also "another update
-    // committed during preparation" (spec/20 §5.4): the outer SetModel is stale.
+    // A deny made from a validator is also "another update committed during
+    // preparation" (spec/20 §5.4): the outer SetModel is stale. An approval
+    // started from a validator only admits there; its persister starts after
+    // the outer SetModel commits and notifies, so the approval races that
+    // assignment like any edit during persistence (§5.3, ADR-0180).
     [Fact]
-    public async Task A_Nested_Deny_Or_Approval_Commit_From_A_Validator_Also_Wins()
+    public async Task A_Nested_Deny_Wins_And_A_Nested_Approval_Races_The_Outer_Assignment()
     {
         FormVM<Model>? form = null;
         Action? reenter = null;
@@ -436,12 +444,12 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
         form.SetModel(new Model("a"));
         approval.Should().NotBeNull();
         await approval!;
-        StateOf(form).Should().Be(new FormState<Model>(new Model("edited"), new Model("edited"), "", false, true, true));
+        StateOf(form).Should().Be(new FormState<Model>(new Model("a"), new Model("edited"), "", true, true, true));
         persisted.Should().Equal(new Model("edited"));
         approved.Should().Equal(new Model("edited"));
         probe.Trace.Should().Equal(
-            ["can_execute", "can_execute"],
-            "approval admission and settlement each raise CanExecuteChanged; the stale SetModel publishes nothing");
+            ["can_execute", "model", "can_execute"],
+            "the admission CanExecuteChanged and the outer assignment's message come first, then the settlement");
     }
 
     // ── FORM-038 ──────────────────────────────────────────────────────────────
@@ -534,27 +542,26 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
         form.IsDirty.Should().BeTrue();
     }
 
-    // ── Serialization (spec/20 §5.4) ──────────────────────────────────────────
+    // ── Cross-thread commits (spec/20 §5.4, ADR-0215) ──────────────────────────
 
-    // Updates are serialized: another thread's SetModel waits for the update in
-    // progress, preparation included, and then applies. Only same-thread
-    // re-entry makes a preparation stale, so a concurrent edit is never dropped.
+    // Callbacks run with no form lock held: another thread's SetModel commits
+    // while an update prepares. The overtaken update then runs again as a new
+    // call, so neither edit is dropped and no stale result is committed.
     [Fact]
-    public async Task Another_Threads_SetModel_Waits_For_The_Update_In_Progress()
+    public async Task Another_Threads_SetModel_Commits_During_A_Preparation_And_The_Overtaken_Update_Runs_Again()
     {
         using var releaseValidation = new ManualResetEventSlim();
         var firstValidating = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var secondCalling = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var validated = new ConcurrentQueue<string>();
         var validators = new Dictionary<string, Func<Model, string?>>
         {
             ["Value"] = model =>
             {
                 validated.Enqueue(model.Value);
-                if (model.Value == "first")
+                if (model.Value == "first" && firstValidating.TrySetResult())
                 {
-                    firstValidating.SetResult();
-                    releaseValidation.Wait(HangGuard).Should().BeTrue();
+                    // The test sets releaseValidation in a finally block.
+                    releaseValidation.Wait();
                 }
                 return null;
             },
@@ -576,29 +583,22 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
         validated.Clear();
 
         var first = Task.Run(() => form.SetModel(new Model("first")));
-        await firstValidating.Task.WaitAsync(HangGuard);
-        var second = Task.Run(() =>
-        {
-            secondCalling.SetResult();
-            form.SetModel(new Model("second"));
-        });
-        bool secondFinishedWhileFirstPrepared;
+        Task second;
         try
         {
-            await secondCalling.Task.WaitAsync(HangGuard);
-            secondFinishedWhileFirstPrepared = await Task.WhenAny(
-                second,
-                Task.Delay(TimeSpan.FromMilliseconds(100))) == second;
+            await firstValidating.Task.WaitAsync(HangGuard);
+            second = Task.Run(() => form.SetModel(new Model("second")));
+            await second.WaitAsync(HangGuard);
+            form.Model.Should().Be(new Model("second"), "the second update does not wait for the preparation");
         }
         finally
         {
             releaseValidation.Set();
         }
 
-        await Task.WhenAll(first, second).WaitAsync(HangGuard);
-        secondFinishedWhileFirstPrepared.Should().BeFalse("the second update waits for the first to finish");
-        validated.Should().Equal("first", "second");
-        form.Model.Should().Be(new Model("second"), "the concurrent edit is applied, not dropped");
+        await first.WaitAsync(HangGuard);
+        validated.Should().Equal("first", "second", "first");
+        form.Model.Should().Be(new Model("first"), "the overtaken update runs again against the new state");
         Volatile.Read(ref modelMessages).Should().Be(2);
     }
 

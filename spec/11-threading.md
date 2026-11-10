@@ -92,6 +92,37 @@ producers are serialized behind that scope and retain ordinary synchronous
 delivery on their own calling thread after it exits. Re-entrant sends are
 delivered iteratively on the current drainer's thread. See `03-messages.md §3.3`.
 
+### 3.1 Continuations after awaited work (spec v3.30, ADR-0195)
+
+Some VMx operations await work and then continue. A
+`ConfirmationDecoratorCommand` awaits `confirm()` and then runs the inner
+command (chapter 04 §8.3). An `AsyncRelayCommand` awaits its task and then
+raises its completion `CanExecuteChanged` and any `errors` emission (chapter
+04 §10). A `TokenPagedComposition` load or refresh awaits its fetch and then
+publishes its `CollectionChanged` and property notifications (chapter 21 §6).
+
+VMx does not marshal such a continuation. The continuation runs where the
+awaited work completes, not on the caller's thread and not on
+`IDispatcher.Foreground`. VMx makes no further thread guarantee for it:
+
+- **C#:** VMx awaits with `ConfigureAwait(false)`. The continuation can run on
+  a thread-pool thread, also when the caller has a `SynchronizationContext`.
+- **Python:** the continuation runs on the event loop that runs the operation.
+  That is the caller's running loop, or the VMx background loop when no loop
+  runs.
+- **TypeScript:** the continuation runs on the one JavaScript thread.
+- **Swift:** the continuation runs on the executor of the Swift task that VMx
+  starts. VMx starts these tasks from nonisolated code, so they do not run on
+  the main actor.
+- **Rust:** the continuation runs on the thread that settles the awaited value,
+  or on a VMx worker thread.
+
+A consumer that needs foreground delivery marshals the work itself. It
+subscribes through `ObserveOn(dispatcher.Foreground)` or the flavor
+equivalent, or it makes the inner command post its work to
+`IDispatcher.Foreground`. An inner command that mutates a composite must do
+so on the foreground (§3).
+
 ## 4. Background work
 
 VMs MAY perform construction and destruction work on `IDispatcher.Background`. The
@@ -111,12 +142,11 @@ does not turn parent orchestration into a synchronous wait for background-enable
 descendants; containers retain their existing child-cascade and failure routes.
 
 The child-transition helper of chapter 02 §6.1 runs inside the parent's hook,
-so a background-enabled parent runs it on `IDispatcher.Background` in C#,
-Python, TypeScript and Swift. Rust's walk methods run the component's
-transition on the calling thread, so `construct_with_children` and
-`destruct_with_children` reject a component built with `background(true)` and
-return `VmxError::InvalidArgument` before any transition starts.
-`reconstruct_with_children` follows the direct-reconstruct rule above and runs
+so a background-enabled parent runs it on `IDispatcher.Background`. In Rust,
+the walk of a `construct` or `destruct` of a component built with
+`background(true)` runs after the hook on the background dispatcher
+(ADR-0203). A reconstruct, with stored walks or through
+`reconstruct_with_children`, follows the direct-reconstruct rule above and runs
 synchronously for every component. Background children of the walk still run
 their own hooks on the background dispatcher, and the walk waits for them.
 
@@ -162,12 +192,29 @@ The await primitive for a consumer-defined background wrapper is the
 terminal-status subscription above; the hub does not replay the last status to a
 late subscriber. Every flavor's containers wait at the status level for
 background children to settle (chapter 02 §6). In Rust, a container waits for a
-child node that forwards `VmNode::when_lifecycle_settled`; a third-party node
-that does not forward it is accepted while still in flight. C# alone ships
-first-class outcome tasks for it (`ConstructAsync` / `DestructAsync`); those
+child node that forwards `VmNode::when_lifecycle_settled`. For a node that does
+not forward it, the container observes its own message hub (ADR-0205). When the
+container starts the node and, by the time the start call returns, the hub
+delivered or queued the node's transient status, the container waits on that
+hub for a status of the node that arrives once the node is no longer in flight,
+and a node that settles anywhere else rolls the container back. In every other case (the node publishes on another hub, or the
+container joins a node already in flight), the container accepts the node while
+it is still in flight rather than wait without limit. C# alone ships
+first-class outcome tasks for awaiting a transition (`ConstructAsync` /
+`DestructAsync`); those
 tasks preserve hook and child-cascade failures per ADR-0109. Equivalent async
 lifecycle entry points remain deliberately absent from the other flavors under
 ADR-0008/ADR-0009 rather than an active parity requirement.
+
+A child walk that waits on a background child does not keep running on the
+thread that settles the child. When a walk waited, for a child to settle or
+for an add's start attempt, and did not continue at once, it continues on the
+walking VM's own `IDispatcher.Foreground` (chapter 02 §6, ADR-0218). Later
+sibling starts, `Current` and `IsCurrent` changes, consumer callbacks and the
+terminal publication then run on that VM's foreground, also when the child
+uses another dispatcher. A walk whose waits all end at once runs on the
+calling thread to its end. TypeScript has one thread, so the rule holds there
+without a hop.
 
 ## 5. Null variant — `NullDispatcher` (spec v2.0)
 
@@ -184,7 +231,117 @@ hosts, or any code path where async dispatch is not required.
 
 The null variant is conformance-tested by `NULL-002`.
 
-## 6. Conformance
+## 6. Delayed work: the scheduler and `DelayedTask` (spec v3.30, ADR-0219)
+
+Some work runs after a delay: a search-term debounce (chapter 06 §8), a
+notification lifespan (chapter 16 §6), and application timers such as polling
+or a short "Copied" state. This section defines the one clock that all such
+work uses and the `DelayedTask` helper over it.
+
+### 6.1 The scheduler
+
+A *scheduler* is the clock for delayed work:
+
+```
+Scheduler:
+    now : Time                                  # current scheduler time
+    schedule(delay, action) : Cancellation      # run action once after delay
+```
+
+Cancelling the returned handle before the action starts prevents the action.
+Each delayed-work consumer takes its scheduler at construction. There is no
+global scheduler. `SearchableState` uses the real-time scheduler below when the
+caller passes none; `DelayedTask` and the notification VMs take one
+explicitly. The Rust `new` and `with_hub` notification conveniences use
+`SystemScheduler`.
+
+| Language   | Scheduler type                                           | Real-time scheduler         | Virtual-time test scheduler                       |
+| ---------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------------- |
+| C#         | `IScheduler`                                             | `DefaultScheduler.Instance` | `Microsoft.Reactive.Testing.TestScheduler`        |
+| Python     | `SchedulerBase`                                          | `TimeoutScheduler()`        | `reactivex.testing.TestScheduler`                 |
+| TypeScript | `SchedulerLike`                                          | `asyncScheduler`            | rxjs `TestScheduler`, or any `SchedulerLike` fake |
+| Swift      | Combine `Scheduler` (`NotificationScheduler` for ch. 16) | `DispatchQueue.main`        | `VirtualTimeScheduler`                            |
+| Rust       | `Scheduler` trait                                        | `SystemScheduler`           | `VirtualTimeScheduler`                            |
+
+Rust has no reactive scheduler (ADR-0103), so it defines the trait:
+
+```rust
+pub trait Scheduler: Send + Sync + 'static {
+    fn now(&self) -> Duration;
+    fn schedule(&self, delay: Duration, action: Box<dyn FnOnce() + Send>) -> ScheduledAction;
+}
+```
+
+`ScheduledAction::cancel()` cancels the action, and a second call has no
+effect. Dropping a `ScheduledAction` does not cancel it. `SystemScheduler`
+runs actions in due-time order on one VMx timer thread, which it starts at its
+first `schedule`. Its `now` is the time since a fixed process origin.
+`VirtualTimeScheduler` is cloneable; its clones share one clock, which
+`advance_by(Duration)` moves.
+
+A *virtual-time* scheduler starts at its origin. Its `now` changes only when a
+test advances it. An advance runs each action that becomes due, in due-time
+order, on the thread that advances. Actions with the same due time run in the
+order they were scheduled. Work that an action schedules runs in the same
+advance when it is due by the end of that advance. A cancelled action never
+runs.
+
+### 6.2 Relation to `IDispatcher`
+
+Delayed work never goes through `IDispatcher`. The dispatcher channels take
+work without a delay, and their null variants cannot delay work in a portable
+way (§5). An action runs where its scheduler runs it. VMx does not marshal it
+to `IDispatcher.Foreground`, as §3.1 says for continuations. A host that needs
+UI-thread delivery passes a scheduler that runs on the UI thread, such as a C#
+`SynchronizationContextScheduler` or Swift `DispatchQueue.main`.
+
+### 6.3 `DelayedTask`
+
+`DelayedTask` holds at most one pending action on an injected scheduler. It is
+the portable form of a timer, a debounce and a polling loop.
+
+```
+DelayedTask(scheduler):
+    schedule(delay, action) : void   # replace the pending action; restart the delay
+    cancel() : void                  # cancel the pending action, if any
+    IsPending : bool                 # an action is scheduled and has not started
+    dispose() : void                 # cancel; later calls have no effect
+```
+
+- `schedule` cancels the pending action, if any, and then schedules `action`
+  after `delay`. A second call therefore restarts the delay.
+- `cancel` cancels the pending action. It has no effect when no action is
+  pending.
+- `IsPending` is true from `schedule` until the action starts, `cancel` or
+  `dispose`. When the action starts, `IsPending` is already false. The action
+  can call `schedule` again, which repeats a polling loop.
+- A zero or negative delay runs the action at the scheduler's next
+  opportunity. `schedule` never runs the action itself.
+- `dispose` cancels the pending action. Later `schedule` and `cancel` calls
+  have no effect, and `IsPending` stays false. A second `dispose` has no
+  effect. Disposal never disposes the scheduler.
+- The helper is safe to call from any thread. After `schedule`, `cancel` or
+  `dispose` returns, the replaced or cancelled action never starts. An action
+  that already started runs to its end, and `cancel` does not wait for it.
+- A failing action follows the stream-fed route of chapter 03 §3.6. The
+  failure never reaches the scheduler. The task stays usable, and a later
+  `schedule` runs. Swift actions cannot fail.
+- When the scheduler throws from its own `schedule`, the error reaches the
+  caller, and `IsPending` is false. Swift and Rust schedulers have no error
+  path.
+- A task released without `dispose` can still run its pending action. In C#,
+  Python and TypeScript the scheduler holds the action. Swift and Rust hold
+  the task weakly, so a release cancels the action. Dispose a task that is no
+  longer needed.
+
+The delay type is idiomatic (ADR-0006): C# `TimeSpan`, Python seconds as a
+`float` or a `timedelta`, TypeScript milliseconds, Swift `TimeInterval`
+seconds and Rust `Duration`.
+
+`DelayedTask` is a reactive helper for the disposal invariant (chapter 01 §4,
+`DISP-005`).
+
+## 7. Conformance
 
 `THR-001` through `THR-004`, plus the null-object IDs `NULL-002`
 (NullDispatcher schedules synchronously) and `NULL-003` (paired null variants
@@ -194,3 +351,12 @@ exist for the core service contracts), in `12-conformance.md` cover:
 - Background construct dispatches on background scheduler
 - `CollectionChanged` observed on foreground scheduler
 - Subscriber observes on chosen scheduler via `ObserveOn`
+
+`DLY-001` through `DLY-005` cover `DelayedTask` under a virtual-time
+scheduler (§6.3):
+
+- one run at the due time, with `IsPending` false when the action starts
+- a second `schedule` replaces the pending action and restarts the delay
+- `cancel` prevents the pending action
+- disposal cancels the pending action, and later calls have no effect
+- a failing action stays isolated, and the task stays usable

@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import join_thread
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
 from vmx.composites.builders import CompositeVMBuilder
@@ -88,14 +88,14 @@ def test_none_child_leaves_no_open_membership_transaction(kind: str, mutation: s
         return thread
 
     adder = run(lambda: _add(container, other_thread))
-    adder.join(HANG_GUARD)
+    join_thread(adder)
     assert not adder.is_alive()
     assert errors == []
     assert same_thread in container
     assert other_thread in container
 
     disposer = run(container.dispose)
-    disposer.join(HANG_GUARD)
+    join_thread(disposer)
     assert not disposer.is_alive()
     assert errors == []
 
@@ -128,5 +128,5 @@ def test_invalid_child_leaves_no_open_membership_transaction(kind: str, mutation
 
     disposer = Thread(target=container.dispose, daemon=True)
     disposer.start()
-    disposer.join(HANG_GUARD)
+    join_thread(disposer)
     assert not disposer.is_alive()

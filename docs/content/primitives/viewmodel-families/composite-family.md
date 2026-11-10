@@ -41,7 +41,9 @@ without publishing a partial transfer.
 
 The destination and staged old parent stay isolated until commit or rollback.
 Structural mutation attempted re-entrantly from an auto-construction or
-population hook is rejected before it can invalidate rollback state. Selection
+population hook is rejected before it can invalidate rollback state. A
+structural change from another thread during the transaction fails at once
+in the same way. Only disposal waits for the transaction to end (ADR-0187). Selection
 validation and assignment share the membership gate, and deferred selection
 rechecks that the candidate is still a child.
 
@@ -63,20 +65,25 @@ materialized rather than evaluating its factory again (ADR-0122).
 
 The composite owns both child lifecycle and selection messaging:
 
-- `construct()` waits for every child before the composite reports constructed
-- `destruct()` clears `Current` before destructing children
+- `construct()` waits for every child before the composite reports constructed.
+  It counts members only: a child removed during the walk does not roll the
+  composite back (spec/06 §5.1, ADR-0186)
+- `destruct()` clears `Current` before destructing children. The clear opens
+  no membership transaction, never waits and is never refused, so it also
+  works while another thread adds a child or disposal is pending (spec/06 §5,
+  ADR-0173)
 - by default, destruct and dispose walk the children first child first;
   `DestructOrder(ChildOrder.Reverse)` walks them last child first, so a child
   that depends on an earlier sibling is torn down before it (ADR-0161).
   Construct order does not change, and every child is still disposed before
-  the composite
+  the composite, unless the dispose is foreign (spec 02 §7)
 - `Current` changes publish the parent `Current` property and the affected
   children's `IsCurrent`
 - disposal requested by a current-changed callback is deferred until the
-  selection notification finishes and does not deadlock the callback. ADR-0165
-  §3 lists the open gaps for the construct walk's selection in Swift and Rust.
+  selection notification finishes and does not deadlock the callback
 - `AsyncSelection(true)` routes selection work through the foreground
-  dispatcher
+  dispatcher. The delivery checks the selection again and drops it silently
+  when it is no longer valid
 - a non-batched move emits one move event with both indices; a batched move is
   represented by the outer reset
 - each local collection change is followed by one `CollectionChangedMessage` on
@@ -86,14 +93,31 @@ The composite owns both child lifecycle and selection messaging:
 Rust background-child settling follows the shared container rule in
 [ViewModel Families](index.md#6213-lifecycle-and-messaging).
 
-Rust has open selection gaps. The construct walk's selection gaps are listed in
-spec/06 §3.2 and ADR-0165 §3. Also, `CompositeVm` keeps its ownership transaction
-open while it publishes `CollectionChanged`, the children's `is_current`
-changes, and `current`, and while it runs the current-changed callback. A
-selection started from one of these observers, or concurrently, returns
-`OwnershipTransactionInProgress` (spec/06 §3.2).
+### 6.2.5.3.1. Selection And Membership Transactions
 
-### 6.2.5.3.1. Restoring The Current Child
+Selection never opens, joins or waits for a membership transaction, in any
+flavor (spec/06 §4.3, ADR-0173). Each selection validates and commits under
+the composite's own locks and then publishes:
+
+- **Another thread's add or removal never blocks a selection.** A construct
+  hook or another thread can select while an add is still running, and the
+  selection neither fails nor waits.
+- **A child is selectable once its add admits it.** Selecting a child that an
+  add or a population has attached but not admitted raises the non-member
+  error. A `CollectionChanged` subscriber can select the child that was just
+  added. An add that moves a child from another composite admits it after
+  that composite's removal commits, so the child's `IsCurrent` flag always
+  matches the new parent's `Current`.
+- **The adding thread cannot select before its add commits.** A hook on the
+  thread that runs the add gets the "membership transaction in progress"
+  error, also for `Current = null`. A failed add therefore leaves `Current`
+  unchanged.
+- **A disposing composite refuses a non-null selection.** Setting `Current`
+  to `null` and deselecting stay legal.
+- **Publications can interleave.** Two threads that select at the same time
+  can publish their changes in either order.
+
+### 6.2.5.3.2. Restoring The Current Child
 
 The `Current(selector)` hook runs during every construct phase, including the
 construct phase of `reconstruct()` (spec/06 §3.2, ADR-0158). Destruct first sets `Current` to
@@ -126,9 +150,9 @@ const tabs = CompositeVM.builder<ComponentVM>()
 - **Only committed children are selected.** Another thread's membership
   transaction never makes the assignment raise or wait. A child that another
   add has attached but not yet admitted is not contained yet. The assignment
-  is also a no-op while the composite is disposing (spec/06 §3.2, ADR-0165).
-  C# and Python implement these rules; ADR-0165 §3 lists the open gaps in the
-  other flavors.
+  is also a no-op while the composite is disposing (spec/06 §3.2, ADR-0165,
+  ADR-0173). Every flavor follows these rules, and the assignment is
+  synchronous also with `AsyncSelection(true)`.
 
 ## 6.2.5.4. Cross-Language Surface
 
@@ -196,8 +220,9 @@ const tabs = CompositeVM.builder<ComponentVM>()
     ```
 
 Rust ships both `CompositeVm` and `ModeledCompositeVm`. The
-[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) records its removal evidence. Its §12.12 keeps the Rust `FilteredCompositeVm`
-initial cursor policy open: a Rust view always starts under `SnapToFirst`.
+[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) records its removal evidence. A Rust `FilteredCompositeVm` takes its cursor
+policy at construction (`with_cursor_policy`, `scored_with_cursor_policy`) and
+publishes `changed()` (ADR-0207).
 
 ## 6.2.5.6. Common Pitfalls
 

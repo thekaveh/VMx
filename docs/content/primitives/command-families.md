@@ -73,6 +73,11 @@ confirmation that resolves after disposal, whether it confirms, declines, or
 fails, runs nothing and emits nothing on `errors`. Wrappers never dispose their
 inner commands, which stay owned by their creator (ADR-0134).
 
+Disposing a live wrapper notifies its own `CanExecuteChanged` subscribers
+exactly once, so a bound control re-reads `CanExecute` and shows the disabled
+state. A repeated disposal and the inner command's subscribers get nothing
+(ADR-0222).
+
 ## 6.3.4. Cross-Language Surface
 
 Representative naming differences:

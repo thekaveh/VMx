@@ -1,6 +1,6 @@
 [package]
 name = "vmx-rs"
-version = "0.36.0"
+version = "0.37.0"
 edition = "2021"
 rust-version = "1.88"
 description = "Hierarchical, lifecycle-aware MVVM viewmodel framework."
@@ -26,3 +26,14 @@ thiserror = "2.0.19"
 [dev-dependencies]
 pretty_assertions = "1.4.1"
 serde_json = "1.0.145"
+
+[features]
+default = ["notifications"]
+# The notifications sub-package (spec/16, ADR-0211): `NotificationHub`,
+# `NullNotificationHub`, the `NotificationHubApi` trait, `make_confirm`,
+# `NotificationVm` and `ConfirmationVm`. The core does not depend on it, so a
+# build with `default-features = false` compiles without it.
+notifications = []
+# Exports the `_for_testing` seams that the conformance suite under `tests/`
+# calls. Production code never enables it.
+test-seams = []

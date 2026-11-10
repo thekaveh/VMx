@@ -64,6 +64,7 @@ export {
   type ItemRemovedEvent,
   type ItemReplacedEvent,
 } from "./collections/observableList.js";
+export { ReadOnlyObservableList } from "./collections/readOnlyObservableList.js";
 export {
   ObservableDictionary,
   type DictionaryEntry,
@@ -94,6 +95,8 @@ export type {
 export { MessageHub } from "./services/messageHub.js";
 export type { IDispatcher } from "./services/dispatcher.js";
 export { RxDispatcher } from "./services/dispatcher.js";
+export { markSchedulerCancelled } from "./services/cancelledSchedulers.js";
+export { DelayedTask } from "./services/delayedTask.js";
 export { NullMessageHub } from "./services/nullMessageHub.js";
 export { NullDispatcher } from "./services/nullDispatcher.js";
 

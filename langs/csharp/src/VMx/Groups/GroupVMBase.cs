@@ -107,7 +107,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         ChildOrder destructOrder)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
-        _batch = new ContainerBatch(DeliverCollectionChanged);
+        _batch = new ContainerBatch(DeliverCollectionChanged, CanPublishCollectionChange);
         _autoConstructOnAdd = autoConstructOnAdd;
         _destructOrder = destructOrder;
     }
@@ -136,6 +136,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     IComponentVM? IParentCompositeVM.CurrentChild => null;
     void IParentCompositeVM.SelectChild(IComponentVM vm) { /* no-op: GroupVM has no selection */ }
     void IParentCompositeVM.DeselectChild(IComponentVM vm) { /* no-op: GroupVM has no selection */ }
+    void IParentCompositeVM.ChildDisposed(IComponentVM vm) { /* no-op: GroupVM has no selection */ }
     bool IParentCompositeVM.ContainsChild(IComponentVM vm)
     {
         var identity = vm.GetOwnershipIdentity();
@@ -208,78 +209,80 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         get { lock (_membershipGate) return _children[index]; }
         set
         {
-            ThrowHelper.ThrowIfNull(value, nameof(value));
-            BeginMembershipTransaction();
-            ParentTransferToken? transfer = null;
-            VM? old = null;
+            // The start record ends after the transaction (ADR-0218 rule 4).
             LateChildStarts.Record? record = null;
-            var propagateDisposeFailure = true;
-            var originalStatus = value.Status;
-            try
-            {
-                transfer = ComponentOwnership.BeginTransfer(value, this);
-                lock (_membershipGate)
-                {
-                    EnsureTransactionCanContinueLocked();
-                    old = _children[index];
-                    _children[index] = value;
-                    old.SetParent(null);
-                    value.SetParent(this);
-                    record = AttachLateStartLocked(value);
-                }
-                AutoConstructAttached(value, record);
-                lock (_membershipGate) EnsureTransactionCanContinueLocked();
-            }
-            catch (Exception originalError)
-            {
-                propagateDisposeFailure = false;
-                var rollbackFailures = new List<Exception>();
-                lock (_membershipGate)
-                {
-                    if (old is not null && _children.Any(child => ReferenceEquals(child, value)))
-                    {
-                        var actualIndex = _children.FindIndex(
-                            child => ReferenceEquals(child, value));
-                        _children[actualIndex] = old;
-                        old.SetParent(this);
-                        value.SetParent(null);
-                    }
-                    _lateStarts.Remove(value, record);
-                }
-                if (originalStatus == ConstructionStatus.Destructed &&
-                    value.Status == ConstructionStatus.Constructed)
-                {
-                    try { value.DestructAsync().GetAwaiter().GetResult(); }
-                    catch (Exception error) { rollbackFailures.Add(error); }
-                }
-                try { transfer?.Rollback(); }
-                catch (Exception error) { rollbackFailures.Add(error); }
-                // A failed or refused replacement must end its transaction, or
-                // waiters on this group block forever (#718).
-                EndMembershipTransaction(propagateDisposeFailure: false);
-                if (rollbackFailures.Count > 0)
-                    throw new AggregateException(
-                        "Group replacement failed and rollback could not restore lifecycle state.",
-                        new[] { originalError }.Concat(rollbackFailures));
-                throw;
-            }
-            try
-            {
-                ComponentOwnership.CommitThenPublish(transfer, () =>
-                {
-                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                        NotifyCollectionChangedAction.Remove, old, index));
-                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                        NotifyCollectionChangedAction.Add, value, index));
-                });
-            }
-            catch
-            {
-                propagateDisposeFailure = false;
-                throw;
-            }
-            finally { EndMembershipTransaction(propagateDisposeFailure); }
+            try { Replace(index, value, ref record); }
+            finally { LateChildStarts.Finish(record); }
         }
+    }
+
+    private void Replace(int index, VM value, ref LateChildStarts.Record? record)
+    {
+        ThrowHelper.ThrowIfNull(value, nameof(value));
+        BeginMembershipTransaction();
+        ParentTransferToken? transfer = null;
+        VM? old = null;
+        var propagateDisposeFailure = true;
+        var originalStatus = value.Status;
+        try
+        {
+            transfer = ComponentOwnership.BeginTransfer(value, this);
+            lock (_membershipGate)
+            {
+                EnsureTransactionCanContinueLocked();
+                old = _children[index];
+                _children[index] = value;
+                old.SetParent(null);
+                value.SetParent(this);
+                record = AttachLateStartLocked(value);
+            }
+            AutoConstructAttached(value, record);
+            lock (_membershipGate) EnsureTransactionCanContinueLocked();
+        }
+        catch (Exception originalError)
+        {
+            propagateDisposeFailure = false;
+            var rollbackFailures = new List<Exception>();
+            lock (_membershipGate)
+            {
+                if (old is not null && _children.Any(child => ReferenceEquals(child, value)))
+                {
+                    var actualIndex = _children.FindIndex(
+                        child => ReferenceEquals(child, value));
+                    _children[actualIndex] = old;
+                    old.SetParent(this);
+                    value.SetParent(null);
+                }
+                _lateStarts.Remove(value, record);
+            }
+            ContainerMembership.Compensate(value, originalStatus, rollbackFailures);
+            try { transfer?.Rollback(); }
+            catch (Exception error) { rollbackFailures.Add(error); }
+            // A failed or refused replacement must end its transaction, or
+            // later changes fail and a disposal waits forever (#718).
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            if (rollbackFailures.Count > 0)
+                throw new AggregateException(
+                    "Group replacement failed and rollback could not restore lifecycle state.",
+                    new[] { originalError }.Concat(rollbackFailures));
+            throw;
+        }
+        try
+        {
+            ComponentOwnership.CommitThenPublish(transfer, () =>
+            {
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Remove, old, index));
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Add, value, index));
+            });
+        }
+        catch
+        {
+            propagateDisposeFailure = false;
+            throw;
+        }
+        finally { EndMembershipTransaction(propagateDisposeFailure); }
     }
 
     // ── IList<VM>: mutation ───────────────────────────────────────────────────
@@ -287,12 +290,19 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// <inheritdoc/>
     public void Add(VM item)
     {
+        // The start record ends after the transaction (ADR-0218 rule 4).
+        LateChildStarts.Record? record = null;
+        try { AddItem(item, ref record); }
+        finally { LateChildStarts.Finish(record); }
+    }
+
+    private void AddItem(VM item, ref LateChildStarts.Record? record)
+    {
         ThrowHelper.ThrowIfNull(item, nameof(item));
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
         var originalStatus = item.Status;
-        LateChildStarts.Record? record = null;
         int idx;
         try
         {
@@ -324,12 +334,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 }
                 _lateStarts.Remove(item, record);
             }
-            if (originalStatus == ConstructionStatus.Destructed &&
-                item.Status == ConstructionStatus.Constructed)
-            {
-                try { item.DestructAsync().GetAwaiter().GetResult(); }
-                catch (Exception error) { rollbackFailures.Add(error); }
-            }
+            ContainerMembership.Compensate(item, originalStatus, rollbackFailures);
             try { transfer?.Rollback(); }
             catch (Exception error) { rollbackFailures.Add(error); }
             EndMembershipTransaction(propagateDisposeFailure: false);
@@ -373,12 +378,19 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// <inheritdoc/>
     public void Insert(int index, VM item)
     {
+        // The start record ends after the transaction (ADR-0218 rule 4).
+        LateChildStarts.Record? record = null;
+        try { InsertItem(index, item, ref record); }
+        finally { LateChildStarts.Finish(record); }
+    }
+
+    private void InsertItem(int index, VM item, ref LateChildStarts.Record? record)
+    {
         ThrowHelper.ThrowIfNull(item, nameof(item));
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
         var originalStatus = item.Status;
-        LateChildStarts.Record? record = null;
         try
         {
             transfer = ComponentOwnership.BeginTransfer(item, this);
@@ -410,12 +422,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 }
                 _lateStarts.Remove(item, record);
             }
-            if (originalStatus == ConstructionStatus.Destructed &&
-                item.Status == ConstructionStatus.Constructed)
-            {
-                try { item.DestructAsync().GetAwaiter().GetResult(); }
-                catch (Exception error) { rollbackFailures.Add(error); }
-            }
+            ContainerMembership.Compensate(item, originalStatus, rollbackFailures);
             try { transfer?.Rollback(); }
             catch (Exception error) { rollbackFailures.Add(error); }
             EndMembershipTransaction(propagateDisposeFailure: false);
@@ -500,14 +507,27 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// Raises the local event, then publishes one equivalent
     /// <see cref="CollectionChangedMessage{T}"/> sent by this group through the
     /// hub's ordinary <c>Send</c> (spec/01 §1.4, ADR-0142). Callers run outside
-    /// the membership gate, so hub subscribers never hold it. A disposed group
-    /// publishes nothing.
+    /// the membership gate, so hub subscribers never hold it. A group whose
+    /// disposal is requested or deferred publishes nothing (spec/01 §1.4,
+    /// ADR-0190).
     /// </summary>
     private void DeliverCollectionChanged(NotifyCollectionChangedEventArgs args)
         => ContainerMembership.DeliverCollectionChanged<GroupVMBase<VM>, VM>(
             this, CollectionChanged, args,
-            static group => Volatile.Read(ref group._disposeRequested) == 0
-                && !group.IsDisposed());
+            static group => group.CanPublishCollectionChange());
+
+    /// <summary>
+    /// Read after the local handlers return, so a handler that requests or
+    /// defers this group's disposal suppresses the hub message (#1351).
+    /// </summary>
+    private bool CanPublishCollectionChange()
+    {
+        lock (_membershipGate)
+        {
+            if (Volatile.Read(ref _disposeRequested) != 0 || _disposeDeferred) return false;
+        }
+        return !IsDisposed();
+    }
 
     private LateChildStarts.Record? AttachLateStartLocked(VM item)
         => ContainerMembership.AttachLateStartLocked(this, _lateStarts, _autoConstructOnAdd, item);
@@ -560,6 +580,10 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     protected override void OnConstruct()
     {
         base.OnConstruct(); // invoke user's onConstruct callback if any
+        // Population and the walk are post-hook container actions: a foreign
+        // dispose that superseded this hook stops them, and Construct()
+        // returns without an error (spec/02 §2.4, ADR-0218 rule 5).
+        if (Volatile.Read(ref _disposeRequested) != 0 || IsDisposed()) return;
         // Children whose construct population started are joined, not restarted.
         var joined = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
         _populationJoined = joined;
@@ -570,14 +594,16 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         // stays open until the commit step, which ends it.
         var lateWalk = _lateStarts.BeginWalk(this);
         var visited = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
+        var commit = ConstructCommitForRunningHook();
         var walk = TransitionChildrenAsync(
             ContainerConstructWalk.Enumerate(
                 () => Snapshot().ToArray(), _autoConstructOnAdd, joined, visited, lateWalk),
             construct: true,
             after: null,
             joined: joined,
-            join: lateWalk.Join,
-            seal: _autoConstructOnAdd ? () => SealOrNextLate(joined, visited, lateWalk) : null);
+            join: child => lateWalk.Join(child, IsMember),
+            seal: _autoConstructOnAdd ? () => SealOrNextLate(joined, visited, lateWalk, commit) : null,
+            isMember: IsMember);
         // A failed or abandoned walk ends its own scope; a committed one already did.
         _ = walk.ContinueWith(
             _ => lateWalk.End(),
@@ -588,9 +614,15 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     }
 
     private IComponentVM? SealOrNextLate(
-        ISet<IComponentVM> joined, ISet<IComponentVM> visited, LateChildStarts.Walk lateWalk)
+        ISet<IComponentVM> joined, ISet<IComponentVM> visited, LateChildStarts.Walk lateWalk, Action commit)
         => ContainerConstructWalk.SealOrNextLate(
-            _membershipGate, _children, joined, visited, lateWalk, MarkConstructedBeforePublication);
+            _membershipGate, _children, joined, visited, lateWalk, commit);
+
+    /// <summary>Whether <paramref name="child"/> is a member now (the construct walk's check).</summary>
+    private bool IsMember(IComponentVM child)
+    {
+        lock (_membershipGate) return _children.Exists(candidate => ReferenceEquals(candidate, child));
+    }
 
     /// <summary>
     /// Called once per Construct() to populate the children collection from
@@ -662,13 +694,10 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                     if (attached >= 0) _children.RemoveAt(attached);
                 }
                 var originalStatus = originalStatuses[candidateIndex];
-                if (originalStatus == ConstructionStatus.Destructed &&
-                    child.Status == ConstructionStatus.Constructed)
-                {
-                    try { child.DestructAsync().GetAwaiter().GetResult(); }
-                    catch (Exception error) { rollbackFailures.Add(error); }
-                }
+                // Detached first: a deferred compensation destructs only a
+                // child with no parent (ADR-0218 rule 7).
                 if (ReferenceEquals(child.GetParent(), this)) child.SetParent(null);
+                ContainerMembership.Compensate(child, originalStatus, rollbackFailures);
             }
             try
             {
@@ -792,27 +821,15 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
 
     private void BeginMembershipTransactionLocked()
     {
-        // Serialize concurrent (cross-thread) membership transactions instead of
-        // failing, mirroring Dispose(): wait for the owning thread to finish
-        // before starting a new one. EnsureChildAdmission then throws only for a
-        // genuine same-thread re-entrant mutation (or a disposing container).
-        // A wait that would close a wait-for cycle is refused instead, so
-        // opposing transfers fail before they mutate rather than deadlock (#718).
-        var caller = Environment.CurrentManagedThreadId;
-        var waits = WaitForGraph.Shared;
-        while (_membershipTransactionActive && _membershipTransactionOwnerThreadId != caller)
-        {
-            if (!waits.TryBeginWait(_membershipGate, caller))
-                throw new InvalidOperationException(
-                    "A container membership transaction is already in progress on a " +
-                    "thread that waits for this one; waiting would deadlock.");
-            try { Monitor.Wait(_membershipGate); }
-            finally { waits.EndWait(caller); }
-        }
+        // A membership change never waits for another thread's transaction:
+        // it fails at once, like a re-entrant change (spec/07 §1.1, ADR-0187).
+        // Only disposal waits (WaitForForeignTransactionLocked).
         EnsureChildAdmission();
         _membershipTransactionActive = true;
-        _membershipTransactionOwnerThreadId = caller;
-        waits.Acquire(_membershipGate, caller);
+        _membershipTransactionOwnerThreadId = Environment.CurrentManagedThreadId;
+        // Recorded so a disposal that waits for this transaction can see a
+        // wait-for cycle (#717).
+        WaitForGraph.Shared.Acquire(_membershipGate, _membershipTransactionOwnerThreadId);
     }
 
     private void ReleaseMembershipTransactionLocked()
@@ -841,8 +858,10 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         lock (_membershipGate)
         {
             ReleaseMembershipTransactionLocked();
+            // The deferral stays set until Dispose admits it, so no other
+            // thread's structural change is admitted between this release and
+            // Dispose (#1153, the CompositeVM twin of #1064).
             dispose = _disposeDeferred;
-            _disposeDeferred = false;
         }
         if (dispose)
         {

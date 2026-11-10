@@ -27,6 +27,7 @@ public class GroupVMTests
         public IComponentVM? CurrentChild => null;
         public void SelectChild(IComponentVM vm) { }
         public void DeselectChild(IComponentVM vm) { }
+        public void ChildDisposed(IComponentVM vm) { }
         public bool ContainsChild(IComponentVM vm) => ReferenceEquals(vm, Child);
         public ParentTransferToken DetachForTransfer(IComponentVM vm)
         {

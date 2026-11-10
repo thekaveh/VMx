@@ -135,3 +135,63 @@ def test_extractor_finds_each_manifest_version_in_its_changelog(flavor: str) -> 
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip(), f"{flavor} {version}"
+
+
+# #1381: a column-0 "##" line that CommonMark does not read as a heading. The
+# extractor ends a section at each raw "##" line, so the gates reject the file.
+BLOCK_INPUTS = {
+    "fence-in-section": (
+        "# Changelog\n\n## [Unreleased]\n\n## [0.2.0] - 2026-02-01\n\n- Before.\n\n"
+        "```sh\n## run this first\nmake\n```\n\n- After.\n\n## [0.1.0] - 2026-01-01\n\n- Old.\n"
+    ),
+    "fenced-placeholder-in-unreleased": (
+        "# Changelog\n\n## [Unreleased]\n\n```md\n## [0.2.0] - 2026-01-01\n\n- Placeholder.\n"
+        "```\n\n## [0.2.0] - 2026-02-01\n\n- Real notes.\n"
+    ),
+    "html-block-in-section": (
+        "# Changelog\n\n## [Unreleased]\n\n## [0.2.0] - 2026-02-01\n\n- Visible.\n\n"
+        "<details>\n## Internal\n\n- Hidden.\n</details>\n"
+    ),
+}
+
+
+def _gate_issues(tmp_path: Path, changelog: str) -> tuple[list[str], list[str]]:
+    root = tmp_path / "gates"
+    flavor = root / "langs/python/CHANGELOG.md"
+    flavor.parent.mkdir(parents=True)
+    flavor.write_text(changelog, encoding="utf-8")
+    react = root / "packages/react"
+    react.mkdir(parents=True)
+    (react / "package.json").write_text('{"version": "0.2.0"}', encoding="utf-8")
+    (react / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
+    return (
+        cvc.check_changelog_sections(root, {"python": {"version": "0.2.0"}}),
+        cvc.check_react_changelog_section(root),
+    )
+
+
+@pytest.mark.parametrize("flavor", sorted(STEPS))
+@pytest.mark.parametrize("changelog", BLOCK_INPUTS.values(), ids=BLOCK_INPUTS.keys())
+def test_gates_reject_every_block_line_that_would_mislead_the_extractor(
+    tmp_path: Path, flavor: str, changelog: str
+) -> None:
+    result, notes = _run_step(tmp_path, flavor, changelog, "0.2.0")
+    # The step alone accepts the wrong notes: it fails only on blank output.
+    assert result.returncode == 0, result.stderr
+    assert notes.strip()
+    source = tmp_path / "parsed.md"
+    source.write_text(changelog, encoding="utf-8")
+    _, parse_errors = cvc._parse_changelog_sections(source)
+    flavor_issues, react_issues = _gate_issues(tmp_path, changelog)
+    # So the gates reject the file, and no release of it reaches the step.
+    assert any("is not a CHANGELOG heading" in issue for issue in parse_errors)
+    assert any("is not a CHANGELOG heading" in issue for issue in flavor_issues)
+    assert any("is not a CHANGELOG heading" in issue for issue in react_issues)
+
+
+def test_gates_accept_a_fence_without_a_column_zero_heading_marker(tmp_path: Path) -> None:
+    changelog = (
+        "# Changelog\n\n## [Unreleased]\n\n## [0.2.0] - 2026-02-01\n\n"
+        "```md\n  ## indented example\n#### deeper\n```\n\n<details>\n\n- Hidden.\n\n</details>\n"
+    )
+    assert _gate_issues(tmp_path, changelog) == ([], [])

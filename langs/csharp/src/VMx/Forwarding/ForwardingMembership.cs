@@ -1,4 +1,5 @@
 using VMx.Components;
+using VMx.Lifecycle;
 
 namespace VMx.Forwarding;
 
@@ -27,6 +28,7 @@ internal sealed class ForwardingMembership(IComponentVM wrapper, IComponentVM wr
                 : parent.CurrentChild;
         public void SelectChild(IComponentVM vm) => parent.SelectChild(membership._wrapper);
         public void DeselectChild(IComponentVM vm) => parent.DeselectChild(membership._wrapper);
+        public void ChildDisposed(IComponentVM vm) => parent.ChildDisposed(membership._wrapper);
         public bool ContainsChild(IComponentVM vm) => parent.ContainsChild(membership._wrapper);
         public ParentTransferToken DetachForTransfer(IComponentVM vm)
         {
@@ -54,6 +56,7 @@ internal sealed class ForwardingMembership(IComponentVM wrapper, IComponentVM wr
                 : parent.CurrentChild;
         public void SelectChild(IComponentVM vm) => parent.SelectChild(membership._wrapped);
         public void DeselectChild(IComponentVM vm) => parent.DeselectChild(membership._wrapped);
+        public void ChildDisposed(IComponentVM vm) => parent.ChildDisposed(membership._wrapped);
         public bool ContainsChild(IComponentVM vm) => parent.ContainsChild(membership._wrapped);
         public ParentTransferToken DetachForTransfer(IComponentVM vm)
         {
@@ -99,10 +102,23 @@ internal sealed class ForwardingMembership(IComponentVM wrapper, IComponentVM wr
 
     /// <summary>Registers a resource on the canonical ownership identity (ADR-0151).</summary>
     internal T Own<T>(T resource) where T : IDisposable
-        => OwnershipIdentity is ComponentVMBase owner
-            ? owner.OwnForAlias(resource)
-            : throw new InvalidOperationException(
-                "A forwarding decorator must wrap a VMx ComponentVMBase to own resources.");
+        => OwnerBase("own resources").OwnForAlias(resource);
+
+    /// <summary>
+    /// Publishes a property change through the canonical ownership identity,
+    /// whose <c>PropertyChanged</c> event the decorator exposes (#1352).
+    /// </summary>
+    internal void NotifyPropertyChanged(string propertyName)
+        => OwnerBase("report a property change").NotifyPropertyChangedForAlias(propertyName);
+
+    /// <summary>Raises only the local event of the canonical ownership identity (#1352).</summary>
+    internal void RaisePropertyChanged(string propertyName)
+        => OwnerBase("report a property change").RaisePropertyChangedForAlias(propertyName);
+
+    private ComponentVMBase OwnerBase(string action)
+        => OwnershipIdentity as ComponentVMBase
+            ?? throw new InvalidOperationException(
+                $"A forwarding decorator must wrap a VMx ComponentVMBase to {action}.");
 
     internal void SetParent(IParentCompositeVM? parent)
     {
@@ -124,4 +140,8 @@ internal sealed class ForwardingMembership(IComponentVM wrapper, IComponentVM wr
     // through the decorator's own (virtual) DestructAsync (spec/09).
     internal Task? TryJoinDestructAsync()
         => (_wrapped as IComponentVMInternals)?.TryJoinDestructAsync();
+
+    internal bool ConstructInFlightOrConstructed()
+        => (_wrapped as IComponentVMInternals)?.ConstructInFlightOrConstructed()
+            ?? _wrapped.Status == ConstructionStatus.Constructed;
 }

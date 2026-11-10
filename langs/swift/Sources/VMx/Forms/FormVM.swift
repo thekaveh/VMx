@@ -26,9 +26,10 @@ import Foundation
 /// `setModel` and ``denyCommand`` prepare before they commit: the equality,
 /// snapshotter, and validator callbacks run first without changing form
 /// state, and only then is the result committed in one step and published.
-/// Updates are serialized: the form's re-entrant state lock is held across
-/// preparation, so another thread's update, approval commit, or disposal
-/// waits for it (spec/20-form-vm.md §5.4, ADR-0144).
+/// The form holds no lock while a callback runs, so another thread's reads
+/// and calls never wait for one. Commits stay serialized: an update that
+/// another thread's commit overtakes runs again as a new call
+/// (spec/20-form-vm.md §5.4, ADR-0144, ADR-0215).
 public final class FormVM<Model> {
 
     // ── Stored state ──────────────────────────────────────────────────────────
@@ -36,49 +37,77 @@ public final class FormVM<Model> {
     private var _model: Model
     private var _snapshot: Model
     private var _disposed = false
-    // Failure-atomic updates (§5.4, ADR-0144): every commit of the model,
-    // snapshot, or errors advances this generation under `stateGate`. An
-    // update holds the gate from admission through commit, so only a
-    // callback re-entering on the preparing thread can dispose the form or
-    // commit another update meanwhile; the prepared result is then stale and
-    // dropped, and the newest committed state stands.
+    // Failure-atomic updates (§5.4, ADR-0144, ADR-0215): every commit of the
+    // model, snapshot, or errors advances this generation under `stateGate`.
+    // An update prepares with the gate released. When a callback on the
+    // preparing thread committed or queued another update, the prepared
+    // result is stale and dropped. When another thread committed meanwhile,
+    // the update runs again as a new call.
     private var commitGeneration: UInt64 = 0
+    // Counts the updates in progress and the deliveries outside a publication
+    // scope: an admission's `canExecuteChanged` and an `approveErrors` send
+    // (§5.5, #1228).
     private var activeMutations = 0
-    private var mutationTeardownPending = false
-    private var approvalPrePublishing = false
-    private var deferredApprovalModels: [Model] = []
+    // A disposal's teardown (§10) waits until no update or unscoped delivery
+    // is active (§5.4, §5.5) and no other thread holds a publication scope. A disposal whose scope wait
+    // was refused sets `teardownAfterScopes`: its teardown then waits until
+    // no thread holds a scope, so the publisher runs it after its outermost
+    // scope ends (§5.5).
+    private var teardownPending = false
+    private var teardownAfterScopes = false
+    // Updates during approval publication (§5.3, ADR-0174): the threads
+    // inside an approval's pre-publication window, which runs from the start
+    // of the post-persist commit until `onApproved` delivery starts. A
+    // `setModel` or deny on such a thread prepares, then joins that thread's
+    // queue in `deferredUpdates` instead of committing. A Swift approval
+    // commits from its own task, so windows never nest on one thread.
+    private var prePublishingThreads = Set<UInt64>()
+    // Each publisher's queue (§5.5): its own pre-publication calls, then the
+    // refused updates of other threads, in the order they joined. It replays
+    // after the publisher's outermost publication scope ends.
+    private var deferredUpdates: [UInt64: [DeferredUpdate]] = [:]
     // Single-flight admission (§5.3, ADR-0143): set when an approval is
     // admitted and cleared when it settles, both under `stateGate`. The gate
     // is never held while the persister runs or observers are notified.
     private var approvalInFlight = false
     private let stateGate = NSRecursiveLock()
-    // Approval publication runs outside `stateGate`, so observers on other
-    // threads can read the form while it is delivered (#533). Meanwhile,
-    // mutations and disposal on other threads wait, as in C# and Python.
-    // `setModel` and deny send `errorsChanged` inside the same scope (#704),
-    // so error maps keep commit order. Another thread's update or disposal
-    // waits until they are delivered. Their `canExecuteChanged` and hub
-    // messages follow after the scope closes (#1057).
-    private var approvalPublishing = false
-    private var approvalPublisher: UInt64 = 0
-    private var publicationDepth = 0
-    private var approvalGeneration = 0
-    private let approvalFinished = NSCondition()
-    // Re-entrant updates (#1057): `setModel` and deny hold `stateGate` across
-    // consumer callbacks. This counts those frames on the thread that holds
-    // the gate. A call nested in one of them queues its notifications in
-    // `pendingNotices`, and the outermost frame delivers them after it
-    // releases the gate. Another thread's sink may wait for the gate while
-    // it holds Combine's delivery lock.
-    private var preparationDepth = 0
-    private var pendingNotices = Notices()
-    // The thread that sends error maps inside its open publication scopes in
-    // `deliver`, or 0. An update or admission on that thread, made from an
-    // `errorsChanged` sink, queues its notifications in `scopedNotices`. Its
-    // error maps go out inside those scopes, and the rest follows them. Only
-    // that thread adds to or takes from `scopedNotices`.
-    private var scopedDeliveryThread: UInt64 = 0
-    private var scopedNotices = Notices()
+    // Publication scopes (§5.5, ADR-0176): the open scopes of each publisher
+    // thread. A committed `setModel` or deny holds an update scope while it
+    // sends `errorsChanged` (#704), so error maps keep commit order; its
+    // `canExecuteChanged` and hub messages follow the scope (#1057). A
+    // settlement holds a settlement scope from clearing the in-flight mark
+    // until `onApproved` returns, or, after a failure, until its
+    // `canExecuteChanged` returns (#533). Scopes are delivered outside
+    // `stateGate`, so other threads can read the form meanwhile.
+    //
+    // Another thread's `setModel`, deny, approval admission, settlement, or
+    // disposal waits until no other thread holds a scope. The wait records
+    // an edge on `scopeFinished` in `ThreadWaitGraph`, owned by one
+    // publisher, so a wait that would close a cycle is refused and the call
+    // takes its §5.5 escape instead. Two threads hold scopes only after such
+    // a refusal.
+    private var scopeDepths: [UInt64: Int] = [:]
+    private var scopeWaitsRecorded = false
+    private var scopeGeneration = 0
+    private let scopeFinished = NSCondition()
+    // Re-entrant updates (#1057, ADR-0215): the update frames of each thread
+    // that runs `setModel` or deny. A call nested in one of them queues its
+    // notifications in the frame, and the outermost frame delivers them
+    // after it releases the gate. The frame also counts the commits and
+    // enqueues made on its thread, so a nested call makes the outer
+    // preparation stale (§5.4). Only the owning thread changes its entry.
+    private var frames: [UInt64: UpdateFrame] = [:]
+    // The threads that send error maps inside their open update scopes in
+    // `deliver`. An update or admission on such a thread, made from an
+    // `errorsChanged` sink, queues its notifications in that thread's entry
+    // of `scopedNotices`. Its error maps go out inside those scopes, and the
+    // rest follows them. Only the owning thread adds to or takes from an
+    // entry.
+    private var scopedDeliveryThreads = Set<UInt64>()
+    private var scopedNotices: [UInt64: Notices] = [:]
+    // Test seam: the update scopes that `setModel` and deny have opened
+    // (§5.5, #1426).
+    internal private(set) var updateScopesOpenedForTesting = 0
 
     private let persister: (Model) async throws -> Void
     private let hub: MessageHubProtocol
@@ -91,13 +120,20 @@ public final class FormVM<Model> {
     private var _errors: [String: String]
 
     // ── Reactive channels (sealed) ────────────────────────────────────────────
+    //
+    // Every channel, and `canExecuteChanged` of both commands, delivers
+    // through `VMxConcurrentSubject`, which holds no lock while a sink runs
+    // (#1168, ADR-0174 §2.1). A sink that updates or disposes the form can
+    // then wait for another thread's publication scope without blocking that
+    // thread's next send, as in C# and Python. One sink can run on two
+    // threads at once.
 
-    private let _onApproved = PassthroughSubject<Model, Never>()
-    private let _approveErrors = PassthroughSubject<Error, Never>()
-    private let _errorsChanged = PassthroughSubject<[String: String], Never>()
+    private let _onApproved = VMxConcurrentSubject<Model, Never>()
+    private let _approveErrors = VMxConcurrentSubject<Error, Never>()
+    private let _errorsChanged = VMxConcurrentSubject<[String: String], Never>()
     /// Fires when `isDirty` transitions in strict mode; wired as a trigger on
     /// `approveCommand` so that subscribers to `canExecuteChanged` are notified.
-    private let _approveCanExecSubject = PassthroughSubject<Void, Never>()
+    private let _approveCanExecSubject = VMxConcurrentSubject<Void, Never>()
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -224,72 +260,31 @@ public final class FormVM<Model> {
     /// A call begun after disposal returns before inspecting the candidate.
     ///
     /// The equality and validator callbacks run before anything is committed
-    /// and observe the previous form state (§5.4). Another thread's update or
-    /// disposal waits until this call has committed. If a callback re-enters
-    /// on this thread and disposes the form or commits another update, this
-    /// call commits and publishes nothing, and the newest committed state
-    /// stands. The notifications of an update made from such a callback are
-    /// delivered after this call releases the form's state lock (#1057).
+    /// and observe the previous form state (§5.4). The form holds no lock
+    /// while they run, so another thread's reads and calls do not wait for
+    /// them. When another thread commits meanwhile, this call runs again as a
+    /// new call against the new state. If a callback re-enters on this thread
+    /// and disposes the form or commits another update, this call commits and
+    /// publishes nothing, and the newest committed state stands. An update or
+    /// approval made from such a callback, or from an `errorsChanged` sink of
+    /// this call, returns before its notifications. This call delivers them
+    /// after it releases the form's state lock and before it returns, then
+    /// starts the persister of such an approval. Once the form is disposed,
+    /// those queued notifications are dropped (§5.4, #1057, ADR-0180,
+    /// ADR-0215).
+    ///
+    /// Called on the approving thread from `resetOnApproved`, another
+    /// callback of the approval's commit, or a settlement `errorsChanged` or
+    /// `canExecuteChanged` sink, the call prepares, then is queued and
+    /// returns without changing the form. It replays after `onApproved` is
+    /// delivered (§5.3, ADR-0174).
+    ///
+    /// While another thread publishes form notifications, the call waits
+    /// until that publication scope ends. When the wait would close a
+    /// wait-for cycle, the call prepares, joins that publisher's queue, and
+    /// returns before it takes effect (§5.5, ADR-0176).
     public func setModel(_ newModel: Model) {
-        stateGate.lock()
-        awaitForeignApprovalLocked()
-        guard !_disposed else {
-            stateGate.unlock()
-            return
-        }
-        if approvalPrePublishing {
-            deferredApprovalModels.append(newModel)
-            stateGate.unlock()
-            return
-        }
-        activeMutations += 1
-        preparationDepth += 1
-        var notices = Notices()
-        defer {
-            // Observers are notified after the gate is released (ADR-0143,
-            // #704), by the outermost update on this thread (#1057).
-            preparationDepth -= 1
-            let delivery = takeNoticesLocked(notices)
-            stateGate.unlock()
-            deliver(delivery)
-            endMutation()
-        }
-
-        // Preparation (§5.2, §5.4): consumer callbacks run under the
-        // re-entrant `stateGate`, which keeps updates serialized, and change
-        // no form state.
-        let base = updateBaseLocked()
-        guard !equals(base.model, newModel) else { return }
-        let wasDirty = !equals(base.model, base.snapshot)
-        let nextErrors = Self.validate(
-            newModel,
-            validators: validators,
-            modelValidator: modelValidator
-        )
-        let nextDirty = !equals(newModel, base.snapshot)
-        let wasValid = base.errors.isEmpty
-        let errorsChanged = nextErrors != base.errors
-        let canExecuteChanged =
-            (strict && nextDirty != wasDirty) || nextErrors.isEmpty != wasValid
-
-        // Commit in one step, unless a re-entrant callback made the prepared
-        // result stale.
-        guard beginCommitLocked(base) else { return }
-        _model = newModel
-        _errors = nextErrors
-        enterPublicationLocked()
-        notices.scopes += 1
-        if errorsChanged {
-            notices.errors.append(nextErrors)
-        }
-        if canExecuteChanged {
-            notices.afterScope.append(.canExecuteChanged)
-        }
-        notices.afterScope.append(.message(PropertyChangedMessage(
-            sender: self,
-            senderName: "FormVM",
-            propertyName: "model"
-        )))
+        while runUpdate(.setModel(newModel)) {}
     }
 
     // ── Async core ────────────────────────────────────────────────────────────
@@ -310,19 +305,41 @@ public final class FormVM<Model> {
     // ── Dispose ───────────────────────────────────────────────────────────────
 
     /// Complete both reactive channels and dispose the commands. Idempotent.
+    ///
+    /// While another thread publishes form notifications, the call waits
+    /// until that publication scope ends. When the wait would close a
+    /// wait-for cycle, the call marks the form disposed, wakes every call
+    /// that waits for a scope on the form, and returns. The publisher then
+    /// completes the channels and disposes the commands after its outermost
+    /// scope ends (§5.5, ADR-0176, ADR-0215).
+    ///
+    /// During another thread's update preparation, the call marks the form
+    /// disposed and returns. That update commits nothing, and the teardown
+    /// runs when it returns (§5.4).
+    ///
+    /// A notification delivered outside a publication scope does not make
+    /// the call wait: an update's notifications after its scope, an approval
+    /// admission's `canExecuteChanged`, or an `approveErrors` send. The call
+    /// then marks the form disposed and returns, and the delivering thread
+    /// completes the channels when that delivery returns (§5.5).
     public func dispose() {
         stateGate.lock()
-        awaitForeignApprovalLocked()
+        let refused = awaitForeignScopesLocked() != nil
         guard !_disposed else {
             stateGate.unlock()
             return
         }
         _disposed = true
-        let shouldTearDown = activeMutations == 0
-        if !shouldTearDown {
-            mutationTeardownPending = true
+        teardownPending = true
+        teardownAfterScopes = refused
+        if refused {
+            // The waiters find the form disposed (§5.5, ADR-0215). The edges
+            // go before the wake-up, as when a scope closes.
+            ThreadWaitGraph.shared.release(resource: scopeResource)
         }
+        let shouldTearDown = takeTeardownLocked()
         stateGate.unlock()
+        if refused { wakeScopeWaiters() }
         if shouldTearDown { tearDown() }
     }
 
@@ -334,7 +351,8 @@ public final class FormVM<Model> {
         denyCommand = RelayCommand(
             task: { [weak self] in self?.performDeny() },
             predicate: nil,
-            triggers: []
+            triggers: [],
+            concurrentDelivery: true
         )
         approveCommand = RelayCommand(
             task: { [weak self] in
@@ -345,87 +363,229 @@ public final class FormVM<Model> {
             predicate: { [weak self] in
                 self?.canApprove() ?? false
             },
-            triggers: [_approveCanExecSubject.eraseToAnyPublisher()]
+            triggers: [_approveCanExecSubject.eraseToAnyPublisher()],
+            concurrentDelivery: true
         )
     }
 
     // ── Internal ──────────────────────────────────────────────────────────────
 
     private func performDeny() {
+        while runUpdate(.deny) {}
+    }
+
+    // ── Updates (§5.2, §5.4) ──────────────────────────────────────────────────
+
+    /// The update state of one thread (ADR-0215). `depth` counts its open
+    /// `setModel` and deny frames, `pending` holds the notifications of its
+    /// nested calls, and `commits` and `queued` count the updates it has
+    /// committed and enqueued.
+    private struct UpdateFrame {
+        var depth = 0
+        var pending = Notices()
+        var commits: UInt64 = 0
+        var queued: UInt64 = 0
+    }
+
+    /// Applies `change` to the update frame of `caller`, when it has one. The
+    /// lookup is bound first: a member access chained onto the subscript is
+    /// unsafe at `-Onone` (#1462). The caller holds `stateGate`.
+    private func updateFrameLocked(_ caller: UInt64, _ change: (inout UpdateFrame) -> Void) {
+        guard var frame = frames[caller] else { return }
+        change(&frame)
+        frames[caller] = frame
+    }
+
+    /// The update-frame depth of `caller`, or 0 when it has no frame. The
+    /// caller holds `stateGate`.
+    private func frameDepthLocked(_ caller: UInt64) -> Int {
+        guard let frame = frames[caller] else { return 0 }
+        return frame.depth
+    }
+
+    /// A completed preparation, ready to commit.
+    private struct PreparedUpdate {
+        let model: Model
+        let errors: [String: String]
+        let canExecuteChanged: Bool
+    }
+
+    /// Runs one attempt of a `setModel` or deny. Admission and the commit run
+    /// under `stateGate`; the preparation's consumer callbacks run with the
+    /// gate released (§5.4, ADR-0215). Returns `true` when another thread
+    /// committed during the preparation: the caller then runs the update
+    /// again as a new call.
+    private func runUpdate(_ update: DeferredUpdate) -> Bool {
+        let caller = Self.currentThread
         stateGate.lock()
-        awaitForeignApprovalLocked()
+        let queueOwner = admitUpdateLocked()
         guard !_disposed else {
             stateGate.unlock()
-            return
+            return false
         }
+        // A disposal during the preparation defers its teardown until this
+        // call returns (§5.4, §10).
         activeMutations += 1
-        preparationDepth += 1
+        frames[caller, default: UpdateFrame()].depth += 1
+        let base = updateBaseLocked(for: caller)
+        stateGate.unlock()
+
+        let prepared = prepare(update, against: base, queued: queueOwner != nil)
+
+        stateGate.lock()
         var notices = Notices()
-        defer {
-            // Observers are notified after the gate is released (ADR-0143,
-            // #704), by the outermost update on this thread (#1057).
-            preparationDepth -= 1
-            let delivery = takeNoticesLocked(notices)
-            stateGate.unlock()
-            deliver(delivery)
-            endMutation()
+        var runAgain = false
+        if let prepared {
+            runAgain = placeLocked(
+                update, prepared, against: base, queueOwner: queueOwner, notices: &notices
+            )
         }
+        // Observers are notified after the gate is released (ADR-0143,
+        // #704), by the outermost update on this thread (#1057).
+        updateFrameLocked(caller) { $0.depth -= 1 }
+        let delivery = takeNoticesLocked(notices)
+        stateGate.unlock()
+        deliver(delivery)
+        endMutation()
+        return runAgain
+    }
 
-        // Preparation (§5.4): the snapshotter, validator, and equality
-        // callbacks run under the re-entrant `stateGate`, which keeps updates
-        // serialized, and change no form state.
-        let base = updateBaseLocked()
-        let nextModel = snapshotter(base.snapshot)
-        let nextErrors = Self.validate(
-            nextModel,
-            validators: validators,
-            modelValidator: modelValidator
+    /// Runs the consumer callbacks of an update against `base`, with no form
+    /// lock held, and changes no form state (§5.2, §5.4). Only strict mode
+    /// compares with the snapshot (ADR-0216). Returns `nil` for a `setModel`
+    /// whose candidate equals the live model; a queued call is never skipped
+    /// for equality, because earlier queued calls can change the live model
+    /// before it replays (§5.3).
+    private func prepare(_ update: DeferredUpdate, against base: UpdateBase, queued: Bool) -> PreparedUpdate? {
+        let nextModel: Model
+        let nextErrors: [String: String]
+        var wasDirty = false
+        var nextDirty = false
+        switch update {
+        case .setModel(let candidate):
+            guard !equals(base.model, candidate) || queued else { return nil }
+            if strict { wasDirty = !equals(base.model, base.snapshot) }
+            nextErrors = Self.validate(candidate, validators: validators, modelValidator: modelValidator)
+            if strict { nextDirty = !equals(candidate, base.snapshot) }
+            nextModel = candidate
+        case .deny:
+            nextModel = snapshotter(base.snapshot)
+            nextErrors = Self.validate(nextModel, validators: validators, modelValidator: modelValidator)
+            if strict {
+                wasDirty = !equals(base.model, base.snapshot)
+                nextDirty = !equals(nextModel, base.snapshot)
+            }
+        }
+        return PreparedUpdate(
+            model: nextModel,
+            errors: nextErrors,
+            canExecuteChanged: nextDirty != wasDirty || nextErrors.isEmpty != base.errors.isEmpty
         )
-        let wasDirty = !equals(base.model, base.snapshot)
-        let wasValid = base.errors.isEmpty
-        let nextDirty = !equals(nextModel, base.snapshot)
-        let nextValid = nextErrors.isEmpty
-        let errorsChanged = nextErrors != base.errors
-        let canExecuteChanged =
-            (strict && nextDirty != wasDirty) || nextValid != wasValid
+    }
 
-        // Commit in one step, unless a re-entrant callback made the prepared
-        // revert stale: a form disposed meanwhile is not reverted and
-        // publishes no deny message.
-        guard beginCommitLocked(base) else { return }
-        _model = nextModel
-        _errors = nextErrors
-        enterPublicationLocked()
-        notices.scopes += 1
+    /// Queues or commits a completed preparation. The checks run in the
+    /// order of §5.4: a disposed form commits nothing; a commit or enqueue by
+    /// a callback on this thread makes the result stale; and a commit by
+    /// another thread makes the update run again, which this returns as
+    /// `true`. A queued call ignores the third check (ADR-0215). The caller
+    /// holds `stateGate`.
+    private func placeLocked(
+        _ update: DeferredUpdate,
+        _ prepared: PreparedUpdate,
+        against base: UpdateBase,
+        queueOwner: UInt64?,
+        notices: inout Notices
+    ) -> Bool {
+        let caller = Self.currentThread
+        guard !_disposed,
+              let frame = frames[caller],
+              frame.commits == base.ownCommits,
+              frame.queued == base.ownQueued
+        else { return false }
+
+        if let queueOwner {
+            // The call-time preparation is discarded; the replay prepares
+            // again (§5.3 rule 2). A publisher whose scope ended during the
+            // preparation has replayed its queue, so the call runs again.
+            guard queueOwner == caller || scopeDepths[queueOwner] != nil else { return true }
+            deferredUpdates[queueOwner, default: []].append(update)
+            updateFrameLocked(caller) { $0.queued &+= 1 }
+            return false
+        }
+        guard commitGeneration == base.generation else { return true }
+
+        // Commit in one step.
+        commitGeneration &+= 1
+        updateFrameLocked(caller) { $0.commits &+= 1 }
+        _model = prepared.model
+        let errorsChanged = prepared.errors != _errors
+        _errors = prepared.errors
+        // Only an error-map change opens an update scope (§5.5, ADR-0215).
         if errorsChanged {
-            notices.errors.append(nextErrors)
+            enterPublicationLocked()
+            updateScopesOpenedForTesting += 1
+            notices.scopes += 1
+            notices.errors.append(Queued(prepared.errors))
         }
-        notices.afterScope.append(.message(FormRevertedMessage(senderObject: self, senderName: "FormVM")))
-        notices.afterScope.append(.message(
-            PropertyChangedMessage(sender: self, senderName: "FormVM", propertyName: "model")
-        ))
-        if canExecuteChanged {
-            notices.afterScope.append(.canExecuteChanged)
+        switch update {
+        case .setModel:
+            if prepared.canExecuteChanged {
+                notices.afterScope.append(Queued(.canExecuteChanged))
+            }
+            notices.afterScope.append(Queued(.message(PropertyChangedMessage(
+                sender: self,
+                senderName: "FormVM",
+                propertyName: "model"
+            ))))
+        case .deny:
+            notices.afterScope.append(Queued(.message(FormRevertedMessage(senderObject: self, senderName: "FormVM"))))
+            notices.afterScope.append(Queued(.message(
+                PropertyChangedMessage(sender: self, senderName: "FormVM", propertyName: "model")
+            )))
+            if prepared.canExecuteChanged {
+                notices.afterScope.append(Queued(.canExecuteChanged))
+            }
         }
+        return false
     }
 
     // ── Deferred notifications (#1057) ────────────────────────────────────────
 
     /// Notifications an update or admission delivers after it releases
-    /// `stateGate`. Each `errors` map is sent inside the publication scope
-    /// its commit opened, so error maps keep commit order across threads.
-    /// The scopes then close. `afterScope` is delivered after those scopes,
+    /// `stateGate`. Each `errors` map is sent inside the update scope its
+    /// commit opened, so error maps keep commit order across threads. The
+    /// scopes then close. `afterScope` is delivered after those scopes,
     /// because a sink that updates the form waits for an open scope. An
-    /// approval's own publication scope can still be open around it.
+    /// approval's own settlement scope can still be open around it.
     private struct Notices {
-        var errors: [[String: String]] = []
+        var errors: [Queued<[String: String]>] = []
         var scopes = 0
-        var afterScope: [Notice] = []
+        var afterScope: [Queued<Notice>] = []
 
         mutating func append(_ other: Notices) {
             errors += other.errors
             scopes += other.scopes
             afterScope += other.afterScope
+        }
+
+        /// These notices, marked as queued by a nested call (§5.4).
+        func markedNested() -> Notices {
+            var marked = self
+            marked.errors = errors.map { Queued($0.value, nested: true) }
+            marked.afterScope = afterScope.map { Queued($0.value, nested: true) }
+            return marked
+        }
+    }
+
+    /// A notice and whether a nested call queued it. Once the form is
+    /// disposed, `deliver` drops the notices of nested calls (ADR-0180).
+    private struct Queued<Value> {
+        let value: Value
+        let nested: Bool
+
+        init(_ value: Value, nested: Bool = false) {
+            self.value = value
+            self.nested = nested
         }
     }
 
@@ -439,85 +599,142 @@ public final class FormVM<Model> {
     /// nested in an update on this thread queues `notices` for the outermost
     /// one and returns nothing. The outermost frame takes the whole queue.
     /// Inside the error-map phase of a delivery on this thread, the outermost
-    /// frame queues that queue for the delivery instead.
+    /// frame queues that queue for the delivery instead. Both cases mark the
+    /// queued notices as nested.
     private func takeNoticesLocked(_ notices: Notices) -> Notices {
-        pendingNotices.append(notices)
-        guard preparationDepth == 0 else { return Notices() }
-        let delivery = pendingNotices
-        pendingNotices = Notices()
-        guard scopedDeliveryThread != Self.currentThread else {
-            scopedNotices.append(delivery)
+        let caller = Self.currentThread
+        if frameDepthLocked(caller) > 0 {
+            updateFrameLocked(caller) { $0.pending.append(notices.markedNested()) }
+            return Notices()
+        }
+        var delivery = frames.removeValue(forKey: caller)?.pending ?? Notices()
+        delivery.append(notices)
+        guard !scopedDeliveryThreads.contains(caller) else {
+            scopedNotices[caller, default: Notices()].append(delivery.markedNested())
             return Notices()
         }
         return delivery
     }
 
     /// Delivers notifications taken by `takeNoticesLocked`, with `stateGate`
-    /// released.
+    /// released. Command-path approvals admitted by nested calls start their
+    /// persister tasks after the last notification (ADR-0180). When this
+    /// closes the thread's outermost scope, the updates queued for this
+    /// publisher replay after that (§5.5).
+    ///
+    /// Once the form is disposed, a notice that a nested call queued is
+    /// dropped, and its scopes still close. A dropped approval start settles
+    /// silently and never calls the persister (§10).
     private func deliver(_ notices: Notices) {
         var notices = notices
+        let caller = Self.currentThread
         if !notices.errors.isEmpty {
-            withStateGate { scopedDeliveryThread = Self.currentThread }
+            withStateGate { _ = scopedDeliveryThreads.insert(caller) }
             var sent = 0
             while sent < notices.errors.count {
-                _errorsChanged.send(notices.errors[sent])
+                let errors = notices.errors[sent]
+                if !errors.nested || !isDisposed {
+                    _errorsChanged.send(errors.value)
+                }
                 sent += 1
                 if sent == notices.errors.count {
                     // An `errorsChanged` sink may have updated the form on
                     // this thread. Its queued error maps go out inside the
                     // scopes that are still open.
-                    notices.append(withStateGate { () -> Notices in
-                        let queued = scopedNotices
-                        scopedNotices = Notices()
-                        return queued
+                    notices.append(withStateGate {
+                        scopedNotices.removeValue(forKey: caller) ?? Notices()
                     })
                 }
             }
-            withStateGate { scopedDeliveryThread = 0 }
+            withStateGate { _ = scopedDeliveryThreads.remove(caller) }
         }
+        var deferred: [DeferredUpdate] = []
         for _ in 0..<notices.scopes {
-            exitPublication()
+            deferred += exitPublication()
         }
+        var starts: [ApprovalAdmission] = []
         for notice in notices.afterScope {
-            switch notice {
+            if notice.nested, isDropped(notice.value) { continue }
+            switch notice.value {
             case .canExecuteChanged:
                 _approveCanExecSubject.send(())
             case .message(let message):
                 hub.send(message)
             case .startApproval(let admission):
-                startCommandApproval(admission)
+                starts.append(admission)
             }
+        }
+        for admission in starts {
+            startCommandApproval(admission)
+        }
+        replay(deferred)
+    }
+
+    /// `true` when the form is disposed, so a nested call's queued `notice`
+    /// is dropped (ADR-0180). A dropped approval start clears the in-flight
+    /// mark, as `runApproval` does on a disposed form.
+    private func isDropped(_ notice: Notice) -> Bool {
+        withStateGate {
+            guard _disposed else { return false }
+            if case .startApproval = notice { approvalInFlight = false }
+            return true
         }
     }
 
-    /// The committed state an update prepares against (§5.4).
+    /// The committed state an update prepares against (§5.4), and the
+    /// commits and enqueues of the preparing thread at that point.
     private struct UpdateBase {
         let generation: UInt64
+        let ownCommits: UInt64
+        let ownQueued: UInt64
         let model: Model
         let snapshot: Model
         let errors: [String: String]
     }
 
-    /// Reads the committed state for an update to prepare against. The caller
-    /// holds `stateGate`.
-    private func updateBaseLocked() -> UpdateBase {
-        UpdateBase(
+    /// An update queued during an approval's pre-publication window (§5.3).
+    private enum DeferredUpdate {
+        case setModel(Model)
+        case deny
+    }
+
+    /// Reads the committed state for an update on `caller` to prepare
+    /// against. The caller holds `stateGate` and has an update frame.
+    private func updateBaseLocked(for caller: UInt64) -> UpdateBase {
+        let frame = frames[caller] ?? UpdateFrame()
+        return UpdateBase(
             generation: commitGeneration,
+            ownCommits: frame.commits,
+            ownQueued: frame.queued,
             model: _model,
             snapshot: _snapshot,
             errors: _errors
         )
     }
 
-    /// Admits the commit of an update prepared against `base`, with
-    /// `stateGate` held since admission. A prepared result is stale (§5.4)
-    /// when a callback re-entering on this thread disposed the form, or
-    /// committed another update, while it was prepared; it is then dropped.
-    /// Otherwise this advances the generation for the commit that follows.
-    private func beginCommitLocked(_ base: UpdateBase) -> Bool {
-        guard !_disposed, commitGeneration == base.generation else { return false }
-        commitGeneration &+= 1
-        return true
+    /// Admits a `setModel` or deny (§5.3, §5.5). Returns the publisher whose
+    /// queue the update joins, or `nil` when the update commits. On the
+    /// approving thread inside its pre-publication window, that is this
+    /// thread, and the call does not wait, because it changes nothing until
+    /// it replays. Otherwise the call waits for other threads' scopes; a
+    /// refused wait returns the publisher its edge named. The caller holds
+    /// `stateGate`.
+    private func admitUpdateLocked() -> UInt64? {
+        let caller = Self.currentThread
+        if prePublishingThreads.contains(caller) { return caller }
+        return awaitForeignScopesLocked()
+    }
+
+    /// Replays queued updates in call order, each as a new call (§5.3 rule
+    /// 4): admission and preparation run again on the state at replay time,
+    /// so a call replayed after disposal does nothing.
+    private func replay(_ updates: [DeferredUpdate]) {
+        for update in updates {
+            switch update {
+            case .setModel(let model): setModel(model)
+            case .deny: performDeny()
+            }
+        }
     }
 
     /// The model captured by an admitted approval.
@@ -532,30 +749,46 @@ public final class FormVM<Model> {
     ///
     /// The command path passes `startingCommandTask` to start its persister
     /// task after that notification. An admission nested in an update on
-    /// this thread queues both for the outermost update (#1057).
+    /// this thread queues both for the outermost update (#1057), which starts
+    /// the task after all its other notifications (ADR-0180).
+    ///
+    /// Admission waits while another thread holds a publication scope. A
+    /// wait that would close a wait-for cycle is refused, and the call is
+    /// admitted without waiting (§5.5). The admission notification opens no
+    /// scope. It counts in `activeMutations`, so a disposal meanwhile defers
+    /// its teardown until the notification returns (#1228).
     private func admitApproval(startingCommandTask: Bool = false) -> ApprovalAdmission? {
         stateGate.lock()
+        _ = awaitForeignScopesLocked()
         guard !_disposed, _errors.isEmpty, !approvalInFlight else {
             stateGate.unlock()
             return nil
         }
         approvalInFlight = true
+        activeMutations += 1
         let admission = ApprovalAdmission(captured: _model)
         var notices = Notices()
-        notices.afterScope.append(.canExecuteChanged)
+        notices.afterScope.append(Queued(.canExecuteChanged))
         if startingCommandTask {
-            notices.afterScope.append(.startApproval(admission))
+            notices.afterScope.append(Queued(.startApproval(admission)))
         }
         let delivery = takeNoticesLocked(notices)
         stateGate.unlock()
         deliver(delivery)
+        endMutation()
         return admission
+    }
+
+    /// Starts the task of a command-path approval. Tests replace it to hold
+    /// the start back until `dispose()` returns (FORM-042).
+    internal var commandApprovalTaskStarter: (@escaping @Sendable () async -> Void) -> Void = { operation in
+        Task { await operation() }
     }
 
     /// Runs a command-path approval; a failure surfaces on ``approveErrors``.
     private func startCommandApproval(_ admission: ApprovalAdmission) {
         let context = UncheckedSendableBox((self, admission))
-        Task { [context] in
+        commandApprovalTaskStarter { [context] in
             let (form, admitted) = context.value
             do {
                 try await form.runApproval(admitted)
@@ -583,32 +816,57 @@ public final class FormVM<Model> {
             // Throw path — no state mutation if this throws.
             try await persister(captured)
         } catch {
-            settleFailedApproval()
+            settleFailedPersistence()
             throw error
         }
 
         // Commit under the gate, then publish outside it: an observer may hand
         // work to another thread that reads this form (#533).
-        let publication: ApprovalPublication?
-        do {
-            publication = try commitApproval(captured)
-        } catch {
-            settleFailedApproval()
+        switch commitApproval(captured) {
+        case .published(let publication):
+            publishApproval(publication)
+        case .suppressed:
+            return
+        case .failed(let error, let scopeOpened):
+            if scopeOpened { finishFailedSettlement() }
             throw error
         }
-        guard let publication else { return }
-        publishApproval(publication)
     }
 
-    /// Settles a failed approval: clears the in-flight mark, then raises
-    /// `canExecuteChanged` once unless the form was disposed meanwhile.
-    private func settleFailedApproval() {
-        let disposed = withStateGate { () -> Bool in
-            approvalInFlight = false
-            return _disposed
+    /// Settles an approval whose persister failed (§5.3). Like a commit, it
+    /// first waits for other threads' publication scopes (§5.5).
+    private func settleFailedPersistence() {
+        let scopeOpened = withStateGate { () -> Bool in
+            _ = awaitForeignScopesLocked()
+            return beginFailedSettlementLocked()
         }
-        guard !disposed else { return }
+        if scopeOpened { finishFailedSettlement() }
+    }
+
+    /// Settlement step 1 of a failed approval: clears the in-flight mark and,
+    /// unless the form was disposed meanwhile, opens the settlement scope.
+    /// Returns whether the scope opened. The caller holds `stateGate`, after
+    /// its scope wait.
+    private func beginFailedSettlementLocked() -> Bool {
+        approvalInFlight = false
+        guard !_disposed else {
+            // A replay after disposal does nothing.
+            deferredUpdates.removeValue(forKey: Self.currentThread)
+            return false
+        }
+        enterPublicationLocked()
+        return true
+    }
+
+    /// Raises the failed settlement's `canExecuteChanged` once inside its
+    /// scope, then closes the scope. The updates a failed post-persist commit
+    /// queued, and other threads' refused updates, replay before the caller
+    /// routes the failure (§5.3 rule 4, §5.5). A persister failure has no
+    /// window, and the scope holds only this thread's queue: another
+    /// approval's queue stays with its own thread.
+    private func finishFailedSettlement() {
         _approveCanExecSubject.send(())
+        replay(exitPublication())
     }
 
     /// Values an approval publishes once its state is committed.
@@ -617,28 +875,79 @@ public final class FormVM<Model> {
         let errors: [String: String]?
     }
 
-    /// Commits a successful approval under `stateGate`, clears the in-flight
-    /// mark, and marks this thread as the approval publisher. Returns `nil`
-    /// when disposal suppressed the commit. A failed reset throws with the
-    /// mark still set, for `settleFailedApproval` to clear.
-    private func commitApproval(_ captured: Model) throws -> ApprovalPublication? {
+    /// The result of a post-persist commit.
+    private enum ApprovalCommit {
+        /// Committed; the settlement scope is open.
+        case published(ApprovalPublication)
+        /// Disposal suppressed the commit.
+        case suppressed
+        /// The commit failed and the approval settled. `scopeOpened` is
+        /// `false` when the form was disposed meanwhile.
+        case failed(Error, scopeOpened: Bool)
+    }
+
+    /// Commits a successful approval, clears the in-flight mark, and opens
+    /// this thread's settlement scope. A failed reset settles at once.
+    ///
+    /// The pre-publication window opens before the commit's callbacks run, so
+    /// a `setModel` or deny from `resetOnApproved`, the snapshotter, or a
+    /// validator is queued and publishes nothing (§5.1, §5.3). The callbacks
+    /// run with `stateGate` released (ADR-0215): another thread's `setModel`
+    /// or deny meanwhile commits at once, and a configured reset then
+    /// overwrites it (§5.1, #1452).
+    ///
+    /// Settlement step 1 first waits for other threads' publication scopes.
+    /// A wait that would close a wait-for cycle is refused, and the commit
+    /// proceeds at once: two threads then hold scopes (§5.5).
+    private func commitApproval(_ captured: Model) -> ApprovalCommit {
+        let caller = Self.currentThread
+        withStateGate { _ = prePublishingThreads.insert(caller) }
+        let prepared: PreparedApproval?
+        do {
+            prepared = try prepareApproval(captured)
+        } catch {
+            // The window ends with the failure; `finishFailedSettlement`
+            // replays what the commit queued.
+            return withStateGate {
+                prePublishingThreads.remove(caller)
+                _ = awaitForeignScopesLocked()
+                return .failed(error, scopeOpened: beginFailedSettlementLocked())
+            }
+        }
+
         stateGate.lock()
         defer { stateGate.unlock() }
-        awaitForeignApprovalLocked()
-        guard let publication = try completeApproval(captured) else {
+        _ = awaitForeignScopesLocked()
+        guard let prepared, !_disposed else {
+            // Disposal suppressed the commit, and a replay after disposal
+            // does nothing.
+            prePublishingThreads.remove(caller)
+            deferredUpdates.removeValue(forKey: caller)
             approvalInFlight = false
-            return nil
+            return .suppressed
         }
+        let committedErrors = prepared.errors ?? _errors
+        let errorsChanged = committedErrors != _errors
+        // Like every commit, the approval advances the generation (§5.4) and
+        // counts as a commit by this thread; it remains authoritative over
+        // earlier edits (§5.1, §5.3).
+        commitGeneration &+= 1
+        updateFrameLocked(caller) { $0.commits &+= 1 }
+        if let model = prepared.model { _model = model }
+        _snapshot = prepared.snapshot
+        _errors = committedErrors
         // Settlement clears the mark before publishing, so every observer
         // below sees an idle form and may start the next approval (§5.3).
         approvalInFlight = false
         enterPublicationLocked()
-        approvalPrePublishing = true
-        return publication
+        return .published(ApprovalPublication(
+            approved: captured,
+            errors: errorsChanged ? committedErrors : nil
+        ))
     }
 
     /// Delivers a committed approval without holding `stateGate`, then admits
-    /// waiting threads and replays models deferred during pre-publication.
+    /// waiting threads and replays the updates queued during pre-publication.
     /// Settlement order (§5.3): `errorsChanged` when the commit changed the
     /// error map, one `canExecuteChanged`, then `onApproved`.
     private func publishApproval(_ publication: ApprovalPublication) {
@@ -651,54 +960,108 @@ public final class FormVM<Model> {
         // strict-mode change made by the commit.
         _approveCanExecSubject.send(())
         guard !isDisposed else { return }
-        withStateGate { approvalPrePublishing = false }
+        // The window ends when `onApproved` delivery starts: an update from
+        // an `onApproved` sink is an ordinary update.
+        withStateGate { _ = prePublishingThreads.remove(Self.currentThread) }
         _onApproved.send(publication.approved)
     }
 
+    /// Ends the approval's settlement scope and replays this thread's queue
+    /// (§5.3 rule 4, §5.5). The queue is taken as the scope closes, so no
+    /// other thread can add to it afterwards. A Swift approval commits from
+    /// its own task after awaiting the persister, so its scope never nests in
+    /// another scope on this thread.
     private func finishApprovalPublication() {
-        withStateGate { approvalPrePublishing = false }
-        exitPublication()
-        drainDeferredApprovalModels()
+        withStateGate { _ = prePublishingThreads.remove(Self.currentThread) }
+        replay(exitPublication())
     }
 
-    /// Marks this thread as the publisher. The caller holds `stateGate` after
-    /// `awaitForeignApprovalLocked`, so no other thread's scope is open; a
-    /// same-thread scope nests.
+    /// Opens a publication scope on this thread. The caller holds `stateGate`
+    /// after its scope wait, so no other thread holds a scope unless that
+    /// wait was refused (§5.5). A same-thread scope nests.
     private func enterPublicationLocked() {
-        publicationDepth += 1
-        approvalPublishing = true
-        approvalPublisher = Self.currentThread
+        scopeDepths[Self.currentThread, default: 0] += 1
     }
 
-    /// Closes one scope and admits waiting threads when the last one closes.
-    private func exitPublication() {
-        let finished = withStateGate { () -> Bool in
-            publicationDepth -= 1
-            guard publicationDepth == 0 else { return false }
-            approvalPublishing = false
-            approvalPublisher = 0
-            return true
-        }
-        guard finished else { return }
-        approvalFinished.lock()
-        approvalGeneration &+= 1
-        approvalFinished.broadcast()
-        approvalFinished.unlock()
-    }
-
-    /// Waits, releasing `stateGate`, while another thread publishes an approval.
-    /// The caller holds `stateGate` exactly once: the publisher sets the flag
-    /// only while it holds the gate itself, so no other thread can be inside.
-    private func awaitForeignApprovalLocked() {
+    /// Closes one scope on this thread. When it was the thread's outermost
+    /// scope, this removes the wait-for edges that name this thread, then
+    /// wakes the waiting threads (ADR-0172 rule 3). It runs a teardown that
+    /// waited for the scopes, and returns this thread's queue for the caller
+    /// to replay (§5.5).
+    private func exitPublication() -> [DeferredUpdate] {
         let caller = Self.currentThread
-        while approvalPublishing && approvalPublisher != caller && !_disposed {
-            approvalFinished.lock()
-            let generation = approvalGeneration
+        let closed = withStateGate { () -> (deferred: [DeferredUpdate], tearDown: Bool)? in
+            let depth = (scopeDepths[caller] ?? 1) - 1
+            guard depth == 0 else {
+                scopeDepths[caller] = depth
+                return nil
+            }
+            scopeDepths.removeValue(forKey: caller)
+            if scopeWaitsRecorded {
+                ThreadWaitGraph.shared.release(resource: scopeResource, owner: caller)
+                if scopeDepths.isEmpty { scopeWaitsRecorded = false }
+            }
+            return (deferredUpdates.removeValue(forKey: caller) ?? [], takeTeardownLocked())
+        }
+        guard let closed else { return [] }
+        wakeScopeWaiters()
+        if closed.tearDown { tearDown() }
+        return closed.deferred
+    }
+
+    /// Wakes every call that waits for a publication scope on this form.
+    private func wakeScopeWaiters() {
+        scopeFinished.lock()
+        scopeGeneration &+= 1
+        scopeFinished.broadcast()
+        scopeFinished.unlock()
+    }
+
+    /// The wait-for graph resource of this form's publication scopes.
+    private var scopeResource: ObjectIdentifier { ObjectIdentifier(scopeFinished) }
+
+    /// Waits, releasing `stateGate`, while another thread holds a publication
+    /// scope (§5.5). Each wait records an edge in `ThreadWaitGraph` to one
+    /// publisher, and the waiter records again when it wakes. Returns `nil`
+    /// once no other thread holds a scope, or the form is disposed.
+    ///
+    /// Returns the publisher that the edge named when the wait would close a
+    /// wait-for cycle. The caller then takes its §5.5 escape without waiting.
+    /// A call nested in an update on this thread takes the same escape: a
+    /// nested call never waits (§5.4 rule 5).
+    ///
+    /// Otherwise the caller holds `stateGate` exactly once: a scope opens
+    /// only under the gate, so no other thread can be inside it.
+    private func awaitForeignScopesLocked() -> UInt64? {
+        let caller = Self.currentThread
+        while !_disposed, let owner = scopeDepths.keys.first(where: { $0 != caller }) {
+            guard frameDepthLocked(caller) == 0,
+                  ThreadWaitGraph.shared.beginWait(caller: caller, owner: owner, resource: scopeResource)
+            else { return owner }
+            scopeWaitsRecorded = true
+            scopeFinished.lock()
+            let generation = scopeGeneration
             stateGate.unlock()
-            while approvalGeneration == generation { approvalFinished.wait() }
-            approvalFinished.unlock()
+            while scopeGeneration == generation { scopeFinished.wait() }
+            scopeFinished.unlock()
+            ThreadWaitGraph.shared.endWait(caller: caller)
             stateGate.lock()
         }
+        return nil
+    }
+
+    /// `true`, once, when a requested teardown may run on this thread: no
+    /// update or unscoped delivery is active, and no other thread holds a
+    /// publication scope. After a refused disposal wait, no thread may hold
+    /// one (§5.5, §10). The caller holds `stateGate`.
+    private func takeTeardownLocked() -> Bool {
+        let caller = Self.currentThread
+        let scopesEnded = teardownAfterScopes
+            ? scopeDepths.isEmpty
+            : scopeDepths.keys.allSatisfy { $0 == caller }
+        guard teardownPending, activeMutations == 0, scopesEnded else { return false }
+        teardownPending = false
+        return true
     }
 
     private var isDisposed: Bool { withStateGate { _disposed } }
@@ -707,56 +1070,32 @@ public final class FormVM<Model> {
         UInt64(pthread_mach_thread_np(pthread_self()))
     }
 
-    private func completeApproval(_ captured: Model) throws -> ApprovalPublication? {
-        guard !_disposed else { return nil }
-        let currentErrors = _errors
-
-        let nextModel: Model?
-        let nextSnapshot: Model
-        let nextErrors: [String: String]?
-        if let resetOnApproved {
-            let reset = try resetOnApproved(captured)
-            guard !_disposed else { return nil }
-            let preparedModel = snapshotter(reset)
-            guard !_disposed else { return nil }
-            nextModel = preparedModel
-            nextSnapshot = snapshotter(reset)
-            guard !_disposed else { return nil }
-            nextErrors = Self.validate(
-                preparedModel,
-                validators: validators,
-                modelValidator: modelValidator
-            )
-            guard !_disposed else { return nil }
-        } else {
-            nextModel = nil
-            nextSnapshot = snapshotter(captured)
-            guard !_disposed else { return nil }
-            nextErrors = nil
-        }
-
-        let committedErrors = nextErrors ?? currentErrors
-        let errorsChanged = committedErrors != currentErrors
-
-        // Like every commit, the approval advances the generation (§5.4); it
-        // remains authoritative over earlier edits (§5.1, §5.3).
-        commitGeneration &+= 1
-        if let nextModel { _model = nextModel }
-        _snapshot = nextSnapshot
-        if nextErrors != nil { _errors = committedErrors }
-        return ApprovalPublication(
-            approved: captured,
-            errors: errorsChanged ? committedErrors : nil
-        )
+    /// The state a successful approval commits. `model` and `errors` are
+    /// `nil` without a reset.
+    private struct PreparedApproval {
+        let model: Model?
+        let snapshot: Model
+        let errors: [String: String]?
     }
 
-    private func drainDeferredApprovalModels() {
-        let deferred = withStateGate { () -> [Model] in
-            let models = deferredApprovalModels
-            deferredApprovalModels.removeAll()
-            return models
+    /// Runs the post-persist commit's callbacks with no form lock held
+    /// (§5.1, ADR-0215). Returns `nil` once the form is disposed.
+    private func prepareApproval(_ captured: Model) throws -> PreparedApproval? {
+        guard !isDisposed else { return nil }
+        guard let resetOnApproved else {
+            let snapshot = snapshotter(captured)
+            guard !isDisposed else { return nil }
+            return PreparedApproval(model: nil, snapshot: snapshot, errors: nil)
         }
-        for model in deferred { setModel(model) }
+        let reset = try resetOnApproved(captured)
+        guard !isDisposed else { return nil }
+        let model = snapshotter(reset)
+        guard !isDisposed else { return nil }
+        let snapshot = snapshotter(reset)
+        guard !isDisposed else { return nil }
+        let errors = Self.validate(model, validators: validators, modelValidator: modelValidator)
+        guard !isDisposed else { return nil }
+        return PreparedApproval(model: model, snapshot: snapshot, errors: errors)
     }
 
     private func canApprove() -> Bool {
@@ -775,8 +1114,7 @@ public final class FormVM<Model> {
     private func endMutation() {
         stateGate.lock()
         activeMutations -= 1
-        let shouldTearDown = activeMutations == 0 && mutationTeardownPending
-        if shouldTearDown { mutationTeardownPending = false }
+        let shouldTearDown = takeTeardownLocked()
         stateGate.unlock()
         if shouldTearDown { tearDown() }
     }
@@ -821,10 +1159,18 @@ public final class FormVM<Model> {
 
     /// Routes a command-path failure to ``approveErrors`` after settlement.
     /// Sent outside `stateGate`, like every settlement notification (§5.3);
-    /// a failure that lands after disposal is dropped (§8.2).
+    /// a failure that lands after disposal is dropped (§8.2). The send opens
+    /// no publication scope. It counts in `activeMutations`, so a disposal
+    /// meanwhile defers its teardown until the send returns (§5.5, #1228).
     private func emitApproveError(_ error: Error) {
-        guard !isDisposed else { return }
+        let admitted = withStateGate { () -> Bool in
+            guard !_disposed else { return false }
+            activeMutations += 1
+            return true
+        }
+        guard admitted else { return }
         _approveErrors.send(error)
+        endMutation()
     }
 }
 

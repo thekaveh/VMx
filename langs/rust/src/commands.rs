@@ -109,13 +109,21 @@ pub const NO_PREDICATE: Option<fn() -> bool> = None;
 ///     let log = log.clone();
 ///     move || log.lock().unwrap().push("audit")
 /// });
+/// let decision = AsyncValue::pending();
 /// let command = save
-///     .confirm(|| AsyncValue::ready(true))
+///     .confirm({
+///         let decision = decision.clone();
+///         move || decision.clone()
+///     })
 ///     .wrap_with(Some(|| true), NO_HOOK, NO_HOOK)
 ///     .succeed_with(audit);
 ///
 /// command.execute();
-/// assert_eq!(*log.lock().unwrap(), vec!["save", "audit"]);
+/// // A confirmed command never runs inside `execute()`; it runs when the
+/// // confirmation settles, here on this thread.
+/// assert_eq!(*log.lock().unwrap(), vec!["audit"]);
+/// decision.resolve(true);
+/// assert_eq!(*log.lock().unwrap(), vec!["audit", "save"]);
 /// ```
 pub trait CommandExt: Command + Clone + Sized + 'static {
     /// Wraps the command with an asynchronous confirmation gate.
@@ -944,6 +952,11 @@ impl AsyncRelayCommand {
     /// Starts fire-and-forget execution and routes failures to
     /// [`error_stream`](Self::error_stream).
     ///
+    /// A failure reaches the error channels after the execution has ended:
+    /// [`is_executing`](Self::is_executing) already reads `false`, and the
+    /// completion `can_execute_changed` message has been sent (spec/04
+    /// §10.4, ADR-0195).
+    ///
     /// An admitted execution runs its task on one worker thread. A rejected
     /// call (no action, an execution already running, a false predicate, or
     /// a disposed command) returns without starting a thread.
@@ -1050,7 +1063,7 @@ impl AsyncRelayCommand {
             ExecutionReport::ErrorStream | ExecutionReport::JoinHandle => None,
         };
         let run = move || {
-            let _guard = guard;
+            let guard = guard;
             let result = action
                 .map(|action| {
                     if route_fire_and_forget_errors {
@@ -1077,6 +1090,10 @@ impl AsyncRelayCommand {
                 }
                 (_, result) => result,
             };
+            // Admission ends, with its completion notification, before a
+            // fire-and-forget fault reaches the error channels (spec/04
+            // §10.4, ADR-0195).
+            drop(guard);
 
             if route_fire_and_forget_errors {
                 if let Err(error) = &result {
@@ -1461,6 +1478,58 @@ impl Command for CompositeCommand {
     }
 }
 
+/// The change hub of a wrapper command that relays an inner command's hub.
+///
+/// It forwards each inner change message, sent as the wrapper, and sends one
+/// more message when the wrapper is disposed. A subscriber of the inner hub
+/// receives no disposal message (spec `04-commands.md` §8.4). When the inner
+/// hub completes, for example because the inner command was disposed, the
+/// relay hub completes too, so the completion still reaches a wrapper
+/// subscriber.
+#[derive(Clone)]
+struct RelayedChangeHub {
+    hub: MessageHub,
+    subscription: Arc<Mutex<Option<Subscription>>>,
+    sender_name: &'static str,
+}
+
+impl RelayedChangeHub {
+    fn new(source: &MessageHub, sender_name: &'static str) -> Self {
+        let hub = MessageHub::new();
+        let target = hub.clone();
+        let completed = hub.clone();
+        let subscription = source.subscribe_with_completion(
+            move |_| target.send(can_execute_changed_message(sender_name)),
+            move || completed.dispose(),
+        );
+        Self {
+            hub,
+            subscription: Arc::new(Mutex::new(Some(subscription))),
+            sender_name,
+        }
+    }
+
+    fn hub(&self) -> MessageHub {
+        self.hub.clone()
+    }
+
+    /// Releases the inner subscription, notifies once, and disposes the hub.
+    fn close(&self) {
+        let subscription = lock(&self.subscription).take();
+        drop(subscription);
+        self.hub.send(can_execute_changed_message(self.sender_name));
+        self.hub.dispose();
+    }
+}
+
+fn can_execute_changed_message(sender_name: &str) -> Message {
+    Message::Custom {
+        sender_id: 0,
+        sender_name: sender_name.to_string(),
+        name: "can_execute_changed".to_string(),
+    }
+}
+
 #[derive(Clone)]
 /// A command decorator with optional additional predicate and side actions.
 pub struct DecoratorCommand<C: Command + Clone> {
@@ -1468,6 +1537,7 @@ pub struct DecoratorCommand<C: Command + Clone> {
     predicate: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pre: Option<Arc<dyn Fn() + Send + Sync>>,
     post: Option<Arc<dyn Fn() + Send + Sync>>,
+    can_execute_changed: RelayedChangeHub,
     disposed: Arc<AtomicBool>,
 }
 
@@ -1484,11 +1554,14 @@ impl<C: Command + Clone> DecoratorCommand<C> {
         FPost: Fn() + Send + Sync + 'static,
         FPred: Fn() -> bool + Send + Sync + 'static,
     {
+        let can_execute_changed =
+            RelayedChangeHub::new(&inner.can_execute_changed(), "DecoratorCommand");
         Self {
             inner,
             predicate: predicate.map(|p| Arc::new(p) as Arc<dyn Fn() -> bool + Send + Sync>),
             pre: pre.map(|p| Arc::new(p) as Arc<dyn Fn() + Send + Sync>),
             post: post.map(|p| Arc::new(p) as Arc<dyn Fn() + Send + Sync>),
+            can_execute_changed,
             disposed: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -1496,9 +1569,13 @@ impl<C: Command + Clone> DecoratorCommand<C> {
     /// Makes the decorator inert (spec §8.4, ADR-0134).
     ///
     /// Idempotent and shared by clones. The inner command stays owned by its
-    /// creator, and the decorator's change hub remains the inner command's.
+    /// creator. The decorator releases its subscription to the inner change
+    /// hub, announces the change once on its own hub, and completes that hub.
+    /// Subscribers of the inner command receive nothing.
     pub fn dispose(&self) {
-        self.disposed.store(true, Ordering::SeqCst);
+        if !self.disposed.swap(true, Ordering::SeqCst) {
+            self.can_execute_changed.close();
+        }
     }
 
     fn is_disposed(&self) -> bool {
@@ -1543,8 +1620,10 @@ impl<C: Command + Clone> Command for DecoratorCommand<C> {
         }
     }
 
+    /// Returns the decorator's own change hub. It relays the inner command's
+    /// changes and adds one message at disposal (spec §8.4).
     fn can_execute_changed(&self) -> MessageHub {
-        self.inner.can_execute_changed()
+        self.can_execute_changed.hub()
     }
 }
 
@@ -1553,6 +1632,13 @@ impl<C: Command + Clone> Command for DecoratorCommand<C> {
 ///
 /// Panics from fire-and-forget confirmation or confirmed execution are
 /// isolated and published on [`error_stream`](Self::error_stream).
+///
+/// A fire-and-forget [`execute`](Command::execute) may call `confirm` before
+/// it returns, but it never runs the inner command inside its own call (spec
+/// `04-commands.md` §8.3.1, ADR-0195). A confirmation that has already
+/// settled runs the inner command on a VMx worker thread. A pending one runs
+/// it on the thread that settles the confirmation. VMx does not marshal it to
+/// the caller's thread (spec `11-threading.md` §3.1).
 ///
 /// An inner command whose [`Command::as_async`] returns an entry point, such
 /// as an [`AsyncRelayCommand`] or another confirmation decorator, is
@@ -1567,6 +1653,7 @@ pub struct ConfirmationDecoratorCommand<C: Command + Clone> {
     confirm: Arc<dyn Fn() -> AsyncValue<bool> + Send + Sync>,
     errors: MessageHub,
     error_stream: CommandErrorStream,
+    can_execute_changed: RelayedChangeHub,
     disposed: Arc<AtomicBool>,
 }
 
@@ -1639,11 +1726,14 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
     where
         F: Fn() -> AsyncValue<bool> + Send + Sync + 'static,
     {
+        let can_execute_changed =
+            RelayedChangeHub::new(&inner.can_execute_changed(), "ConfirmationDecoratorCommand");
         Self {
             inner,
             confirm: Arc::new(confirm),
             errors: MessageHub::new(),
             error_stream: CommandErrorStream::new(),
+            can_execute_changed,
             disposed: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -1735,8 +1825,13 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
     }
 
     /// Makes the decorator inert and disposes its error hub and stream.
+    ///
+    /// The decorator also releases its subscription to the inner change hub,
+    /// announces the change once on its own hub, and completes that hub
+    /// (spec §8.4). Subscribers of the inner command receive nothing.
     pub fn dispose(&self) {
         if !self.disposed.swap(true, Ordering::SeqCst) {
+            self.can_execute_changed.close();
             self.errors.dispose();
             self.error_stream.dispose();
         }
@@ -1783,7 +1878,9 @@ impl<C: Command + Clone + 'static> Command for ConfirmationDecoratorCommand<C> {
             }
         };
         let command = self.clone();
-        decision.when_settled(move |decision| match decision {
+        // The inner command never runs inside this call, also when the
+        // confirmation has already settled (spec/04 §8.3.1, ADR-0195).
+        decision.when_settled_off_caller(move |decision| match decision {
             Ok(confirmed) => command.execute_after(confirmed),
             Err(panic) => command.publish_error(VmxError::Other(format!(
                 "command panicked: {}",
@@ -1792,8 +1889,10 @@ impl<C: Command + Clone + 'static> Command for ConfirmationDecoratorCommand<C> {
         });
     }
 
+    /// Returns the decorator's own change hub. It relays the inner command's
+    /// changes and adds one message at disposal (spec §8.4).
     fn can_execute_changed(&self) -> MessageHub {
-        self.inner.can_execute_changed()
+        self.can_execute_changed.hub()
     }
 
     /// Returns the awaitable entry point: each call runs the same flow as
@@ -1936,7 +2035,9 @@ pub(crate) mod test_execution {
 
 #[cfg(test)]
 mod worker_tests {
-    use super::{AsyncRelayCommand, AsyncValue, Command, ConfirmationDecoratorCommand};
+    use super::{
+        AsyncRelayCommand, AsyncValue, Command, ConfirmationDecoratorCommand, RelayCommand,
+    };
     use crate::runtime::worker_spawns;
     use std::sync::{mpsc, Mutex};
     use std::time::Duration;
@@ -2044,7 +2145,9 @@ mod worker_tests {
     }
 
     // Spec §8.3.2: the decorator starts no task of its own to run or watch an
-    // asynchronous inner, on either path; only the inner's worker runs.
+    // asynchronous inner, on either path; only the inner's worker runs. The
+    // fire-and-forget half resolves a pending confirmation on this thread, so
+    // the inner starts here and its worker is counted here.
     #[test]
     fn confirmation_over_an_async_inner_spawns_only_the_inner_worker() {
         let (finished_sender, finished) = mpsc::channel();
@@ -2052,19 +2155,67 @@ mod worker_tests {
             let _ = finished_sender.send(());
             Ok(())
         });
-        let decorator = ConfirmationDecoratorCommand::new(inner, || AsyncValue::ready(true));
+        let awaited = ConfirmationDecoratorCommand::new(inner.clone(), || AsyncValue::ready(true));
+        let confirmation = AsyncValue::pending();
+        let fire_and_forget = ConfirmationDecoratorCommand::new(inner, {
+            let confirmation = confirmation.clone();
+            move || confirmation.clone()
+        });
 
-        let (execution, awaited) = worker_spawns::counted(|| decorator.execute_async());
+        let (execution, awaited_workers) = worker_spawns::counted(|| awaited.execute_async());
         execution.join().expect("the awaited execution succeeded");
         finished.recv_timeout(BOUND).expect("the awaited body ran");
         // The awaited execution settles after the inner released admission,
         // so the fire-and-forget call is admitted.
-        let ((), fire_and_forget) = worker_spawns::counted(|| decorator.execute());
+        let (resolved, fire_and_forget_workers) = worker_spawns::counted(|| {
+            fire_and_forget.execute();
+            confirmation.resolve(true)
+        });
+        assert!(resolved, "the confirmation was still pending");
         finished
             .recv_timeout(BOUND)
             .expect("the fire-and-forget body ran");
 
-        assert_eq!((awaited, fire_and_forget), (1, 1));
+        assert_eq!((awaited_workers, fire_and_forget_workers), (1, 1));
+    }
+
+    // Spec §8.3.1, ADR-0195: a settled confirmation runs the inner command on
+    // one VMx worker, never inside `execute()`. A pending one runs it on the
+    // thread that settles the confirmation.
+    #[test]
+    fn fire_and_forget_confirmation_never_runs_the_inner_on_the_calling_thread() {
+        let caller = std::thread::current().id();
+        let (ran_sender, ran) = mpsc::channel();
+        let inner = RelayCommand::new(move || {
+            let _ = ran_sender.send(std::thread::current().id());
+        });
+        let settled = ConfirmationDecoratorCommand::new(inner.clone(), || AsyncValue::ready(true));
+
+        let ((), workers) = worker_spawns::counted(|| settled.execute());
+        let ran_on = ran.recv_timeout(BOUND).expect("the inner command ran");
+
+        assert_ne!(ran_on, caller);
+        assert_eq!(workers, 1);
+
+        let confirmation = AsyncValue::pending();
+        let pending = ConfirmationDecoratorCommand::new(inner, {
+            let confirmation = confirmation.clone();
+            move || confirmation.clone()
+        });
+        let ((), workers) = worker_spawns::counted(|| pending.execute());
+        assert!(
+            ran.try_recv().is_err(),
+            "a pending confirmation runs nothing"
+        );
+        let settler = std::thread::spawn(move || {
+            confirmation.resolve(true);
+            std::thread::current().id()
+        })
+        .join()
+        .expect("the settling thread finished");
+
+        assert_eq!(ran.recv_timeout(BOUND), Ok(settler));
+        assert_eq!(workers, 0);
     }
 }
 

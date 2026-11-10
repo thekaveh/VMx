@@ -5,10 +5,10 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 
 ## 1. Status
 
-**v3.31.0 source — total parity.** Swift implements `spec-v3.30.0` and covers
-all **444 of 444** library conformance IDs. The SwiftUI notes-showcase exercises
-the five additional `THEME-00x` scenarios, for **449 total**, matching the other
-UI-backed flavors; Rust covers the 444 library IDs and has no UI scenario suite.
+**v4.0.0 source — total parity.** Swift implements spec 3.30.0 and covers
+every library conformance ID in `spec/12-conformance.md`. The SwiftUI
+notes-showcase exercises the additional `THEME-00x` scenarios, matching the other
+UI-backed flavors; Rust covers the library IDs and has no UI scenario suite.
 See [CHANGELOG.md](CHANGELOG.md) for history.
 
 The package requires Combine and iOS 16, macOS 13, tvOS 16, or watchOS 9. The
@@ -94,17 +94,14 @@ tabs.dispose()                  // dispose() is terminal/idempotent — never th
 hub.dispose()
 ```
 
-The C# / Python / TypeScript flavors mirror this shape — only the
-identifier casing differs (per ADR-0006: Swift uses **camelCase**,
-matching the TypeScript flavor).
-
 See [SwiftUI Integration](../../docs/content/integration/swiftui.md) for
 a one-page SwiftUI integration recipe.
 
 ### 3.1 Cross-language naming
 
-The concepts are identical across the five flavors; identifier casing follows
-each language idiom (ADR-0006). See the
+The concepts and the quick-start shape are identical across the five flavors.
+Identifier casing follows each language idiom (ADR-0006); Swift uses
+camelCase, as TypeScript does. See the
 [cross-language naming table](../../docs/content/flavors/cross-language-naming.md).
 
 ## 4. API surface
@@ -131,9 +128,10 @@ Key exports:
 | `DefaultDispatcher`             | Main + global-userInitiated Dispatch wrapper     |
 | `ImmediateDispatcher.INSTANCE`  | Synchronous test dispatcher                      |
 | `NullDispatcher.INSTANCE`       | Null-object variant per ADR-0017                 |
+| `DelayedTask`                   | One replaceable delayed action on an injected Combine scheduler (spec/11 §6.3) |
 | `ConstructionStatus`            | 5-state lifecycle enum                           |
 | `StatusTransitionError`         | Thrown on an illegal lifecycle op / `LIFE-008` guard (catchable — ADR-0053) |
-| `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
+| `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` and the select calls on a refused selection (ADR-0053, ADR-0173) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
 | `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface |
 | `KeyedServicedObservableCollection<Key, T>` | Ordered serviced surface plus captured-key index |
@@ -161,8 +159,8 @@ owns; VMx does not attach it to the observed VM's lifetime. See
 
 ## 5. Conformance
 
-Swift implements all 444 library conformance IDs. The
-`examples/swift/notes-showcase/` flagship covers `THEME-001..005` in
+Swift implements every library conformance ID. The
+`examples/swift/notes-showcase/` flagship covers the THEME scenario IDs in
 `ThemeVMTests.swift`, validated by the `examples (notes-showcase)` job in
 `.github/workflows/swift.yml`. See
 [`spec/12-conformance.md`](../../spec/12-conformance.md) for the catalog and
@@ -171,20 +169,23 @@ group of IDs.
 
 Known Swift divergences:
 
-- The read-only model setter traps because Swift setters cannot throw
+- A Swift setter cannot throw, so some operations trap on input that the
+  other flavors reject with a catchable error. Most have a catchable form. For
+  example, the `CompositeVM.current` setter traps on a refused selection, and
+  `try setCurrent(_:)` throws `CompositeMembershipError` instead (ADR-0053,
+  ADR-0173).
+  [ADR-0009 §2.34](../../spec/ADRs/0009-cross-flavor-divergence-catalogue.md#234-swift-traps-that-remain-adr-0217)
+  lists each trap and its catchable form.
+- The `ReadonlyComponentVMOf` model setter traps on every external write
   (ADR-0053).
-- The `CompositeVM.current` setter traps on a non-child; use
-  `try setCurrent(_:)` for a catchable `CompositeMembershipError` (ADR-0053).
 - Hub handler traps are uncatchable on every path. `subscribe(_:)` isolates
   thrown errors per subscriber; raw `messages` Combine sinks cannot throw
   (ADR-0062 §2.4).
 - `NotificationVM` time values are `TimeInterval` seconds (ADR-0063 §2.4).
-
-Run the suite:
-
-```bash
-swift test
-```
+- `VMx.Notification` has the same name as `Foundation.Notification`. In a file
+  that imports both modules, write `VMx.Notification` or declare a type alias.
+  [What to reach for](../../docs/content/flavors/swift.md#752-what-to-reach-for)
+  in the Swift flavor guide shows the compiler error and the alias.
 
 ## 6. Development
 
@@ -193,6 +194,10 @@ swift test
 swift build
 swift test
 ```
+
+See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for the contributor workflow,
+including the public API baselines, and [`RELEASING.md`](RELEASING.md) for
+the release runbook.
 
 ## 7. License
 

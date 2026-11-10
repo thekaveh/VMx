@@ -71,7 +71,6 @@ public final class WorkspaceVM {
     private let _noteForm: NoteFormVM
     private let _statusBar: StatusBarVM
     private let _notificationsVM: NotificationsVM
-    private let _notificationClock: VirtualTimeScheduler
     private let _capabilities: CapabilityActionsVM
 
     private let _agg: AggregateVM6<
@@ -132,10 +131,6 @@ public final class WorkspaceVM {
     /// Notification list (Component5).
     public var notifications: NotificationsVM { _notificationsVM }
 
-    /// Clock that drives notification lifespans. It is virtual so tests
-    /// control time; the app host advances it in real time.
-    public var notificationClock: VirtualTimeScheduler { _notificationClock }
-
     /// Capability-action projection (Component6).
     public var capabilityActions: CapabilityActionsVM { _capabilities }
 
@@ -180,6 +175,7 @@ public final class WorkspaceVM {
         notificationHub: NotificationHubProtocol,
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
+        notificationScheduler: any NotificationScheduler,
         name: String
     ) {
         // ── Phase 1: assign all let stored properties ──────────────────────
@@ -190,8 +186,6 @@ public final class WorkspaceVM {
         _notificationHub = notificationHub
         _hub = hub
         _dispatcher = dispatcher
-        let notificationClock = VirtualTimeScheduler()
-        _notificationClock = notificationClock
 
         // Pre-build all six children so siblings can wire to live references.
         // Each builder requires the shared hub + dispatcher so all messages
@@ -204,6 +198,13 @@ public final class WorkspaceVM {
             .notificationHub(notificationHub)
             .build()
 
+        let noteForm = try! NoteFormVM.builder()
+            .name("form")
+            .services(hub: hub, dispatcher: dispatcher)
+            .repository(repo)
+            .notificationHub(notificationHub)
+            .build()
+
         let notesView = try! NotesViewVM.builder()
             .name("notes")
             .services(hub: hub, dispatcher: dispatcher)
@@ -211,13 +212,9 @@ public final class WorkspaceVM {
             .pageSize(5)
             .dialogService(dialogService)
             .notificationHub(notificationHub)
-            .build()
-
-        let noteForm = try! NoteFormVM.builder()
-            .name("form")
-            .services(hub: hub, dispatcher: dispatcher)
-            .repository(repo)
-            .notificationHub(notificationHub)
+            .saveNote({ [weak noteForm] vm in
+                try await WorkspaceVM.saveNote(vm, form: noteForm, repo: repo, dispatcher: dispatcher)
+            })
             .build()
 
         let statusBar = try! StatusBarVM.builder()
@@ -232,7 +229,7 @@ public final class WorkspaceVM {
             .name("notifications")
             .services(hub: hub, dispatcher: dispatcher)
             .notificationHub(notificationHub)
-            .scheduler(notificationClock)
+            .scheduler(notificationScheduler)
             .build()
 
         // FocusCell: created as a local variable so it can be captured by the
@@ -426,6 +423,41 @@ public final class WorkspaceVM {
 
     // MARK: - Private async helpers
 
+    /// What a note save does, decided on the foreground (ADR-0201 §2.3).
+    private enum NoteSaveRoute: Sendable {
+        case nothing
+        case editorDraft(noteId: String)
+        case storedModel(NoteModel)
+    }
+
+    /// Saves `note` for the action bar (ADR-0201 §2.3).
+    ///
+    /// When the editor holds the note, this is the editor Save: it persists a
+    /// dirty, valid draft and posts "Saved", and does nothing otherwise. For
+    /// any other note it persists the stored model.
+    private static func saveNote(
+        _ note: NoteVM,
+        form: NoteFormVM?,
+        repo: any NoteRepository,
+        dispatcher: Dispatcher
+    ) async throws {
+        let route = await performOnForeground(using: dispatcher) { [weak note, weak form] () -> NoteSaveRoute in
+            guard let note else { return .nothing }
+            guard let form, form.hasBoundNote, form.snapshot.id == note.model.id else {
+                return .storedModel(note.model)
+            }
+            return form.isDirty && form.isValid ? .editorDraft(noteId: note.model.id) : .nothing
+        }
+        switch route {
+        case .nothing:
+            return
+        case .editorDraft(let noteId):
+            try await form?.approveDraftAsync(ofNote: noteId)
+        case .storedModel(let model):
+            try await repo.saveNote(model)
+        }
+    }
+
     /// Awaits `notesView.bindTo(notebookId:)` and clears `_requestedNotebookId`
     /// if the bind did not take effect (e.g. internal cancellation), so the
     /// notebook remains selectable rather than permanently deduped.
@@ -478,6 +510,11 @@ public final class WorkspaceVM {
         ), !path.isEmpty else { return }
         let (notebooks, notes) = try await _repo.loadAll()
         try await _repo.export(notebooks: notebooks, notes: notes, path: path)
+        // The scenario's Export step confirms the written file with a toast.
+        publishNotification(
+            VMx.Notification(type: .notification, message: "Exported to \(path)"),
+            to: _notificationHub
+        )
     }
 
     // MARK: - Lifecycle
@@ -596,7 +633,8 @@ public final class WorkspaceVM {
     /// Optional: `name(_:)` (default `"workspace"`), `dialogService(_:)`
     /// (default `NullDialogService.INSTANCE`), `notificationHub(_:)` (default
     /// a fresh `NotificationHub`), `messageHub(_:)` (default a fresh
-    /// `MessageHub`), `dispatcher(_:)` (default `ImmediateDispatcher.INSTANCE`).
+    /// `MessageHub`), `dispatcher(_:)` (default `ImmediateDispatcher.INSTANCE`),
+    /// `notificationScheduler(_:)` (default `DispatchQueue.main`).
     public struct WorkspaceVMBuilder {
         private var _name: String = "workspace"
         private var _repo: (any NoteRepository)?
@@ -604,6 +642,7 @@ public final class WorkspaceVM {
         private var _notificationHub: NotificationHubProtocol?
         private var _hub: MessageHubProtocol?
         private var _dispatcher: Dispatcher?
+        private var _notificationScheduler: (any NotificationScheduler)?
 
         fileprivate init() {}
 
@@ -625,6 +664,13 @@ public final class WorkspaceVM {
         public func dispatcher(_ d: Dispatcher) -> WorkspaceVMBuilder {
             var c = self; c._dispatcher = d; return c
         }
+        /// Scheduler that drives notification lifespans. An app passes a
+        /// real-time scheduler; a test can pass a `VirtualTimeScheduler`.
+        public func notificationScheduler(
+            _ scheduler: any NotificationScheduler
+        ) -> WorkspaceVMBuilder {
+            var c = self; c._notificationScheduler = scheduler; return c
+        }
 
         /// Validates required fields and builds the `WorkspaceVM`.
         ///
@@ -639,6 +685,7 @@ public final class WorkspaceVM {
                 notificationHub: _notificationHub ?? NotificationHub(),
                 hub: _hub ?? MessageHub(),
                 dispatcher: _dispatcher ?? ImmediateDispatcher.INSTANCE,
+                notificationScheduler: _notificationScheduler ?? DispatchQueue.main,
                 name: _name
             )
         }

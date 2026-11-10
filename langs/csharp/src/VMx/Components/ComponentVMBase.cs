@@ -43,6 +43,13 @@ internal interface IParentCompositeVM
 
     /// <summary>Stage-detaches a child without publishing the removal.</summary>
     ParentTransferToken DetachForTransfer(IComponentVM vm);
+
+    /// <summary>
+    /// Called once by a child after it published Disposed from its own
+    /// disposal. A composite clears the child as Current (spec/06 §4.3 rule 9,
+    /// ADR-0189); a parent without a selection slot ignores it.
+    /// </summary>
+    void ChildDisposed(IComponentVM vm);
 }
 
 /// <summary>
@@ -91,6 +98,14 @@ internal interface IComponentVMInternals
     Task ConstructOrJoinAsync();
     Task JoinConstructAsync();
     Task? TryJoinDestructAsync();
+
+    /// <summary>
+    /// Under the lifecycle gate: a construct is in flight (or its Constructed
+    /// state awaits publication), or the VM is Constructed. An add that lost
+    /// the start of its child to the walk leaves the child alone then
+    /// (ADR-0218 rule 6).
+    /// </summary>
+    bool ConstructInFlightOrConstructed();
 }
 
 /// <summary>
@@ -134,10 +149,26 @@ internal static class ComponentVMExtensions
 
     // Joins a destruct already in flight (#754); otherwise destructs through
     // the VM's own DestructAsync, so a forwarding decorator's override still
-    // runs (spec/09). A custom IComponentVM exposes no join: its DestructAsync
-    // rejects a destruct already in flight.
+    // runs (spec/09). A destruct that another thread starts between the join
+    // check and that call is joined too (ADR-0218 rule 6, #1375). A custom
+    // IComponentVM exposes no join: its DestructAsync rejects a destruct
+    // already in flight.
     internal static Task DestructOrJoinAsync(this IComponentVM vm)
-        => (vm as IComponentVMInternals)?.TryJoinDestructAsync() ?? vm.DestructAsync();
+    {
+        var internals = vm as IComponentVMInternals;
+        if (internals?.TryJoinDestructAsync() is { } joined) return joined;
+        (vm as ComponentVMBase)?.DestructOrJoinProbeForTesting?.Invoke();
+        try
+        {
+            return vm.DestructAsync();
+        }
+        catch (StatusTransitionException) when (internals is not null)
+        {
+            if (internals.TryJoinDestructAsync() is { } started) return started;
+            if (vm.Status == ConstructionStatus.Destructed) return Task.CompletedTask;
+            throw;
+        }
+    }
 }
 
 /// <summary>Shared identity validation and old-parent staging for container mutations.</summary>
@@ -260,6 +291,14 @@ internal static class ComponentOwnership
     internal static IDisposable BeginReservationBatch(IEnumerable<IComponentVM> children)
         => new ReservationBatch(AcquireStates(children));
 
+    /// <summary>
+    /// True while an ownership transaction holds the identity of
+    /// <paramref name="child"/>. Read without the identity's gate, so a caller
+    /// never waits for that transaction.
+    /// </summary>
+    internal static bool IsInProgress(IComponentVM child)
+        => Volatile.Read(ref StateFor(child).InProgress);
+
     internal static IDisposable BeginExclusiveReservationBatch(
         IEnumerable<IComponentVM> children)
     {
@@ -284,15 +323,11 @@ internal static class ComponentOwnership
         IEnumerable<ParentTransferToken?> transfers,
         Action publish)
     {
-        Exception? firstError = null;
+        ExceptionDispatchInfo? firstError = null;
         foreach (var transfer in transfers)
-        {
-            try { transfer?.Commit(); }
-            catch (Exception error) { firstError ??= error; }
-        }
-        try { publish(); }
-        catch (Exception error) { firstError ??= error; }
-        if (firstError is not null) ExceptionDispatchInfo.Capture(firstError).Throw();
+            FirstFailure.Capture(ref firstError, transfer, static token => token?.Commit());
+        FirstFailure.Capture(ref firstError, publish);
+        firstError?.Throw();
     }
 
     internal static ParentTransferToken? BeginTransfer(
@@ -369,8 +404,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private readonly IMessageHub _hub;
     private readonly List<IDisposable> _ownedResources = [];
 
-    // Member VMs registered through OwnMember, disposed in registration order
-    // before this VM publishes Disposed (spec/02 §7.1). Guarded by _gate.
+    // Member VMs registered through OwnMember, disposed in registration order.
+    // With no foreign hook running, they reach Disposed before this VM
+    // publishes Disposed; a foreign disposal publishes Disposed first and
+    // disposes them after the hook releases its lease (spec/02 §7.1,
+    // LIFE-015). Guarded by _gate.
     private readonly List<IComponentVM> _members = [];
     // Set under _gate when disposal takes the member list; a later
     // registration disposes its member at once.
@@ -394,20 +432,77 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     // drained outside the gate so two VMs can safely react to each other's
     // lifecycle messages without acquiring their gates in opposing order.
     private readonly object _gate = new();
-    private static readonly object s_lifecycleWaitGraphGate = new();
-    private static readonly Dictionary<int, int> s_lifecycleWaitGraph = [];
 
-    private sealed class LifecycleDelivery(Action action)
+    /// <summary>
+    /// One lifecycle resource that a foreign thread can wait for: a lifecycle
+    /// delivery or an admitted hook lease. Its waits are edges of the shared
+    /// <see cref="WaitForGraph"/>, keyed by this instance and never by the VM
+    /// (spec/03 §4.1, ADR-0172, #1156). A waiter records its edge only while
+    /// the resource is unfinished, and the owner removes every edge on it
+    /// before it sets <see cref="Completed"/>. Both steps run under this
+    /// resource's own lock, so no edge outlives the owner's release (#1183).
+    /// A resource that no foreign thread waits for never touches the graph.
+    /// </summary>
+    private abstract class LifecycleWaitResource
+    {
+        private readonly object _sync = new();
+        private bool _watched;
+
+        internal ManualResetEventSlim Completed { get; } = new(false);
+
+        /// <summary>
+        /// Waits on <paramref name="caller"/>'s thread until <paramref name="owner"/>
+        /// finishes this resource. Returns <see langword="false"/>, without
+        /// waiting, when that wait would close a live wait-for cycle.
+        /// <paramref name="wokenForTesting"/> runs after the wait ends and
+        /// before the caller removes its own edge.
+        /// </summary>
+        internal bool WaitUnlessCyclic(int owner, int caller, Action? wokenForTesting)
+        {
+            var recorded = false;
+            lock (_sync)
+            {
+                if (!Completed.IsSet)
+                {
+                    if (!WaitForGraph.Shared.TryBeginWait(this, owner, caller)) return false;
+                    _watched = true;
+                    recorded = true;
+                }
+            }
+            try
+            {
+                Completed.Wait();
+                if (recorded) wokenForTesting?.Invoke();
+            }
+            finally
+            {
+                if (recorded) WaitForGraph.Shared.EndWait(caller);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Removes the waits on this resource, then wakes its waiters.
+        /// </summary>
+        internal void Finish()
+        {
+            lock (_sync)
+            {
+                if (_watched) WaitForGraph.Shared.ReleaseWaiters(this);
+                Completed.Set();
+            }
+        }
+    }
+
+    private sealed class LifecycleDelivery(Action action) : LifecycleWaitResource
     {
         internal Action Action { get; } = action;
         internal ExceptionDispatchInfo? Failure { get; set; }
-        internal ManualResetEventSlim Completed { get; } = new(false);
     }
 
-    private sealed class LifecycleHookLease
+    private sealed class LifecycleHookLease : LifecycleWaitResource
     {
         internal int OwnerThreadId { get; } = Environment.CurrentManagedThreadId;
-        internal ManualResetEventSlim Completed { get; } = new(false);
         internal Action? DeferredDisposal { get; set; }
     }
 
@@ -428,12 +523,17 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private readonly List<TaskCompletionSource<bool>> _lifecycleWaiters = [];
     private Task? _deferredLifecycleTask;
     private LifecycleHookLease? _activeHookLease;
-    // Set while a container disposes its children ahead of its own terminal
-    // transition, so no lifecycle hook is admitted during the cascade.
+    // Set when the inline dispose cascade starts: disposal disposes the
+    // children and members ahead of its own terminal transition (spec/02
+    // §7.2). No lifecycle hook is admitted from then on, and a lifecycle call
+    // that starts fails as it would on a Disposed VM (ADR-0175). Never cleared.
     private bool _hookAdmissionClosed;
     // Set under _gate when disposal starts, before a container disposes its
-    // children. A deferred child walk then drives no further child and
-    // publishes neither its success nor its rollback status (#755).
+    // children. Never cleared. From then on, no status other than Disposed
+    // commits (TrySetStatus): a deferred child walk drives no further child
+    // and publishes neither its success nor its rollback status (#755), and a
+    // transition that started before an inline dispose cascade publishes
+    // nothing more (spec/02 §7.2, ADR-0175).
     private bool _childTransitionAbandoned;
     // The hook scope of the walk that the last lifecycle hook deferred to.
     private LifecycleHookScope? _deferredWalkScope;
@@ -542,10 +642,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <item>A child already at the target status (<see cref="ConstructionStatus.Constructed"/>
     /// or <see cref="ConstructionStatus.Destructed"/>) is skipped. A child already
     /// <see cref="ConstructionStatus.Constructing"/> or <see cref="ConstructionStatus.Destructing"/>
-    /// is joined and is not started again.</item>
+    /// is joined and is not started again. A <see cref="ConstructionStatus.Disposed"/>
+    /// child is skipped.</item>
     /// <item>A background child keeps this VM in its transient status until the
     /// child settles. The rest of the walk then continues on this VM's
     /// foreground dispatcher.</item>
+    /// <item>A child that reaches <see cref="ConstructionStatus.Disposed"/> while the
+    /// walk waits for it ends the wait as a success.</item>
     /// <item>A child that settles at another status faults the task with an
     /// <see cref="InvalidOperationException"/>, and later children do not start.
     /// This VM then rolls back to its prior settled status. Siblings that already
@@ -584,6 +687,12 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <paramref name="join"/> (default: join only) and its settled status is
     /// final, so it is never restarted. The set is read live, so a lazy
     /// <paramref name="children"/> walk may add to it.
+    /// <para>
+    /// A container's construct walk passes <paramref name="isMember"/>: it
+    /// counts members only (spec/06 §5.1, ADR-0186). The walk skips a child
+    /// that is no longer a member before it starts or joins it, and ignores
+    /// the result of a child that is no longer a member when it settles.
+    /// </para>
     /// </summary>
     private protected static async Task TransitionChildrenAsync(
         IEnumerable<IComponentVM> children,
@@ -591,8 +700,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         Action? after,
         ISet<IComponentVM>? joined,
         Func<IComponentVM, Task>? join = null,
-        Func<IComponentVM?>? seal = null)
+        Func<IComponentVM?>? seal = null,
+        Func<IComponentVM, bool>? isMember = null)
     {
+        bool Removed(IComponentVM child) => construct && isMember is not null && !isMember(child);
+
         // Captured synchronously while the owner's lifecycle hook runs, before
         // the first await, so the walk can return to the owner's foreground.
         var scope = t_lifecycleHookScope;
@@ -632,26 +744,46 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             // further children, matching Python and TypeScript; nor does a walk
             // whose owner was disposed, as TypeScript abandons it on dispose.
             if (WalkStopped(scope)) return;
+            // A child removed before the walk reaches it is never started.
+            if (Removed(child)) continue;
+            // A Disposed child is skipped: the walk calls no lifecycle
+            // operation on it and does not fail (spec/02 §6, ADR-0189).
+            if (child.Status == ConstructionStatus.Disposed) continue;
             Task pending;
-            if (construct)
+            try
             {
-                var isJoined = joined is not null && joined.Contains(child);
-                pending = !isJoined
-                    ? child.ConstructOrJoinAsync()
-                    : join is not null ? join(child) : child.JoinConstructAsync();
+                if (construct)
+                {
+                    var isJoined = joined is not null && joined.Contains(child);
+                    pending = !isJoined
+                        ? child.ConstructOrJoinAsync()
+                        : join is not null ? join(child) : child.JoinConstructAsync();
+                }
+                else
+                {
+                    // A child already Destructing is joined, never destructed a
+                    // second time (spec/02 §6, #754).
+                    pending = child.DestructOrJoinAsync();
+                }
             }
-            else
+            catch when (Removed(child))
             {
-                // A child already Destructing is joined, never destructed a
-                // second time (spec/02 §6, #754).
-                pending = child.DestructOrJoinAsync();
+                pending = Task.CompletedTask;
             }
             var resumes = !pending.IsCompleted;
-            await pending.ConfigureAwait(false);
-            if (construct && child.Status != ConstructionStatus.Constructed)
+            // The walk keeps waiting on a child removed meanwhile, and ignores
+            // its result (ADR-0186).
+            var removed = false;
+            try { await pending.ConfigureAwait(false); }
+            catch when (Removed(child)) { removed = true; }
+            removed = removed || Removed(child);
+            // A child that reached Disposed while the walk waited settles the
+            // wait as a success (spec/02 §6, ADR-0189).
+            var settled = child.Status;
+            if (!removed && construct && settled is not ConstructionStatus.Constructed and not ConstructionStatus.Disposed)
                 throw new InvalidOperationException(
                     $"Child '{child.Name}' did not reach Constructed.");
-            if (!construct && child.Status != ConstructionStatus.Destructed)
+            if (!construct && settled is not ConstructionStatus.Destructed and not ConstructionStatus.Disposed)
                 throw new InvalidOperationException(
                     $"Child '{child.Name}' did not reach Destructed.");
 
@@ -672,15 +804,37 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// joined) or Constructed (and follows the add-after-Constructed rule). The
     /// base still publishes the single Constructed status when the transition
     /// completes (spec/06 §5.1).
+    /// <para>
+    /// If an inline dispose cascade starts on another thread after the flip,
+    /// that Constructed publication is dropped (spec/02 §7.2 Rule 3), and
+    /// Status reads the committed Constructed until the cascade publishes
+    /// Disposed. The superseded call's waiters then complete without error,
+    /// as Rule 4 describes for a call superseded by Disposed.
+    /// </para>
     /// </summary>
-    private protected void MarkConstructedBeforePublication()
+    private void MarkConstructedBeforePublication(LifecycleHookScope? scope)
     {
         lock (_gate)
         {
-            if (_status != ConstructionStatus.Constructing || !_inFlight) return;
+            // Once disposal has started, nothing but Disposed commits (ADR-0175).
+            // A walk that disposal stopped, or that its raising hook abandoned,
+            // commits nothing; the hook marks it under this lock (ADR-0186).
+            if (_status != ConstructionStatus.Constructing || !_inFlight || _childTransitionAbandoned ||
+                scope?.Abandoned == true) return;
             _status = ConstructionStatus.Constructed;
             _constructPublicationPending = true;
         }
+    }
+
+    /// <summary>
+    /// The container commit step of the construct walk that the running
+    /// lifecycle hook starts (see MarkConstructedBeforePublication). Call it
+    /// from that hook, so the step knows the walk's scope.
+    /// </summary>
+    private protected Action ConstructCommitForRunningHook()
+    {
+        var scope = t_lifecycleHookScope;
+        return () => MarkConstructedBeforePublication(scope);
     }
 
     private static bool WalkStopped(LifecycleHookScope? scope)
@@ -688,20 +842,10 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     /// <summary>
     /// Stops waiting for a pending child transition without settling this VM.
-    /// Disposal calls this before it disposes any child, so a child reaching
-    /// Disposed does not roll this VM back before its own Disposed (#755). A
-    /// container that disposes its children outside
-    /// <see cref="DisposeWithChildren"/> calls it first, while no hook of its
-    /// own can run.
+    /// Disposal calls this under <c>_gate</c> before it disposes any child, so
+    /// a child reaching Disposed does not roll this VM back before its own
+    /// Disposed (#755).
     /// </summary>
-    private protected void AbandonChildTransition()
-    {
-        lock (_gate)
-        {
-            AbandonChildTransitionLocked();
-        }
-    }
-
     private void AbandonChildTransitionLocked()
     {
         _childTransitionAbandoned = true;
@@ -758,7 +902,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// Runs one lifecycle hook with a fresh deferral slot. A hook that throws
     /// after deferring completion abandons that deferral: its continuation never
     /// runs and its eventual fault is observed (ADR-0109), so the next transition
-    /// starts clean.
+    /// starts clean. When the hook returns and a terminal cleanup that a wait
+    /// cycle deferred to it fails, the hook's lifecycle call throws that
+    /// failure after the lease is released, as for a hook failure (ADR-0200).
     /// </summary>
     private void RunLifecycleHook(Action hook, LifecycleHookLease lease)
     {
@@ -769,28 +915,39 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
         var previous = t_lifecycleHookScope;
         t_lifecycleHookScope = scope;
+        var hookFailed = false;
+        ExceptionDispatchInfo? cleanupFailure = null;
         try
         {
             hook();
         }
         catch
         {
+            hookFailed = true;
             // Mark the walk abandoned before the hook's lease is released, so a
-            // child settling on another thread drives no further child. Observe
-            // the abandoned deferral's eventual fault.
-            scope.Abandoned = true;
-            var abandoned = TakeDeferredLifecycleTask();
-            _ = abandoned?.ContinueWith(
-                static completed => _ = completed.Exception,
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
+            // child settling on another thread drives no further child. The
+            // mark is taken under _gate, so the commit step, which checks it
+            // under _gate, commits nothing after it (ADR-0186).
+            AbandonHookDeferral(scope);
             throw;
         }
         finally
         {
             t_lifecycleHookScope = previous;
-            FinishLifecycleHook(lease);
+            var deferredFailure = FinishLifecycleHook(lease);
+            // A hook failure stays first: a deferred cleanup failure never
+            // replaces it (ADR-0126).
+            if (!hookFailed) cleanupFailure = deferredFailure;
+            AfterHookLeaseReleasedForTesting?.Invoke();
+        }
+
+        if (cleanupFailure is not null)
+        {
+            // The call that runs a deferred terminal cleanup reports its first
+            // failure (ADR-0200). Disposed has superseded this call, so it
+            // abandons its deferral and propagates the failure.
+            AbandonHookDeferral(scope);
+            cleanupFailure.Throw();
         }
 
         lock (_gate)
@@ -801,6 +958,21 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             if (_deferredWalkScope is not null && _childTransitionAbandoned)
                 scope.Abandoned = true;
         }
+    }
+
+    /// <summary>
+    /// Stops the walk that the hook deferred to and observes the abandoned
+    /// deferral's eventual fault (ADR-0109).
+    /// </summary>
+    private void AbandonHookDeferral(LifecycleHookScope scope)
+    {
+        lock (_gate) scope.Abandoned = true;
+        var abandoned = TakeDeferredLifecycleTask();
+        _ = abandoned?.ContinueWith(
+            static completed => _ = completed.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     /// <summary>
@@ -856,11 +1028,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private bool CommitIsCurrent(bool value)
     {
         // Post-dispose guard: spec/02 invariant 3 — Disposed is terminal.
-        // A selection change on an already-disposed VM is a silent no-op
-        // (no INPC raise, no hub PropertyChangedMessage), mirroring Swift
-        // (VMX-006). Reads the terminal state under the same _gate the
-        // lifecycle-race guards use.
-        if (IsDisposed()) return false;
+        // A selection change on an already-disposed VM publishes nothing (no
+        // INPC raise, no hub PropertyChangedMessage), mirroring Swift
+        // (VMX-006). One change still applies: when its composite stops
+        // making it Current, the flag becomes false (ADR-0189). Reads the
+        // terminal state under the same _gate the lifecycle-race guards use.
+        if (IsDisposed())
+        {
+            if (!value) _isCurrent = false;
+            return false;
+        }
 
         // Idempotent-set guard: spec/03-messages.md mandates that a property
         // assignment to the same value MUST NOT emit a PropertyChanged hub
@@ -973,6 +1150,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         bool shouldDrain;
         lock (_gate)
         {
+            ThrowIfInlineDisposeCascadeLocked("construct");
+
             // Idempotent: already Constructed → no-op (no message). A committed
             // Constructed whose publication is pending is still in flight.
             if (_status == ConstructionStatus.Constructed)
@@ -1140,6 +1319,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     {
         lock (_gate)
         {
+            ThrowIfInlineDisposeCascadeLocked("construct");
+
             // Idempotent like Construct(): already Constructed emits no message.
             if (_status == ConstructionStatus.Constructed && !_constructPublicationPending)
                 return Task.CompletedTask;
@@ -1177,13 +1358,43 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     {
         lock (_gate)
         {
+            // Fails during the inline dispose cascade, as ConstructAsync does
+            // (spec/02 §7.2).
+            ThrowIfInlineDisposeCascadeLocked("construct");
             if (_status == ConstructionStatus.Constructed && !_constructPublicationPending)
                 return Task.CompletedTask;
             if ((_status == ConstructionStatus.Constructing && _inFlight) || _constructPublicationPending)
                 return RegisterLifecycleWaiter().Task;
         }
 
-        return ConstructAsync();
+        ConstructOrJoinProbeForTesting?.Invoke();
+        try
+        {
+            return ConstructAsync();
+        }
+        catch (StatusTransitionException)
+        {
+            // Another thread, such as an auto-construct add, started this
+            // construct after the check above: join it (ADR-0218 rule 6).
+            lock (_gate)
+            {
+                if (_status == ConstructionStatus.Constructed && !_constructPublicationPending)
+                    return Task.CompletedTask;
+                if ((_status == ConstructionStatus.Constructing && _inFlight) || _constructPublicationPending)
+                    return RegisterLifecycleWaiter().Task;
+            }
+            throw;
+        }
+    }
+
+    bool IComponentVMInternals.ConstructInFlightOrConstructed()
+    {
+        lock (_gate)
+        {
+            return _status == ConstructionStatus.Constructed ||
+                (_status == ConstructionStatus.Constructing && _inFlight) ||
+                _constructPublicationPending;
+        }
     }
 
     // ── Lifecycle: Destruct ─────────────────────────────────────────────────
@@ -1194,6 +1405,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         bool shouldDrain;
         lock (_gate)
         {
+            ThrowIfInlineDisposeCascadeLocked("destruct");
+
             if (_status == ConstructionStatus.Destructed) return;
 
             LifecycleTransitionValidator.Require(_status, "destruct");
@@ -1347,6 +1560,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     {
         lock (_gate)
         {
+            ThrowIfInlineDisposeCascadeLocked("destruct");
+
             // Idempotent like Destruct(): already Destructed emits no message.
             if (_status == ConstructionStatus.Destructed) return Task.CompletedTask;
         }
@@ -1393,6 +1608,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         bool shouldDrain;
         lock (_gate)
         {
+            ThrowIfInlineDisposeCascadeLocked("reconstruct");
+
             LifecycleTransitionValidator.Require(_status, "reconstruct");
 
             if (_inFlight)
@@ -1468,12 +1685,15 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     private bool ContinueReconstructWithConstructPhase()
     {
-        SetStatus(ConstructionStatus.Destructed);
-        if (IsDisposed())
+        // No construct phase starts once disposal has started, including an
+        // inline dispose cascade that a Destructed subscriber started: no
+        // Constructing and no hook (spec/02 §7.2, ADR-0175).
+        if (!TrySetStatus(ConstructionStatus.Destructed) || IsDisposedOrAbandoned())
             return false;
         try
         {
-            SetStatus(ConstructionStatus.Constructing);
+            if (!TrySetStatus(ConstructionStatus.Constructing))
+                return false;
         }
         catch (Exception error)
         {
@@ -1527,7 +1747,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                         if (completed.Status != TaskStatus.RanToCompletion)
                         {
                             var published = true;
-                            try { published = TrySetDeferredStatus(ConstructionStatus.Constructed); }
+                            try { published = TrySetStatus(ConstructionStatus.Constructed); }
                             finally { FinishDeferredInFlight(completed, published); }
                             return;
                         }
@@ -1567,15 +1787,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         ExceptionDispatchInfo? firstError = null;
         foreach (var child in children)
         {
-            if (child is null) continue;
-            try
-            {
-                child.Dispose();
-            }
-            catch (Exception error)
-            {
-                firstError ??= ExceptionDispatchInfo.Capture(error);
-            }
+            if (child is not null) FirstFailure.Capture(ref firstError, child.Dispose);
         }
 
         return firstError;
@@ -1597,6 +1809,17 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private protected void DisposeWithChildren(IEnumerable<IDisposable?> children)
         => DisposeAtHookBoundary(() => DisposeChildren(children), resumed: false);
 
+    /// <summary>
+    /// Like <see cref="DisposeWithChildren(IEnumerable{IDisposable})"/>, but
+    /// takes the child snapshot only when the cascade starts: at once with no
+    /// foreign hook, or after an admitted foreign hook released its lease. A
+    /// fixed aggregate takes its slot snapshot under its own lock there, so
+    /// the cascade disposes the slots that a finished slot replacement
+    /// committed (spec/08 §4, #1166).
+    /// </summary>
+    private protected void DisposeWithChildrenFrom(Func<IEnumerable<IDisposable?>> snapshot)
+        => DisposeAtHookBoundary(() => DisposeChildren(snapshot()), resumed: false);
+
     /// <param name="cascade">The container's child cascade, if any.</param>
     /// <param name="resumed">
     /// <see langword="true"/> only for the call that publishes Disposed after
@@ -1613,8 +1836,10 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         {
             if (_status == ConstructionStatus.Disposed) return;
             // While the member cascade runs, a further disposal on any thread
-            // is a no-op: the first call disposes the members, then publishes
-            // Disposed (spec/02 §7.1).
+            // is a no-op: the first call finishes the disposal. With no foreign
+            // hook running, it disposes the members, then publishes Disposed;
+            // a foreign disposal publishes Disposed first and disposes the
+            // members after the hook releases its lease (spec/02 §7.1).
             if (_memberCascadeRunning && !resumed) return;
 
             // A pending child walk is abandoned before any child is disposed.
@@ -1643,8 +1868,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         if (cascadeFirst)
         {
             var cascadeError = cascade!();
-            try { DisposeAtHookBoundary(cascade: null, resumed: true); }
-            catch (Exception error) { cascadeError ??= ExceptionDispatchInfo.Capture(error); }
+            FirstFailure.Capture(ref cascadeError, () =>
+                DisposeAtHookBoundary(cascade: null, resumed: true));
             cascadeError?.Throw();
             return;
         }
@@ -1662,9 +1887,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     _hub.Send(ConstructionStatusChangedMessage.Create(
                         this, Name, ConstructionStatus.Disposed)));
                 FirstFailure.Capture(ref firstError, () =>
-                    RaisePropertyChanged(nameof(Status)));
+                    RaiseLocalPropertyChanged(nameof(Status)));
                 FirstFailure.Capture(ref firstError, () =>
-                    RaisePropertyChanged(nameof(IsConstructed)));
+                    RaiseLocalPropertyChanged(nameof(IsConstructed)));
                 if (notifyTrigger)
                     FirstFailure.Capture(ref firstError, () =>
                         _statusTrigger.OnNext(Unit.Default));
@@ -1676,6 +1901,10 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
 
         DrainAndThrow(delivery!, shouldDrain);
+        // After Disposed and before this call returns, in both disposal
+        // orders: a composite clears this child as Current (spec/06 §4.3
+        // rule 9, ADR-0189). It skips the clear in its own dispose cascade.
+        FirstFailure.Capture(ref firstError, () => Parent?.ChildDisposed(this));
         void FinishDisposal()
         {
             // A container reaches its child cascade only after the admitted
@@ -1734,8 +1963,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         if (hookLease is not null &&
             hookLease.OwnerThreadId != Environment.CurrentManagedThreadId)
         {
-            var caller = Environment.CurrentManagedThreadId;
-            if (RegisterLifecycleWait(caller, hookLease.OwnerThreadId))
+            // The wait is an edge to the hook's thread in the shared graph, so
+            // a cycle through a hub, membership, ownership or other lifecycle
+            // wait is refused too (#1156). A refused wait defers terminal
+            // cleanup to the hook's completion (ADR-0126).
+            if (!hookLease.WaitUnlessCyclic(
+                    hookLease.OwnerThreadId,
+                    Environment.CurrentManagedThreadId,
+                    AfterLifecycleWaitWokenForTesting))
             {
                 lock (_gate)
                 {
@@ -1744,15 +1979,6 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                         hookLease.DeferredDisposal = FinishDisposal;
                         return;
                     }
-                }
-            }
-            else
-            {
-                try { hookLease.Completed.Wait(); }
-                finally
-                {
-                    lock (s_lifecycleWaitGraphGate)
-                        s_lifecycleWaitGraph.Remove(caller);
                 }
             }
         }
@@ -1832,6 +2058,19 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
     }
 
+    /// <summary>
+    /// Refuses a lifecycle call that starts during the inline dispose cascade
+    /// with the error that the same call raises on a Disposed VM. It runs
+    /// before the idempotent no-op, the legality check and the
+    /// concurrent-operation check, so the call publishes nothing and admits no
+    /// hook (spec/02 §7.2, ADR-0175). The Can* predicates still read Status.
+    /// </summary>
+    private void ThrowIfInlineDisposeCascadeLocked(string operation)
+    {
+        if (_hookAdmissionClosed)
+            throw new StatusTransitionException(ConstructionStatus.Disposed, operation);
+    }
+
     private LifecycleHookLease? TryClaimLifecycleHook(ConstructionStatus expectedStatus)
     {
         lock (_gate)
@@ -1842,7 +2081,12 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
     }
 
-    private void FinishLifecycleHook(LifecycleHookLease lease)
+    /// <summary>
+    /// Releases the hook's lease, then runs a terminal cleanup that a wait
+    /// cycle deferred to it. Returns the cleanup's first failure, which the
+    /// hook's lifecycle call reports (ADR-0200).
+    /// </summary>
+    private ExceptionDispatchInfo? FinishLifecycleHook(LifecycleHookLease lease)
     {
         Action? deferredDisposal;
         lock (_gate)
@@ -1852,14 +2096,19 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             deferredDisposal = lease.DeferredDisposal;
             lease.DeferredDisposal = null;
         }
-        lease.Completed.Set();
-        if (deferredDisposal is not null)
+        // The lease's waits leave the graph before its waiters wake.
+        lease.Finish();
+        if (deferredDisposal is null) return null;
+        // The cycle-broken Dispose call returned normally, so this call is the
+        // only one left to receive the cleanup's failure.
+        try
         {
-            // A cycle-broken Dispose call has no synchronous caller left to
-            // receive this deferred failure. Never let it replace an exception
-            // already propagating from the admitted hook.
-            try { deferredDisposal(); }
-            catch (Exception) { }
+            deferredDisposal();
+            return null;
+        }
+        catch (Exception error)
+        {
+            return ExceptionDispatchInfo.Capture(error);
         }
     }
 
@@ -1948,7 +2197,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                         var published = true;
                         try
                         {
-                            published = TrySetDeferredStatus(completed.Status == TaskStatus.RanToCompletion
+                            published = TrySetStatus(completed.Status == TaskStatus.RanToCompletion
                                 ? successStatus
                                 : rollbackStatus);
                         }
@@ -2022,25 +2271,27 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             ConstructionStatus.Destructed or
             ConstructionStatus.Disposed;
 
-    private void SetStatus(ConstructionStatus newStatus)
-    {
-        LifecycleDelivery delivery;
-        bool shouldDrain;
-        lock (_gate)
-        {
-            if (_status == ConstructionStatus.Disposed) return;
-            delivery = QueueStatusDeliveryLocked(newStatus, out shouldDrain);
-        }
-        DrainAndThrow(delivery, shouldDrain);
-    }
+    /// <summary>
+    /// Commits a transition's status unless disposal has started; see
+    /// <see cref="TrySetStatus"/>.
+    /// </summary>
+    private void SetStatus(ConstructionStatus newStatus) => _ = TrySetStatus(newStatus);
 
     /// <summary>
-    /// Publishes the terminal status of a deferred child walk unless disposal
-    /// has started: an abandoned walk publishes nothing before Disposed (#755).
-    /// Returns false when the status was dropped; the decision is made under
-    /// <c>_gate</c>, together with the publication.
+    /// Commits and publishes a transition's status unless disposal has started.
+    /// Every lifecycle commit after a transition's start publication goes
+    /// through here: the settled status, the rollback after a failure, the
+    /// restore after a failed publication, a commit queued on the foreground,
+    /// a deferred walk's completion, and the construct phase of
+    /// <see cref="Reconstruct"/>. Disposal sets the abandonment flag at entry,
+    /// before an inline dispose cascade disposes the first child or member, so
+    /// once the cascade has started the VM's next and last status is Disposed
+    /// (spec/02 §7.2, ADR-0175), and an abandoned deferred walk publishes
+    /// nothing before Disposed (#755). Returns false when the status was
+    /// dropped; the decision is made under <c>_gate</c>, together with the
+    /// publication.
     /// </summary>
-    private bool TrySetDeferredStatus(ConstructionStatus newStatus)
+    private bool TrySetStatus(ConstructionStatus newStatus)
     {
         LifecycleDelivery delivery;
         bool shouldDrain;
@@ -2051,6 +2302,26 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
         DrainAndThrow(delivery, shouldDrain);
         return true;
+    }
+
+    /// <summary>
+    /// Runs <paramref name="assign"/> under <c>_gate</c> unless disposal has
+    /// started, and returns whether it ran. A fixed aggregate commits its new
+    /// slots here, so a disposal on another thread cannot publish Disposed
+    /// between the terminal check and the slot assignment: no slot is
+    /// committed to a disposed aggregate (spec/08 §4, #1166). The check also
+    /// covers an inline dispose cascade that already took its slot snapshot.
+    /// <paramref name="assign"/> must only write fields.
+    /// </summary>
+    internal bool CommitUnlessDisposing(Action assign)
+    {
+        BeforeCommitUnlessDisposingForTesting?.Invoke();
+        lock (_gate)
+        {
+            if (_status == ConstructionStatus.Disposed || _childTransitionAbandoned) return false;
+            assign();
+            return true;
+        }
     }
 
     private bool IsDisposedOrAbandoned()
@@ -2136,6 +2407,51 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// </summary>
     internal bool HasInFlightLifecycleForTesting => HasInFlightLifecycle();
 
+    /// <summary>
+    /// Test-only: the number of callers that wait for this VM's current
+    /// transition, for example a container walk that joined it.
+    /// </summary>
+    internal int LifecycleWaiterCountForTesting
+    {
+        get { lock (_gate) return _lifecycleWaiters.Count; }
+    }
+
+    /// <summary>
+    /// Test-only: runs on the hook's thread after a construct or destruct hook
+    /// released its lease and before the transition commits its status, so a
+    /// test can start a disposal in that window (#1167).
+    /// </summary>
+    internal Action? AfterHookLeaseReleasedForTesting { get; set; }
+
+    /// <summary>
+    /// Test-only: runs in a container walk's construct of this child after
+    /// its join check found no construct in flight and before it starts one,
+    /// so a test can start the child on another thread in that window (#1370).
+    /// </summary>
+    internal Action? ConstructOrJoinProbeForTesting { get; set; }
+
+    /// <summary>
+    /// Test-only: runs in a container walk's destruct of this child after its
+    /// join check found no destruct in flight and before it starts one, so a
+    /// test can start the child's destruct in that window (#1375).
+    /// </summary>
+    internal Action? DestructOrJoinProbeForTesting { get; set; }
+
+    /// <summary>
+    /// Test-only: runs on a thread whose wait for one of this VM's lifecycle
+    /// deliveries or hook leases has ended, before that thread removes its own
+    /// wait edge, so a test can hold it in the window between the owner's
+    /// release and the waiter's cleanup (#1183).
+    /// </summary>
+    internal Action? AfterLifecycleWaitWokenForTesting { get; set; }
+
+    /// <summary>
+    /// Test-only: runs on the committing thread just before
+    /// <see cref="CommitUnlessDisposing"/> takes <c>_gate</c>, so a test can
+    /// publish Disposed from another thread in that window.
+    /// </summary>
+    internal Action? BeforeCommitUnlessDisposingForTesting { get; set; }
+
     private LifecycleDelivery QueueStatusDeliveryLocked(
         ConstructionStatus newStatus,
         out bool shouldDrain)
@@ -2153,8 +2469,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             // Status and IsConstructed are computed/read-only, so they raise INPC only;
             // no PropertyChangedMessage on the hub (spec 03-messages.md restricts hub
             // PropertyChangedMessage to setter-assigned properties).
-            RaisePropertyChanged(nameof(Status));
-            RaisePropertyChanged(nameof(IsConstructed));
+            RaiseLocalPropertyChanged(nameof(Status));
+            RaiseLocalPropertyChanged(nameof(IsConstructed));
 
             if (notifyTrigger)
                 _statusTrigger.OnNext(Unit.Default);
@@ -2218,11 +2534,18 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             }
             finally
             {
-                delivery.Completed.Set();
+                // The delivery's waits leave the graph before its waiters wake.
+                delivery.Finish();
             }
         }
     }
 
+    // Waits for the drainer to deliver a queued delivery, unless the wait
+    // would close a live wait-for cycle in the shared graph; the delivery then
+    // stays queued for that drainer (spec/02 §2.4, ADR-0117). The drainer never
+    // hands its queue to another thread: it drains until the queue is empty.
+    // So the drainer read here, while the delivery is unfinished, is the
+    // thread that delivers it.
     private void AwaitLifecycleDeliveryUnlessCyclic(LifecycleDelivery delivery)
     {
         if (delivery.Completed.IsSet) return;
@@ -2230,29 +2553,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         int owner;
         lock (_gate) owner = _lifecycleDeliveryDrainerThreadId;
         if (owner == 0 || owner == caller) return;
-        if (RegisterLifecycleWait(caller, owner)) return;
-        try { delivery.Completed.Wait(); }
-        finally
-        {
-            lock (s_lifecycleWaitGraphGate)
-                s_lifecycleWaitGraph.Remove(caller);
-        }
-    }
-
-    private static bool RegisterLifecycleWait(int caller, int owner)
-    {
-        lock (s_lifecycleWaitGraphGate)
-        {
-            s_lifecycleWaitGraph[caller] = owner;
-            var cursor = owner;
-            var visited = new HashSet<int>();
-            while (cursor != caller && visited.Add(cursor) &&
-                   s_lifecycleWaitGraph.TryGetValue(cursor, out var next))
-                cursor = next;
-            if (cursor != caller) return false;
-            s_lifecycleWaitGraph.Remove(caller);
-            return true;
-        }
+        _ = delivery.WaitUnlessCyclic(owner, caller, AfterLifecycleWaitWokenForTesting);
     }
 
     /// <summary>
@@ -2274,12 +2575,32 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             ref firstError,
             () => _hub.Send(
                 PropertyChangedMessage<IComponentVM>.Create(this, Name, propertyName)));
-        FirstFailure.Capture(ref firstError, () => RaisePropertyChanged(propertyName));
+        FirstFailure.Capture(ref firstError, () => RaiseLocalPropertyChanged(propertyName));
         firstError?.Throw();
     }
 
-    /// <summary>Raises only the local <see cref="PropertyChanged"/> event.</summary>
+    /// <summary>
+    /// Raises only the local <see cref="PropertyChanged"/> event. A call that
+    /// begins after disposal is a no-op, as for <see cref="NotifyPropertyChanged"/>
+    /// (spec 05 §2.3, ADR-0223).
+    /// </summary>
     protected void RaisePropertyChanged(string propertyName)
+    {
+        lock (_gate)
+        {
+            if (_status == ConstructionStatus.Disposed) return;
+        }
+
+        RaiseLocalPropertyChanged(propertyName);
+    }
+
+    /// <summary>
+    /// Raises the local event without the disposal check. Lifecycle publication
+    /// and admitted <see cref="NotifyPropertyChanged"/> calls use it, so the
+    /// terminal <c>Status</c> change and a re-entrantly disposed helper call
+    /// still reach local observers.
+    /// </summary>
+    private void RaiseLocalPropertyChanged(string propertyName)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
     /// <summary>Registers a disposable for terminal VM cleanup and returns it.</summary>
@@ -2301,18 +2622,24 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     protected IDisposable Own(Action cleanup) => Own(Disposable.Create(cleanup));
 
     /// <summary>
-    /// Registers a member view-model that this VM disposes before it publishes
-    /// <see cref="ConstructionStatus.Disposed"/> (spec/02 §7.1, ADR-0162), and
-    /// returns it for inline field assignment:
+    /// Registers a member view-model that this VM disposes in its
+    /// <see cref="Dispose()"/> (spec/02 §7.1, ADR-0162), and returns it for
+    /// inline field assignment:
     /// <code>
     /// _chart = OwnMember(new ChartVM(hub, dispatcher));
     /// </code>
     /// <see cref="Dispose()"/> disposes the members in registration order, after a
-    /// container's own children, so the cascade stays depth-first. Every member is
-    /// attempted. The first failure is rethrown after this VM's mandatory teardown.
-    /// While the members are disposed, a further <see cref="Dispose()"/> on any
-    /// thread returns at once and does nothing; the first call publishes
-    /// <see cref="ConstructionStatus.Disposed"/> after the last member.
+    /// container's own children, so the cascade stays depth-first. With no
+    /// construct or destruct hook of this VM running on another thread, every
+    /// member reaches <see cref="ConstructionStatus.Disposed"/> before this VM
+    /// publishes <see cref="ConstructionStatus.Disposed"/>. For a foreign
+    /// disposal, this VM publishes <see cref="ConstructionStatus.Disposed"/>
+    /// first, waits for the hook or defers to its completion (ADR-0126), and
+    /// then disposes the members before <see cref="OnDispose"/> (LIFE-015,
+    /// ADR-0179). Every member is attempted. The first failure is rethrown
+    /// after this VM's mandatory teardown. While the members are disposed, a
+    /// further <see cref="Dispose()"/> on any thread returns at once and does
+    /// nothing; the first call finishes the disposal.
     /// A member registered after this VM's disposal started is disposed at once,
     /// and a failure from that disposal is thrown from this call.
     /// A member is not a container child: registration sets no parent link and
@@ -2347,6 +2674,12 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     /// <summary>Registers a resource for a forwarding decorator of this VM (ADR-0151).</summary>
     internal T OwnForAlias<T>(T resource) where T : IDisposable => Own(resource);
+
+    /// <summary>Runs <see cref="NotifyPropertyChanged"/> for a forwarding decorator of this VM (#1352).</summary>
+    internal void NotifyPropertyChangedForAlias(string propertyName) => NotifyPropertyChanged(propertyName);
+
+    /// <summary>Runs <see cref="RaisePropertyChanged"/> for a forwarding decorator of this VM (#1352).</summary>
+    internal void RaisePropertyChangedForAlias(string propertyName) => RaisePropertyChanged(propertyName);
 
     private void DisposeOwnedResources()
     {

@@ -10,6 +10,7 @@
       "package-name": "vmx",
       "changelog-path": "CHANGELOG.md",
       "component": "python",
+      "skip-github-release": true,
       "extra-files": [
         "src/vmx/__about__.py",
         {

@@ -130,12 +130,14 @@ public sealed class FORM_030_SetModelHubPublicationTests
             .Should().BeEmpty("approval reset keeps its existing non-hub outcome contract");
     }
 
+    // spec/20 §5.4 and §10 (ADR-0215): a Dispose() from another thread while
+    // an update prepares marks the form disposed and returns. The update
+    // commits nothing, and the teardown runs when it returns.
     [Fact]
-    public async Task Admitted_SetModel_Finishes_Before_Concurrent_Dispose()
+    public async Task Concurrent_Dispose_During_A_Preparation_Returns_And_The_Update_Commits_Nothing()
     {
         using var releaseValidation = new ManualResetEventSlim();
         var validationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var disposeFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var validators = new Dictionary<string, Func<Model, string?>>
         {
             ["Value"] = model =>
@@ -143,34 +145,47 @@ public sealed class FORM_030_SetModelHubPublicationTests
                 if (model.Value == "accepted")
                 {
                     validationEntered.SetResult();
-                    releaseValidation.Wait(HangGuard).Should().BeTrue();
+                    // The test sets releaseValidation in a finally block.
+                    releaseValidation.Wait();
                 }
 
                 return null;
             },
         };
+        using var hub = new MessageHub();
+        var modelMessages = 0;
+        using var subscription = hub.Messages.Subscribe(message =>
+        {
+            if (message is PropertyChangedMessage<FormVM<Model>> { PropertyName: "Model" })
+                Interlocked.Increment(ref modelMessages);
+        });
         var form = new FormVM<Model>(
             new Model("initial"),
             _ => Task.CompletedTask,
+            hub: hub,
             snapshotter: model => model,
             validators: validators);
+        var completed = false;
+        using var errors = form.ErrorsChanged.Subscribe(_ => { }, () => completed = true);
 
         var setter = Task.Run(() => form.SetModel(new Model("accepted")));
-        await validationEntered.Task.WaitAsync(HangGuard);
-
-        var disposer = Task.Run(() =>
+        bool completedDuringValidation;
+        try
         {
-            form.Dispose();
-            disposeFinished.SetResult();
-        });
-        var disposedDuringValidation = await Task.WhenAny(
-            disposeFinished.Task,
-            Task.Delay(TimeSpan.FromMilliseconds(100))) == disposeFinished.Task;
-        releaseValidation.Set();
+            await validationEntered.Task.WaitAsync(HangGuard);
+            await Task.Run(form.Dispose).WaitAsync(HangGuard);
+            completedDuringValidation = completed;
+        }
+        finally
+        {
+            releaseValidation.Set();
+        }
 
-        await Task.WhenAll(setter, disposer).WaitAsync(HangGuard);
-        disposedDuringValidation.Should().BeFalse();
-        form.Model.Should().Be(new Model("accepted"));
+        await setter.WaitAsync(HangGuard);
+        completedDuringValidation.Should().BeFalse("the teardown waits for the preparing call");
+        completed.Should().BeTrue("the teardown runs when the preparing call returns");
+        form.Model.Should().Be(new Model("initial"));
+        Volatile.Read(ref modelMessages).Should().Be(0);
     }
 
     // spec/20 §5.4: preparation changes no form state, so a validator that

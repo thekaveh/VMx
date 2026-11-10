@@ -15,7 +15,7 @@ use std::fmt;
 use std::panic::{catch_unwind, panic_any, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
@@ -300,8 +300,10 @@ fn a_panicking_field_validator_leaves_the_form_unchanged() {
     trace.assert_quiet();
 
     // After earlier successful runs: from an invalid form ...
+    // A strict form that becomes invalid and dirty raises one approve
+    // change (FORM-043).
     form.set_model(-1);
-    assert_eq!(trace.take(), ["errors", "model -1"]);
+    assert_eq!(trace.take(), ["errors", "can_execute", "model -1"]);
     let invalid = state(&form);
     assert_unwinds_from("field validator", || form.set_model(MARKED));
     assert_eq!(state(&form), invalid);
@@ -392,8 +394,9 @@ fn a_panicking_equality_leaves_the_form_unchanged() {
         .unwrap();
     let value = |model: &Hooked| model.value;
     let trace = Trace::observe(&form);
+    // Valid and clean to invalid and dirty: one approve change (FORM-043).
     form.set_model(model(2));
-    assert_eq!(trace.take(), ["errors", "model 2"]);
+    assert_eq!(trace.take(), ["errors", "can_execute", "model 2"]);
     let before = state_with(&form, value);
 
     // The candidate is compared with the live model first.
@@ -520,13 +523,16 @@ fn deny_with_a_panicking_snapshotter_keeps_the_edit() {
 fn a_nested_assignment_from_a_validator_wins() {
     let slot = Slot::new();
     let armed = Arc::new(AtomicBool::new(true));
+    let returned: Arc<OnceLock<Box<dyn Fn() + Send + Sync>>> = Arc::new(OnceLock::new());
     let form = builder(1)
         .validator("value", {
             let slot = slot.clone();
             let armed = Arc::clone(&armed);
+            let returned = Arc::clone(&returned);
             move |model: &i32| {
                 if *model == 10 && armed.swap(false, Ordering::SeqCst) {
                     slot.form().set_model(20);
+                    (returned.get().expect("the trace is attached"))();
                 }
                 (*model > 15).then(|| "too large".to_string())
             }
@@ -535,12 +541,20 @@ fn a_nested_assignment_from_a_validator_wins() {
         .unwrap();
     slot.fill(&form);
     let trace = Trace::observe(&form);
+    assert!(returned
+        .set(Box::new(trace.marker("nested returned")))
+        .is_ok());
 
     form.set_model(10);
 
-    // Only the nested assignment commits and publishes; the outer one,
-    // whose validators finished after that commit, publishes nothing.
-    assert_eq!(trace.take(), ["errors", "can_execute", "model 20"]);
+    // Only the nested assignment commits. It returns before its
+    // notifications, which the outer update sends (ADR-0180). The outer
+    // assignment, whose validators finished after that commit, publishes
+    // nothing of its own.
+    assert_eq!(
+        trace.take(),
+        ["nested returned", "errors", "can_execute", "model 20"]
+    );
     assert_eq!(
         state(&form),
         FormState {
@@ -559,9 +573,9 @@ fn a_nested_assignment_from_a_validator_wins() {
     assert!(form.is_valid());
 }
 
-/// FORM-037 — a deny, approval, or reset committed from a validator also wins over the interrupted assignment
+/// FORM-037 — a deny from a validator wins over the interrupted assignment, and a nested approval races it
 #[test]
-fn a_deny_or_approval_committed_from_a_validator_wins() {
+fn a_nested_deny_wins_and_a_nested_approval_races_the_assignment() {
     for case in ["deny", "approve", "reset"] {
         let slot = Slot::new();
         let armed = Arc::new(AtomicBool::new(false));
@@ -603,21 +617,25 @@ fn a_deny_or_approval_committed_from_a_validator_wins() {
 
         form.set_model(10);
 
-        let (events, model, persists): (&[&str], i32, &[i32]) = match case {
-            "deny" => (&["reverted", "model 1"], 1, &[]),
-            // Admission and settlement each raise one change (FORM-032).
-            "approve" => (&["can_execute", "can_execute"], 2, &[2]),
-            _ => (&["can_execute", "can_execute"], 200, &[2]),
+        // A nested approval persists after the outer assignment commits and
+        // notifies, so it races that assignment as an edit during
+        // persistence (spec/20 §5.3 and §5.4, ADR-0180). Admission and
+        // settlement each raise one change (FORM-032). A reset is
+        // authoritative over the edit.
+        let (events, model, snapshot, persists): (&[&str], i32, i32, &[i32]) = match case {
+            "deny" => (&["reverted", "model 1"], 1, 1, &[]),
+            "approve" => (&["can_execute", "model 10", "can_execute"], 10, 2, &[2]),
+            _ => (&["can_execute", "model 10", "can_execute"], 200, 200, &[2]),
         };
         assert_eq!(trace.take(), events, "{case}");
         assert_eq!(form.model(), model, "{case}");
-        assert_eq!(form.snapshot(), model, "{case}");
-        assert!(!form.is_dirty(), "{case}");
+        assert_eq!(form.snapshot(), snapshot, "{case}");
+        assert_eq!(form.is_dirty(), model != snapshot, "{case}");
         assert_eq!(*persisted.lock().unwrap(), persists, "{case}");
 
-        form.set_model(10);
-        assert_eq!(trace.take(), ["model 10"], "{case}");
-        assert_eq!(form.model(), 10, "{case}");
+        form.set_model(11);
+        assert_eq!(trace.take(), ["model 11"], "{case}");
+        assert_eq!(form.model(), 11, "{case}");
     }
 }
 
@@ -890,7 +908,7 @@ impl HeldForm {
     }
 
     /// Starts `set_model(3)` on a worker and returns once its validator is
-    /// held, with the update lock taken.
+    /// held.
     fn edit_held_in_validator(&self) -> Receiver<()> {
         self.hold_validate.store(true, Ordering::SeqCst);
         let edit = on_worker({
@@ -910,12 +928,12 @@ impl HeldForm {
     }
 }
 
-// spec/20 §5.4: updates are serialized. An approval commit waits for an edit
-// another thread is preparing, and both complete: the edit is installed, not
-// dropped as stale, and the snapshot advances to the captured model. The
-// persister runs with edits unblocked (§5.3).
+// spec/20 §5.4 (ADR-0215): no lock is held while a callback runs. An
+// approval commit does not wait for an edit another thread is preparing. The
+// commit overtakes the edit, which then runs again as a new call and stands,
+// and the snapshot advances to the captured model.
 #[test]
-fn an_approval_commit_waits_for_an_edit_preparing_on_another_thread() {
+fn an_approval_commit_overtakes_an_edit_preparing_on_another_thread() {
     let held = HeldForm::new();
     let trace = Trace::observe(&held.form);
 
@@ -925,19 +943,18 @@ fn an_approval_commit_waits_for_an_edit_preparing_on_another_thread() {
         move || form.approve()
     });
     held.persist.arrived();
-    // The edit takes the update lock while the approval persists.
     let edit = held.edit_held_in_validator();
     held.persist.release();
     assert_eq!(held.snapshotted(), 2);
 
-    // The approval has prepared its snapshot and waits to commit it.
-    assert_blocked(&approval);
-    assert_eq!(held.form.snapshot(), 1);
+    // The approval commits and settles while the edit prepares.
+    assert_eq!(finished(&approval), Ok(()));
+    assert_eq!(held.form.snapshot(), 2);
     assert_eq!(held.form.model(), 2);
+    assert_blocked(&edit);
 
     held.validate.release();
     finished(&edit);
-    assert_eq!(finished(&approval), Ok(()));
 
     assert_eq!(held.form.model(), 3);
     assert_eq!(held.form.snapshot(), 2);
@@ -948,10 +965,11 @@ fn an_approval_commit_waits_for_an_edit_preparing_on_another_thread() {
     assert_eq!(events, ["can_execute", "can_execute", "model 3"]);
 }
 
-// spec/20 §5.4: another thread's set_model waits for an edit in preparation,
-// and each edit commits and publishes in turn.
+// spec/20 §5.4 (ADR-0215): another thread's set_model commits while an edit
+// prepares. The overtaken edit then runs again as a new call, and each edit
+// publishes in turn.
 #[test]
-fn an_edit_on_another_thread_waits_for_an_edit_in_preparation() {
+fn an_edit_on_another_thread_overtakes_an_edit_in_preparation() {
     let held = HeldForm::new();
     let trace = Trace::observe(&held.form);
     let first = held.edit_held_in_validator();
@@ -960,15 +978,15 @@ fn an_edit_on_another_thread_waits_for_an_edit_in_preparation() {
         let form = held.form.clone();
         move || form.set_model(-4)
     });
-    assert_blocked(&second);
-    assert_eq!(held.form.model(), 2);
+    finished(&second);
+    assert_eq!(held.form.model(), -4);
+    assert_blocked(&first);
 
     held.validate.release();
     finished(&first);
-    finished(&second);
 
-    assert_eq!(held.form.model(), -4);
-    assert_eq!(held.form.error_map(), errors(&[("value", "negative")]));
+    assert_eq!(held.form.model(), 3);
+    assert!(held.form.error_map().is_empty());
     let events = trace.take();
     assert_eq!(
         events
@@ -980,10 +998,11 @@ fn an_edit_on_another_thread_waits_for_an_edit_in_preparation() {
     );
 }
 
-// spec/20 §5.4 and chapter 02 §7: disposal on another thread waits for an
-// edit in preparation, which completes normally.
+// spec/20 §5.4 and §10 (ADR-0215): disposal on another thread during an
+// edit's preparation marks the form disposed and returns. The edit commits
+// nothing.
 #[test]
-fn disposal_on_another_thread_waits_for_an_edit_in_preparation() {
+fn disposal_on_another_thread_during_an_edit_in_preparation_returns_at_once() {
     let held = HeldForm::new();
     let edit = held.edit_held_in_validator();
 
@@ -991,15 +1010,13 @@ fn disposal_on_another_thread_waits_for_an_edit_in_preparation() {
         let form = held.form.clone();
         move || form.dispose()
     });
-    assert_blocked(&disposal);
-    assert!(held.form.can_approve());
+    finished(&disposal);
+    assert!(!held.form.can_approve());
 
     held.validate.release();
     finished(&edit);
-    finished(&disposal);
 
-    assert_eq!(held.form.model(), 3);
-    assert!(!held.form.can_approve());
+    assert_eq!(held.form.model(), 2);
     held.form.set_model(4);
-    assert_eq!(held.form.model(), 3);
+    assert_eq!(held.form.model(), 2);
 }

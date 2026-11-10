@@ -13,6 +13,8 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps
+from vmx._subscriber_failures import FanOutSubject
+from vmx.collections._delivery import deliver_then_publish, first_failure, notify_then_raise
 from vmx.collections.observable_list import ObservableList, ReadOnlyObservableList
 from vmx.messages.collection_changed import CollectionChangedMessage
 from vmx.services.message_hub import MessageHubProto
@@ -42,9 +44,10 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
       emits ``(key1, key2, new_value, old_value)``
     - ``on_reset``         — ``Observable[None]`` — fired by :meth:`clear`
 
-    ``keys1`` and ``keys2`` are live :class:`ObservableList` views of the
-    distinct Key1 / Key2 values currently present, in insertion order of
-    their first appearance.
+    ``keys1`` and ``keys2`` are live, read-only
+    :class:`~vmx.collections.ReadOnlyObservableList` views of the distinct
+    Key1 / Key2 values currently present, in insertion order of their first
+    appearance (ADR-0193).
 
     Null (``None``) keys are not permitted; a :class:`TypeError` is raised.
 
@@ -83,10 +86,10 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         self._keys2_view: ReadOnlyObservableList[TKey2] = ReadOnlyObservableList(self._keys2)
 
         # Event subjects
-        self._added_subject: Subject[tuple[TKey1, TKey2, TValue]] = Subject()
-        self._removed_subject: Subject[tuple[TKey1, TKey2, TValue]] = Subject()
-        self._replaced_subject: Subject[tuple[TKey1, TKey2, TValue, TValue]] = Subject()
-        self._reset_subject: Subject[None] = Subject()
+        self._added_subject: Subject[tuple[TKey1, TKey2, TValue]] = FanOutSubject()
+        self._removed_subject: Subject[tuple[TKey1, TKey2, TValue]] = FanOutSubject()
+        self._replaced_subject: Subject[tuple[TKey1, TKey2, TValue, TValue]] = FanOutSubject()
+        self._reset_subject: Subject[None] = FanOutSubject()
 
     # ── Observable properties ─────────────────────────────────────────────────
     # Each Subject is sealed behind ``as_observable`` so external subscribers can
@@ -218,14 +221,16 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
     def add(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
         """Insert a new entry.
 
-        Raises :class:`KeyError` if ``(key1, key2)`` already exists.
+        Raises :class:`ValueError` if ``(key1, key2)`` already exists, as the
+        keyed collection does for a duplicate key (spec/21 §4.1, ADR-0214).
+        Nothing changes and nothing is emitted.
         """
         if key1 is None:
             raise TypeError("key1 must not be None")
         if key2 is None:
             raise TypeError("key2 must not be None")
         if (key1, key2) in self._data:
-            raise KeyError(f"Key ({key1!r}, {key2!r}) already exists")
+            raise ValueError(f"Key ({key1!r}, {key2!r}) already exists")
         self._internal_add(key1, key2, value)
 
     def remove(self, key1: TKey1, key2: TKey2) -> bool:
@@ -241,7 +246,9 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
             return False
 
         value = self._data.pop((key1, key2))
-        self._key_order.remove((key1, key2))
+        # The pre-removal position (spec/21 §4.7, ADR-0193).
+        index = self._key_order.index((key1, key2))
+        del self._key_order[index]
         self._version += 1
 
         # Decide both axes before either key view notifies: drop a key only
@@ -250,15 +257,14 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         drop_key2 = not any(_same_key(k2, key2) for _, k2 in self._key_order)
 
         # Keys2 first, so a keys1 subscriber sees the updated keys2, as on add
-        # (#1075). Keys1 is updated even when a keys2 subscriber raises.
-        try:
-            if drop_key2:
-                self._notify_keys2(lambda: self._keys2.remove(key2))
-        finally:
-            if drop_key1:
-                self._remove_key1(key1)
-
-        self._on_removed(key1, key2, value)
+        # (#1075). A raising key-view subscriber skips neither the other key
+        # view nor the dictionary's events and hub message; its failure is
+        # re-raised after them (#1430).
+        key_view_failure = first_failure(
+            lambda: self._notify_keys2(lambda: self._keys2.remove(key2)) if drop_key2 else None,
+            lambda: self._remove_key1(key1) if drop_key1 else None,
+        )
+        notify_then_raise(key_view_failure, lambda: self._on_removed(key1, key2, value, index))
         return True
 
     def __delitem__(self, key: tuple[TKey1, TKey2]) -> None:
@@ -272,12 +278,13 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         self._key_order.clear()
         self._version += 1
         # Keys2 first, so a keys1 subscriber sees the cleared keys2, as on add
-        # (#1075). Keys1 is updated even when a keys2 subscriber raises.
-        try:
-            self._notify_keys2(self._keys2.clear)
-        finally:
-            self._clear_keys1()
-        self._on_reset()
+        # (#1075). A raising key-view subscriber skips neither the other key
+        # view nor the dictionary's events and hub message (#1430).
+        key_view_failure = first_failure(
+            lambda: self._notify_keys2(self._keys2.clear),
+            self._clear_keys1,
+        )
+        notify_then_raise(key_view_failure, self._on_reset)
 
     # ── Enumeration ───────────────────────────────────────────────────────────
 
@@ -332,12 +339,15 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         # first-appearance order (#772).
         # Decide by the entries, not by keys1: a pending key1 is not listed yet.
         new_key1 = not any(_same_key(k1, key1) for k1, _ in self._key_order[:-1])
-        if not self._keys2_contains(key2):
-            self._keys2.add(key2)
-        if new_key1:
-            self._add_key1(key1, version)
-
-        self._on_added(key1, key2, value, index)
+        new_key2 = not self._keys2_contains(key2)
+        # A raising key-view subscriber skips neither the other key view nor
+        # the dictionary's events and hub message; its failure is re-raised
+        # after them (#1430).
+        key_view_failure = first_failure(
+            lambda: self._keys2.add(key2) if new_key2 else None,
+            lambda: self._add_key1(key1, version) if new_key1 else None,
+        )
+        notify_then_raise(key_view_failure, lambda: self._on_added(key1, key2, value, index))
 
     def _add_key1(self, key1: TKey1, version: int) -> None:
         # Append key1 unless a keys2 subscriber changed the entries, or a
@@ -423,53 +433,80 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         return any(_same_key(k, key2) for k in self._keys2)
 
     def _publish_to_hub(self, msg: CollectionChangedMessage[object]) -> None:
-        """Send *msg* to the hub if one is wired (no-op otherwise)."""
-        if self._hub is not None:
+        """Send *msg* to the hub if one is wired and the dictionary is live.
+
+        A local subscriber may dispose the dictionary during delivery. A
+        disposed dictionary publishes nothing (spec/01 §1.4, #1431).
+        """
+        if self._hub is not None and not self._disposed:
             self._hub.send(msg)
 
     def _on_added(self, key1: TKey1, key2: TKey2, value: TValue, index: int) -> None:
         if self._disposed:
             return
-        # 1. Local granular event first.
-        self._added_subject.on_next((key1, key2, value))
-        # 2. Publish to hub (if present).
-        index = self._current_index(key1, key2, index)
-        self._publish_to_hub(CollectionChangedMessage.for_add(self, (key1, key2, value), index))
+        # Local granular event first, then the hub; a failing local subscriber
+        # does not suppress the hub message (ADR-0171). The index is read
+        # after local delivery, which may have moved the entry.
+        deliver_then_publish(
+            lambda: self._added_subject.on_next((key1, key2, value)),
+            lambda: self._publish_to_hub(
+                CollectionChangedMessage.for_add(
+                    self, (key1, key2, value), self._current_index(key1, key2, index)
+                )
+            ),
+        )
 
     def _current_index(self, key1: TKey1, key2: TKey2, index: int) -> int:
         """The entry's position now: a subscriber may have removed an entry or cleared."""
-        key = (key1, key2)
-        if index < len(self._key_order) and self._key_order[index] == key:
+        if index < len(self._key_order) and self._key_order[index] == (key1, key2):
             return index
+        return self._index_of(key1, key2)
+
+    def _index_of(self, key1: TKey1, key2: TKey2) -> int:
+        """The entry's position in enumeration order, or -1 when it is gone."""
         try:
-            return self._key_order.index(key)
+            return self._key_order.index((key1, key2))
         except ValueError:
             return -1
 
-    def _on_removed(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
+    def _on_removed(self, key1: TKey1, key2: TKey2, value: TValue, index: int) -> None:
         if self._disposed:
             return
-        # 1. Local granular event first.
-        self._removed_subject.on_next((key1, key2, value))
-        # 2. Publish to hub (if present).
-        self._publish_to_hub(CollectionChangedMessage.for_remove(self, (key1, key2, value), -1))
+        # Local granular event first, then the hub (ADR-0171).
+        deliver_then_publish(
+            lambda: self._removed_subject.on_next((key1, key2, value)),
+            lambda: self._publish_to_hub(
+                CollectionChangedMessage.for_remove(self, (key1, key2, value), index)
+            ),
+        )
 
     def _on_replaced(self, key1: TKey1, key2: TKey2, new_value: TValue, old_value: TValue) -> None:
         if self._disposed:
             return
-        # 1. Local granular event first.
-        self._replaced_subject.on_next((key1, key2, new_value, old_value))
-        # 2. Publish to hub (if present).
-        self._publish_to_hub(
-            CollectionChangedMessage.for_replace(
-                self, (key1, key2, new_value), (key1, key2, old_value), -1
+
+        # The hub message reads the entry's position when it is sent, as an Add
+        # does: a local subscriber may have moved or removed it (ADR-0193).
+        def publish() -> None:
+            self._publish_to_hub(
+                CollectionChangedMessage.for_replace(
+                    self,
+                    (key1, key2, new_value),
+                    (key1, key2, old_value),
+                    self._index_of(key1, key2),
+                )
             )
+
+        # Local granular event first, then the hub (ADR-0171).
+        deliver_then_publish(
+            lambda: self._replaced_subject.on_next((key1, key2, new_value, old_value)),
+            publish,
         )
 
     def _on_reset(self) -> None:
         if self._disposed:
             return
-        # 1. Local event first.
-        self._reset_subject.on_next(None)
-        # 2. Publish to hub (if present).
-        self._publish_to_hub(CollectionChangedMessage.for_reset(self))
+        # Local event first, then the hub (ADR-0171).
+        deliver_then_publish(
+            lambda: self._reset_subject.on_next(None),
+            lambda: self._publish_to_hub(CollectionChangedMessage.for_reset(self)),
+        )

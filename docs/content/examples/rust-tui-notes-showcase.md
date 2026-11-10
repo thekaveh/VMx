@@ -19,11 +19,19 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
 - `WorkspaceVm` composes six child surfaces through `AggregateVm6`.
 - `NotesViewVm` uses `CompositeVm`, `FilteredCompositeVm`, and
   `PagedComposition`.
+- A search or a page change keeps the selected note and its editor draft
+  (ADR-0201 §2.1). The `j` and `k` keys select the next or the previous note
+  on the visible page.
 - `NoteFormVm` uses strict `FormVm<NoteDraft>` validation with `save()` and
   `revert()` methods. The terminal app does not bind keys to them.
-- `GlobalSearchVm` pages the filtered projection of a `SearchableState` with
-  `TokenPagedComposition`.
-- `NotificationsVm` uses `NotificationHub` and `NotificationVm` wrappers.
+- `GlobalSearchVm` keeps its term in a `SearchableState` and pages repository
+  search results with `TokenPagedComposition`. Load More continues the term of
+  the loaded pages, as in the four flagships.
+- `NotificationsVm` uses `NotificationHub` and `NotificationVm` wrappers. It
+  disposes each entry it removes and, on disposal, every remaining entry, as
+  in the four flagships. `visible()` lists only pending entries: it removes
+  and disposes an entry that its dismiss command, its lifespan or the hub
+  resolved. After disposal, `post()` adds no entry.
 - `EditorModeVm` uses `DiscriminatorVm` for edit/preview switching.
 
 ## 8.5.2. Parity Scope

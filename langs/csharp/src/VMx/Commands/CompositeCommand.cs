@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using VMx.Internal;
 
 namespace VMx.Commands;
 
@@ -40,7 +41,8 @@ public sealed class CompositeCommand : ICommand, IDisposable
         _inner = commands;
         foreach (var c in _inner)
         {
-            EventHandler handler = (sender, args) => CanExecuteChanged?.Invoke(this, args);
+            EventHandler handler = (sender, args) =>
+                FanOut.Raise(CanExecuteChanged, h => h(this, args))?.Throw();
             _innerHandlers.Add(handler);
             c.CanExecuteChanged += handler;
         }
@@ -75,14 +77,17 @@ public sealed class CompositeCommand : ICommand, IDisposable
     }
 
     /// <summary>
-    /// Makes the composite inert and unsubscribes from inner <c>CanExecuteChanged</c>
-    /// events (spec §8.4, ADR-0134). Idempotent. The inner commands stay owned by
-    /// their creator.
+    /// Makes the composite inert, unsubscribes from inner <c>CanExecuteChanged</c>
+    /// events, and raises this composite's <see cref="CanExecuteChanged"/> once
+    /// (spec §8.4, ADR-0134). Idempotent. The inner commands stay owned by
+    /// their creator, and their own handlers receive nothing. Every handler
+    /// runs; the first failure is rethrown.
     /// </summary>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         for (var i = 0; i < _inner.Length; i++)
             _inner[i].CanExecuteChanged -= _innerHandlers[i];
+        FanOut.Raise(CanExecuteChanged, handler => handler(this, EventArgs.Empty))?.Throw();
     }
 }

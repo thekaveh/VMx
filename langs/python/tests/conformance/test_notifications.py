@@ -1,6 +1,6 @@
-"""Conformance tests: NOTIF-001..016 — notification sub-package.
+"""Conformance tests: NOTIF-001..020 — notification sub-package.
 
-Per spec/16-notifications.md, ADR-0013, ADR-0031.
+Per spec/16-notifications.md, ADR-0013, ADR-0031, ADR-0197.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from threading import Barrier, Thread
 import pytest
 from reactivex.testing import TestScheduler
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread
 from vmx.notifications import (
     ConfirmationVM,
     Notification,
@@ -425,7 +425,7 @@ async def test_resolve_is_thread_safe() -> None:
     t.start()
 
     result = await asyncio.wait_for(future, HANG_GUARD)
-    t.join(timeout=HANG_GUARD)
+    join_thread(t)
     assert result == NotificationReaction.APPROVE
 
 
@@ -460,7 +460,7 @@ def test_opposing_notification_hub_callbacks_do_not_deadlock() -> None:
     for sender in senders:
         sender.start()
     for sender in senders:
-        sender.join(timeout=2 * HANG_GUARD)
+        join_thread(sender, 2 * HANG_GUARD)
 
     assert all(not sender.is_alive() for sender in senders)
 
@@ -477,13 +477,16 @@ async def _post_once(hub: NotificationHub, notification: Notification) -> None:
 async def test_NOTIF_017_dispose_resolves_inflight_waiters_with_pending() -> None:
     hub = NotificationHub()
     completed: list[bool] = []
-    hub.pending.subscribe(on_completed=lambda: completed.append(True))
+    values: list[list[Notification]] = []
+    hub.pending.subscribe(on_next=values.append, on_completed=lambda: completed.append(True))
     task = hub.post(Notification(NotificationType.CONFIRMATION, "in-flight"))
+    before_dispose = len(values)
 
     hub.dispose()
 
     assert await task == NotificationReaction.PENDING
     assert completed == [True], "pending observable completes on dispose"
+    assert len(values) == before_dispose, "dispose sends no final snapshot (ADR-0197)"
 
     # Subsequent post resolves immediately with PENDING and does not enqueue.
     late = hub.post(Notification(NotificationType.NOTIFICATION, "late"))
@@ -493,3 +496,144 @@ async def test_NOTIF_017_dispose_resolves_inflight_waiters_with_pending() -> Non
     # Subsequent resolve is a no-op; second dispose is a no-op.
     hub.resolve(Notification(NotificationType.NOTIFICATION, "ghost"), NotificationReaction.APPROVE)
     hub.dispose()
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-018 — commands report can_execute False during VM disposal
+# ---------------------------------------------------------------------------
+
+
+def _pending(hub: NotificationHub) -> list[Notification]:
+    snapshot: list[list[Notification]] = []
+    hub.pending.subscribe(snapshot.append).dispose()
+    return snapshot[-1]
+
+
+@pytest.mark.conformance("NOTIF-018")
+async def test_NOTIF_018_confirmation_commands_are_disabled_during_dispose() -> None:
+    hub = NotificationHub()
+    notification = Notification(NotificationType.CONFIRMATION, "dispose me")
+    posted = hub.post(notification)
+    sut = ConfirmationVM(notification=notification, hub=hub, scheduler=TestScheduler())
+    commands = (sut.dismiss_command, sut.approve_command, sut.reject_command)
+    calls: list[int] = []
+    reads: list[bool] = []
+
+    def _on_change(_: object) -> None:
+        calls.append(1)
+        reads.extend(command.can_execute() for command in commands)
+        sut.reject_command.execute()
+
+    for command in commands:
+        command.can_execute_changed.subscribe(_on_change)
+
+    sut.dispose()
+
+    assert calls, "a disposal CanExecuteChanged handler ran"
+    assert reads and not any(reads), "every read during dispose() returns False"
+    assert not sut.is_resolved
+    assert _pending(hub) == [notification], "the notification is still pending"
+    assert not posted.done(), "the posted awaitable has not resolved"
+
+    calls.clear()
+    sut.dispose()
+
+    assert calls == [], "a second dispose() raises no CanExecuteChanged"
+    assert _pending(hub) == [notification]
+    hub.dispose()
+
+
+@pytest.mark.conformance("NOTIF-018")
+async def test_NOTIF_018_dismiss_command_is_disabled_during_dispose() -> None:
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "dispose me")
+    hub.post(notification)
+    sut = NotificationVM(notification=notification, hub=hub, scheduler=TestScheduler())
+    reads: list[bool] = []
+    sut.dismiss_command.can_execute_changed.subscribe(
+        lambda _: reads.append(sut.dismiss_command.can_execute())
+    )
+
+    sut.dispose()
+
+    assert reads and not any(reads), "every read during dispose() returns False"
+    assert not sut.is_resolved
+    hub.dispose()
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-019 — Remaining time and opacity stop at resolution or disposal
+# ---------------------------------------------------------------------------
+
+
+def _vm_with_ten_second_lifespan(
+    hub: NotificationHub, scheduler: TestScheduler, text: str
+) -> NotificationVM:
+    notification = Notification(NotificationType.NOTIFICATION, text)
+    hub.post(notification)
+    return NotificationVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=timedelta(seconds=10),
+    )
+
+
+@pytest.mark.conformance("NOTIF-019")
+async def test_NOTIF_019_render_state_stops_at_resolution_or_disposal() -> None:
+    """remaining_time and opacity keep their values from resolution or disposal."""
+    hub = NotificationHub()
+
+    scheduler = TestScheduler()
+    dismissed = _vm_with_ten_second_lifespan(hub, scheduler, "dismissed")
+    dismissed.dismiss_command.execute()
+    scheduler.advance_by(10)
+    assert dismissed.remaining_time == timedelta(seconds=10)
+    assert dismissed.opacity == pytest.approx(1.0)
+    dismissed.dispose()
+
+    scheduler = TestScheduler()
+    disposed = _vm_with_ten_second_lifespan(hub, scheduler, "disposed")
+    disposed.dispose()
+    scheduler.advance_by(10)
+    assert disposed.remaining_time == timedelta(seconds=10)
+    assert disposed.opacity == pytest.approx(1.0)
+
+    scheduler = TestScheduler()
+    late = _vm_with_ten_second_lifespan(hub, scheduler, "late")
+    scheduler.advance_by(4)
+    late.dismiss_command.execute()
+    scheduler.advance_by(6)
+    assert late.remaining_time == timedelta(seconds=6)
+    assert abs(late.opacity - 0.6) < 0.01
+    late.dispose()
+    hub.dispose()
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-020 — A pending subscription after hub dispose receives completion only
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("NOTIF-020")
+async def test_NOTIF_020_late_pending_subscription_receives_completion_only() -> None:
+    hub = NotificationHub()
+    hub.post(Notification(NotificationType.NOTIFICATION, "posted"))
+    hub.dispose()
+
+    values: list[list[Notification]] = []
+    errors: list[Exception] = []
+    completed: list[bool] = []
+    hub.pending.subscribe(
+        on_next=values.append,
+        on_error=errors.append,
+        on_completed=lambda: completed.append(True),
+    )
+
+    assert values == [], "no snapshot: neither the posted notification nor []"
+    assert errors == []
+    assert completed == [True]
+
+    # A subscriber with no error handler does not raise either.
+    hub.pending.subscribe(on_next=values.append)
+    assert values == []

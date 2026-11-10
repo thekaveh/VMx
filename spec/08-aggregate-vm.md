@@ -71,6 +71,19 @@ slot fails. Consumers must explicitly remove a component from a mutable parent
 before supplying it to an aggregate; a component cannot be transferred out of
 an existing aggregate because doing so would leave an invalid empty slot.
 
+A population fails before its commit when a slot factory throws or when the
+reservation or ownership preflight refuses it. The failed population disposes
+each candidate that it built and that nobody owns (ADR-0224). It skips a
+candidate that has a parent, a candidate that another ownership transaction
+holds, and a candidate that is an owner on the aggregate's ancestor chain. It
+disposes each canonical ownership identity once. The cleanup is best-effort:
+a disposal failure does not replace the population's failure, which
+propagates. Swift factories cannot throw, so Swift applies the rule to a
+refused preflight only. Rust factories return values, so Rust also applies the
+rule to a refused preflight only. In Rust, only a lazy slot builds a fresh
+candidate; an eager slot keeps its existing value and is never disposed by the
+cleanup (ADR-0226).
+
 ## 3. Destruction
 
 `destruct()`:
@@ -78,6 +91,11 @@ an existing aggregate because doing so would leave an invalid empty slot.
 1. Invokes `destruct()` on each `ComponentN` slot.
 1. Waits for every child to reach `Destructed`.
 1. Transitions to `Destructed`.
+
+The walk skips a slot that is `Disposed` (chapter 02 §6, ADR-0189). An
+aggregate that holds a slot that was disposed directly therefore still
+destructs and reconstructs. Its next `construct()` replaces the slot from the
+slot factory, as every construct does.
 
 As with `construct()`, the order is unspecified and the reference
 implementations drive the slots sequentially.
@@ -99,18 +117,23 @@ implementations drive the slots sequentially.
    its terminal slot snapshot.
 
 A factory/preflight failure occurs before cleanup and therefore preserves the
-existing slots and parent links exactly. Cleanup failures do not roll back
-already-disposed previous slots; candidate commit is the stable recoverable
-state unless terminal disposal won. This contract is flavor-neutral even where
-the disposal surface cannot throw: such flavors still perform the same cleanup
-and commit-or-terminal-abort steps.
+existing slots and parent links exactly. The failed population disposes its
+unowned candidates under the §2 rule (ADR-0224), and no candidate commits.
+Cleanup failures do not roll back already-disposed previous slots; candidate
+commit is the stable recoverable state unless terminal disposal won. This
+contract is flavor-neutral even where the disposal surface cannot throw: such
+flavors still perform the same cleanup and commit-or-terminal-abort steps.
 
 ## 5. Disposal
 
-`dispose()` invokes `dispose()` on each `ComponentN` slot before the aggregate
-itself transitions to `Disposed`. This mirrors the depth-first cascade specified
-by LIFE-013 for `CompositeVM` / `GroupVM`: child `Disposed` transitions are
-observed before the aggregate's own. The order across slots is unspecified.
+`dispose()` invokes `dispose()` on each `ComponentN` slot. For a dispose that
+is not foreign, it does so before the aggregate itself transitions to
+`Disposed`. This mirrors the depth-first cascade specified by LIFE-013 for
+`CompositeVM` / `GroupVM`: child `Disposed` transitions are observed before the
+aggregate's own. For a foreign dispose, the aggregate publishes `Disposed`
+first, waits for its admitted hook, and then disposes the slots before its
+subclass dispose hook (chapter 02 §7, ADR-0179). The order across slots is
+unspecified.
 
 ## 6. Selection
 
@@ -129,7 +152,7 @@ prefer `CompositeVM<VM>` or `GroupVM<VM>` with a heterogeneous-base-type
 
 ## 8. Conformance
 
-`AGG-001` through `AGG-007` in `12-conformance.md` cover:
+`AGG-001` through `AGG-008` in `12-conformance.md` cover:
 
 - arity-1 component factory invoked on construct
 - arity-2 both components reach Constructed
@@ -140,6 +163,8 @@ prefer `CompositeVM<VM>` or `GroupVM<VM>` with a heterogeneous-base-type
 - arity-6 construction and destruction ordering
 - transactional reconstruction under preflight failure, cleanup failure, and
   terminal disposal
+- disposal of the unowned candidates of a refused population on construction
+  and reconstruction (`AGG-008`)
 
 `DISP-001` additionally requires repeated aggregate disposal to produce one
 observable terminal transition per slot and for the aggregate itself.

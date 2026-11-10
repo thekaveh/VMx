@@ -15,17 +15,19 @@ enum ContainerSupport {
     /// equivalent `CollectionChangedMessage` on the container's `hub`, sent
     /// by the container (spec/01 §1.4, spec/06 §4, spec/07, ADR-0142). Like
     /// the local delivery, it runs outside `gate`; publication uses the hub's
-    /// ordinary `send`, so hub transactions defer it. A disposed container
-    /// publishes nothing.
+    /// ordinary `send`, so hub transactions defer it. A container whose
+    /// disposal is requested or deferred publishes nothing. The check runs
+    /// after the local subscribers return, so a subscriber that disposes the
+    /// container suppresses the hub message of that change (ADR-0190).
     static func deliverCollectionChanged(
         _ event: CollectionChangedEvent,
         from container: ComponentVMBase,
         subject: PassthroughSubject<CollectionChangedEvent, Never>,
         gate: NSRecursiveLock,
-        disposeRequested: () -> Bool
+        disposalPending: () -> Bool
     ) {
         subject.send(event)
-        guard !gate.withLock(disposeRequested) else { return }
+        guard !gate.withLock(disposalPending) else { return }
         container.hub.send(event.hubMessage(sentBy: container))
     }
 
@@ -68,16 +70,19 @@ enum ContainerSupport {
                 return late
             },
             seal: { [weak container] in
-                guard let container else { return nil }
+                guard let container else { return .abandoned }
                 // Commit or keep walking (spec/06 §5.1): with no late child
-                // left, flip the state in this same gate section, so a later
-                // add reads `.constructed`, and end the walk's scope.
-                return gate.withLock {
-                    if let late = pullLocked() { return late }
-                    container._flipConstructedForSeal()
+                // left, the commit step writes `.constructed` in this same
+                // gate section, so a later add reads `.constructed`, and ends
+                // the walk's scope. An abandoned walk writes nothing.
+                let outcome: LateChildSeal = gate.withLock {
+                    if let late = pullLocked() { return .late(late.child, late.record) }
+                    let committed = container._flipConstructedForSeal()
                     starts.endWalk(scope)
-                    return nil
+                    return committed ? .sealed : .abandoned
                 }
+                if case .sealed = outcome { starts.probe(container, .sealed) }
+                return outcome
             },
             willSeal: { [weak container] in
                 guard let container else { return }
@@ -103,11 +108,15 @@ enum ContainerSupport {
 
     /// Auto-construct-on-add of a child an add attached; returns the child's
     /// construct error. With a start `record` (the container was
-    /// `Constructing` at the attach), a `Destructed` child starts now and the
-    /// record is marked done right after the attempt, before the add
-    /// publishes anything. Without one, the child starts only when the
+    /// `Constructing` at the attach), a `Destructed` child starts now. A
+    /// construct that another thread started after the status read is left
+    /// alone: the walk joins it, and the add neither starts nor waits for it
+    /// (ADR-0218 rule 6). Without a record, the child starts only when the
     /// container is `Constructed`: one attached before the walk's snapshot is
-    /// constructed by the walk (spec/06 §5.1).
+    /// constructed by the walk (spec/06 §5.1). This helper never marks the
+    /// record done: the add calls `finishLateStart` after it ends its
+    /// membership transaction, on success and after its undo, so a walk that
+    /// waits on the record resumes only then (ADR-0186, ADR-0218 rule 4).
     static func autoConstructAttached(
         _ child: ComponentVMBase,
         in container: ComponentVMBase,
@@ -116,33 +125,66 @@ enum ContainerSupport {
         starts: LateChildStarts
     ) -> Error? {
         guard autoConstructOnAdd else { return nil }
-        guard let record else {
+        guard record != nil else {
             guard container.isConstructed else { return nil }
             do { try child.construct() } catch { return error }
             return nil
         }
         starts.probe(child, .attached)
-        defer {
-            starts.finish(child, record, constructing: container.status == .constructing)
+        if child.status == .destructed {
+            starts.probe(child, .starting)
+            do {
+                try child.construct()
+            } catch let error as StatusTransitionError {
+                guard child._isInTransition(.constructing) || child.status == .constructed else {
+                    return error
+                }
+            } catch {
+                return error
+            }
         }
-        guard child.status == .destructed else { return nil }
-        do { try child.construct() } catch { return error }
         return nil
     }
 
-    /// Enters a membership transaction for either container: `tryEnter` opens
-    /// or joins it, or records a wait for another thread's open transaction
-    /// and returns that transaction's completion, which this waits for before
-    /// trying again (spec/06 §4, spec/07).
-    static func enterMembershipTransaction(
-        _ tryEnter: () throws -> DispatchGroup?
-    ) rethrows {
-        while let completion = try tryEnter() {
-            awaitMembershipTransaction(completion)
+    /// Marks an add's start attempt done. The add calls it after it ended
+    /// its membership transaction (ADR-0218 rule 4).
+    static func finishLateStart(
+        _ child: ComponentVMBase,
+        _ record: LateChildStarts.Record?,
+        in container: ComponentVMBase,
+        starts: LateChildStarts
+    ) {
+        guard let record else { return }
+        starts.finish(child, record, constructing: container.status == .constructing)
+    }
+
+    /// The lifecycle compensation of a child that a failed add, insert,
+    /// index replacement or population attached (spec/06 §4.2). Only a child
+    /// that was `Destructed` before the change is compensated. A child whose
+    /// construct is still in flight is not waited for: once that construct
+    /// settles at `Constructed` and the child has no parent, VMx calls its
+    /// `destruct()`, and the failed change reports no failure of that call
+    /// (ADR-0218 rule 7). A `Constructed` child is destructed now. Returns
+    /// that destruct's error.
+    static func compensateAutoConstruct(
+        _ child: ComponentVMBase,
+        originalStatus: ConstructionStatus
+    ) -> Error? {
+        guard originalStatus == .destructed else { return nil }
+        let deferred = child._awaitSettle(from: .constructing) { [weak child] in
+            guard let child, child.status == .constructed,
+                  child._transferOwnershipParent == nil else { return }
+            // A background child reports a destruct hook failure through its
+            // own background path; nobody waits for this call.
+            try? child.destruct()
         }
+        guard deferred == nil, child.status == .constructed else { return nil }
+        do { try child.destruct() } catch { return error }
+        return nil
     }
 }
 
 /// The inner error of `ContainerOwnershipError.attachmentFailed` when a
-/// container refuses a membership wait that would close a cycle.
+/// membership change finds the container's membership transaction in
+/// progress, on this thread (ADR-0118) or on another thread (ADR-0187).
 struct ContainerMembershipTransactionError: Error {}

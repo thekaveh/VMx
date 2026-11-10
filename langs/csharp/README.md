@@ -1,18 +1,22 @@
-# vmx — C#
+# VMx — C#
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for .NET,
 spec-compatible with the Python, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.30.0** — implements `spec-v3.30.0` end-to-end. 444/444 library conformance IDs
-pass. Multi-targets `netstandard2.0` and `net8.0`.
-Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
-(`services.AddVMx(...)`) at `2.1.1` and `VMx.Notifications` (opt-in
-`INotificationHub`) at `1.2.0` (min spec 2.6.0). Each is independently
-versioned per ADR-0009 / ADR-0013 and stays on its own release line
-(the DI companion does not pull the core bump); see
-[`compatibility-matrix.md`](../../compatibility-matrix.md).
+**v3.30.0** — implements spec 3.30.0 end-to-end. Every library conformance ID
+passes. Multi-targets `netstandard2.0` and `net8.0`.
+
+Two companion packages have their own version lines (ADR-0009, ADR-0013):
+
+- `VMx.Extensions.DependencyInjection` 2.1.1 adds `services.AddVMx(...)`. Its
+  minimum spec is 2.1.0.
+- `VMx.Notifications` 1.2.0 adds the opt-in `INotificationHub`. Its minimum
+  spec is 2.6.0.
+
+Each companion depends on `VMx` >= 3.30.0. Neither companion is on NuGet yet.
+See [`compatibility-matrix.md`](../../compatibility-matrix.md).
 
 ## 2. Install
 
@@ -87,18 +91,13 @@ public record TabModel(string Title);
 > Production VMs should still call `.Services(hub, dispatcher)` with real
 > services.
 
-The Python and TypeScript flavors mirror this shape: see
-[Python Quick start](../python/README.md#3-quick-start) and
-[TypeScript Quick start](../typescript/README.md#3-quick-start) — only the
-identifier casing differs.
-
 See [Getting Started with VMx — C#](../../docs/content/getting-started/csharp.md)
 for the full walkthrough.
 
 ### 3.1 Cross-language naming
 
-The concepts are identical across the five flavors; identifier casing follows
-each language idiom (ADR-0006). See the
+The concepts and the quick-start shape are identical across the five flavors.
+Identifier casing follows each language idiom (ADR-0006). See the
 [cross-language naming table](../../docs/content/flavors/cross-language-naming.md).
 
 ### 3.2 Subclassing & composition
@@ -174,6 +173,7 @@ The public API lives under the `VMx.*` namespaces:
 | `NullMessageHub` (.Instance)    | Null-object variant per ADR-0017                  |
 | `RxDispatcher` / `IDispatcher`  | Foreground/background scheduler pair              |
 | `NullDispatcher` (.Instance)    | Null-object variant per ADR-0017                  |
+| `DelayedTask`                   | One replaceable delayed action on an injected scheduler (spec/11 §6.3) |
 | `ConstructionStatus`            | 5-state lifecycle enum                            |
 | `StatusTransitionException`     | Thrown on illegal lifecycle operations            |
 | `BuilderValidationException`    | Thrown when a builder is missing required fields  |
@@ -195,7 +195,8 @@ The public API lives under the `VMx.*` namespaces:
 | `KeyedServicedObservableCollection<TKey, TItem>` | Ordered serviced surface plus captured-key index |
 | `IObservableMembershipSource<T>` / `AggregateChangeStream<T>` | Dynamic membership-and-item fan-in with provenance |
 | `ObservableList<T>`             | Granular events + atomic `ReplaceAll`             |
-| `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary     |
+| `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary; read-only `Keys1` / `Keys2` views |
+| `ReadOnlyObservableList<T>`     | Read-only facade over an `ObservableList<T>` |
 | `PagedComposition<TVM>`         | Pageable iterable decorator           |
 | Fluent command extensions       | `Confirm` / `PrecedeWith` / `SucceedWith` / `WrapWith` on `ICommand` |
 | `PropertyValueChangedMessagesFor` | Hub extension yielding `IObservable<TProperty>` of property-value snapshots |
@@ -221,6 +222,18 @@ host as `(current, previous)` and returns an `IDisposable` that the host owns.
 VMx does not attach that handle to the observed VM's lifetime. See
 [C# imperative engine bridge](../../docs/content/flavors/csharp.md#724-imperative-engine-bridge).
 
+### 4.3 Threads after awaited work
+
+VMx awaits with `ConfigureAwait(false)` and does not marshal the work that
+follows. A command that `ConfirmationDecoratorCommand` confirms can therefore
+run on a thread-pool thread. This holds also when the caller and the
+confirmation use a UI `SynchronizationContext`. The completion
+`CanExecuteChanged` and `Errors` of an `AsyncRelayCommand`, and the
+`CollectionChanged` reset of a `TokenPagedComposition` load, can also run on a
+pool thread. Marshal UI work yourself, for example through
+`ObserveOn(dispatcher.Foreground)` or a dispatcher call in the inner command.
+See spec chapter 11 §3.1 and ADR-0195.
+
 ## 5. Companion packages
 
 `VMx.Extensions.DependencyInjection` adds:
@@ -241,14 +254,9 @@ VMx does not attach that handle to the observed VM's lifetime. See
 
 ## 6. Conformance
 
-Implements all 444 library conformance IDs; THEME scenario IDs live in the
+Implements every library conformance ID; THEME scenario IDs live in the
 example apps. See [`spec/12-conformance.md`](../../spec/12-conformance.md).
-
-Run the suite:
-
-```bash
-dotnet test
-```
+`dotnet test` in §7 runs the conformance suite with the unit tests.
 
 ## 7. Development
 
@@ -267,6 +275,10 @@ metadata) live in [`Directory.Build.props`](Directory.Build.props).
 The `lifecycle-transitions.json` fixture from `spec/fixtures/` is embedded as
 a resource via `<EmbeddedResource>` in `VMx.csproj` and consumed at runtime
 by `LifecycleTransitionValidator`.
+
+See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for the contributor workflow,
+including the public API baselines, and [`RELEASING.md`](RELEASING.md) for the
+NuGet release runbook.
 
 ## 8. License
 

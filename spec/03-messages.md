@@ -19,7 +19,10 @@ current public surfaces express that invariant as follows:
 | Swift      | `Message.senderName`, `Message.senderObject`         | concrete typed messages expose `sender`        |
 | Rust       | `sender_name`, `sender_id`                           | enum variants retain the same numeric identity |
 
-The diagnostic name typically equals the sender VM's `Name`. In the four
+The diagnostic name typically equals the sender VM's `Name`. A
+`CollectionChangedMessage` from a `CompositeVM` or `GroupVM` always carries the
+container's `Name`; a plain collection or dictionary uses a flavor-defined name
+(chapter 21 §2.4, ADR-0194). In the four
 object-sender flavors, typed messages expose the canonical runtime sender as
 `Sender`/`sender`. TypeScript also exposes that canonical member on its untyped
 base. C#, Python, and Swift retain their legacy untyped base aliases for source
@@ -149,7 +152,9 @@ The contract is **lossless deferral**, not message coalescing:
    reached its current subscribers. Delivery MUST NOT recurse on the call
    stack.
 1. Disposing the hub during a transaction completes the stream and drops the
-   undelivered queue. Subsequent sends remain no-ops.
+   undelivered queue. Subsequent sends remain no-ops. A `Batch` on a disposed
+   hub, or on a hub whose disposal is requested, runs its body. The body holds
+   no scope that another call waits for (ADR-0184).
 
 Outside a transaction, an ordinary top-level `Send` remains hot and
 synchronous: it drains its message (and any finite re-entrant descendants)
@@ -174,7 +179,10 @@ production bundle cannot accidentally truncate a valid finite transaction.
 
 If a subscriber's handler raises, the hub MUST swallow the exception (the stream
 continues for other subscribers and for future `Send` calls). Raising subscribers
-are a contributor concern, not a hub concern.
+are a contributor concern, not a hub concern. The raising subscriber stays
+attached and receives later messages. The same holds for a subscription to the
+§7.1 and §7.2 helpers. Section 3.6 extends these rules to the other library
+channels (ADR-0191).
 
 If a subscriber disposes its subscription during the delivery of a message (e.g.,
 the handler calls `subscription.Dispose()`), the in-flight dispatch of *that* message
@@ -186,6 +194,59 @@ subscriber. Other subscribers are unaffected.
 A host application MAY create as many `IMessageHub` instances as it likes. The
 common pattern is one hub per VM tree (per "screen" or "feature"); shared root hubs
 across the whole app are also valid.
+
+### 3.6 Subscriber failures on library channels (spec v3.30)
+
+A subscriber can fail: it throws, raises or panics while it handles a delivery.
+These rules apply to the hub and to the library channels below (ADR-0191):
+
+- the hub `Messages` stream and the §7.1 and §7.2 helpers;
+- `DerivedProperty.ValueChanged` (chapter 15 §4.1);
+- `SearchableState.Filtered` and its recompute (chapter 06 §8.2);
+- command `CanExecuteChanged` and the trigger subscriptions (chapter 04 §4);
+- the local collection-change channels of the hub-publishing collections and
+  of `CompositeVM` and `GroupVM`, and the dictionary's granular events
+  (chapter 01 §1.4, chapter 21 §2.5);
+- the granular, `Reset` and `Count` notifications of `ObservableList`, the
+  dictionary's key views, and the C# `Count` and `Item[]` `PropertyChanged`
+  handlers of the serviced collections (chapter 21 §2.5, §3.3, §4.6,
+  ADR-0220).
+
+Only these deliveries are *call-fed*:
+
+- a mutation or disposal of a collection or container;
+- the disposal of a `DerivedProperty` or `SearchableState`;
+- a `RaiseCanExecuteChanged` call.
+
+Every other delivery is *stream-fed*. This includes a hub `Send`, a source or
+trigger emission, a debounce timer, a `SearchableState` term change and a
+`search()` call (chapter 06 §8.2).
+
+1. **Every subscriber.** A delivery MUST reach each subscriber that is attached
+   when it starts, once, even when an earlier subscriber fails. Completion
+   follows the same rule.
+1. **No detach.** A failure MUST NOT detach the failing subscriber, another
+   subscriber or the library's own source subscription. Later deliveries reach
+   all of them.
+1. **State first.** The library commits the state that a delivery announces
+   before it delivers. A failure does not roll that state back.
+1. **Stream-fed route.** A stream-fed failure MUST NOT reach the upstream
+   publisher. C# discards it, as the hub does. Python logs it with
+   `logger.exception`. TypeScript reports it through rxjs
+   `config.onUnhandledError`. Rust catches the panic for each subscriber.
+   Swift subscribers on these channels cannot fail.
+1. **Call-fed route.** After the delivery and any hub send, C# and Python
+   rethrow the first failure to the caller (ADR-0171). TypeScript, Swift and
+   Rust use the stream-fed route, and the call returns normally.
+1. **Consumer operators.** The rules cover a subscription made directly on a
+   stream that the library returns. A subscription made through operators that
+   the consumer adds follows the reactive library's own rules. For example,
+   C# Rx disposes such a subscription when its callback throws.
+
+These rules do not fix the order among the subscribers of one delivery. Only
+`AggregateChangeStream` fixes it (chapter 21 §9.5). They do not cover other
+`PropertyChanged` handlers, `AggregateChangeStream` subscriber failures
+(chapter 21 §9.5), or a failing `DerivedProperty` transform or source.
 
 ## 4. Threading
 
@@ -209,14 +270,108 @@ finish. A cyclic cross-hub batch uses a borrowed scope: its body may enqueue,
 but the target owner does not resume draining until the borrowed scope exits.
 Normal and unrelated nested batches retain exclusive ownership. This narrow
 cycle escape preserves liveness without weakening ordinary `HUB-013`
-synchronous delivery (ADR-0119). TypeScript has no shared-memory hub across
-workers; JavaScript jobs using one hub are already serialized by the host event
-loop.
+synchronous delivery (ADR-0119). The hub records these waits in the flavor's
+single wait-for graph (§4.1), and an open borrowed scope is itself a wait-for
+owner (§4.2). TypeScript has no shared-memory hub across workers; JavaScript
+jobs using one hub are already serialized by the host event loop.
 
 VMs that emit `PropertyChangedMessage` (Status changes, model changes, etc.) MAY
 dispatch the emission via `IDispatcher.Foreground` so subscribers can opt into
 foreground-thread delivery via `ObserveOn(dispatcher.Foreground)`. See
 `11-threading.md` for the full contract.
+
+### 4.1 One wait-for graph per flavor (spec v3.30)
+
+Each threaded flavor (C#, Python, Swift, and Rust) records every blocking wait
+between VMx-owned resources in one process-wide wait-for graph (ADR-0172).
+TypeScript is single-threaded and keeps no graph. The graph records these
+waits. When a wait is refused, the operation takes the result in the last
+column instead of blocking.
+
+| Wait                                                                                    | Owner of the resource                        | Result of a refused wait                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A hub `Send`, `Batch`, or `Dispose` waits for the hub's batch, drain, or borrowed scope | The batch owner, the drainer, or a borrower  | `Send` enqueues for the active drain, `Batch` enters a borrowed scope, and `Dispose` records terminal intent for the owner (§4, ADR-0119)                                                                        |
+| A hub drainer with queued messages waits for a borrowed scope                           | A borrower                                   | The drainer releases the drain to the borrowed scope's exit (§4.2)                                                                                                                                               |
+| A foreign lifecycle call waits for one lifecycle delivery                               | The thread that drains the VM's publications | The call enqueues and returns to that drainer (chapter 02 §2.4, ADR-0117)                                                                                                                                        |
+| A foreign `dispose()` waits for an admitted hook (its hook lease)                       | The thread that runs the hook                | Terminal cleanup is deferred to the hook's completion (chapter 02 §2.4, ADR-0126)                                                                                                                                |
+| A cross-thread container disposal waits for a membership transaction                    | The transaction owner                        | Deferred terminal intent that the owner finishes (chapter 06 §4.2, ADR-0153)                                                                                                                                     |
+| A structural operation waits for a child's ownership gate or lock                       | The thread whose transaction holds it        | The operation fails before mutation: `InvalidOperationException` in C#, `RuntimeError` in Python, and the container's attachment failure in Swift. Rust claims ownership without waiting, so it has no such wait |
+| A `FormVM` call, settlement, or `Dispose()` waits for a form publication scope          | A thread that holds a scope on that form     | `SetModel` and deny are queued for the publisher, an approve call is admitted, a settlement opens its own scope, and `Dispose()` leaves the teardown to the publisher (chapter 20 §5.5, ADR-0176)                |
+| A Rust `ObservableMultiDictionary` mutation waits for another thread's delivery         | The thread that delivers the changes         | The mutation commits and queues its change for that thread, which delivers it in commit order (chapter 21 §4.2, ADR-0208)                                                                                        |
+| A Rust `ValueStream` send or `dispose()` waits for another thread's delivery            | The thread that drains the stream            | The call returns without waiting. The value or terminal stays queued, and the drainer delivers it in order (ADR-0209)                                                                                            |
+| A Rust `DerivedProperty::recompute` waits for another thread's recompute gate           | The thread that holds the gate               | The call runs its transform at once, without the gate. Its result is discarded if another commit lands after its snapshot (ADR-0209)                                                                             |
+
+1. **One graph.** A wait that would close a cycle across any mix of these
+   waits is refused. A wait that closes no cycle blocks as before. No flavor
+   keeps a second graph for one family of waits. A Rust status publication is
+   a hub send, so the hub row covers it.
+1. **Edges per resource instance.** An edge names the waiting thread, the
+   resource instance it waits for, and the thread that owns that resource. The
+   resource instance is one hub, one lifecycle delivery, one hook lease, one
+   container's membership transaction, one ownership gate or lock object, one
+   form's publication scope, one Rust dictionary's delivery, one Rust stream
+   value or terminal delivery, or one Rust recompute gate.
+   An edge is never keyed by VM identity: a container that is also a child has
+   a membership transaction and an ownership gate, and they are two resources.
+   A waiting thread has at most one edge. A wait with several possible owners
+   names one: the batch owner, then the drainer, then a borrower other than
+   the caller.
+1. **Live cycles only.** A cycle counts only when every owner on it still holds
+   its resource at the time of the check. The check and the new edge are one
+   atomic step under the graph's own lock. That lock is a leaf: a thread that
+   holds it takes no other lock and runs no consumer code.
+1. **Release before wake.** The thread that ends a wait removes the edges, and
+   the ownership records, that name it as the owner of that resource before it
+   wakes the waiters. This applies when a thread finishes a hook, delivers a
+   publication, ends a membership transaction, releases an ownership gate,
+   ends a batch, releases a drain, closes its outermost form publication
+   scope, ends a Rust dictionary delivery, delivers a Rust stream value or
+   terminal, releases a Rust recompute gate, and when a borrower ends or
+   partially exits its borrowed scopes. A
+   woken waiter that must still wait records its wait
+   again. A stale edge never makes an operation take its refused-wait result,
+   and a released owner never keeps a waiter blocked.
+
+### 4.2 Borrowed batch scopes (spec v3.30)
+
+A borrowed scope (§4) is open from the start of a cyclic batch's body to its
+exit. These rules apply in every threaded flavor (ADR-0172).
+
+1. **A wait-for owner.** A thread with an open borrowed scope owns the hub
+   with the batch owner and the drainer. A wait on the hub for a borrowed scope
+   records an edge to a borrower (§4.1). When a borrower exits its last
+   borrowed scope while other borrowers remain, the waiters wake.
+1. **Empty queue.** A drainer whose queue is empty does not wait for a
+   borrowed scope. It releases the drain and returns. The exit of the last
+   borrowed scope drains what the bodies enqueued. This is not an escape: the
+   drainer's outermost `Send` returns with an empty queue (§3.3).
+1. **Borrower calls.** A borrower's own `Send`, `Batch`, and `Dispose` on the
+   hub it borrowed do not wait. `Send` enqueues for the drain at the borrowed
+   scope's exit. `Batch` nests another borrowed scope while no disposal is
+   requested. After a disposal is requested, the body runs with no new scope
+   (§3.3, ADR-0184). `Dispose` records terminal intent. The last of the batch
+   owner, the drainer, and the borrowers to release the hub finishes the
+   disposal. A drainer stops waiting for borrowed scopes once a disposal is
+   requested, so its wait never holds a disposal open. A drain that is still
+   delivering a message when the other owners exit finishes the disposal at its
+   end.
+1. **No callback-context escape.** A wait does not change because the caller
+   is inside a hub callback. A `Send` to a hub with an open borrowed scope
+   waits for it, and enqueues without waiting only when its wait is refused
+   (§4.1, `HUB-013`).
+1. **A drainer with queued messages (limitation).** A drainer with queued
+   messages waits until no borrowed scope is open. A borrower can already
+   wait, directly or through other threads, for that drainer. Then the wait
+   that closes the cycle is refused. When the borrower's wait closes it, the
+   borrower takes the result of its own operation (§4.1). When the drainer's
+   wait closes it, the drainer releases the drain and returns, with its
+   messages still queued. The thread that exits the last borrowed scope
+   delivers them in FIFO order before that exit returns. The observable result
+   is as follows. The drainer's outermost `Send` or batch returns before those
+   messages reach subscribers, and they are delivered on the borrower's
+   thread. This is the one case where an outermost `Send` returns with a
+   non-empty queue (§3.3, `HUB-010`). Per-producer FIFO order (§3.2) still
+   holds.
 
 ## 5. Fixture
 
@@ -470,7 +625,8 @@ and `NULL-003` (paired null variants exist for the core service contracts) in
 - subscriber disposing during emit does not crash the hub
 - multiple subscribers each observe every post-subscribe message
 - table-driven scenarios from `fixtures/message-ordering.json`
-- subscriber handler raising does not break the hub
+- subscriber handler raising does not break the hub, and the raising
+  subscriber stays attached (ADR-0191)
 - nested transaction deferral and lossless FIFO delivery
 - transaction-body errors drain queued messages before rethrowing
 - iterative re-entrant publishing without recursive stack growth

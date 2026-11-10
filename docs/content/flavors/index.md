@@ -38,9 +38,9 @@ Package status for each flavor is in [Availability](../index.md#11-availability)
 ## 7.1.4. Common Rules
 
 - All five catalog-complete source flavors target the same VM family model and
-  444-ID library conformance catalog. The
+  library conformance catalog. The
   [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-  (open items and recorded differences in §12.4.7 and §12.7–§12.13) tracks the remaining Rust
+  (recorded difference in §12.7, open item in §12.14) tracks the remaining Rust
   public-surface and behavior gaps.
 - Public naming follows ADR-0006: PascalCase in C#, snake_case in Python,
   camelCase in TypeScript and Swift, and snake_case for Rust methods with

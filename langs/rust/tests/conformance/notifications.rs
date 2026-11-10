@@ -1,7 +1,26 @@
+use std::time::Duration;
+
 use vmx::{
-    make_confirm, Command, Notification, NotificationHub, NotificationReaction, NotificationType,
-    NotificationVm, NullNotificationHub,
+    make_confirm, Command, ConfirmationVm, Notification, NotificationHub, NotificationHubApi,
+    NotificationReaction, NotificationType, NotificationVm, NullNotificationHub, SystemScheduler,
+    ValueSubscription, VirtualTimeScheduler,
 };
+
+type Snapshots = std::sync::Arc<std::sync::Mutex<Vec<Vec<Notification>>>>;
+
+/// Records each pending snapshot that `hub` commits from now on, in delivery
+/// order. The hub keeps no snapshot history (ADR-0211), so a test observes
+/// snapshots through `pending_stream()`. The replayed current snapshot is not
+/// recorded.
+fn record_committed_snapshots(hub: &NotificationHub) -> (ValueSubscription, Snapshots) {
+    let snapshots = Snapshots::default();
+    let recorded = snapshots.clone();
+    let subscription = hub
+        .pending_stream()
+        .subscribe(move |pending| recorded.lock().unwrap().push(pending));
+    snapshots.lock().unwrap().clear();
+    (subscription, snapshots)
+}
 
 /// NOTIF-001 — Post returns an awaitable that completes when Resolve is called
 #[test]
@@ -63,6 +82,7 @@ fn reposting_same_notification_reuses_pending_completion() {
 #[test]
 fn post_adds_notification_to_pending_snapshot() {
     let hub = NotificationHub::new();
+    let (_recorder, committed) = record_committed_snapshots(&hub);
     let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let values = observed.clone();
     let _subscription = hub
@@ -84,8 +104,9 @@ fn post_adds_notification_to_pending_snapshot() {
         *late_values.lock().unwrap(),
         vec![vec![notification.clone()]]
     );
-    assert!(hub
-        .pending_snapshots()
+    assert!(committed
+        .lock()
+        .unwrap()
         .last()
         .unwrap()
         .contains(&notification));
@@ -107,6 +128,7 @@ fn reentrant_pending_mutation_publishes_each_committed_snapshot_once() {
             reentrant.post_notification(second_for_callback.clone());
         }
     });
+    let (_recorder, committed) = record_committed_snapshots(&hub);
 
     hub.post_notification(first.clone());
 
@@ -119,7 +141,7 @@ fn reentrant_pending_mutation_publishes_each_committed_snapshot_once() {
         ]
     );
     assert_eq!(
-        hub.pending_snapshots(),
+        *committed.lock().unwrap(),
         vec![vec![first.clone()], vec![first, second]]
     );
 }
@@ -144,6 +166,7 @@ fn concurrent_pending_delivery_matches_committed_snapshot_order() {
         }
         snapshots.lock().unwrap().push(pending);
     });
+    let (_recorder, committed) = record_committed_snapshots(&hub);
 
     let first_poster = {
         let hub = hub.clone();
@@ -188,7 +211,7 @@ fn concurrent_pending_delivery_matches_committed_snapshot_order() {
         ]
     );
     assert_eq!(
-        hub.pending_snapshots(),
+        *committed.lock().unwrap(),
         vec![vec![first.clone()], vec![first, second]]
     );
 }
@@ -272,15 +295,12 @@ fn resolve_removes_notification_from_pending_snapshot() {
                 .push(waiter_at_publish.try_get());
         }
     });
+    let (_recorder, committed) = record_committed_snapshots(&hub);
 
     hub.resolve(notification.id, NotificationReaction::Approve);
 
     assert!(!hub.pending().contains(&notification));
-    assert!(!hub
-        .pending_snapshots()
-        .last()
-        .unwrap()
-        .contains(&notification));
+    assert_eq!(*committed.lock().unwrap(), vec![Vec::<Notification>::new()]);
     assert_eq!(
         *completion_state.lock().unwrap(),
         vec![None],
@@ -383,22 +403,54 @@ fn resolving_unknown_notification_is_noop() {
 /// NOTIF-009 — NullNotificationHub.Post resolves to Approve immediately
 #[test]
 fn null_notification_hub_resolves_approve() {
-    let notification = Notification::new(NotificationType::Confirmation, "confirm?");
-    let waiter = NullNotificationHub::post(notification);
+    let hub = NullNotificationHub::new();
+    let notification = hub.post(NotificationType::Confirmation, "confirm?");
+    let waiter = hub.post_notification(notification.clone());
 
     assert_eq!(waiter.wait(), NotificationReaction::Approve);
+    hub.resolve(notification.id, NotificationReaction::Reject);
+    assert!(hub.pending().is_empty());
 
     let values = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let observed = values.clone();
     let completed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let completion = completed.clone();
-    let _subscription = NullNotificationHub::pending_stream().subscribe_with_completion(
+    let _subscription = hub.pending_stream().subscribe_with_completion(
         move |pending| observed.lock().unwrap().push(pending),
         move || completion.store(true, std::sync::atomic::Ordering::SeqCst),
     );
 
     assert_eq!(*values.lock().unwrap(), vec![Vec::<Notification>::new()]);
     assert!(completed.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+/// NOTIF-009 — NullNotificationHub replaces NotificationHub where a caller takes the hub trait
+#[test]
+fn null_notification_hub_replaces_the_hub_through_the_hub_trait() {
+    fn post_and_resolve(hub: &impl NotificationHubApi) -> NotificationReaction {
+        let notification = Notification::new(NotificationType::Confirmation, "confirm?");
+        let waiter = hub.post_notification(notification.clone());
+        hub.resolve(notification.id, NotificationReaction::Approve);
+        assert!(hub.pending().is_empty());
+        waiter.wait()
+    }
+
+    assert_eq!(
+        post_and_resolve(&NullNotificationHub),
+        NotificationReaction::Approve
+    );
+    assert_eq!(
+        post_and_resolve(&NotificationHub::new()),
+        NotificationReaction::Approve
+    );
+}
+
+/// NOTIF-010 — make_confirm over a NullNotificationHub completes with true
+#[test]
+fn make_confirm_over_null_hub_completes_true() {
+    let confirm = make_confirm(NullNotificationHub, "ok?");
+
+    assert!(confirm().wait());
 }
 
 /// NOTIF-010 — make_confirm helper returns true iff resolved Approve
@@ -433,25 +485,32 @@ fn make_confirm_style_flow_maps_approve_to_true() {
 /// NOTIF-011 — NotificationVM opacity decays linearly from 1.0 to 0.0 over Lifespan
 #[test]
 fn notification_vm_opacity_decays_linearly() {
+    let scheduler = VirtualTimeScheduler::new();
     let hub = NotificationHub::new();
     let notification = hub.post(NotificationType::Notification, "info");
-    let vm = NotificationVm::with_hub(notification, hub, 10_000);
+    let vm = NotificationVm::with_scheduler(notification, hub, scheduler.clone(), 10_000);
 
     assert_eq!(vm.opacity(), 1.0);
-    vm.advance_by_ms(5_000);
+    scheduler.advance_by(Duration::from_millis(5_000));
     assert!((vm.opacity() - 0.5).abs() < 0.01);
-    vm.advance_by_ms(5_000);
+    scheduler.advance_by(Duration::from_millis(5_000));
     assert_eq!(vm.opacity(), 0.0);
 }
 
 /// NOTIF-012 — NotificationVM auto-dismisses when RemainingTime reaches 0
 #[test]
 fn notification_vm_auto_dismisses_at_expiry() {
+    let scheduler = VirtualTimeScheduler::new();
     let hub = NotificationHub::new();
     let notification = hub.post(NotificationType::Notification, "info");
-    let vm = NotificationVm::with_hub(notification.clone(), hub.clone(), 10_000);
+    let vm = NotificationVm::with_scheduler(
+        notification.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
 
-    vm.advance_by_ms(10_000);
+    scheduler.advance_by(Duration::from_millis(10_000));
 
     assert!(vm.is_resolved());
     assert_eq!(hub.reaction(notification.id), NotificationReaction::Approve);
@@ -480,13 +539,19 @@ fn confirmation_vm_commands_resolve_hub() {
 /// NOTIF-013 — ConfirmationVM inherits DismissCommand, which resolves with Approve
 #[test]
 fn confirmation_vm_dismiss_command_approves_and_does_not_expire() {
+    let scheduler = VirtualTimeScheduler::new();
     let hub = NotificationHub::new();
     let notification = hub.post(NotificationType::Confirmation, "proceed?");
-    let vm = vmx::ConfirmationVm::with_hub(notification.clone(), hub.clone());
+    let vm = vmx::ConfirmationVm::with_scheduler(
+        notification.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        300_000,
+    );
     assert_eq!(vm.notification().id, notification.id);
     assert_eq!(vm.remaining_time_ms(), 300_000);
 
-    vm.advance_by_ms(300_000);
+    scheduler.advance_by(Duration::from_millis(300_000));
     assert!(
         !vm.is_resolved(),
         "a confirmation does not auto-resolve at expiry"
@@ -503,12 +568,18 @@ fn confirmation_vm_dismiss_command_approves_and_does_not_expire() {
 /// NOTIF-014 — Manual DismissCommand cancels the lifespan timer
 #[test]
 fn dismiss_command_is_idempotent_against_later_ticks() {
+    let scheduler = VirtualTimeScheduler::new();
     let hub = NotificationHub::new();
     let notification = hub.post(NotificationType::Notification, "info");
-    let vm = NotificationVm::with_hub(notification.clone(), hub.clone(), 10_000);
+    let vm = NotificationVm::with_scheduler(
+        notification.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
 
     vm.dismiss_command().execute();
-    vm.advance_by_ms(10_000);
+    scheduler.advance_by(Duration::from_millis(10_000));
 
     assert_eq!(hub.reaction(notification.id), NotificationReaction::Approve);
     assert!(vm.is_resolved());
@@ -562,12 +633,92 @@ fn external_pending_resolve_marks_notification_vm_resolved() {
     );
 }
 
+/// DISP-004 — a disposed confirmation's kept commands no longer resolve the hub
+#[test]
+fn disposed_confirmation_kept_commands_do_not_resolve() {
+    let hub = NotificationHub::new();
+    let (notification, waiter) = hub.post_with_waiter(NotificationType::Confirmation, "delete?");
+    let vm = ConfirmationVm::with_hub(notification.clone(), hub.clone());
+    let kept = [
+        vm.approve_command(),
+        vm.reject_command(),
+        vm.dismiss_command(),
+    ];
+    assert!(kept.iter().all(Command::can_execute));
+
+    vm.dispose();
+    for command in &kept {
+        command.execute();
+    }
+
+    assert!(kept.iter().all(|command| !command.can_execute()));
+    assert_eq!(vm.reaction(), NotificationReaction::Pending);
+    assert_eq!(hub.pending(), vec![notification]);
+    assert!(!vm.is_resolved());
+    assert_eq!(waiter.try_get(), None);
+}
+
+/// DISP-004 — repeated rendering-VM disposal keeps the first reaction
+#[test]
+fn repeated_rendering_vm_dispose_keeps_the_first_reaction() {
+    let scheduler = VirtualTimeScheduler::new();
+    let hub = NotificationHub::new();
+    let (confirmation, confirmation_waiter) =
+        hub.post_with_waiter(NotificationType::Confirmation, "proceed?");
+    let confirmation_vm = ConfirmationVm::with_scheduler(
+        confirmation.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        300_000,
+    );
+    let kept_reject = confirmation_vm.reject_command();
+
+    confirmation_vm.approve();
+    confirmation_vm.dispose();
+    confirmation_vm.dispose();
+    kept_reject.execute();
+    confirmation_vm.reject();
+
+    assert_eq!(confirmation_vm.reaction(), NotificationReaction::Approve);
+    assert!(confirmation_vm.is_resolved());
+    assert_eq!(confirmation_waiter.wait(), NotificationReaction::Approve);
+
+    let (notification, notification_waiter) =
+        hub.post_with_waiter(NotificationType::Notification, "info");
+    let notification_vm = NotificationVm::with_scheduler(
+        notification.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
+    let kept_dismiss = notification_vm.dismiss_command();
+
+    notification_vm.dispose();
+    notification_vm.dispose();
+    kept_dismiss.execute();
+    scheduler.advance_by(Duration::from_millis(10_000));
+
+    assert!(!kept_dismiss.can_execute());
+    assert!(!notification_vm.is_resolved());
+    assert_eq!(hub.reaction(notification.id), NotificationReaction::Pending);
+    assert_eq!(hub.pending(), vec![notification]);
+
+    hub.dispose();
+    assert_eq!(notification_waiter.wait(), NotificationReaction::Pending);
+}
+
 /// NOTIF-016 — Deterministic behavior under injected TestScheduler / fake clock
 #[test]
 fn manual_clock_expiry_is_deterministic() {
+    let scheduler = VirtualTimeScheduler::new();
     let hub = NotificationHub::new();
     let (notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "info");
-    let vm = NotificationVm::with_hub(notification.clone(), hub.clone(), 10_000);
+    let vm = NotificationVm::with_scheduler(
+        notification.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
     let snapshots = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let observed = snapshots.clone();
     let _subscription = hub
@@ -575,12 +726,12 @@ fn manual_clock_expiry_is_deterministic() {
         .subscribe(move |pending| observed.lock().unwrap().push(pending.len()));
     let baseline = snapshots.lock().unwrap().len();
 
-    vm.advance_by_ms(9_999);
+    scheduler.advance_by(Duration::from_millis(9_999));
     assert_eq!(vm.remaining_time_ms(), 1);
     assert!(!vm.is_resolved());
     assert_eq!(snapshots.lock().unwrap().len(), baseline);
 
-    vm.advance_by_ms(1);
+    scheduler.advance_by(Duration::from_millis(1));
 
     assert_eq!(vm.remaining_time_ms(), 0);
     assert_eq!(vm.opacity(), 0.0);
@@ -593,7 +744,7 @@ fn manual_clock_expiry_is_deterministic() {
         "auto-dismiss fires exactly once at the lifespan"
     );
 
-    vm.advance_by_ms(10_000);
+    scheduler.advance_by(Duration::from_millis(10_000));
 
     assert_eq!(vm.remaining_time_ms(), 0);
     assert_eq!(vm.opacity(), 0.0);
@@ -610,20 +761,186 @@ fn manual_clock_expiry_is_deterministic() {
 fn hub_dispose_resolves_waiters_pending() {
     let hub = NotificationHub::new();
     let (_notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "info");
+    let recorder = hub.pending_changed().record(16);
+    let values = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = values.clone();
     let completed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let observed = completed.clone();
     let _subscription = hub.pending_stream().subscribe_with_completion(
-        |_| {},
+        move |pending| seen.lock().unwrap().push(pending),
         move || {
             observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         },
     );
+    let values_before = values.lock().unwrap().len();
 
     hub.dispose();
 
     assert_eq!(waiter.wait(), NotificationReaction::Pending);
     assert!(hub.pending().is_empty());
     assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(
+        values.lock().unwrap().len(),
+        values_before,
+        "dispose sends no final snapshot (ADR-0197)"
+    );
+    assert!(
+        recorder.is_empty(),
+        "dispose sends no pending message (ADR-0197)"
+    );
+}
+
+/// NOTIF-019 — NotificationVM remaining time and opacity stop at resolution or disposal
+#[test]
+fn notification_vm_render_state_stops_at_resolution_or_disposal() {
+    let scheduler = VirtualTimeScheduler::new();
+    let hub = NotificationHub::new();
+
+    let dismissed = NotificationVm::with_scheduler(
+        hub.post(NotificationType::Notification, "dismissed"),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
+    dismissed.dismiss_command().execute();
+    scheduler.advance_by(Duration::from_millis(10_000));
+    assert_eq!(dismissed.remaining_time_ms(), 10_000);
+    assert_eq!(dismissed.opacity(), 1.0);
+
+    let disposed = NotificationVm::with_scheduler(
+        hub.post(NotificationType::Notification, "disposed"),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
+    disposed.dispose();
+    scheduler.advance_by(Duration::from_millis(10_000));
+    assert_eq!(disposed.remaining_time_ms(), 10_000);
+    assert_eq!(disposed.opacity(), 1.0);
+
+    let partial = NotificationVm::with_scheduler(
+        hub.post(NotificationType::Notification, "partial"),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
+    scheduler.advance_by(Duration::from_millis(4_000));
+    partial.dismiss_command().execute();
+    scheduler.advance_by(Duration::from_millis(6_000));
+    assert_eq!(partial.remaining_time_ms(), 6_000);
+    assert!((partial.opacity() - 0.6).abs() <= 0.01);
+}
+
+#[test]
+fn confirmation_and_hub_resolution_keep_the_render_state() {
+    let scheduler = VirtualTimeScheduler::new();
+    let hub = NotificationHub::new();
+    let confirmation = ConfirmationVm::with_scheduler(
+        hub.post(NotificationType::Confirmation, "confirm?"),
+        hub.clone(),
+        scheduler.clone(),
+        300_000,
+    );
+    scheduler.advance_by(Duration::from_millis(60_000));
+    confirmation.approve();
+    scheduler.advance_by(Duration::from_millis(240_000));
+    assert_eq!(confirmation.remaining_time_ms(), 240_000);
+    assert!((confirmation.opacity() - 0.8).abs() <= 0.01);
+
+    let notification = hub.post(NotificationType::Notification, "external");
+    let vm = NotificationVm::with_scheduler(
+        notification.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
+    scheduler.advance_by(Duration::from_millis(3_000));
+    hub.resolve(notification.id, NotificationReaction::Reject);
+    scheduler.advance_by(Duration::from_millis(10_000));
+    assert_eq!(vm.remaining_time_ms(), 7_000);
+    assert!((vm.opacity() - 0.7).abs() <= 0.01);
+}
+
+/// NOTIF-020 — A Pending subscription made after hub dispose receives completion only
+#[test]
+fn pending_subscription_after_dispose_receives_completion_only() {
+    let hub = NotificationHub::new();
+    hub.post(NotificationType::Notification, "info");
+    hub.dispose();
+
+    let values = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Vec<Notification>>::new()));
+    let seen = values.clone();
+    let completed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = completed.clone();
+    let _subscription = hub.pending_stream().subscribe_with_completion(
+        move |pending| seen.lock().unwrap().push(pending),
+        move || {
+            observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        },
+    );
+    let plain_values = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Vec<Notification>>::new()));
+    let plain_seen = plain_values.clone();
+    let _plain = hub
+        .pending_stream()
+        .subscribe(move |pending| plain_seen.lock().unwrap().push(pending));
+
+    assert!(
+        values.lock().unwrap().is_empty(),
+        "no snapshot after dispose"
+    );
+    assert!(plain_values.lock().unwrap().is_empty());
+    assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn subscription_inside_a_disposing_callback_receives_completion_only() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    let hub = NotificationHub::new();
+    let late_values = Arc::new(Mutex::new(Vec::<Vec<Notification>>::new()));
+    let late_completions = Arc::new(AtomicUsize::new(0));
+    let late_subscription = Arc::new(Mutex::new(None));
+    let fired = Arc::new(AtomicBool::new(false));
+    let callback_hub = hub.clone();
+    let callback_values = late_values.clone();
+    let callback_completions = late_completions.clone();
+    let callback_subscription = late_subscription.clone();
+    let _subscription = hub.pending_stream().subscribe(move |pending| {
+        if pending.is_empty() || fired.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        callback_hub.dispose();
+        let values = callback_values.clone();
+        let completions = callback_completions.clone();
+        let subscription = callback_hub.pending_stream().subscribe_with_completion(
+            move |pending| values.lock().unwrap().push(pending),
+            move || {
+                completions.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        *callback_subscription.lock().unwrap() = Some(subscription);
+    });
+
+    hub.post(NotificationType::Notification, "info");
+
+    assert!(late_values.lock().unwrap().is_empty(), "no replay");
+    assert_eq!(late_completions.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn notification_vm_over_a_disposed_hub_constructs_normally() {
+    let hub = NotificationHub::new();
+    let notification = Notification::new(NotificationType::Notification, "late");
+    hub.dispose();
+
+    let vm = NotificationVm::with_hub(notification, hub.clone(), 10_000);
+    assert!(!vm.is_resolved());
+
+    vm.dismiss();
+
+    assert!(vm.is_resolved());
+    assert!(hub.pending().is_empty());
 }
 
 #[test]
@@ -692,9 +1009,10 @@ fn concurrent_dispose_returns_after_queued_terminal_publication_and_completions(
 /// DISP-003 — concurrent disposal of a thread-safe hub performs terminal work once
 ///
 /// `dispose()` returns `()`, so "exactly one caller claims teardown" is observed
-/// through its single-shot effects: one terminal snapshot and one completion.
+/// through its single-shot effects: one completion and no snapshot.
+/// A `pending_stream()` recorder observes the snapshots (ADR-0211).
 #[test]
-fn concurrent_notification_hub_dispose_publishes_one_terminal_snapshot() {
+fn concurrent_notification_hub_dispose_completes_once_without_a_snapshot() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{mpsc, Arc, Barrier};
     use std::time::Duration;
@@ -710,7 +1028,7 @@ fn concurrent_notification_hub_dispose_publishes_one_terminal_snapshot() {
                 completed.fetch_add(1, Ordering::SeqCst);
             },
         );
-        let before = hub.pending_snapshots().len();
+        let (_recorder, committed) = record_committed_snapshots(&hub);
         let barrier = Arc::new(Barrier::new(32));
         let threads = (0..32)
             .map(|_| {
@@ -727,7 +1045,10 @@ fn concurrent_notification_hub_dispose_publishes_one_terminal_snapshot() {
             thread.join().unwrap();
         }
 
-        assert_eq!(hub.pending_snapshots().len(), before + 1);
+        assert!(
+            committed.lock().unwrap().is_empty(),
+            "iteration {iteration}: dispose publishes no snapshot"
+        );
         assert_eq!(
             completions.load(Ordering::SeqCst),
             1,
@@ -796,4 +1117,173 @@ fn post_after_dispose_keeps_a_stored_reaction() {
 
     assert_eq!(waiter.try_get(), Some(NotificationReaction::Pending));
     assert_eq!(hub.reaction(notification.id), NotificationReaction::Approve);
+}
+
+/// Subscribes a handler to the `can_execute_changed` hub of each command in
+/// `observed`. Each handler records `can_execute()` of every command in
+/// `read`, then runs `then`.
+fn record_command_state(
+    observed: &[vmx::RelayCommand],
+    read: Vec<vmx::RelayCommand>,
+    then: impl Fn() + Send + Sync + Clone + 'static,
+) -> (
+    std::sync::Arc<std::sync::Mutex<Vec<bool>>>,
+    Vec<vmx::Subscription>,
+) {
+    let reads = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let subscriptions = observed
+        .iter()
+        .map(|command| {
+            let reads = reads.clone();
+            let read = read.clone();
+            let then = then.clone();
+            command.can_execute_changed().subscribe(move |_| {
+                reads
+                    .lock()
+                    .unwrap()
+                    .extend(read.iter().map(Command::can_execute));
+                then();
+            })
+        })
+        .collect();
+    (reads, subscriptions)
+}
+
+/// NOTIF-018 — commands report `CanExecute == false` during VM disposal
+#[test]
+fn confirmation_commands_report_false_during_disposal() {
+    let hub = NotificationHub::new();
+    let (notification, waiter) = hub.post_with_waiter(NotificationType::Confirmation, "confirm?");
+    let vm = ConfirmationVm::with_hub(notification.clone(), hub.clone());
+    let commands = vec![
+        vm.dismiss_command(),
+        vm.approve_command(),
+        vm.reject_command(),
+    ];
+    let reject = vm.reject_command();
+    let (reads, _subscriptions) =
+        record_command_state(&commands, commands.clone(), move || reject.execute());
+
+    vm.dispose();
+
+    let first = reads.lock().unwrap().clone();
+    assert!(!first.is_empty(), "the handlers ran");
+    assert!(
+        first.iter().all(|can_execute| !can_execute),
+        "a command reported can_execute() during disposal: {first:?}"
+    );
+    assert!(!vm.is_resolved());
+    assert_eq!(hub.pending(), vec![notification.clone()]);
+    assert_eq!(waiter.try_get(), None, "the posted waiter has not resolved");
+
+    vm.dispose();
+
+    assert_eq!(
+        *reads.lock().unwrap(),
+        first,
+        "a second dispose runs no handler"
+    );
+    assert_eq!(hub.pending(), vec![notification]);
+    assert_eq!(waiter.try_get(), None);
+}
+
+/// NOTIF-018 — the dismiss command reports `CanExecute == false` during disposal
+#[test]
+fn notification_dismiss_command_reports_false_during_disposal() {
+    let hub = NotificationHub::new();
+    let notification = hub.post(NotificationType::Notification, "info");
+    let vm = NotificationVm::with_hub(notification, hub, 10_000);
+    let dismiss = vec![vm.dismiss_command()];
+    let (reads, _subscriptions) = record_command_state(&dismiss, dismiss.clone(), || {});
+
+    vm.dispose();
+
+    let reads = reads.lock().unwrap().clone();
+    assert!(!reads.is_empty(), "the handler ran");
+    assert!(reads.iter().all(|can_execute| !can_execute));
+}
+
+/// Polls `condition` until it holds or `bound` elapses.
+fn eventually(bound: Duration, condition: impl Fn() -> bool) -> bool {
+    let deadline = std::time::Instant::now() + bound;
+    while std::time::Instant::now() < deadline {
+        if condition() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    condition()
+}
+
+#[test]
+fn notification_vm_expires_in_real_time_with_system_scheduler() {
+    let hub = NotificationHub::new();
+    let notification = hub.post(NotificationType::Notification, "real time");
+    let vm = NotificationVm::with_scheduler(notification.clone(), hub.clone(), SystemScheduler, 50);
+
+    assert!(
+        eventually(Duration::from_secs(2), || hub.reaction(notification.id)
+            == NotificationReaction::Approve),
+        "the notification expires without a manual advance"
+    );
+    assert!(vm.is_resolved());
+    assert_eq!(vm.remaining_time_ms(), 0);
+    assert_eq!(vm.opacity(), 0.0);
+}
+
+#[test]
+fn notification_vm_with_hub_expires_in_real_time() {
+    let hub = NotificationHub::new();
+    let notification = hub.post(NotificationType::Notification, "with_hub");
+    let vm = NotificationVm::with_hub(notification.clone(), hub.clone(), 50);
+
+    assert!(
+        eventually(Duration::from_secs(2), || hub.reaction(notification.id)
+            == NotificationReaction::Approve),
+        "with_hub uses the real-time SystemScheduler"
+    );
+    assert!(vm.is_resolved());
+}
+
+#[test]
+fn confirmation_vm_stays_pending_after_lifespan_under_virtual_scheduler() {
+    let scheduler = VirtualTimeScheduler::new();
+    let hub = NotificationHub::new();
+    let (notification, waiter) = hub.post_with_waiter(NotificationType::Confirmation, "decide?");
+    let vm = ConfirmationVm::with_scheduler(
+        notification.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
+
+    scheduler.advance_by(Duration::from_millis(4_000));
+    assert_eq!(vm.remaining_time_ms(), 6_000);
+    scheduler.advance_by(Duration::from_millis(20_000));
+
+    assert_eq!(vm.remaining_time_ms(), 0);
+    assert_eq!(vm.opacity(), 0.0);
+    assert!(!vm.is_resolved(), "an expired confirmation stays pending");
+    assert_eq!(hub.pending(), vec![notification]);
+    assert_eq!(waiter.try_get(), None);
+}
+
+#[test]
+fn observed_hub_resolution_stops_the_clock_without_a_read() {
+    let scheduler = VirtualTimeScheduler::new();
+    let hub = NotificationHub::new();
+    let notification = hub.post(NotificationType::Notification, "external");
+    let vm = NotificationVm::with_scheduler(
+        notification.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
+
+    scheduler.advance_by(Duration::from_millis(2_500));
+    hub.resolve(notification.id, NotificationReaction::Reject);
+    scheduler.advance_by(Duration::from_millis(20_000));
+
+    assert_eq!(vm.remaining_time_ms(), 7_500);
+    assert_eq!(hub.reaction(notification.id), NotificationReaction::Reject);
 }

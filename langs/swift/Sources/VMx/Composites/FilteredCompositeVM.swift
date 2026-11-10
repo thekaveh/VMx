@@ -66,14 +66,33 @@ open class FilteredCompositeVM<Child: ComponentVMBase> {
         recompute()
     }
 
+    /// Moves the cursor to `item`, which must be `nil` or a visible item.
+    /// Another item is a programmer error and traps, as the `current` setter
+    /// does (ADR-0009). `setCurrentResult(_:)` is the catchable form
+    /// (ADR-0217).
     public func setCurrent(_ item: Child?) {
-        guard !disposed else { return }
-        if let item, !visibleStorage.contains(where: { $0 === item }) {
-            preconditionFailure("current must be nil or a visible item")
+        if case let .failure(error) = setCurrentResult(item) {
+            preconditionFailure("current must be nil or a visible item: \(error)")
         }
-        if currentStorage === item { return }
+    }
+
+    /// Catchable form of `setCurrent(_:)` (ADR-0217). For a non-`nil` item
+    /// that is not visible, it returns a `CompositeMembershipError` failure,
+    /// changes nothing and emits nothing on `changed`. C#, Python and
+    /// TypeScript `SetCurrent` raise for the same item. A disposed projection
+    /// stays frozen and ignores the call.
+    @discardableResult
+    public func setCurrentResult(_ item: Child?) -> Result<Void, CompositeMembershipError> {
+        guard !disposed else { return .success(()) }
+        if let item, !visibleStorage.contains(where: { $0 === item }) {
+            return .failure(CompositeMembershipError(
+                memberName: item.name, compositeName: source.name, reason: .notVisible
+            ))
+        }
+        if currentStorage === item { return .success(()) }
         currentStorage = item
         changedSubject.send(())
+        return .success(())
     }
 
     public func moveToNextVisible() {

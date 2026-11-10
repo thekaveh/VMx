@@ -5,8 +5,8 @@ JavaScript, spec-compatible with the C#, Python, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.31.0 source** — implements `spec-v3.30.0` end-to-end. 444/444 library
-conformance IDs pass. Published runtime requires Node ≥ 20.5.0 and rxjs ≥ 7.8;
+**v3.31.0 source** — implements spec 3.30.0 end-to-end. Every library
+conformance ID passes. Published runtime requires Node ≥ 20.5.0 and rxjs ^7.8;
 repository tests require Node 20.19+, 22.13+, or 24+ for jsdom 29. Dual ESM + CJS
 bundles; TypeScript declarations are bundled — no `@types/vmx` needed.
 Opt-in subpaths provide `@thekaveh/vmx/notifications` and the
@@ -34,10 +34,10 @@ npm --prefix ../VMx/langs/typescript run build
 npm install ../VMx/langs/typescript rxjs
 ```
 
-`rxjs` is declared as a **peer dependency** (≥ 7.8) so consumers share a
-single rxjs instance with VMx — VMx exposes rxjs types (`Observable<T>`
-etc.) in its public API. Installing it alongside `@thekaveh/vmx` keeps
-pnpm strict isolation happy and avoids double-installation.
+`rxjs` is a **peer dependency** (`^7.8.0`: 7.8 or a later 7.x), so the
+consumer and VMx share one rxjs instance. VMx exposes rxjs types, such as
+`Observable<T>`, in its public API. Install rxjs beside `@thekaveh/vmx`. This
+also satisfies pnpm strict isolation and prevents a second rxjs copy.
 
 ## 3. Quick start
 
@@ -87,48 +87,23 @@ tabs.dispose();
 hub.dispose();
 ```
 
-The C# and Python flavors mirror this shape: see
-[C# Quick start](https://github.com/thekaveh/VMx/blob/main/langs/csharp/README.md#3-quick-start) and
-[Python Quick start](https://github.com/thekaveh/VMx/blob/main/langs/python/README.md#3-quick-start) — only the
-identifier casing differs.
-
 See [Getting Started with VMx — TypeScript](https://github.com/thekaveh/VMx/blob/main/docs/content/getting-started/typescript.md)
 for the full walkthrough.
 
 ### 3.1 Cross-language naming
 
-The concepts are identical across the five flavors; identifier casing follows
-each language idiom (ADR-0006). See the
+The concepts and the quick-start shape are identical across the five flavors.
+Identifier casing follows each language idiom (ADR-0006). See the
 [cross-language naming table](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/cross-language-naming.md).
 
 ### 3.2 Browser usage
 
-VMx-TS is browser-safe and works out of the box with all modern bundlers —
-**Vite, Webpack, esbuild, Rollup, Bun, and Tauri webviews**. The dist
-contains no runtime imports of `node:fs`, `node:path`, or `node:url`; the
-lifecycle-transitions fixture is bundled in at build time.
-
-Minimal Vite/SvelteKit/Next.js install:
-
-```bash
-npm install @thekaveh/vmx rxjs
-```
-
-No bundler plugins, polyfills, or `node:*` stubs are required. You can
-import `@thekaveh/vmx` directly from any browser-side module:
-
-```ts
-import { ComponentVMOf, MessageHub, RxDispatcher } from "@thekaveh/vmx";
-```
-
-For a worked browser example, see the React `notes-showcase` app under
-[`examples/typescript/react/notes-showcase/`](https://github.com/thekaveh/VMx/tree/main/examples/typescript/react/notes-showcase/),
-with cross-flavor parity documented in
-[`examples/notes-showcase-parity.md`](https://github.com/thekaveh/VMx/blob/main/examples/notes-showcase-parity.md).
-
-A JSDOM smoke test (`tests/browser-build/smoke.test.ts`) runs on every CI
-build and asserts that the package keeps loading cleanly in a browser-like
-environment — regressions in this area will fail CI.
+The package has no runtime imports of `node:fs`, `node:path`, or `node:url`,
+and the build bundles the lifecycle-transitions fixture. Browser code imports
+`@thekaveh/vmx` without bundler plugins, polyfills, or `node:*` stubs. A JSDOM
+test loads the library source in a browser-like environment, and the React
+`notes-showcase` app bundles the built package with Vite:
+[`examples/typescript/react/notes-showcase/`](https://github.com/thekaveh/VMx/tree/main/examples/typescript/react/notes-showcase/).
 
 ## 4. API surface
 
@@ -167,6 +142,8 @@ Key exports:
 | `NullMessageHub.INSTANCE`       | Null-object variant per ADR-0017                 |
 | `RxDispatcher`                  | Foreground/background scheduler pair             |
 | `NullDispatcher.INSTANCE`       | Null-object variant per ADR-0017                 |
+| `markSchedulerCancelled(scheduler)` | Opt-out for a custom scheduler that cancels its queued work (§4.7) |
+| `DelayedTask`                   | One replaceable delayed action on an injected scheduler (spec/11 §6.3) |
 | `ConstructionStatus`            | 5-state lifecycle enum                           |
 | `StatusTransitionError`         | Raised on illegal lifecycle operations           |
 | `BuilderValidationError`        | Raised when a builder is missing required fields |
@@ -250,6 +227,21 @@ selectors. Dispose the bridge before its owning hub. The bridge ignores
 incoming DevTools dispatches and gives no replay or time-travel guarantee. See
 [TypeScript DevTools observability](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/typescript.md#748-devtools-observability).
 
+### 4.7 Custom schedulers
+
+`RxDispatcher.immediate()` and `NullDispatcher` run both channels on rxjs
+`queueScheduler`. One flush can then hold several lifecycle failures. The
+first failure to leave the flush is thrown. VMx reports every other failure
+once through rxjs `config.onUnhandledError` after the flush returns
+(ADR-0200).
+
+A flush error unsubscribes the actions queued behind it. VMx then runs its own
+dropped lifecycle actions, so the VM still settles. A custom scheduler
+that cancels its queued work on purpose calls `markSchedulerCancelled(this)`
+before it unsubscribes that work. VMx then runs no hook and publishes no status
+for it. A failure that already happened is still reported. `ManualDispatcher`
+marks itself in `dispose()`.
+
 ## 5. Notifications
 
 The opt-in `@thekaveh/vmx/notifications` sub-path export adds:
@@ -264,22 +256,16 @@ The opt-in `@thekaveh/vmx/notifications` sub-path export adds:
 
 ## 6. Conformance
 
-Implements all 444 library conformance IDs; THEME scenario IDs live in the
+Implements every library conformance ID; THEME scenario IDs live in the
 example apps. See [`spec/12-conformance.md`](https://github.com/thekaveh/VMx/blob/main/spec/12-conformance.md).
-
-Run the suite:
-
-```bash
-npm test
-```
+`npm test` in §7 runs the conformance suite with the unit tests.
 
 ## 7. Development
 
 ```bash
 # From this directory
 npm ci
-npm run sync-fixtures   # copy spec/fixtures/*.json → src/fixtures/
-npm run typecheck
+npm run typecheck       # pre-script copies spec/fixtures/*.json → src/fixtures/
 npm run typecheck:tests
 npm run lint
 npm run build

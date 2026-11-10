@@ -1,14 +1,18 @@
-use crate::models::{InMemoryNoteRepository, NoteDraft, NoteModel, NotebookModel};
+use crate::models::{note_matches, InMemoryNoteRepository, NoteDraft, NoteModel, NotebookModel};
 use std::sync::{Arc, Mutex, MutexGuard};
 use vmx::{
-    AggregateVm6, Command, ComponentVm, CompositeVm, DecoratorCommand, DiscriminatorVm,
-    FilteredCompositeVm, FormVm, MessageHub, NotificationHub, NotificationReaction,
-    NotificationType, NotificationVm, NullDispatcher, PagedComposition, ParentHandle, RelayCommand,
-    SearchableState, TokenPagedComposition, VmNode, VmxError, VmxResult, NO_HOOK,
+    AggregateVm6, Command, ComponentVm, CompositeVm, ConfirmationVm, DecoratorCommand,
+    DiscriminatorVm, FilteredCompositeVm, FormVm, MessageHub, Notification, NotificationHub,
+    NotificationReaction, NotificationType, NotificationVm, NullDispatcher, PagedComposition,
+    ParentHandle, RelayCommand, Scheduler, SearchableState, SystemScheduler, TokenPagedComposition,
+    VmNode, VmxError, VmxResult, NO_HOOK,
 };
 
 const PAGE_SIZE: usize = 2;
 const SEARCH_PAGE_SIZE: usize = 2;
+/// One refresh fetches the first page at most this many times. Each extra
+/// fetch replaces a refresh that a racing load discarded.
+const SEARCH_RUNS: usize = 3;
 /// At most this many notifications stay pending, as in every flavor.
 const NOTIFICATION_CAP: usize = 5;
 
@@ -43,18 +47,10 @@ impl NoteVm {
         self.component.set_model(note);
     }
 
+    /// Uses the one matching rule of every notes showcase, which the
+    /// global search shares.
     fn matches(&self, term: &str) -> bool {
-        let term = term.trim().to_lowercase();
-        if term.is_empty() {
-            return true;
-        }
-        let note = self.model();
-        note.title.to_lowercase().contains(&term)
-            || note.body.to_lowercase().contains(&term)
-            || note
-                .tags
-                .iter()
-                .any(|tag| tag.to_lowercase().contains(&term))
+        note_matches(&self.model(), term)
     }
 }
 
@@ -294,6 +290,41 @@ impl NotesViewVm {
         self.pager.previous_page();
     }
 
+    /// Selects the next note on the visible page. Returns the note when the
+    /// selection changed.
+    pub fn select_next_visible(&self) -> Option<NoteModel> {
+        self.step_visible(true)
+    }
+
+    /// Selects the previous note on the visible page. Returns the note when
+    /// the selection changed.
+    pub fn select_previous_visible(&self) -> Option<NoteModel> {
+        self.step_visible(false)
+    }
+
+    /// Moves the selection one row on the visible page. When the current note
+    /// is not on the page, the first visible note becomes current. At the
+    /// first or last row, the selection stays.
+    fn step_visible(&self, forward: bool) -> Option<NoteModel> {
+        self.refresh_page();
+        let page = self.pager.current_page();
+        let current = self.source.current().map(|note| note.id());
+        let index = current
+            .as_deref()
+            .and_then(|id| page.iter().position(|note| note.id() == id));
+        let target = match index {
+            None => 0,
+            Some(index) if forward => index + 1,
+            Some(index) => index.checked_sub(1)?,
+        };
+        let note = page.get(target).cloned()?;
+        if index == Some(target) {
+            return None;
+        }
+        let _ = self.source.set_current(Some(note.clone()));
+        Some(note.model())
+    }
+
     pub fn current_note(&self) -> Option<NoteModel> {
         self.source.current().map(|note| note.model())
     }
@@ -339,7 +370,7 @@ impl NotesViewVm {
     }
 
     pub fn reload(&self) {
-        self.source.clear();
+        let _ = self.source.clear();
         let notebook_id = lock(&self.notebook_id).clone();
         for note in self.repository.notes_for_notebook(&notebook_id) {
             let _ = self.source.add(NoteVm::new(note, self.core.hub()));
@@ -543,36 +574,101 @@ fn build_form(
         .expect("form builder is complete")
 }
 
+/// One search result: a note and the term that found it.
+///
+/// The derived equality includes the term, so pages for different terms are
+/// never equal, and a refresh for a new term replaces the loaded pages and
+/// their cursor (spec 21 §6.2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    pub term: String,
+    pub note: NoteModel,
+}
+
+/// The cursor for the next page. It keeps the term of the loaded pages, so
+/// Load more continues that term even after the query is edited.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchCursor {
+    pub term: String,
+    pub offset: usize,
+}
+
+/// Search progress that `refresh()` and `load_more()` share. No lock on it is
+/// held while the pager runs, so a refresh re-entered from a hub subscriber
+/// cannot deadlock.
+#[derive(Debug, Default)]
+struct SearchProgress {
+    /// The `refresh()` calls that are running. Load more is unavailable while
+    /// one runs.
+    refreshing: usize,
+    /// The first-page fetches started so far.
+    first_page_fetches: usize,
+    /// The page that the latest first-page fetch returned, once it returns.
+    first_page: Option<Vec<SearchHit>>,
+}
+
+/// Ends one `refresh()` call, also when the pager panics.
+struct RefreshRun<'a>(&'a Mutex<SearchProgress>);
+
+impl Drop for RefreshRun<'_> {
+    fn drop(&mut self) {
+        lock(self.0).refreshing -= 1;
+    }
+}
+
 #[derive(Clone)]
 pub struct GlobalSearchVm {
     core: ComponentVm<()>,
     state: SearchableState<NoteModel>,
-    pages: TokenPagedComposition<NoteModel, usize>,
+    pages: TokenPagedComposition<SearchHit, SearchCursor>,
+    progress: Arc<Mutex<SearchProgress>>,
 }
 
 impl GlobalSearchVm {
     fn new(repository: InMemoryNoteRepository, hub: MessageHub) -> Self {
-        // The searchable state owns the term and the matching rule; the token
-        // pager pages over its filtered projection.
+        // The searchable state owns the term. The token pager pages over
+        // repository search results, which use the same matching rule.
         let state = SearchableState::from_items(
-            move || repository.notes(),
+            {
+                let repository = repository.clone();
+                move || repository.notes()
+            },
             |note: &NoteModel, term: &str| note_matches(note, term),
         );
+        let progress = Arc::new(Mutex::new(SearchProgress::default()));
         let loader_state = state.clone();
+        let loader_progress = progress.clone();
         let pages = TokenPagedComposition::with_loader_and_hub(
-            Some(0usize),
-            move |token| {
-                let offset = token.unwrap_or(0);
-                let matches = loader_state.filtered();
-                let page = matches
-                    .iter()
-                    .skip(offset)
-                    .take(SEARCH_PAGE_SIZE)
-                    .cloned()
+            None,
+            move |cursor: Option<SearchCursor>| {
+                // The first page uses the current term. A later page uses the
+                // term in the cursor, so Load more continues the term of the
+                // loaded pages.
+                let (term, offset, fetch) = match cursor {
+                    Some(cursor) => (cursor.term, cursor.offset, None),
+                    None => {
+                        let term = loader_state.search_term();
+                        let mut progress = lock(&loader_progress);
+                        progress.first_page_fetches += 1;
+                        progress.first_page = None;
+                        (term, 0, Some(progress.first_page_fetches))
+                    }
+                };
+                let (notes, next) = repository.search_notes(&term, offset, SEARCH_PAGE_SIZE);
+                let hits = notes
+                    .into_iter()
+                    .map(|note| SearchHit {
+                        term: term.clone(),
+                        note,
+                    })
                     .collect::<Vec<_>>();
-                let next = offset + page.len();
-                let next_token = (next < matches.len()).then_some(next);
-                (page, next_token)
+                if let Some(fetch) = fetch {
+                    let mut progress = lock(&loader_progress);
+                    if progress.first_page_fetches == fetch {
+                        progress.first_page = Some(hits.clone());
+                    }
+                }
+                (hits, next.map(|offset| SearchCursor { term, offset }))
             },
             hub.clone(),
         );
@@ -580,6 +676,7 @@ impl GlobalSearchVm {
             core: ComponentVm::with_model("global-search", (), hub, NullDispatcher::new()),
             state,
             pages,
+            progress,
         }
     }
 
@@ -591,25 +688,69 @@ impl GlobalSearchVm {
         self.state.search_term()
     }
 
+    /// Refreshes the results for the current term.
+    ///
+    /// Load more is unavailable while this runs. A load that passed its
+    /// check just before the refresh began can still start during the
+    /// refresh, and the pager then discards the refresh (spec 21 §6.2). So
+    /// when the results do not start with the page that the refresh fetched,
+    /// this searches again, at most `SEARCH_RUNS` times in all. The check
+    /// compares the hits, not only the term, so a discarded refresh for the
+    /// unchanged term also runs again.
     pub fn refresh(&self) {
-        self.pages.refresh();
+        lock(&self.progress).refreshing += 1;
+        let _run = RefreshRun(&self.progress);
+        for _ in 0..SEARCH_RUNS {
+            let fetches = lock(&self.progress).first_page_fetches;
+            self.pages.refresh();
+            let (fetched, first_page) = {
+                let progress = lock(&self.progress);
+                (
+                    progress.first_page_fetches != fetches,
+                    progress.first_page.clone(),
+                )
+            };
+            // A refused or disposed refresh fetched nothing to check. A
+            // newer first-page fetch that has not returned belongs to
+            // another refresh, which checks its own result.
+            let Some(first_page) = first_page.filter(|_| fetched) else {
+                return;
+            };
+            if shows_first_page(&self.pages.items(), &first_page) {
+                return;
+            }
+        }
     }
 
+    /// Loads and appends the next page. A call made during a refresh does
+    /// nothing, so the results never mix two terms.
     pub fn load_more(&self) {
+        if lock(&self.progress).refreshing > 0 {
+            return;
+        }
         self.pages.load_next();
     }
 
+    /// Reports whether Load more can run: a next page exists and no refresh
+    /// is running.
     pub fn can_load_more(&self) -> bool {
-        self.pages.can_load_more()
+        lock(&self.progress).refreshing == 0 && self.pages.can_load_more()
     }
 
     pub fn result_titles(&self) -> Vec<String> {
         self.pages
             .items()
             .into_iter()
-            .map(|note| note.title)
+            .map(|hit| hit.note.title)
             .collect()
     }
+}
+
+/// Reports whether `results` are what a committed refresh that fetched
+/// `first_page` leaves: they start with that page, and an empty page leaves
+/// no results. A later load only appends, so it keeps this true.
+fn shows_first_page(results: &[SearchHit], first_page: &[SearchHit]) -> bool {
+    results.starts_with(first_page) && (!first_page.is_empty() || results.is_empty())
 }
 
 impl GlobalSearchVm {
@@ -622,48 +763,160 @@ impl GlobalSearchVm {
 
 impl_node!(GlobalSearchVm);
 
+/// One visible notification entry.
+///
+/// A confirmation arms no expiry timer, so it stays pending until `y` or `r`
+/// resolves it (spec/16 §7). Other notifications auto-dismiss.
+#[derive(Clone)]
+pub enum NotificationEntry {
+    Timed(NotificationVm),
+    Confirmation(ConfirmationVm),
+}
+
+impl NotificationEntry {
+    /// The notification this entry shows.
+    pub fn notification(&self) -> Notification {
+        match self {
+            Self::Timed(vm) => vm.notification(),
+            Self::Confirmation(vm) => vm.notification(),
+        }
+    }
+
+    pub fn is_resolved(&self) -> bool {
+        match self {
+            Self::Timed(vm) => vm.is_resolved(),
+            Self::Confirmation(vm) => vm.is_resolved(),
+        }
+    }
+
+    pub fn dismiss_command(&self) -> RelayCommand {
+        match self {
+            Self::Timed(vm) => vm.dismiss_command(),
+            Self::Confirmation(vm) => vm.dismiss_command(),
+        }
+    }
+
+    /// Resolves an entry dropped over the cap. A dropped confirmation is
+    /// rejected, so the hub never records an approval nobody gave.
+    fn evict(&self) {
+        match self {
+            Self::Timed(vm) => vm.dismiss(),
+            Self::Confirmation(vm) => vm.reject(),
+        }
+    }
+
+    pub fn dispose(&self) {
+        match self {
+            Self::Timed(vm) => vm.dispose(),
+            Self::Confirmation(vm) => vm.dispose(),
+        }
+    }
+}
+
+/// The entries a `NotificationsVm` shows, and whether disposal has emptied
+/// them for good. One lock guards both, so a post that races disposal either
+/// lands before it and is disposed with the rest, or sees the flag.
+#[derive(Default)]
+struct NotificationEntries {
+    disposed: bool,
+    vms: Vec<NotificationEntry>,
+}
+
+impl NotificationEntries {
+    /// Removes the resolved entries. The caller disposes them after it
+    /// releases the lock.
+    fn take_resolved(&mut self) -> Vec<NotificationEntry> {
+        self.vms.extract_if(.., |vm| vm.is_resolved()).collect()
+    }
+}
+
 #[derive(Clone)]
 pub struct NotificationsVm {
     core: ComponentVm<()>,
     hub: NotificationHub,
-    active_vms: Arc<Mutex<Vec<NotificationVm>>>,
+    /// Runs the notification lifespans: real time in the app, virtual time in
+    /// tests.
+    scheduler: Arc<dyn Scheduler>,
+    entries: Arc<Mutex<NotificationEntries>>,
 }
 
 impl NotificationsVm {
-    fn new(hub: MessageHub) -> Self {
+    fn new(hub: MessageHub, scheduler: Arc<dyn Scheduler>) -> Self {
         Self {
             core: ComponentVm::with_model("notifications", (), hub, NullDispatcher::new()),
             hub: NotificationHub::new(),
-            active_vms: Arc::new(Mutex::new(Vec::new())),
+            scheduler,
+            entries: Arc::new(Mutex::new(NotificationEntries::default())),
         }
     }
 
+    /// The notification hub that the entries resolve through.
+    pub fn hub(&self) -> NotificationHub {
+        self.hub.clone()
+    }
+
+    /// Posts a notification and shows an entry for it. After disposal, the
+    /// hub stores nothing and no entry is added.
     pub fn post(&self, kind: NotificationType, message: impl Into<String>) -> u64 {
         let notification = self.hub.post(kind, message);
-        let dropped = {
-            let mut active = lock(&self.active_vms);
+        let (resolved, dropped) = {
+            let mut entries = lock(&self.entries);
+            if entries.disposed {
+                return notification.id;
+            }
             // Entries resolved through the hub must not hold a cap slot.
-            active.retain(|vm| !vm.is_resolved());
-            active.push(NotificationVm::with_hub(
-                notification.clone(),
-                self.hub.clone(),
-                60_000,
-            ));
-            let excess = active.len().saturating_sub(NOTIFICATION_CAP);
-            active.drain(..excess).collect::<Vec<_>>()
+            let resolved = entries.take_resolved();
+            let hub = self.hub.clone();
+            let scheduler = self.scheduler.clone();
+            entries.vms.push(match kind {
+                NotificationType::Confirmation => NotificationEntry::Confirmation(
+                    ConfirmationVm::with_scheduler(notification.clone(), hub, scheduler, 60_000),
+                ),
+                _ => NotificationEntry::Timed(NotificationVm::with_scheduler(
+                    notification.clone(),
+                    hub,
+                    scheduler,
+                    60_000,
+                )),
+            });
+            let excess = entries.vms.len().saturating_sub(NOTIFICATION_CAP);
+            (resolved, entries.vms.drain(..excess).collect::<Vec<_>>())
         };
+        // A removed entry is disposed, as in spec 16 §8.1.
+        for vm in resolved {
+            vm.dispose();
+        }
         // Over the cap, the oldest are dismissed, not just hidden, so the
         // hub's pending list stays bounded too.
         for vm in dropped {
-            self.hub
-                .resolve(vm.notification().id, NotificationReaction::Approve);
+            vm.evict();
+            vm.dispose();
         }
         notification.id
     }
 
     pub fn resolve(&self, notification_id: u64, reaction: NotificationReaction) {
         self.hub.resolve(notification_id, reaction);
-        lock(&self.active_vms).retain(|vm| !vm.is_resolved());
+        self.dispose_resolved();
+    }
+
+    /// Returns the entries that are still pending, oldest first.
+    ///
+    /// An entry can be resolved outside this view-model: by its dismiss
+    /// command, by `dismiss()`, by lifespan expiry or through the hub. Such
+    /// an entry is removed and disposed here, before the list is returned.
+    pub fn visible(&self) -> Vec<NotificationEntry> {
+        self.dispose_resolved();
+        lock(&self.entries).vms.clone()
+    }
+
+    /// Reports whether the hub still lists the notification. A confirmation
+    /// dropped over the cap is no longer pending.
+    pub fn is_pending(&self, notification_id: u64) -> bool {
+        self.hub
+            .pending()
+            .iter()
+            .any(|notification| notification.id == notification_id)
     }
 
     pub fn messages(&self) -> Vec<String> {
@@ -673,12 +926,27 @@ impl NotificationsVm {
             .map(|notification| notification.message)
             .collect()
     }
+
+    /// Removes the resolved entries and disposes them, as in spec 16 §8.1.
+    fn dispose_resolved(&self) {
+        let resolved = lock(&self.entries).take_resolved();
+        for vm in resolved {
+            vm.dispose();
+        }
+    }
 }
 
 impl NotificationsVm {
     /// Releases the primitives this view-model owns once its core is disposed.
     fn release_owned(&self) {
-        lock(&self.active_vms).clear();
+        let remaining = {
+            let mut entries = lock(&self.entries);
+            entries.disposed = true;
+            std::mem::take(&mut entries.vms)
+        };
+        for vm in remaining {
+            vm.dispose();
+        }
         self.hub.dispose();
     }
 }
@@ -758,6 +1026,15 @@ impl WorkspaceVm {
     }
 
     pub fn new(repository: InMemoryNoteRepository) -> VmxResult<Self> {
+        Self::with_scheduler(repository, SystemScheduler)
+    }
+
+    /// Builds the workspace with `scheduler` as the clock of the notification
+    /// lifespans. Tests pass a `VirtualTimeScheduler`.
+    pub fn with_scheduler(
+        repository: InMemoryNoteRepository,
+        scheduler: impl Scheduler,
+    ) -> VmxResult<Self> {
         let hub = MessageHub::new();
         let notebooks = NotebooksVm::new(&repository, hub.clone());
         let notebook_id = notebooks.current_id.clone();
@@ -770,7 +1047,7 @@ impl WorkspaceVm {
             })?;
         let form = NoteFormVm::new(repository.clone(), selected, hub.clone());
         let global_search = GlobalSearchVm::new(repository.clone(), hub.clone());
-        let notifications = NotificationsVm::new(hub.clone());
+        let notifications = NotificationsVm::new(hub.clone(), Arc::new(scheduler));
         let editor = EditorModeVm::new(hub);
         let aggregate = AggregateVm6::new(
             "workspace",
@@ -794,9 +1071,12 @@ impl WorkspaceVm {
             move || {
                 // One delete confirmation at a time: a second request would
                 // replace the only slot that `y`/`r` resolve and strand the
-                // first confirmation.
-                if lock(&pending_delete).is_some() {
-                    return;
+                // first confirmation. A confirmation dropped over the cap
+                // frees the slot.
+                if let Some((_, _, notification_id)) = &*lock(&pending_delete) {
+                    if notifications.is_pending(*notification_id) {
+                        return;
+                    }
                 }
                 if let Some(note) = notes.current_note() {
                     let message = format!("Delete note '{}'?", note.title);
@@ -865,39 +1145,41 @@ impl WorkspaceVm {
         Ok(())
     }
 
-    // Paging, searching, and switching notebooks cancel a pending delete:
-    // its note may leave the screen, and `y` must never delete a note the
-    // user no longer sees.
+    // Paging, searching, and switching notebooks cancel a pending delete, so
+    // `y` confirms only a prompt that the user saw on the current screen.
+    // Paging and searching never change the selection or reload the editor,
+    // so a hidden note keeps its draft (ADR-0201 §2.1). `d` deletes the
+    // current note even while its row is hidden. The editor shows that note,
+    // and the prompt names it.
 
     pub fn next_page(&self) {
         self.reject_delete_current();
         self.notes.next_page();
-        self.sync_form_to_page();
     }
 
     pub fn previous_page(&self) {
         self.reject_delete_current();
         self.notes.previous_page();
-        self.sync_form_to_page();
     }
 
     pub fn set_search_term(&self, term: &str) {
         self.reject_delete_current();
         self.notes.set_search_term(term);
-        self.sync_form_to_page();
     }
 
-    /// The selection follows the visible page, and the editor follows the
-    /// selection, so delete never targets a note that is not on screen.
-    fn sync_form_to_page(&self) {
-        let selected = self.notes.current_note().map(|note| note.id);
-        match self.notes.sync_selection_to_page() {
-            Some(note) => {
-                if selected.as_deref() != Some(note.id.as_str()) || !self.form.has_note() {
-                    self.form.load_note(note);
-                }
-            }
-            None => self.form.clear(),
+    /// Selects the next note on the visible page and loads it into the
+    /// editor when the selection changed.
+    pub fn select_next_note(&self) {
+        if let Some(note) = self.notes.select_next_visible() {
+            self.form.load_note(note);
+        }
+    }
+
+    /// Selects the previous note on the visible page and loads it into the
+    /// editor when the selection changed.
+    pub fn select_previous_note(&self) {
+        if let Some(note) = self.notes.select_previous_visible() {
+            self.form.load_note(note);
         }
     }
 
@@ -923,6 +1205,10 @@ impl WorkspaceVm {
         let Some((note_id, title, notification_id)) = lock(&self.pending_delete).take() else {
             return;
         };
+        // A confirmation dropped over the cap deletes nothing.
+        if !self.notifications.is_pending(notification_id) {
+            return;
+        }
         self.notifications
             .resolve(notification_id, NotificationReaction::Approve);
         if self.repository.delete_note(&note_id).is_some() {
@@ -950,19 +1236,6 @@ impl WorkspaceVm {
     pub fn dispose(&self) -> VmxResult<()> {
         self.aggregate.dispose()
     }
-}
-
-fn note_matches(note: &NoteModel, term: &str) -> bool {
-    let term = term.trim().to_lowercase();
-    if term.is_empty() {
-        return true;
-    }
-    note.title.to_lowercase().contains(&term)
-        || note.body.to_lowercase().contains(&term)
-        || note
-            .tags
-            .iter()
-            .any(|tag| tag.to_lowercase().contains(&term))
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

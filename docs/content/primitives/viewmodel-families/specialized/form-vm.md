@@ -84,10 +84,16 @@ state are unchanged, and no notification is sent. A failure never becomes a
 validation error.
 
 Validators receive the candidate as their argument; reading the form's model
-from inside a validator returns the previous model. Updates stay serialized,
-so an edit from another thread waits for an update in progress. If a validator
-itself disposes the form or makes another edit, the interrupted update commits
-nothing and the newest edit stands.
+from inside a validator returns the previous model. The form holds no lock
+while an equality comparison, a validator, the snapshotter, or
+`resetOnApproved` runs (spec chapter 20 §5.4, ADR-0215). Reads from another
+thread return the committed state at once. An edit or `Dispose()` from another
+thread also does not wait for the callback. Commits stay serialized. When
+another thread commits first, the overtaken update runs again against the new
+state. A `Dispose()` from another thread returns at once, the preparing update
+commits nothing, and the teardown runs when that update returns. If a
+validator itself disposes the form or makes another edit, the interrupted
+update commits nothing and the newest edit stands.
 
 `SetModel` / `set_model` that begins after disposal is also a complete no-op.
 It returns before null or equality work, leaves the live model and snapshot
@@ -115,9 +121,26 @@ TypeScript, Swift, and Rust.
 
 The equality check uses the same configured or idiomatic equality as dirty
 tracking. An equal candidate is a complete no-op: VMx retains the current model
-and does not validate, invalidate commands, or publish. A re-entrant observer
-may assign another unequal value; each accepted call settles and publishes
-once before returning.
+and does not validate, invalidate commands, or publish. Only strict mode compares
+dirty state during an update (ADR-0216). A strict `SetModel` runs three
+equality comparisons and a strict deny two. A non-strict `SetModel` runs one,
+and a non-strict deny runs none. A re-entrant hub or
+`CanExecuteChanged` observer may assign another unequal value; each accepted
+call settles and publishes once before returning.
+
+A call made from a validator, an equality comparison, the deny snapshotter, or
+an `ErrorsChanged` observer of `SetModel` or deny is *nested* (spec chapter 20
+§5.4, ADR-0180). A nested `SetModel` or deny commits at once, but it returns
+before its notifications. The outermost update sends them, error maps first,
+before it returns. An approval started from a validator calls its persister
+only after that, so do not block on it inside the callback. If the callback
+then disposes the form, the queued notifications are dropped and the persister
+is never called.
+
+If a send of the queued notifications fails, the outermost update sends no
+later notification and its scopes still close (ADR-0216). Each queued approval
+whose persister has not started is released: its persister is never called,
+and its awaiter completes normally. The send failure then reaches the caller.
 
 `DenyCommand` keeps its explicit ordered pair: one `FormRevertedMessage`, then
 one idiomatic model property message after the revert settles. A successful
@@ -177,10 +200,13 @@ Each approval subscription detaches on its own: dispose the C# `IDisposable`,
 Python disposable, or TypeScript `Subscription`, cancel the Swift
 `AnyCancellable`, or dispose or drop the Rust `ApprovalSubscription`. Form
 disposal releases every remaining subscriber, and a registration made after
-disposal keeps nothing. Rust `subscribe_approved` subscribers receive no
-completion signal on dispose; the other flavors complete `OnApproved` (Rust
-parity ledger §12.9). Rust's deprecated `on_approved` registration lasts until
-the form is disposed (ADR-0139).
+disposal keeps nothing. Every flavor signals form disposal to an approval
+subscriber: C#, Python, TypeScript and Swift complete `OnApproved`, and Rust
+calls the completion callback of `subscribe_approved_with_completion(...)`
+once (ADR-0210). That Rust callback runs at once for a subscription made after
+disposal, and never for a handle detached before it. Rust
+`subscribe_approved` takes no completion callback. Rust's deprecated
+`on_approved` registration lasts until the form is disposed (ADR-0139).
 
 Builder examples use the idiomatic name but the same captured-model contract:
 
@@ -392,13 +418,58 @@ should count as dirty, include `a.payload === b.payload` in `equalsDraft`.
 VMx does not provide `snapshotExclude`: exclusion without an explicit equality
 policy would make dirty and revert semantics ambiguous.
 
-## 6.2.8.2.7. Common Pitfalls
+## 6.2.8.2.7. C# Snapshot And Equality Defaults
+
+C# compares the model and the snapshot with `object.Equals`. The default
+snapshotter is a `System.Text.Json` serialize and deserialize round-trip, so
+the snapshot holds a new instance of each collection field. A record's
+synthesized equality compares a collection field, such as an
+`IReadOnlyList<string>`, by reference. A new form for such a record is
+therefore dirty before any edit. A strict form enables `ApproveCommand` at
+once, and a `SetModel` call with an equal-content list publishes a `Model`
+message.
+
+C# `FormVM` takes no equality parameter, so the model's own equality is the
+hook. Override `Equals` and `GetHashCode` to compare the collection element by
+element:
+
+<!-- checked-snippet: langs/csharp/tests/VMx.Tests/Forms/FormVMRecordCollectionEqualityTests.cs#record-collection-equality -->
+
+```csharp
+public sealed record Note(string Title, IReadOnlyList<string> Tags)
+{
+    // Compare Tags element by element, not by reference.
+    public bool Equals(Note? other) =>
+        other is not null
+        && Title == other.Title
+        && Tags.SequenceEqual(other.Tags);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Title);
+        foreach (var tag in Tags)
+            hash.Add(tag);
+        return hash.ToHashCode();
+    }
+}
+```
+
+With this override, a new strict form is clean, `ApproveCommand` cannot
+execute, and an equal-content `SetModel` publishes no `Model` message. A
+changed element still makes the form dirty.
+
+## 6.2.8.2.8. Common Pitfalls
 
 - Treating `FormVM` as a drop-in `ComponentVM` subclass. It is a distinct
   workflow primitive.
 - Relying on shallow copy semantics for nested mutable models. Inject a custom
   snapshotter and matching equality predicate where the default is not
-  appropriate.
+  appropriate. C# takes no equality predicate; override the model's `Equals`
+  and `GetHashCode` instead.
+- Using a C# record with a collection field and the synthesized equality. The
+  form is dirty before any edit; compare the collection element by element in
+  the model's `Equals`.
 - Ignoring `ApproveErrors` on fire-and-forget command paths.
 - Expecting a second approve made during an in-flight save to save again. It is
   refused; await the first approval, then approve again.
@@ -412,7 +483,7 @@ policy would make dirty and revert semantics ambiguous.
   `setModel` calls. VMx rejects those calls after disposal; retain only
   cancellation that still owns application resources.
 
-## 6.2.8.2.8. Related Primitives
+## 6.2.8.2.9. Related Primitives
 
 - [Component Family](../component-family.md)
 - [DiscriminatorVM](discriminator-vm.md)

@@ -1,10 +1,14 @@
-use notes_showcase::viewmodels::NoteFormVm;
+use notes_showcase::models::note_matches;
+use notes_showcase::viewmodels::{NoteFormVm, NotificationEntry};
 use notes_showcase::{InMemoryNoteRepository, NoteModel, NotebookModel, WorkspaceVm};
 use pretty_assertions::assert_eq;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::thread;
 use std::time::Duration;
-use vmx::{ConstructionStatus, NotificationType, VmNode};
+use vmx::{
+    Command, ConstructionStatus, NotificationReaction, NotificationType, VirtualTimeScheduler,
+    VmNode,
+};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -184,6 +188,181 @@ fn global_search_refresh_after_the_last_page_keeps_results_without_duplicates() 
 }
 
 #[test]
+fn global_search_load_more_continues_the_term_of_the_loaded_pages() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let search = workspace.global_search();
+
+    search.set_query("vmx");
+    search.refresh();
+    search.set_query("in");
+    search.load_more();
+
+    assert_eq!(
+        search.result_titles(),
+        vec!["Rust flavor parity", "VMx inspector notes", "Theme polish"]
+    );
+}
+
+#[test]
+fn global_search_refresh_for_another_term_replaces_the_loaded_pages() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let search = workspace.global_search();
+
+    search.set_query("in");
+    search.refresh();
+    search.load_more();
+    assert_eq!(search.result_titles().len(), 4);
+
+    // The first `and` page equals the head of the `in` results by note, but
+    // not by term, so the refresh replaces the pages and their cursor.
+    search.set_query("and");
+    search.refresh();
+    assert_eq!(
+        search.result_titles(),
+        vec!["Release channels", "Documentation refresh"]
+    );
+    assert!(search.can_load_more());
+
+    search.load_more();
+    assert_eq!(
+        search.result_titles(),
+        vec![
+            "Release channels",
+            "Documentation refresh",
+            "VMx inspector notes"
+        ]
+    );
+    assert!(!search.can_load_more());
+}
+
+/// Asserts that every result matches `term` and that no title repeats.
+fn assert_results_match_once(titles: &[String], repository: &InMemoryNoteRepository, term: &str) {
+    let notes = repository.notes();
+    for title in titles {
+        let note = notes
+            .iter()
+            .find(|note| &note.title == title)
+            .expect("each result is a repository note");
+        assert!(
+            note_matches(note, term),
+            "{title:?} does not match {term:?}: {titles:?}"
+        );
+    }
+    let mut unique = titles.to_vec();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), titles.len(), "a title repeats: {titles:?}");
+}
+
+#[test]
+fn global_search_load_more_does_nothing_while_a_refresh_runs() {
+    let repository = InMemoryNoteRepository::seeded();
+    let (entered_tx, entered) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let release_rx = Mutex::new(release_rx);
+    repository.set_search_hook(move |term, offset| {
+        // Hold the first `in` page fetch until the test releases it.
+        if term == "in" && offset == 0 {
+            let _ = entered_tx.send(());
+            release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(TIMEOUT)
+                .expect("the test releases the refresh");
+        }
+    });
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let search = workspace.global_search();
+    search.set_query("vmx");
+    search.refresh();
+    search.set_query("in");
+
+    let (done, refreshed) = mpsc::channel();
+    thread::spawn({
+        let search = search.clone();
+        move || {
+            search.refresh();
+            let _ = done.send(());
+        }
+    });
+    entered
+        .recv_timeout(TIMEOUT)
+        .expect("the refresh fetches the first page");
+    assert!(!search.can_load_more());
+    search.load_more();
+    release.send(()).unwrap();
+    refreshed
+        .recv_timeout(TIMEOUT)
+        .expect("the refresh settles");
+
+    let titles = search.result_titles();
+    assert_eq!(titles, vec!["Release channels", "Documentation refresh"]);
+    assert_results_match_once(&titles, &repository, "in");
+    assert!(search.can_load_more());
+}
+
+/// Runs `refresh()` and `load_more()` together on two threads after the
+/// first `vmx` page loads and the query becomes `term`.
+fn race_refresh_and_load_more(term: &'static str, hold_first_page: bool, run: usize) {
+    let repository = InMemoryNoteRepository::seeded();
+    if hold_first_page {
+        // A short first-page fetch gives a racing load time to start during
+        // the refresh and discard it.
+        repository.set_search_hook(move |searched, offset| {
+            if searched == term && offset == 0 {
+                thread::sleep(Duration::from_micros(200));
+            }
+        });
+    }
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let search = workspace.global_search();
+    search.set_query("vmx");
+    search.refresh();
+    search.set_query(term);
+
+    let start = Arc::new(Barrier::new(2));
+    let (done, settled) = mpsc::channel();
+    for refresh in [true, false] {
+        let search = search.clone();
+        let start = Arc::clone(&start);
+        let done = done.clone();
+        thread::spawn(move || {
+            start.wait();
+            if refresh {
+                search.refresh();
+            } else {
+                search.load_more();
+            }
+            let _ = done.send(());
+        });
+    }
+    for _ in 0..2 {
+        settled
+            .recv_timeout(TIMEOUT)
+            .unwrap_or_else(|_| panic!("{term} run {run}: refresh and load more settle"));
+    }
+
+    let titles = search.result_titles();
+    assert!(!titles.is_empty(), "{term} run {run}: no results");
+    assert_results_match_once(&titles, &repository, term);
+    workspace.dispose().expect("workspace disposes");
+}
+
+#[test]
+fn global_search_racing_refresh_and_load_more_keep_one_term() {
+    const RUNS: usize = 300;
+    for run in 0..RUNS {
+        // A load that starts during the refresh discards it, so the search
+        // runs again.
+        race_refresh_and_load_more("in", true, run);
+        // `theme` has one page. A load admitted before the refresh commits
+        // that terminal page fetches nothing (#1161), so page one is not
+        // appended twice.
+        race_refresh_and_load_more("theme", false, run);
+    }
+}
+
+#[test]
 fn a_repeated_delete_request_keeps_one_resolvable_confirmation() {
     let repository = InMemoryNoteRepository::seeded();
     let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
@@ -198,6 +377,64 @@ fn a_repeated_delete_request_keeps_one_resolvable_confirmation() {
     workspace.reject_delete_current();
     assert!(workspace.notifications().messages().is_empty());
     assert!(repository.note("rust-parity").is_some());
+}
+
+#[test]
+fn a_notification_expires_after_its_lifespan() {
+    let scheduler = VirtualTimeScheduler::new();
+    let workspace =
+        WorkspaceVm::with_scheduler(InMemoryNoteRepository::seeded(), scheduler.clone())
+            .expect("workspace builds");
+    let notifications = workspace.notifications();
+    notifications.post(NotificationType::Notification, "saved");
+
+    scheduler.advance_by(Duration::from_secs(59));
+    assert_eq!(notifications.messages(), vec!["saved"]);
+
+    scheduler.advance_by(Duration::from_secs(1));
+    assert!(notifications.messages().is_empty());
+}
+
+#[test]
+fn a_delete_confirmation_stays_pending_past_its_lifespan() {
+    let scheduler = VirtualTimeScheduler::new();
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::with_scheduler(repository.clone(), scheduler.clone())
+        .expect("workspace builds");
+
+    workspace.request_delete_current();
+    scheduler.advance_by(Duration::from_secs(600));
+    assert_eq!(
+        workspace.notifications().messages(),
+        vec!["Delete note 'Rust flavor parity'?"]
+    );
+
+    workspace.approve_delete_current();
+    assert!(repository.note("rust-parity").is_none());
+}
+
+#[test]
+fn a_delete_confirmation_dropped_over_the_cap_deletes_nothing_and_frees_the_slot() {
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let notifications = workspace.notifications();
+
+    workspace.request_delete_current();
+    let NotificationEntry::Confirmation(confirmation) = notifications.visible()[0].clone() else {
+        panic!("a delete request posts a confirmation");
+    };
+    for index in 0..5 {
+        notifications.post(NotificationType::Notification, format!("n{index}"));
+    }
+    assert_eq!(confirmation.reaction(), NotificationReaction::Reject);
+
+    workspace.approve_delete_current();
+    assert!(repository.note("rust-parity").is_some());
+
+    workspace.request_delete_current();
+    assert!(notifications
+        .messages()
+        .contains(&"Delete note 'Rust flavor parity'?".to_string()));
 }
 
 #[test]
@@ -251,6 +488,55 @@ fn notifications_over_the_cap_are_dismissed() {
     let messages = notifications.messages();
     assert_eq!(messages.len(), 5);
     assert_eq!(messages.last().map(String::as_str), Some("n7"));
+}
+
+/// A disposed notification entry has an inert dismiss command.
+fn is_disposed(vm: &NotificationEntry) -> bool {
+    !vm.dismiss_command().can_execute()
+}
+
+#[test]
+fn a_resolved_notification_entry_is_disposed() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+    let id = notifications.post(NotificationType::Notification, "saved");
+    let entry = notifications.visible()[0].clone();
+
+    notifications.resolve(id, NotificationReaction::Approve);
+
+    assert!(notifications.visible().is_empty());
+    assert!(is_disposed(&entry));
+}
+
+#[test]
+fn a_notification_dropped_over_the_cap_is_dismissed_and_disposed() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+    notifications.post(NotificationType::Notification, "oldest");
+    let oldest = notifications.visible()[0].clone();
+
+    for index in 0..5 {
+        notifications.post(NotificationType::Notification, format!("n{index}"));
+    }
+
+    assert!(oldest.is_resolved());
+    assert!(is_disposed(&oldest));
+    assert!(notifications.visible().iter().all(|vm| !is_disposed(vm)));
+}
+
+#[test]
+fn workspace_dispose_disposes_the_remaining_notification_entries() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+    notifications.post(NotificationType::Notification, "first");
+    notifications.post(NotificationType::Confirmation, "second");
+    let entries = notifications.visible();
+
+    workspace.dispose().unwrap();
+
+    assert_eq!(entries.len(), 2);
+    assert!(entries.iter().all(is_disposed));
+    assert!(notifications.visible().is_empty());
 }
 
 #[test]
@@ -319,9 +605,11 @@ fn a_saved_note_updates_its_row_search_delete_prompt_and_later_loads() {
     );
     workspace.set_search_term("");
 
-    // Paging away and back reloads the editor from the saved row.
-    workspace.next_page();
-    workspace.previous_page();
+    // Selecting another note and back reloads the editor from the saved row.
+    workspace
+        .select_note("release-channels")
+        .expect("note selects");
+    workspace.select_note("rust-parity").expect("note selects");
     assert_eq!(form.title(), "Rust VMx showcase");
 
     // The delete prompt names the saved title.
@@ -366,5 +654,317 @@ fn paging_searching_or_switching_notebooks_cancels_a_pending_delete() {
             repository.note("rust-parity").is_some(),
             "{name}: `y` deleted a note that left the screen"
         );
+    }
+}
+
+fn marked_rows(workspace: &WorkspaceVm) -> Vec<String> {
+    workspace
+        .notes()
+        .visible_rows()
+        .into_iter()
+        .filter(|(_, selected)| *selected)
+        .map(|(title, _)| title)
+        .collect()
+}
+
+// ADR-0201 §2.1: a search or a page change never changes the current note,
+// and the editor keeps its draft while the note is hidden.
+#[test]
+fn a_search_that_hides_the_current_note_keeps_it_and_its_draft() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let form = workspace.form();
+    workspace
+        .select_note("release-channels")
+        .expect("note selects");
+    form.set_title("Release draft");
+
+    workspace.set_search_term("docs");
+    let current = workspace.notes().current_note().expect("a current note");
+    assert_eq!(current.id, "release-channels");
+    assert_eq!(form.title(), "Release draft");
+    assert!(form.is_dirty());
+    assert!(marked_rows(&workspace).is_empty());
+
+    workspace.set_search_term("");
+    let current = workspace.notes().current_note().expect("a current note");
+    assert_eq!(current.id, "release-channels");
+    assert_eq!(form.title(), "Release draft");
+    assert!(form.is_dirty());
+    assert_eq!(marked_rows(&workspace), vec!["Release channels"]);
+}
+
+#[test]
+fn a_page_change_keeps_the_current_note_and_its_draft() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let form = workspace.form();
+    form.set_title("Parity draft");
+
+    workspace.next_page();
+    let current = workspace.notes().current_note().expect("a current note");
+    assert_eq!(current.id, "rust-parity");
+    assert_eq!(form.title(), "Parity draft");
+    assert!(marked_rows(&workspace).is_empty());
+
+    workspace.previous_page();
+    assert_eq!(form.title(), "Parity draft");
+    assert_eq!(marked_rows(&workspace), vec!["Rust flavor parity"]);
+}
+
+// ADR-0201 §2.2: selecting another note discards the unsaved draft with no
+// prompt, and the repository keeps the stored values.
+#[test]
+fn selecting_another_note_discards_the_unsaved_draft() {
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let form = workspace.form();
+    workspace.select_note("rust-parity").expect("note selects");
+    form.set_title("Unsaved draft");
+    assert!(form.is_dirty());
+
+    workspace
+        .select_note("release-channels")
+        .expect("note selects");
+    assert_eq!(form.title(), "Release channels");
+    assert!(!form.is_dirty());
+
+    workspace.select_note("rust-parity").expect("note selects");
+    assert_eq!(form.title(), "Rust flavor parity");
+    assert!(!form.is_dirty());
+    assert_eq!(
+        repository.note("rust-parity").expect("stored note").title,
+        "Rust flavor parity"
+    );
+}
+
+#[test]
+fn select_next_and_previous_note_stay_on_the_visible_page() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let form = workspace.form();
+    form.set_title("Parity draft");
+
+    // At the first row, the previous-note step keeps the selection and draft.
+    workspace.select_previous_note();
+    assert_eq!(marked_rows(&workspace), vec!["Rust flavor parity"]);
+    assert_eq!(form.title(), "Parity draft");
+
+    workspace.select_next_note();
+    assert_eq!(marked_rows(&workspace), vec!["Release channels"]);
+    assert_eq!(form.title(), "Release channels");
+
+    // At the last row, the next-note step keeps the selection.
+    workspace.select_next_note();
+    assert_eq!(marked_rows(&workspace), vec!["Release channels"]);
+
+    workspace.select_previous_note();
+    assert_eq!(marked_rows(&workspace), vec!["Rust flavor parity"]);
+    assert_eq!(form.title(), "Rust flavor parity");
+
+    // When the current note is not on the page, both steps select the first
+    // visible note.
+    workspace.next_page();
+    workspace.select_previous_note();
+    assert_eq!(marked_rows(&workspace), vec!["Documentation refresh"]);
+    assert_eq!(form.title(), "Documentation refresh");
+    workspace.previous_page();
+    workspace.select_next_note();
+    assert_eq!(marked_rows(&workspace), vec!["Rust flavor parity"]);
+
+    // With an empty page, both steps keep the selection.
+    workspace.set_search_term("no such note");
+    workspace.select_next_note();
+    workspace.select_previous_note();
+    let current = workspace.notes().current_note().expect("a current note");
+    assert_eq!(current.id, "rust-parity");
+}
+
+/// The two notes of the cross-flavor search-rule tests (#1330).
+fn search_rule_workspace() -> WorkspaceVm {
+    let note = |id: &str, title: &str, tags: &[&str]| NoteModel {
+        id: id.to_string(),
+        notebook_id: "inbox".to_string(),
+        title: title.to_string(),
+        body: format!("(seed body for {title})"),
+        tags: tags.iter().map(|tag| tag.to_string()).collect(),
+        starred: false,
+    };
+    let repository = InMemoryNoteRepository::new(
+        vec![NotebookModel {
+            id: "inbox".to_string(),
+            title: "Inbox".to_string(),
+        }],
+        vec![
+            note("a", "Auth migration plan", &["security", "q2"]),
+            note("b", "Standup notes", &[]),
+        ],
+    );
+    WorkspaceVm::new(repository).expect("workspace builds")
+}
+
+/// Each query of the search-rule tests and the titles it matches. The term
+/// is trimmed, an empty term matches every note, and a note matches when its
+/// title, its body or one tag contains the term, ignoring case.
+const SEARCH_RULE_CASES: [(&str, &[&str]); 3] = [
+    ("plan ", &["Auth migration plan"]),
+    ("  ", &["Auth migration plan", "Standup notes"]),
+    ("notes (seed", &[]),
+];
+
+#[test]
+fn the_notes_list_search_trims_the_term_and_matches_each_field() {
+    let workspace = search_rule_workspace();
+    for (query, expected) in SEARCH_RULE_CASES {
+        workspace.set_search_term(query);
+        assert_eq!(workspace.notes().visible_titles(), expected, "{query:?}");
+    }
+}
+
+#[test]
+fn the_global_search_trims_the_term_and_matches_each_field() {
+    let workspace = search_rule_workspace();
+    let search = workspace.global_search();
+    for (query, expected) in SEARCH_RULE_CASES {
+        search.set_query(query);
+        search.refresh();
+        assert_eq!(search.result_titles(), expected, "{query:?}");
+    }
+}
+
+#[test]
+fn an_entry_dismissed_by_a_clone_of_its_command_leaves_the_visible_list() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+    notifications.post(NotificationType::Notification, "saved");
+    let entry = notifications.visible()[0].clone();
+    let dismiss = entry.dismiss_command().clone();
+
+    dismiss.execute();
+
+    assert!(notifications.messages().is_empty());
+    assert!(notifications.visible().is_empty());
+    assert!(!entry.dismiss_command().can_execute());
+}
+
+#[test]
+fn an_entry_resolved_through_the_hub_leaves_the_visible_list() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+    let id = notifications.post(NotificationType::Notification, "saved");
+    let kept = notifications.post(NotificationType::Notification, "kept");
+    let entry = notifications.visible()[0].clone();
+
+    notifications
+        .hub()
+        .resolve(id, NotificationReaction::Approve);
+
+    let visible = notifications.visible();
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].notification().id, kept);
+    assert!(!entry.dismiss_command().can_execute());
+}
+
+#[test]
+fn a_post_after_workspace_disposal_adds_no_entry() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+
+    workspace.dispose().unwrap();
+    notifications.post(NotificationType::Notification, "late");
+
+    assert!(notifications.visible().is_empty());
+    assert!(notifications.messages().is_empty());
+}
+
+#[test]
+fn a_same_term_refresh_that_no_load_discards_fetches_the_first_page_once() {
+    let repository = InMemoryNoteRepository::seeded();
+    let fetches = Arc::new(Mutex::new(0_usize));
+    repository.set_search_hook({
+        let fetches = Arc::clone(&fetches);
+        move |term, offset| {
+            if term == "in" && offset == 0 {
+                *fetches.lock().unwrap() += 1;
+            }
+        }
+    });
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let search = workspace.global_search();
+    search.set_query("in");
+    search.refresh();
+    assert_eq!(*fetches.lock().unwrap(), 1);
+
+    // A changed first page is replaced by one fetch, too.
+    repository
+        .delete_note("release-channels")
+        .expect("the note exists");
+    search.refresh();
+
+    assert_eq!(*fetches.lock().unwrap(), 2);
+    let titles = search.result_titles();
+    assert_eq!(
+        titles.first().map(String::as_str),
+        Some("Documentation refresh")
+    );
+    assert_results_match_once(&titles, &repository, "in");
+}
+
+/// Refreshes `in`, deletes the first match, and then runs `refresh()` and
+/// `load_more()` together for the unchanged term (#1469).
+fn race_same_term_refresh_and_load_more(run: usize) {
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let search = workspace.global_search();
+    search.set_query("in");
+    search.refresh();
+    assert_eq!(
+        search.result_titles(),
+        vec!["Release channels", "Documentation refresh"]
+    );
+    repository
+        .delete_note("release-channels")
+        .expect("the note exists");
+    // A short first-page fetch gives a racing load time to start during the
+    // refresh and discard it.
+    repository.set_search_hook(|term, offset| {
+        if term == "in" && offset == 0 {
+            thread::sleep(Duration::from_micros(200));
+        }
+    });
+
+    let start = Arc::new(Barrier::new(2));
+    let (done, settled) = mpsc::channel();
+    for refresh in [true, false] {
+        let search = search.clone();
+        let start = Arc::clone(&start);
+        let done = done.clone();
+        thread::spawn(move || {
+            start.wait();
+            if refresh {
+                search.refresh();
+            } else {
+                search.load_more();
+            }
+            let _ = done.send(());
+        });
+    }
+    for _ in 0..2 {
+        settled
+            .recv_timeout(TIMEOUT)
+            .unwrap_or_else(|_| panic!("run {run}: refresh and load more settle"));
+    }
+
+    let titles = search.result_titles();
+    assert_eq!(
+        titles.first().map(String::as_str),
+        Some("Documentation refresh"),
+        "run {run}: {titles:?}"
+    );
+    assert_results_match_once(&titles, &repository, "in");
+    workspace.dispose().expect("workspace disposes");
+}
+
+#[test]
+fn a_same_term_refresh_that_a_racing_load_discards_runs_again() {
+    for run in 0..300 {
+        race_same_term_refresh_and_load_more(run);
     }
 }

@@ -12,8 +12,8 @@ See spec/07-group-vm.md.
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable, Iterable, Iterator
+from functools import partial
 from threading import Condition, RLock, get_ident
 from typing import Generic, TypeVar
 
@@ -24,16 +24,20 @@ from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx._indexes import _reject_bool_index
+from vmx._subscriber_failures import FanOutSubject
 from vmx._wait_for_graph import WAITS
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components._container_helpers import (
     attach_late_start_locked,
     auto_construct_attached,
+    compensate_auto_construct,
     construct_walk,
     deliver_collection_changed,
     emit_collection_changed,
     enter_batch,
     exit_batch,
+    finish_add_start,
+    is_member,
     join_if_pending,
     maybe_auto_construct,
     seal_or_next_late,
@@ -51,7 +55,7 @@ from vmx.components.base import (
     _ParentCompositeVM,
     _ParentTransfer,
 )
-from vmx.components.child_order import ChildOrder, _in_destruct_order
+from vmx.components.child_order import ChildOrder, _in_destruct_order, _require_child_order
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
@@ -105,6 +109,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         on_destruct: Callable[[], None] | None = None,
         destruct_order: ChildOrder = ChildOrder.INSERTION,
     ) -> None:
+        # Checked before any state exists: an unknown order is a caller error.
+        _require_child_order(destruct_order)
         super().__init__(
             name=name,
             hint=hint,
@@ -134,7 +140,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._membership_condition = Condition(self._membership_gate)
 
         # Observable collection-change stream.
-        self._collection_changed_subject: Subject[CollectionChangedEvent] = Subject()
+        self._collection_changed_subject: Subject[CollectionChangedEvent] = FanOutSubject()
 
         # Single cached parent adaptor reused for every child op (VMX-077):
         # a fresh _GroupParent per add/insert was wasteful and gave children an
@@ -197,6 +203,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         old: VM | None = None
         original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
+        succeeded = False
         try:
             original_status = value.status
             transfer = _begin_parent_transfer(value, parent)
@@ -222,14 +229,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     old._set_parent(parent)
                     value._set_parent(None)
                 self._late_starts.remove(value, record)
-            if (
-                original_status is ConstructionStatus.DESTRUCTED
-                and value.status is ConstructionStatus.CONSTRUCTED
-            ):
-                try:
-                    value.destruct()
-                except BaseException as error:
-                    compensation_error = error
+            compensation_error = compensate_auto_construct(value, original_status)
             if transfer is not None:
                 transfer.rollback()
             if compensation_error is not None:
@@ -257,8 +257,13 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     )
                 ),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            try:
+                self._end_membership_transaction(propagate_dispose_failure=succeeded)
+            finally:
+                # After the transaction ends (ADR-0218).
+                finish_add_start(record)
 
     def __delitem__(self, index: int) -> None:
         self.remove_at(index)
@@ -285,6 +290,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         attached = False
         original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
+        succeeded = False
         try:
             original_status = item.status
             transfer = _begin_parent_transfer(item, parent)
@@ -308,14 +314,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     self._children.remove(item)
                     item._set_parent(None)
                 self._late_starts.remove(item, record)
-            if (
-                original_status is ConstructionStatus.DESTRUCTED
-                and item.status is ConstructionStatus.CONSTRUCTED
-            ):
-                try:
-                    item.destruct()
-                except BaseException as error:
-                    compensation_error = error
+            compensation_error = compensate_auto_construct(item, original_status)
             if transfer is not None:
                 transfer.rollback()
             if compensation_error is not None:
@@ -337,8 +336,13 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
                 ),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            try:
+                self._end_membership_transaction(propagate_dispose_failure=succeeded)
+            finally:
+                # After the transaction ends (ADR-0218).
+                finish_add_start(record)
 
     def add(self, item: VM) -> None:
         """Append *item* to the end of the children list."""
@@ -350,6 +354,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         attached = False
         original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
+        succeeded = False
         try:
             original_status = item.status
             transfer = _begin_parent_transfer(item, parent)
@@ -370,14 +375,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     self._children.remove(item)
                     item._set_parent(None)
                 self._late_starts.remove(item, record)
-            if (
-                original_status is ConstructionStatus.DESTRUCTED
-                and item.status is ConstructionStatus.CONSTRUCTED
-            ):
-                try:
-                    item.destruct()
-                except BaseException as error:
-                    compensation_error = error
+            compensation_error = compensate_auto_construct(item, original_status)
             if transfer is not None:
                 transfer.rollback()
             if compensation_error is not None:
@@ -399,8 +397,13 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
                 ),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            try:
+                self._end_membership_transaction(propagate_dispose_failure=succeeded)
+            finally:
+                # After the transaction ends (ADR-0218).
+                finish_add_start(record)
 
     # Alias: append mirrors Python list convention.
     append = add
@@ -506,9 +509,13 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         return construct_walk(self, joined, visited, walk)
 
     def _seal_or_next_late(
-        self, joined: list[VM], visited: dict[int, VM], walk: _LateWalk
+        self,
+        joined: list[VM],
+        visited: dict[int, VM],
+        walk: _LateWalk,
+        commit: Callable[[], None],
     ) -> VM | None:
-        return seal_or_next_late(self, joined, visited, walk)
+        return seal_or_next_late(self, joined, visited, walk, commit)
 
     def _validate_move_index(self, index: int) -> None:
         _reject_bool_index(index)
@@ -522,6 +529,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         # Invoke the builder's on_construct callback first.
         if self._on_construct_cb is not None:
             self._on_construct_cb()
+        if not self._populated and self._population_superseded():
+            return
         # Children whose construct population started are joined, not restarted.
         joined: list[VM] = []
         self._population_joined = joined
@@ -530,18 +539,23 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         finally:
             self._population_joined = None
         # This walk's scope of start records, begun before its snapshot.
-        walk = self._late_starts.begin_walk(self)
+        # The walk counts members only (ADR-0186).
+        member = partial(is_member, self)
+        walk = self._late_starts.begin_walk(self, member)
         visited: dict[int, VM] = {}
+        # The commit step is bound to this hook's walk (ADR-0186, #1374).
+        commit = self._construct_commit_for_running_hook()
         walking = self._transition_container_children(
             self._construct_walk(joined, visited, walk),
             construct=True,
             joined=joined,
             join=walk.join,
             seal=(
-                (lambda: self._seal_or_next_late(joined, visited, walk))
+                (lambda: self._seal_or_next_late(joined, visited, walk, commit))
                 if self._auto_construct_on_add
                 else None
             ),
+            is_member=member,
         )
 
         # A failed walk ends its own scope when it fails, not at a later GC.
@@ -574,6 +588,18 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         # foreign dispose cleans no child while this container's hook runs. No
         # lock is held here, so the hook can finish while this call waits.
         self._dispose_with_children(snapshot)
+
+    def _population_superseded(self) -> bool:
+        """Whether a dispose() superseded the construct hook before population.
+
+        Factory population is a post-hook container action. A superseded hook
+        calls no children factory and attaches nothing, and construct()
+        returns without an error (spec/02 §2.4, LIFE-015, ADR-0218).
+        """
+        with self._membership_gate:
+            if self._dispose_requested:
+                return True
+        return self._is_disposed()
 
     def _require_child_admission(self) -> None:
         if self._dispose_requested or self._dispose_deferred:
@@ -618,15 +644,28 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         if self._dispose_requested or self._dispose_deferred:
             raise RuntimeError("cannot attach a child while the container is disposing")
 
+    def _disposal_pending_locked(self) -> bool:
+        return self._dispose_requested or self._dispose_deferred
+
     def _begin_membership_transaction(self) -> None:
         with self._membership_gate:
             self._begin_membership_transaction_locked()
 
     def _end_membership_transaction(self, *, propagate_dispose_failure: bool = True) -> None:
+        """End the transaction and run a deferred dispose().
+
+        The caller passes whether its operation succeeded as an explicit flag.
+        ``sys.exc_info()`` cannot tell: it also reports an exception that a
+        caller frame handles, such as an ``except`` block or the child walk
+        around an on_destruct hook (#1152). A failed operation keeps its own
+        error as the first failure (spec/06 §4.2).
+        """
         with self._membership_condition:
             self._release_membership_transaction_locked()
+            # The deferral stays set until dispose() admits it, so no other
+            # thread's transaction starts between this release and dispose(),
+            # as in CompositeVM (#1064, #1153).
             dispose = self._dispose_deferred
-            self._dispose_deferred = False
         if dispose:
             try:
                 self.dispose()
@@ -657,6 +696,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._begin_membership_transaction()
         transfers: list[_ParentTransfer | None] = []
         original_statuses: list[ConstructionStatus] = []
+        succeeded = False
         try:
             with _ownership_reservation_batch(children):
                 for child in children:
@@ -691,17 +731,13 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 with self._membership_gate:
                     if any(candidate is child for candidate in self._children):
                         self._children.remove(child)
-                if (
-                    original_status is ConstructionStatus.DESTRUCTED
-                    and child.status is ConstructionStatus.CONSTRUCTED
-                ):
-                    try:
-                        child.destruct()
-                    except BaseException as error:
-                        if compensation_error is None:
-                            compensation_error = error
+                # Detached first: a deferred compensation destructs only a
+                # child with no parent (ADR-0218 rule 7).
                 if child._parent is parent:
                     child._set_parent(None)
+                error = compensate_auto_construct(child, original_status)
+                if compensation_error is None:
+                    compensation_error = error
             for staged_transfer in reversed(transfers):
                 if staged_transfer is not None:
                     staged_transfer.rollback()
@@ -733,8 +769,9 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 raise_commit_error,
                 *(lambda child=child: publish_add(child) for child in children),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            self._end_membership_transaction(propagate_dispose_failure=succeeded)
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
@@ -851,14 +888,14 @@ class _GroupParent(_ParentCompositeVM, Generic[VM]):
             child = self._group._children.pop(index)
 
         def commit() -> None:
+            succeeded = False
             try:
                 self._group._emit_collection_changed(
                     CollectionChangedEvent(action="remove", old_items=(child,), old_index=index)
                 )
+                succeeded = True
             finally:
-                self._group._end_membership_transaction(
-                    propagate_dispose_failure=sys.exc_info()[0] is None
-                )
+                self._group._end_membership_transaction(propagate_dispose_failure=succeeded)
 
         def rollback() -> None:
             try:

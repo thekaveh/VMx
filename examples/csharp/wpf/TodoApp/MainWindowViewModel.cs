@@ -59,7 +59,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         // Use WPF's SynchronizationContext for foreground (already set by the time
         // the ViewModel is created in App.OnStartup / MainWindow constructor).
-        _hub        = new MessageHub();
+        _hub = new MessageHub();
         _dispatcher = RxDispatcher.CreateForCurrentContext();
 
         AddCommand = RelayCommand.Builder()

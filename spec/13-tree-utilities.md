@@ -52,13 +52,20 @@ Properties:
 
 ## 4. Idiomatic surface
 
-| Flavor     | Module          | Walk / WalkExpanded return                | Find return                |
-| ---------- | --------------- | ----------------------------------------- | -------------------------- |
-| C#         | `VMx.Tree`      | `IEnumerable<IComponentVM>` (lazy)        | `IComponentVM?`            |
-| Python     | `vmx.tree`      | `Iterator[ComponentVMProto]` (generator)  | `ComponentVMProto \| None` |
-| TypeScript | `@thekaveh/vmx` | `Iterable<ComponentVMBase>` (generator)   | `ComponentVMBase \| null`  |
-| Swift      | `VMx`           | `[ComponentVMBase]` (materialized)        | `ComponentVMBase?`         |
-| Rust       | `vmx`           | `Vec<T>` for `T: TreeNode` (materialized) | `Option<T>`                |
+| Flavor     | Module          | Walk / WalkExpanded return                   | Find return                      |
+| ---------- | --------------- | -------------------------------------------- | -------------------------------- |
+| C#         | `VMx.Tree`      | `IEnumerable<IComponentVM>` (lazy)           | `IComponentVM?`                  |
+| Python     | `vmx.tree`      | `Iterator[ComponentVMProto]` (generator)     | `ComponentVMProto \| None`       |
+| TypeScript | `@thekaveh/vmx` | `Iterable<ComponentVMBase>` (generator)      | `ComponentVMBase \| null`        |
+| Swift      | `VMx`           | `throws -> [ComponentVMBase]` (materialized) | `throws -> ComponentVMBase?`     |
+| Rust       | `vmx`           | `VmxResult<Vec<TreeNodeRef>>` (materialized) | `VmxResult<Option<TreeNodeRef>>` |
+
+Rust walks any `TreeNode` root. `TreeNode::try_children_nodes` lists a node's
+children as type-erased `TreeNodeRef` handles, so a walk crosses containers
+whose children have different types. `CompositeVm`, `ModeledCompositeVm`, and
+`GroupVm` list their children, `AggregateVm1` to `AggregateVm6` list their
+present components in slot order, and `HierarchicalVm` lists its children.
+`TreeNodeRef::downcast` returns the concrete node (ADR-0207).
 
 `walk_expanded` (spec v2.0) shares the same return shape as `walk` per flavor.
 Swift returns materialized `[ComponentVMBase]` arrays rather than lazy sequences
@@ -115,23 +122,50 @@ When applied to a `HierarchicalVM<TModel, TVM>` instance:
   node whose `IsExpanded == false` does NOT yield its children. Useful for
   tree-view rendering that should only show expanded branches.
 
-Open Rust gap: the `TreeNode` implementation for `HierarchicalVm` keeps the
-default `expandable()`, which returns `None`. `walk_expanded` therefore treats
-every Rust hierarchical node as expanded and never stops at a collapsed node.
-Rust `TreeNode::children_nodes` returns `Vec<Self>`, so a node can only list
-children of its own type. `CompositeVm` implements `TreeNode` with no children,
-and `walk` over a Rust composite visits only the composite itself.
+Rust composes the state with `HierarchicalVm::compose_expansion`, and
+`TreeNode::expandable` then returns it (ADR-0207).
 
 See [chapter 18](18-hierarchical-vm.md) for HierarchicalVM details.
 
+### 6.1. Invalid factory output
+
+A walk can reach a node whose lazy children factory returns invalid output
+(chapter 18 §4). Then `walk`, `walk_expanded`, and `find` report the
+hydration error to the caller as the flavor's ordinary recoverable error. They
+never stop the process (ADR-0170):
+
+| Flavor     | Failure surface                                                                                                            |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| C#         | The `Children` error (`InvalidOperationException`) propagates when the lazy sequence reaches the node.                     |
+| Python     | The `children` error (`ValueError`; `TypeError` for a non-iterable result) propagates when the generator reaches the node. |
+| TypeScript | The `children` error (`Error`) propagates when the generator reaches the node.                                             |
+| Swift      | `walk`, `walkExpanded`, and `find` throw `HierarchyError.invalidFactoryOutput`.                                            |
+| Rust       | `walk`, `walk_expanded`, and `find` return the `try_children` error (`VmxError::InvalidArgument`).                         |
+
+Swift and Rust read the fallible `tryChildren()` / `try_children()` accessor
+for this. Rust reads it through `TreeNode::try_children_nodes`, which returns
+no children by default. The rejected node keeps no children cache, so a later
+walk runs the factory again. A walk reads a node's children only when it
+descends into that node. `find` therefore returns a match that it reaches
+before the failing node, and `walk_expanded` never reads the children of a
+collapsed node.
+
+No walk catches an error from a children read. Python reads children through
+`iter(node)`. A `TypeError` from `iter(node)` propagates, as in C# and
+TypeScript, and a node whose `iter()` fails is never walked through its
+`components()` slots instead (ADR-0212). `UTIL-004` pins the failure rule.
+
 ## 7. Conformance
 
-`UTIL-001` through `UTIL-003` and `EXP-001` through `EXP-005` in
+`UTIL-001` through `UTIL-004` and `EXP-001` through `EXP-005` in
 `12-conformance.md` cover:
 
 - `walk` yields root, then every descendant, in DFS pre-order
 - `walk` skips empty aggregate slots
 - `find` returns the first matching node and short-circuits
+- `walk`, `walk_expanded` and `find` report invalid factory output as a
+  recoverable error, assign no parent, retry the factory on the next walk, and
+  `find` returns a match that it reaches before the failing node (§6.1)
 - `walk_expanded` walks the tree but stops descent at every node whose
   `IExpandable.IsExpanded` is `false` (collapsed nodes contribute themselves
   but none of their descendants)

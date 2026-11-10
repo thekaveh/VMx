@@ -6,7 +6,7 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
-## [3.30.0] — 2026-11-07
+## [3.30.0] — unreleased source version
 
 First PyPI release since 3.23.0. The 3.23.1 tag never reached PyPI, and 3.23.2
 to 3.29.0 were source-only versions. This package contains every change listed
@@ -14,6 +14,61 @@ below for them.
 
 ### Added
 
+- `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
+  `construct()` or `reconstruct()` disposes the fresh candidate and keeps the
+  owned candidate's status and parent. Python already behaved this way.
+- `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
+  ADR-0222). They cover the #1367, #1430, #1352 and #1459 changes under
+  Changed and Fixed.
+- `DelayedTask`: a disposable helper that holds at most one delayed action on
+  an injected scheduler. `schedule` replaces a pending action and restarts its
+  delay, `cancel` stops it, `is_pending` reports it, and `dispose` cancels it
+  (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
+- `COMP-053` conformance tests (ADR-0218, #1312). The selector receives the
+  live membership. This flavor already behaved this way.
+- `COMP-040` tests now assert that the rollback error carries the original and
+  the first compensation failure (ADR-0218, #1305). This flavor already
+  behaved this way.
+- `COMP-048` and `GRP-016` conformance tests (ADR-0187, #1314). A container
+  membership change during another open membership transaction fails at once
+  and changes nothing. Python already behaved this way.
+- `ModeledCrudCommands` accepts an optional `current_changed` observable
+  (#1346, ADR-0049, spec/04 §4.2). The helper wires it as a trigger on the
+  Update and Delete commands, so their `can_execute_changed` fires when the
+  selection changes. `dispose()` releases the trigger subscriptions. A helper
+  built without the trigger behaves as before. Spec/06 §7 now lists all five
+  flavors as accepting the trigger.
+- `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
+  and `find` report invalid children-factory output as a recoverable error,
+  assign no parent and retry the factory on the next walk; `find` returns a
+  match that it reaches before the failing node. Python follows the rule
+  after the `TypeError` fix below.
+- `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
+  tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
+  #1311). A failing subscriber does not stop the delivery to the other
+  subscribers or detach a subscription, and the subscribers of one
+  `AggregateChangeStream` envelope receive it in subscription order. Python
+  already delivered `AggregateChangeStream` envelopes in subscription order.
+- `ARES-012` conformance tests (ADR-0199, #1353). A loader's own
+  cancellation restores the saved stable state. Python already behaved this
+  way.
+- `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189).
+- `CMD-020`, `CMDD-018` and `FORM-043` conformance tests (ADR-0195,
+  ADR-0196, #1327). A fire-and-forget `AsyncRelayCommand` fault reaches
+  `errors` after the completion notification, and `execute()` of
+  `ConfirmationDecoratorCommand` never runs the inner command inside its own
+  call. An update raises `approve_command.can_execute_changed` exactly once
+  when it changes `is_valid`, or `is_dirty` in strict mode, also during an
+  approval. Python already behaved this way.
+- `ReadOnlyObservableList` is exported from `vmx` and `vmx.collections`, and
+  `COL-070` conformance tests cover it (#1316, ADR-0193). `keys1` and `keys2`
+  already returned this read-only view.
+- `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
+  mutation changes the entries and `count` first. Then it updates each key
+  view that changes, emits the dictionary events and sends the hub message.
+  The order of the two key-view notifications is not specified. Python already
+  behaved this way.
 - `ExpandableState.expand_command`, `collapse_command` and
   `toggle_expansion_command` (#660, ADR-0159, EXP-006..008). Each command's
   predicate is the matching `can_*` check, its task calls the verb, and its
@@ -61,9 +116,422 @@ below for them.
   selection. The helper publishes nothing to a hub and never materializes or
   changes a node. `dispose()` releases the subscriptions and completes the
   stream without emitting.
+- `FORM-044` conformance tests (#1415, ADR-0216). A failed send of an
+  update's queue stops the later sends and releases a nested approval without
+  calling its persister. Python already behaved this way.
+
+### Changed
+
+- Disposing a live `CompositeCommand`, `DecoratorCommand` or
+  `ConfirmationDecoratorCommand` now emits one `can_execute_changed`
+  notification to the wrapper's own subscribers, as TypeScript and Swift do
+  (#1459, spec/04 §8.4). Subscribers of the inner command receive nothing, and
+  the inner stream's completion still passes through the wrapper stream.
+- The construct walk of a composite or group now counts members only
+  (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
+  joins a child, and again after the child settles. A child that a removal or
+  a failed add takes out during the walk does not roll the container back, and
+  the walk does not construct a snapshot child removed before it reaches it.
+  `COMP-047` and `GRP-015` cover the four removal cases.
+- A `set_model` or deny made in the caller's own approval pre-publication
+  window no longer waits for another thread's publication scope. It is queued
+  at once (ADR-0215, spec/20 §5.5, #1426).
+- A non-strict `FormVM` update no longer compares the model with the snapshot
+  (ADR-0216, spec/20 §5.2, `FORM-045`, #1355). A non-strict `set_model` runs
+  the equality once, and a non-strict deny not at all.
+- `ObservableDictionary.add` raises `ValueError`, not `KeyError`, for a key
+  pair that is already present (#1308, ADR-0214, `COL-071`). This is the
+  duplicate-key type of `KeyedServicedObservableCollection`. The call changes
+  nothing and emits nothing. Code that catches `KeyError` from a duplicate
+  `add` must catch `ValueError`; `get` still raises `KeyError` for an absent
+  key pair.
+- A refused child `select()` or `deselect()` now changes nothing and raises
+  nothing (ADR-0188, spec/05 §6, #1424). Before, it raised inside the caller's
+  own uncommitted membership transaction and while disposal of the composite
+  was pending.
+- A `CollectionChangedMessage` from a `CompositeVM` or `GroupVM` now carries
+  the container's `name` as its `sender_name` (#1309, ADR-0194). Before, it
+  carried the runtime type name, such as `CompositeVM`. A hub filter on that
+  type name must use the container's name or sender identity instead. Plain
+  collections and dictionaries keep their type name. `sender_name` is now a
+  keyword-only field. When it is not given, it defaults to the sender's type
+  name. An explicit empty name, such as a container named `""`, stays empty.
 
 ### Fixed
 
+- A container walk that waited for a background child or for a late add now
+  continues on the container's own foreground dispatcher (ADR-0218, spec/02
+  §6, #1326). Before, later sibling starts, the `Current` change and consumer
+  callbacks ran on the dispatcher of the child that settled last. A walk whose
+  children settle at once still finishes on the caller.
+- An add now ends its start attempt after it ends its membership transaction
+  (ADR-0218, spec/06 §5.1, #1371). A container that a late add resumes
+  publishes `Constructed` outside that add's transaction, so a `Constructed`
+  subscriber can add a child.
+- A container whose construct hook a foreign `dispose()` superseded no longer
+  calls its children factory, and its `construct()` returns without an error
+  (ADR-0218, spec/02 §2.4, #1369). An `add()` during disposal still fails.
+- A walk or an auto-construct add no longer fails when another thread starts
+  the same child between its status check and its start call (ADR-0218,
+  spec/02 §6, spec/06 §5.1, #1370, #1375). The walk joins that transition,
+  and the add leaves it to the walk.
+- A failed add, insert, replacement or population that started a background
+  child now returns that child to `Destructed` once its construct settles
+  `Constructed` with no parent (ADR-0218, spec/06 §4.2, #1372, `COMP-054`,
+  `GRP-017`). Before, the child reached `Constructed` with no parent.
+- `ObservableList` no longer skips the `"Count"` notification when a
+  granular or reset subscriber raises (#1367, spec/21 §3.3). Every
+  subscriber of the event runs, `"Count"` follows when the count changed, and
+  the first failure is re-raised to the caller after the last step. This
+  covers `append`, `insert`, `remove`, `remove_at`, `replace`, `clear`,
+  `replace_all` and the batch exit.
+- A raising `keys1` or `keys2` subscriber of `ObservableDictionary` no longer
+  skips the other key view, the dictionary's own events or its hub message
+  (#1430). The dictionary runs every step and then re-raises the first failure.
+  After a failed `keys2` add, `keys1` now lists the new key.
+- `ForwardingComponentVM` and `ForwardingCompositeVM` no longer raise
+  `AttributeError` from `_notify_property_changed` and
+  `_raise_property_changed` (#1352). Both helpers act on the wrapped VM: the
+  hub message names the wrapped VM as its sender, and the decorator's
+  `property_changed` emits the name once.
+- A construct hook that raises after it started the container walk no longer
+  lets the walk's commit step set `status` to `CONSTRUCTED` (ADR-0186,
+  spec/06 §5.1, #1374). The commit step checks for an abandoned or stopped
+  walk under the lock that writes the status. The check is bound to the
+  hook that started the walk, so a stale walk never commits a later
+  `construct()`.
+- `can_select_component(None)` and `select_component(None)` no longer raise
+  `AttributeError` (#1467). The predicate returns `False`, and
+  `select_component` raises its predicate `ValueError`. A `None` value is never
+  a child.
+- `AsyncRelayCommand.execute()` raises `can_execute_changed` again when a
+  start-notification observer throws (#1328, spec/04 §10.2). The command
+  releases its admission, and observers that saw the start edge then see
+  `is_executing == False` and `can_execute() == True`. The observer exception
+  still reaches the caller, also when the release notification throws too.
+- `ModalVM.dismiss()` from a worker thread wakes a `wait_result()` waiter at
+  once (#1323, spec/19 §3). Before, the waiter resumed only on other loop
+  activity, and in asyncio debug mode `dismiss()` raised `RuntimeError` and
+  the waiter never resumed. The modal now claims the first result under a
+  lock and wakes each waiter on its own event loop with
+  `call_soon_threadsafe`. Racing `dismiss()` calls keep the first result.
+- A population that fails before its commit now disposes the candidates it
+  built (#1324). This covers a raising `AggregateVM2` to `AggregateVM6`
+  factory on `construct()` or `reconstruct()`, a refused aggregate preflight,
+  and a raising `CompositeVMOf` projector. The old slots and parent links
+  stay. A candidate that has a parent, that another ownership transaction
+  holds, or that owns the aggregate is not disposed. A `FilteredCompositeVM`
+  or `ScoredFilteredCompositeVM` whose first recompute raises now detaches
+  from its source before the error propagates.
+- `GroupVM`, `CompositeVM` and `CompositeVMOf`, their builders and the
+  `create` factories now raise `TypeError` for a `destruct_order` that is not
+  a `ChildOrder` member, such as the string `"reverse"` (#1397). Before, the
+  container walked its children in insertion order with no error.
+- `attach_many` now indexes the materialized subtree of each attached item
+  (#1320, ADR-0212, `HIER-042`..`HIER-044`). A later item in the same batch
+  can name any node of that subtree as its parent; before, it became a
+  `MISSING_PARENT` orphan. A descendant key that is already in the tree, or
+  that an earlier item in the batch claimed, rejects the item as
+  `DUPLICATE_EXISTING_KEY` or `DUPLICATE_BATCH_KEY`, so a batch no longer adds
+  a second node for a key. An item that is a node of an earlier item's subtree
+  is rejected as `ALREADY_ATTACHED` in either batch order, never as a
+  duplicate, so `duplicates` never holds a live node. A parent key that names
+  the item's own descendant is now a `CYCLE` rejection instead of a parked
+  orphan. Children that `add_child` materializes from a lazy factory join the
+  index in the next batch.
+- `walk`, `walk_expanded` and `find` no longer catch a `TypeError` from
+  `iter(node)` (#1434, ADR-0212, spec/13 §6.1). A `HierarchicalVM` whose
+  children factory returned `None` or raised `TypeError` became a leaf, and the
+  caller got no error. The error now propagates, as from a direct `children`
+  read, and a later walk calls the factory again. A custom node whose
+  `__iter__` raises `TypeError` is no longer walked through its `components()`
+  slots instead.
+- A failing subscriber no longer stops the delivery to the other subscribers
+  or detaches a subscription (ADR-0191, spec/03 §3.6, #1304, #1311). This
+  covers the hub helpers, `DerivedProperty` value changes,
+  `SearchableState`, command `CanExecuteChanged` handlers and triggers, and the
+  local collection and container channels. A failure from a stream-fed delivery
+  no longer reaches the upstream publisher; it follows the hub's
+  subscriber-error route. Collection, container and raise-call failures are
+  still rethrown, after every subscriber has run. A failing `SearchableState`
+  predicate keeps the last snapshot (`HUB-007`, `DPROP-013`, `SRCH-009`,
+  `CMD-021`, `COL-069`).
+- `NotificationVM` and `ConfirmationVM` keep `remaining_time` and `opacity`
+  from their first resolution or disposal (ADR-0197, `NOTIF-019`, #1306).
+  Before, both values kept decaying with the scheduler clock after resolution
+  or `dispose()`, and no change notification reported the new values.
+  After auto-dismiss both values are 0, even when the expiry timer fires while
+  the clock still reads a little before expiry.
+- A `pending` subscription made after `NotificationHub` disposal receives
+  completion only, with no snapshot and no error (ADR-0197, `NOTIF-020`,
+  #1476). Before, it received `DisposedException`, and a `NotificationVM`
+  built over a disposed hub raised.
+- `SearchableState` construction no longer starts a term debounce (ADR-0198,
+  `SRCH-008`, #1307). Before, the seeded empty term emitted one filtered
+  snapshot one debounce window after construction, with no term change or
+  `search()` call.
+- A disposed `HierarchicalVM` node now refuses `add_child`, `remove_child`,
+  `reparent_child`, `invalidate_children`, `invalidate_subtree` and
+  `attach_many`, also where the call would do nothing (ADR-0190, spec/18
+  §7.1, #1318). A transfer out of a disposed parent refuses too. A refused
+  call changes nothing and publishes nothing. `attach_many` rejects a
+  candidate under a disposed parent, and `invalidate_subtree` skips a disposed
+  descendant. A refused call raises `RuntimeError`.
+- A `CompositeVM` or `GroupVM` now sends no `CollectionChangedMessage` once its
+  disposal is requested, also when the disposal is deferred (ADR-0190, spec/01
+  §1.4, #1351). A local subscriber or `on_current_changed` callback that
+  disposes the container now suppresses the hub message of that change. In a
+  transfer whose old container disposes itself, the hub receives only the new
+  container's `Add`.
+- `FormVM` no longer holds a lock while its equality, validators, snapshotter
+  or `reset_on_approved` run (ADR-0215, spec/20 §5.4, #1427). A callback that
+  waited for another thread that called the same form deadlocked. Another
+  thread's reads now return the committed state at once, and its calls no
+  longer wait for the callback. An update that another thread's commit
+  overtakes runs again as a new call. A `dispose()` from another thread
+  returns at once, and the update commits nothing.
+- A `dispose()` whose wait for a publication scope is refused now wakes the
+  waiting calls at once, and they find the form disposed (ADR-0215, spec/20
+  §5.5, #1426). Before, they woke when the publisher's scope closed.
+- `KeyedServicedObservableCollection.extend` and `+=` are atomic (#1321,
+  ADR-0214). Each behaves as `collection[len(collection):] = values`: a
+  duplicate key, a projector failure or an input iteration failure changes
+  nothing and emits nothing. Before, the values before the failing one stayed
+  committed and announced. Success emits one Reset on the local and hub
+  channels; empty input emits nothing.
+- `AggregateChangeStream` holds no gate while it calls the membership source's
+  `subscribe_membership` and `snapshot()`, the item selector, a selected
+  stream's `subscribe` or a subscription's `dispose()` (#1325, ADR-0214,
+  `AGCH-012`). A source that raises its structural callback under its own lock
+  no longer deadlocks the aggregate during construction, a structural
+  reconciliation or `dispose()`.
+- `ObservableDictionary` sends no hub `CollectionChangedMessage` after a local
+  subscriber disposes it during delivery (#1431). This covers `add`, `remove`,
+  replacement and `clear`. A failing subscriber of a live dictionary still
+  does not suppress the hub message (`COL-066`).
+- A terminal cleanup that a wait cycle deferred to an admitted hook's thread
+  no longer loses its failure (ADR-0200, spec/02 §2.4 and §7, #1297). When the
+  hook succeeds, the hook's `construct()`, `destruct()` or `reconstruct()` call
+  now raises the cleanup's first failure, such as a failing child disposal. A
+  hook failure stays first. The cycle-broken `dispose()` call returns normally.
+- Disposing the current child of a composite now clears the composite's
+  `current` before `dispose()` returns (ADR-0189, #1317). The composite
+  publishes the change once and calls `on_current_changed` with `None` once.
+  The disposed child reads `is_current` false. A disposed child can no longer
+  become current: the setter raises the non-member `ValueError`.
+- A composite, group or aggregate that holds a directly disposed child now
+  destructs, constructs and reconstructs (ADR-0189, #1383). Container walks
+  and the child-transition helper skip a disposed child. Before, every
+  `destruct()` failed and the container stayed `Constructed`.
+- A non-null selection while a composite is `Destructing` now changes nothing
+  and raises nothing (ADR-0188, #1425). `destruct()` and `reconstruct()`
+  therefore return with no current child, also when an `on_current_changed`
+  callback or a child's destruct hook selects a child.
+- Every command of a disposing `NotificationVM` or `ConfirmationVM` now
+  reports `can_execute()` as `False` from the start of `dispose()` (ADR-0196,
+  spec/16 §6.2, #1458, `NOTIF-018`). Before, a command that was not yet
+  disposed reported `True` inside a disposal `can_execute_changed`
+  notification, while its `execute()` did nothing.
+- `ObservableDictionary` Remove and Replace hub messages now carry the entry's
+  position in enumeration order (#1316, ADR-0193, `COL-068`). Remove sets
+  `index` and `old_index` to the position before the removal, and `new_index` to
+  -1. Replace sets all three to the entry's position when the message is sent,
+  as Add does (#733). If a local subscriber removed the entry first, Replace
+  sends -1. Before, both sent -1.
+- `ServicedObservableCollection.reverse()` now sends one Reset (#1316,
+  ADR-0193, spec/21 §2.3.6). Before, it sent one Replace for each position it
+  wrote, and observers saw interim orders such as `[4, 2, 3, 4]`. Reversing
+  zero or one item sends nothing.
+- A `FormVM` call nested in a preparation callback or an `errors_changed`
+  observer of `set_model` or deny now returns before its notifications
+  (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, deny,
+  `approve_async` and `approve_command.execute()`. The outermost update sends
+  them before it returns, with no lock held: error maps first, in commit
+  order, then the other notifications. A nested approval schedules its
+  persister after that. A nested call no longer waits for another thread's
+  publication scope; it takes the refused-wait result. Queued notifications
+  are dropped once the form is disposed.
+- A `dispose()` after an approval is admitted, but before its scheduled
+  persister task starts, now prevents the persister call (ADR-0180, spec/20
+  §10, #1173). The approval settles silently.
+- `CompositeVM.__setitem__` keeps the replaced child owned until the commit
+  (#1219). The commit now frees the child and clears `current` in one locked
+  section. Before, the method freed the child first and cleared `current`
+  only at the commit. A construct hook of the replacement could adopt the
+  freed child into another composite and select it there. The commit then
+  reset the child's `is_current` flag while the other composite kept it
+  current. A hook that adopted the child and then failed left it in both
+  composites. Now the adoption fails while the replacement is in progress. A
+  failed replacement still restores the child and `current` with no
+  notification.
+- `select_component` now checks `CONSTRUCTED` again at the commit, under the
+  coordination lane and the membership gate, also at an
+  `async_selection(True)` delivery (spec/06 §3.1, #1220). Before, a destruct
+  on another thread after `can_select_component`, or before the delivery,
+  let the call select a `DESTRUCTED` child. Now the call raises its
+  predicate `ValueError`, and the delivery does nothing. `select_component`
+  no longer goes through the `current` property setter, as in C# and Swift.
+  A subclass that overrides that setter no longer sees these selections.
+- A child's `select()` no longer makes a member current that is not
+  `CONSTRUCTED` (spec/05 §6, spec/06 §3.1, #1229). Before, `select_child`
+  checked only membership, so `select()` on a `DESTRUCTED` member selected it.
+  Now the call does nothing, as for a non-member and as in Swift and Rust. C#
+  also refuses it, with its `SelectComponent` exception. The commit checks
+  `CONSTRUCTED` again under the same locks as `select_component`. A destruct
+  on another thread after the entry check makes the call raise the predicate
+  `ValueError`. An `async_selection(True)` delivery drops such a child. The
+  check runs before the disposing check. So while the composite disposes, the
+  call no longer raises the disposing `RuntimeError`, as in Swift.
+- Hub, container membership and child ownership-lock waits now record in one
+  wait-for graph, `vmx._wait_for_graph.WAITS` (spec/03 §4.1, ADR-0172). A
+  cycle that crosses these waits no longer hangs (#1157): when a hub drainer
+  disposes a `CompositeVM` or `GroupVM` whose `add` or `append` waits in
+  `send` for that drainer, the disposal is recorded for the transaction owner.
+  A wait for another thread's child ownership lock now records an edge too
+  (#1155). The wait that would close a cycle raises `RuntimeError` before the
+  `add`, `append`, indexer, population or `AggregateVM` slot replacement
+  changes anything, instead of hanging. A contested lock with no cycle is
+  still waited for.
+- A `MessageHub` waiter no longer takes a cycle escape for a cycle that has
+  ended (#1181, `HUB-013`). The thread that releases a hub's batch, drain or
+  borrowed scope removes the edges that name it before it wakes the waiters.
+  Before, a `send` could return before delivery, a `dispose()` could drop
+  another thread's batched messages, and a `batch()` could borrow the hub.
+- A borrowed `MessageHub` batch scope is a wait-for owner (spec/03 §4.2,
+  #1179). A wait for it records an edge to the borrower, so a cycle through it
+  is refused instead of hanging. The borrower's own `send`, `batch()` and
+  `dispose()` on that hub no longer wait for its own borrowed scope. After the
+  borrower's `dispose()`, the last of the batch owner, the drainer and the
+  borrowers to release the hub completes `messages`; a drain that ends first
+  no longer completes it while the borrowed scope is open, as in the other
+  flavors. A drainer with an empty queue releases the drain instead of waiting for a borrowed
+  scope. A drainer with queued messages whose wait would close a cycle
+  releases the drain, and the exit of the last borrowed scope delivers them,
+  in FIFO order, on the borrower's thread.
+- Lifecycle publication and hook-lease waits now record in the same wait-for
+  graph, `vmx._wait_for_graph.WAITS`, keyed per publication and per hook lease
+  (spec/02 §2.4, spec/03 §4.1, ADR-0172). The private lifecycle graph in
+  `vmx.components.base` is gone.
+  - `dispose()` no longer returns before another thread's admitted hook, or
+    another thread's delivery of the view-model's `DISPOSED`, finishes because
+    of a cycle that has ended (#1182, `LIFE-015`). The hook's thread, or the
+    publication's drainer, removes its ownership before it wakes the waiters.
+    Before, a stale edge made `dispose()` defer its cleanup to the other
+    thread and drop a cleanup failure, or run `_on_dispose` before `DISPOSED`
+    reached subscribers.
+  - A cycle that crosses a lifecycle wait and a hub wait no longer hangs
+    (#1202, `HUB-013`). For example, a hub drainer whose subscriber disposes a
+    view-model while that view-model's `construct()` waits in `send` for the
+    drainer: the `dispose()` leaves `DISPOSED` queued for the constructing
+    thread and returns.
+- A `construct()`, `destruct()` or `reconstruct()` call that starts during a
+  view-model's inline dispose cascade now raises
+  `StatusTransitionError(DISPOSED, operation)` (ADR-0175, spec/02 §7.2,
+  LIFE-021, #1174). The cascade is the part of `dispose()` that disposes the
+  children of a `CompositeVM`, `GroupVM` or `AggregateVM1`…`AggregateVM6`, or
+  the `_own_member` members of a leaf, before the view-model publishes
+  `DISPOSED`. The check runs before the idempotent no-op, so `construct()`
+  from `CONSTRUCTED` also raises. The call publishes nothing, runs no hook and
+  calls no slot factory. Before, it published `CONSTRUCTING` or `DESTRUCTING`,
+  ran no hook and returned.
+- A transition whose hook returned before a concurrent `dispose()` started
+  its inline cascade no longer publishes `CONSTRUCTED` or `DESTRUCTED` over
+  disposed children or members (#1167). Once `dispose()` has started, the
+  settled commit, the rollback after a failed hook or child walk, the restore
+  after a failed transient publication, a commit that a background
+  transition queued on the foreground, and the construct phase of
+  `reconstruct()` publish nothing. The call returns without a supersession
+  error; a hook or walk failure that was already propagating still
+  propagates.
+- A container's child walk stops once a foreign `dispose()` has published
+  `DISPOSED` (#1163, spec/02 §2.4, LIFE-015). Before, a `CompositeVM`,
+  `GroupVM`, `AggregateVM1`…`AggregateVM6` or `_transition_children` walk
+  still constructed or destructed the remaining children and ran the
+  `current` selector, the `on_destruct` callback or `after` while the
+  disposing thread waited for the hook. A child whose transition started
+  before the dispose still finishes it. The walk's future then completes
+  without error, as in C#, Swift and Rust.
+- `FormVM` queues every `set_model` and deny that the approving thread makes in
+  an approval's pre-publication window and replays them after `on_approved`
+  (spec/20 §5.3, ADR-0174, FORM-039, FORM-040, #1168, #1050). The window now
+  opens with the post-persist commit. Calls from `reset_on_approved`, the
+  snapshotter, and the validators of that commit are queued, as are calls from
+  the settlement `errors_changed` and `can_execute_changed` observers. Before,
+  a call from `reset_on_approved` committed at once and the reset then
+  overwrote it. A deny from a settlement observer also committed at once, so
+  `on_approved` observers saw the reverted model. A queued call now runs its
+  preparation when it is called, so a failing validator or `__eq__` raises to
+  the caller and nothing is queued. Before, the failure surfaced only at
+  replay and failed the settled approval. Each queued call replays as a new
+  call, in call order. A replay failure no longer stops the later replays. The
+  first one reaches the approval's own failure route after the last replay:
+  the `approve_async` awaiter, or `approve_errors` once on the command path.
+  A failure that the approval already carries wins. That is a failed reset, or
+  a failure that a settlement or `on_approved` observer raises. After a failed
+  reset, the calls it queued replay before the failure is routed. Only the
+  approving thread's calls are queued. Another thread still waits only during
+  the publication scope, and while the post-persist commit runs its approve is
+  refused and the reset overwrites its `set_model`. Each queued update calls
+  the validators once more, at call time.
+- `ServicedObservableCollection`, `KeyedServicedObservableCollection` and
+  `ObservableDictionary` now send the hub `CollectionChangedMessage` when a
+  local subscriber raises (#1051, ADR-0171, COL-066). The change stays
+  committed, and the first failure is re-raised after the hub send.
+- `TokenPagedComposition`: a load that finds a terminal token when it starts now
+  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
+  terminal token after the load command was admitted. The load then refetched
+  page 1 and appended it again, and `has_more` stayed true. The load now changes
+  nothing and does not supersede an in-flight refresh.
+- `CompositeVM` selection opens no membership transaction (ADR-0173, spec/06
+  §4.3). The `current` setter, `select_component`, `deselect_component`, the
+  child `select` and `deselect` paths and the `async_selection` setter commit
+  under the coordination lane and the membership gate only. Before, they
+  raised `RuntimeError` while another thread held a transaction, so a late
+  child whose construct hook selected during another thread's `add` rolled its
+  composite back (#1145). A child that `append`, `insert`, index assignment or
+  a population attached but has not admitted is not a member for selection:
+  the setter raises the non-member `ValueError`, `can_select_component`
+  returns `False` and the construct walk ignores it. Before, a failed add or
+  population left `current` on a child that was no longer a member (#1146,
+  #1148). On the thread that owns such an uncommitted transaction, every
+  selection call raises the "membership transaction is already in progress"
+  `RuntimeError`, also a `None` clear, and the walk's assignment is a no-op;
+  from the commit on, including the add's collection-changed publication, it
+  commits. While disposal is requested or deferred, a non-`None` selection
+  raises `RuntimeError`, also for the child that is already current, and a
+  `None` clear now succeeds. Re-assigning the current child stays a no-op
+  after `dispose()`. The child `select` and `deselect` paths also raise the
+  "in progress" error on the owner thread when they would change nothing, as
+  in C#. `can_select_component` returns `True` only if `select_component`
+  would succeed now. `destruct()` and the destruct phase of `reconstruct()`
+  clear `current` without a transaction and are never refused. Before, the
+  clear raised while another thread held a transaction or while disposal was
+  deferred, and the destruct rolled back (#1144). A disposal requested from
+  the clear's callbacks still waits for them, and the destruct then walks no
+  child. When `append`, `insert`, index assignment or a population moves a
+  child from another parent, the destination now admits it after the old
+  parent's detach commit. Before, another thread could select the child in
+  the destination before that commit, and the commit then reset its
+  `is_current` flag while it stayed `current` (`COMP-006`).
+- A `FormVM` wait for another thread's publication scope now records an edge
+  in `vmx._wait_for_graph.WAITS` (spec/20 §5.5, ADR-0176, #1170). Before, a
+  form observer that sent on a hub could deadlock with that hub's drainer.
+  This happened when the drainer's subscriber called `set_model`, deny or
+  `dispose()` on the same form. Now the wait that would close the cycle is
+  refused. A refused `set_model` or deny prepares, joins the publisher's
+  queue, and returns before it takes effect. The publisher replays it when its
+  scope ends. A refused `dispose()` marks the form disposed and returns, and
+  the publisher runs the teardown when its scope ends. A refused approve call
+  is admitted, and a refused settlement commits in its own scope. A wait that
+  closes no cycle still blocks. `set_model` and deny now deliver
+  `errors_changed` in an update scope, and `can_execute_changed` after it. No
+  form notification is delivered while the form holds its state lock. The
+  `approve_errors` delivery opens no scope, so a concurrent `dispose()`
+  returns at once. Its teardown waits until the delivery returns. Each thread
+  keeps its own publication state and queue.
+  A failed settlement nested in an outer approval's notifications now keeps
+  the outer pre-publication window. An update from its `can_execute_changed`
+  observer is queued, as in C# and Rust.
 - `ObservableDictionary`: `remove` and `clear` now update `keys2` before
   `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
   `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was
@@ -230,6 +698,22 @@ below for them.
   other resources, when that component is disposed through any decorator or
   directly, and at once if it is already disposed (`FWD-005`, ADR-0151, spec
   3.30.0) (#650).
+- `CompositeVM` and `GroupVM` raise the failure of a deferred `dispose()` after
+  a successful structural operation also when the caller runs it inside an
+  `except` block or a container `on_destruct` hook. This covers `__setitem__`,
+  `insert`, `append`/`add`, `remove`, `remove_at`, `__delitem__`, `clear`,
+  lazy population in `construct()` and a transfer out of a `GroupVM`. Before,
+  each operation decided success from `sys.exc_info()`, which also reports an
+  exception that a caller frame handles, so it dropped the failure. A lazy
+  population then left the container `DISPOSED`, and `construct()` raised a
+  `StatusTransitionError`. A failed operation still keeps its own error as the
+  first failure (spec/06 §4.2) (#1152).
+- `GroupVM` keeps a deferred `dispose()` pending until the handoff call at the
+  end of the owner's membership transaction admits it, as `CompositeVM` does
+  (#1064). Before, it cleared the deferral first, so another thread's `add`
+  that started in between was admitted and then disposed, or the handoff
+  waited for it. That `add` now raises the "container is disposing"
+  `RuntimeError` (spec/06 §4.2, spec/07) (#1153).
 
 ## [3.29.0] — unreleased source version
 
@@ -261,9 +745,11 @@ below for them.
   `self.command: RelayCommand = self._own(...)` type-checks under
   `mypy --strict`. Before, the return type was the union of accepted shapes
   (spec/02 §2.3) (#652).
+
 - An aggregate slot factory that returns `None` makes `construct()` raise
   `ValueError` before any slot is committed. Before, the aggregate constructed
   with an empty slot, which spec/08 §2 calls invalid.
+
 - `AsyncRelayCommand.execute()` admits the run before it returns, so
   `is_executing` is `True` at once, the execution-started `can_execute_changed`
   fires at once, and a following `cancel()` cancels the run. The predicate now
@@ -271,9 +757,11 @@ below for them.
   releases the admission, so the command does not stay executing.
   Before, admission waited one event-loop turn and such a `cancel()` did
   nothing (spec/04 §10.2).
+
 - A `ForwardingComponentVM` around a background component can be a
   factory-populated child: the composite joins it through the wrapped VM.
   Before, construct raised `AttributeError`.
+
 - A `ForwardingCompositeVM` can now be added to a composite or group. Before
   this fix, `add` raised `AttributeError: _ownership_identity`. The decorator
   now shares one ownership identity and its parent link with the composite it
@@ -287,15 +775,18 @@ below for them.
   and the abandoned child transition never runs its continuation. A future
   the hook supplied is dropped, not cancelled; VMx cancels only the child walks
   it created.
+
 - `CompositeVM`, `GroupVM`, `AggregateVM*`, and `HierarchicalVM` wait for a
   background child in any position, including the last. The container
   publishes its terminal status after every child settles, and it rolls back
   when the last child fails to construct or destruct (spec/02 §6, LIFE-014).
   Before, a synchronous child that settled inline let the child walk finish
   early, so the container ignored a background child after it.
+
 - A joined factory child is now checked and joined under its lifecycle lock.
   A child that settles between the check and the join is never started again,
   so its construct hook runs once.
+
 - `CompositeVM` and `GroupVM` with auto-construct-on-add construct a child
   added while the container is still `Constructing` (waiting on a background
   child) and wait for it before reaching `Constructed` (spec/02 §6, spec/06
@@ -304,24 +795,30 @@ below for them.
   runs once. Before, the add skipped auto-construction until the container was
   `Constructed` and the walk used a snapshot taken before the add, so the
   container reached `Constructed` with the added child still `Destructed`.
+
 - `CompositeVM` and `GroupVM` join the background children that factory
   population starts and never construct them again. A later child that fails
   while the container waits on an earlier one rolls the container back, and
   its construct hook runs once (spec/02 §6, LIFE-014). Before, the child walk
   restarted the failed child and ran its hook a second time.
+
 - `FilteredCompositeVM.set_predicate` restores the previous predicate when the
   new one raises, so later source changes keep using the working predicate. A
   raising `on_changed` observer does not roll the predicate back.
+
 - `FormVM.set_model(None)` raises `ValueError` to the caller during an
   approval's settlement, instead of being queued and surfacing later from
   `approve_async`.
+
 - `CompositeVM.copy_to` validates the index and the target size before writing,
   like `List<T>.CopyTo`; a negative index no longer wraps silently.
+
 - `ForwardingCompositeVM` delegates the rest of the wrapped composite's
   surface: `snapshot`, `subscribe_membership`, `__delitem__`, `append`,
   `index`, `copy_to`, `current_child`, `select_child`, `deselect_child`, and
   `supports_child_selection`. A forwarder can now be the source of an
   `AggregateChangeStream`, as in TypeScript (spec/09, FWD-001).
+
 - A `bool` index raises `TypeError` before any mutation. Before, `True` and
   `False` were taken as `1` and `0` and appeared as indices in
   collection-changed payloads. The check covers `insert`, item assignment,
@@ -329,63 +826,84 @@ below for them.
   `ServicedObservableCollection`, and `KeyedServicedObservableCollection`;
   `replace` on the serviced collections; and `insert`, `remove_at`, and
   `replace` on `ObservableList`.
+
 - A slice delete or assignment that selects nothing and inserts nothing on
   `ServicedObservableCollection` or `KeyedServicedObservableCollection` emits
   nothing, instead of a Reset, as TypeScript `splice` does (spec/21 §2.10).
+
 - `ObservableDictionary` key views use dictionary-key equality (identity, then
   `==`), so one `NaN` key object appears once in `keys1`/`keys2`, and
   `nan in view` is true (spec/21 §4.1).
+
 - `walk`, `walk_expanded`, and `find` accept and return the public
   `ComponentVMProto` instead of the private `_ComponentVMBase`, so a caller
   typed against the public protocol passes `mypy --strict` (spec/13 §4).
+
 - `CompositeVM.create()` and `GroupVM.create()` without `children` raise
   `BuilderValidationError`, as `build()` does, instead of a `TypeError`
   (BLD-006, ADR-0055).
+
 - `ConfirmationDecoratorCommand.can_execute` re-checks disposal after the inner
   predicate, which may dispose the wrapper, as the other wrappers do
   (spec/04 §8.4).
+
 - `TokenPagedComposition` stops auto-constructing page items once a hook
   disposes it or starts a newer operation (spec/21 §6).
+
 - A disposed view model's `select` and `deselect` are silent no-ops and
   `can_deselect` returns false, so a disposed child no longer changes its live
   parent's selection (spec/02 §3).
+
 - A disposed `DerivedProperty` rejects writes: `can_set` returns false and
   `set_value` raises instead of running the write-back action (spec/15 §4).
+
 - `ObservableDictionary`: the add index is captured before `keys1`/`keys2`
   update and the local event fires, so a key-view or local subscriber that adds
   another entry no longer shifts the first entry's reported hub index. If such
   a subscriber removes an entry or clears the dictionary, the hub message
   reports the key pair's current index, or -1 when the key pair is gone (#733).
+
 - `CompositeVM.remove`, `remove_at`, `clear`, and item replacement emit
   their collection events even when `on_current_changed` raises, then
   re-raise. Before, the committed change reached no observer.
+
 - Container builders and constructors accept any `MessageHubProto`, as
   component builders do, so `NULL_MESSAGE_HUB` or a custom hub type-checks.
+
 - When a `pending` subscriber disposes the `NotificationHub` and then raises,
   `pending` still completes and its subject is disposed.
+
 - `ObservableList.dispose` and `ObservableDictionary.dispose` complete and
   dispose every stream even when an observer raises, then re-raise the first
   failure.
+
 - The README quick start and getting-started samples type-check under
   `mypy --strict`: the hub is `MessageHub[Message]` and builders name their
   model type.
+
 - `DialogService.present` (the null base) returns the result of a modal that
   was already dismissed, because the first result wins. Before, it returned
   the cancellation result (spec/19 §3, DIA-012).
+
 - `NotificationVM.notify_external_resolve()` is inert after `dispose()`
   (DISP-004).
+
 - `NotificationHub.resolve` and `dispose` complete their waiters even when a
   `pending` subscriber raises. The waiters had already left the hub, so their
   `post` futures stayed pending forever.
+
 - `ConfirmationDecoratorCommand` no longer calls `confirm` when the inner
   command's `can_execute` predicate disposes the decorator (spec/04 §8.4).
+
 - `CompositeVM`, `GroupVM`, `AggregateVM1..6`, `HierarchicalVM`,
   `ForwardingComponentVM`, `ForwardingCompositeVM`, and `AsyncResourceVM`
   now satisfy `IConstructable`, `IDestructable`, and `IReconstructable` in
   `isinstance` checks; only the component classes were registered (spec/14
   rule 2).
+
 - `ObservableDictionary` raises `TypeError` for a `None` key in `d[k1, k2]`
   and `(k1, k2) in d`, as every other accessor already did (spec/21 §4.4).
+
 - A cancelled persister on the `approve_command` path is now reported on
   `approve_errors` as `asyncio.CancelledError`. Before, the cancellation reached
   no channel (spec/20 §5.3).
@@ -510,12 +1028,12 @@ below for them.
   the loop remains responsive, then disposes its VMs and subscriptions and
   explicitly shuts down the independent background pool (ADR-0132).
 
-## [3.23.1](https://github.com/thekaveh/VMx/compare/python-v3.23.0...python-v3.23.1) (2026-08-17)
+## [3.23.1] — 2026-08-17
 
-
-### Documentation
-
-* **python:** reconcile public 3.23.0 release ([#217](https://github.com/thekaveh/VMx/issues/217)) ([#295](https://github.com/thekaveh/VMx/issues/295)) ([b97e424](https://github.com/thekaveh/VMx/commit/b97e424e7c57b345bbc50c9e446360f90236fe0c))
+The `python-v3.23.1` tag and its GitHub Release exist, but this version was
+never published to PyPI. It changed documentation only: it reconciled the
+records of the public 3.23.0 release (#217, #295). The 3.30.0 package includes
+this change.
 
 ## [3.23.0] — 2026-07-25
 
@@ -1010,7 +1528,7 @@ flavors. Implements `spec-v3.0.0`. See ADRs 0047–0058 and
   `is_current` change is a silent no-op; and a throwing `on_construct`/`on_destruct`
   hook rolls `status` back to the prior settled state (LIFE-008, the new LIFE-014).
 
-## [2.6.1](https://github.com/thekaveh/VMx/compare/python-v2.6.0...python-v2.6.1) (2026-06-17)
+## [2.6.1] — 2026-06-17
 
 ### Documentation
 

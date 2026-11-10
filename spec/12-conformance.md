@@ -1,8 +1,8 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 444 library IDs
-in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
+`XXX-NNN`. Each of the five language flavors MUST implement every library ID
+in `langs/<lang>/tests/conformance/` before it can be marked stable. The
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
 `tools/check-conformance-coverage.py` and the example suites verify THEME.
@@ -24,6 +24,7 @@ UI-backed flagship examples. CI verifies library coverage via
 | `FWD-NNN`   | Forwarding decorators                                | `09-forwarding.md`                            |
 | `BLD-NNN`   | Builders                                             | `10-builders.md`                              |
 | `THR-NNN`   | Threading & schedulers                               | `11-threading.md`                             |
+| `DLY-NNN`   | Delayed work: scheduler and `DelayedTask`            | `11-threading.md`                             |
 | `UTIL-NNN`  | Tree utilities (spec v1.1)                           | `13-tree-utilities.md`                        |
 | `CAP-NNN`   | Capability micro-interfaces                          | `14-capabilities.md`                          |
 | `NULL-NNN`  | Null-object service variants                         | `03-messages.md` + `11-threading.md`          |
@@ -205,6 +206,9 @@ reaches `Constructed`
 **Then** terminal cleanup does not overlap the admitted hook
 **And** cleanup completes exactly once after the hook releases its lease
 **And** terminal supersession prevents any post-hook container lifecycle work
+**And** a container whose construct hook a foreign `dispose()` superseded does
+not call its children factory, and its `construct()` returns without an error
+(ADR-0218)
 **And** opposing foreign hook waits cannot deadlock
 
 ### LIFE-016 — The child-transition helper waits for a background child
@@ -283,6 +287,63 @@ parent then publishes `Constructed`
 
 > Normatively defined in `02-lifecycle.md §6.1`.
 
+### LIFE-021 — A lifecycle call during the inline dispose cascade fails
+
+**Given** a container `box` (`CompositeVM`, `GroupVM`, and `AggregateVM1`, each
+in turn) on an inline dispatcher that holds child `c1`, with no hook running on
+another thread (an aggregate is constructed once first, so that `c1` exists)
+**And** `c1`'s dispose hook calls `box.construct()` while
+`box.Status == Destructed`, or `box.destruct()` while
+`box.Status == Constructed`, and records the error it catches
+**And** a hub subscriber records each `ConstructionStatusChangedMessage` of
+`box`
+**When** `box.dispose()` is called
+**Then** the recorded error is the one that the same call raises on a
+`Disposed` VM: a `StatusTransitionError` / `StatusTransitionException` that
+names `Disposed` and the attempted operation, or
+`VmxError::InvalidLifecycleTransition` from `Disposed` in Rust
+**And** no construct or destruct hook of `box` runs, and the aggregate's slot
+factory is not called again
+**And** the subscriber records only `Disposed` for `box`
+**And** when `dispose()` returns, `box` and every child or slot it holds are
+`Disposed`, and each child publishes `Disposed` once
+**And** `box.construct()` from `Constructed` and `box.reconstruct()` from
+`Constructed`, called from `c1`'s dispose hook, fail in the same way
+**And** for a leaf VM with one member registered through the member-disposal
+helper, a `construct()` of the leaf from the member's dispose hook fails in the
+same way, runs no leaf hook, and the leaf publishes only `Disposed`
+**And** for a background leaf VM with one member, whose construct hook has run
+and whose `Constructed` commit is queued on a manual foreground scheduler,
+draining that scheduler from the member's dispose hook publishes no
+`Constructed`: after its `Constructing`, the leaf publishes only `Disposed`
+
+> Normatively defined in `02-lifecycle.md §7.2`. See ADR-0175.
+
+### LIFE-022 — A container walk skips a child that was disposed directly
+
+**Given** a container `box` (`CompositeVM`, `GroupVM` and `AggregateVM2`, each
+in turn) on an inline dispatcher, in `Constructed`, holding children (or slots)
+`a` and `b`
+**When** `b.dispose()` is called and then `box.destruct()`
+**Then** the call raises nothing, `box` and `a` are `Destructed`, and `b` is
+still `Disposed`
+**And** the composite and the group still hold `b` as a member
+**And** a following `box.construct()` raises nothing: the composite and the
+group reach `Constructed` with `a` `Constructed` and `b` `Disposed`, and the
+aggregate reaches `Constructed` with new slots from its factories
+**And** for the composite and the group, `b.dispose()` while `box` is
+`Destructed`, followed by `box.construct()`, gives the same result
+**And** `box.reconstruct()` from `Constructed`, with a `Disposed` child or
+slot, raises nothing and ends in `Constructed`
+**And** a leaf VM whose construct and destruct hooks walk members `m1` and `m2`
+with the child-transition helper skips a `Disposed` `m2` in both walks and
+reaches the target status
+**And** no lifecycle operation is called on a `Disposed` child: no
+`StatusTransitionError` / `StatusTransitionException` (or `VmxError` in Rust)
+is raised or recorded
+
+> Normatively defined in `02-lifecycle.md §6` and §6.1. See ADR-0189.
+
 ______________________________________________________________________
 
 ## 4. Message hub (`HUB-NNN`)
@@ -340,6 +401,8 @@ subscription on the first message
 **And** subscriber B whose handler records every message
 **When** `hub.Send(message1)` then `hub.Send(message2)` is called
 **Then** subscriber B observes both `message1` and `message2`
+**And** subscriber A stays attached: its handler runs for both `message1` and
+`message2` (spec v3.30, ADR-0191)
 **And** no exception propagates to the caller of `Send`
 
 ### HUB-008 — Nested transactions defer and preserve every message
@@ -364,6 +427,10 @@ outer transaction then sends `C`
 **Then** both subscribers observe `A` before either observes `B`
 **And** the outer send returns only after both have observed `B`
 **And** delivery uses an iterative queue rather than recursive dispatch
+
+The one exception is the wait-for cycle of chapter 03 §4.2 rule 5, where a
+drainer with queued messages releases the drain to a borrowed scope's exit
+(ADR-0172). No `HUB-010` test forms that cycle.
 
 ### HUB-011 — Subscriber failure does not abort a transaction drain
 
@@ -635,6 +702,39 @@ imperative raise, and completion
 
 > Spec: `04-commands.md §4.3` and §10.2, ADR-0086.
 
+### CMD-020 — a fire-and-forget fault reaches `errors` after the completion notification
+
+**Given** an `AsyncRelayCommand` whose task fails with error `e`
+**And** a `CanExecuteChanged` subscriber that appends each notification to a
+shared log
+**And** an `errors` subscriber that appends `e` and the current `IsExecuting`
+value to the same log
+**When** `Execute()` is called and the test waits a bounded time for `e`
+**Then** the log holds the start notification, the completion notification,
+and `e`, in that order
+**And** the `errors` subscriber read `IsExecuting == false`
+
+> Spec: `04-commands.md §10.2/§10.4`, ADR-0195.
+
+### CMD-021 — a failing `CanExecuteChanged` handler stops neither other handlers nor a trigger
+
+**Given** a `RelayCommand` with one trigger built through an operator, such as
+a mapped stream
+**And** two `CanExecuteChanged` handlers, A then B, where A fails on every
+notification
+**When** the trigger emits twice
+**Then** A and B each observe two notifications
+**And** no failure reaches the code that made the trigger emit
+**When** the imperative raise method is called once
+**Then** A and B each observe one more notification
+**And** C# and Python rethrow A's failure from the raise call after B has run,
+while TypeScript and Rust return normally
+**And** Rust, whose triggers are hubs, uses a hub trigger, and the operator
+form does not apply
+**And** Swift, whose handlers cannot fail, asserts that structure
+
+> Spec: `04-commands.md` §4 and §4.3, `03-messages.md` §3.6, ADR-0191.
+
 ______________________________________________________________________
 
 ## 7. ComponentVM (`CVM-NNN`)
@@ -711,9 +811,14 @@ notification still occurs before its local surface completes
 
 ### CVM-009 — Notification helper is inert after disposal
 
+Per spec/05-component-vm.md §2.3 and ADR-0223.
+
 **Given** a disposed component
 **When** its dual-channel property notification helper is invoked
 **Then** neither the hub nor the VM-local channel emits
+**When** its local-only raise primitive is invoked (not Rust, which has no such
+primitive)
+**Then** the VM-local channel does not emit
 
 ### CVM-010 — Modeled components explicitly republish the retained model
 
@@ -989,6 +1094,27 @@ one stable slot snapshot
 
 (Clarified in spec 3.22.0 per ADR-0125.)
 
+### AGG-008 — A refused fixed-slot population disposes its unowned candidates
+
+**Given** a fixed-slot `AggregateVM2` whose first factory returns a fresh
+component and whose second factory returns a component that a constructed
+composite owns
+**When** `construct()` is called
+**Then** the ownership preflight refuses the population and its failure
+propagates
+**And** the fresh candidate is `Disposed`
+**And** the owned component keeps its `Constructed` status and its parent, and
+the composite still holds it
+**And** both slots stay empty
+**And** given a constructed aggregate whose replacement factories return a
+fresh first candidate and the owned component
+**When** `reconstruct()` is called
+**Then** the preflight failure propagates, the old slots and parent links stay
+unchanged, the fresh candidate is `Disposed`, and the owned component keeps
+its status and parent
+
+(Added in spec 3.30.0 per ADR-0224 and ADR-0226.)
+
 ______________________________________________________________________
 
 ## 11. Forwarding (`FWD-NNN`)
@@ -1046,6 +1172,25 @@ wraps `first`
 **And** disposing `first`, `second`, or `inner` again releases nothing more
 **And** a resource registered through a decorator is also released when
 `inner` itself is disposed
+
+### FWD-006 — Decorator notification helpers emit through the wrapped component
+
+Per spec/09-forwarding.md §1, ADR-0221 and ADR-0223.
+
+**Given** a component decorator around component `inner`, and a composite
+decorator around composite `inner`, each `inner` with a hub
+**And** a hub subscriber that records each `PropertyChangedMessage`, and a
+subscriber of the decorator's property-changed stream
+**When** a decorator subclass calls the dual-channel helper once
+**Then** the decorator's property-changed stream emits the name once
+**And** the hub receives one `PropertyChangedMessage` whose sender is `inner`
+**When** the subclass calls the local-only raise primitive once (not Rust,
+which has no such primitive)
+**Then** the property-changed stream emits that name once, and the hub
+receives no message
+**When** `inner` is disposed and the subclass calls the dual-channel helper
+and the local-only raise primitive again
+**Then** neither channel emits
 
 ______________________________________________________________________
 
@@ -1172,6 +1317,24 @@ root: CompositeVM
 **When** `find(root, predicate)` is called
 **Then** the result is `b1`
 **And** the predicate was invoked at most for `root`, `a`, `b`, `b1` — never for `b2`
+
+### UTIL-004 — Tree walks report invalid factory output as a recoverable error
+
+**Given** a hierarchy root with a materialized child `A` and a lazy child `B`
+**And** `B`'s children factory returns one detached child `C` twice
+**When** `walk(root)`, `walk_expanded(root)` and `find(root, _ => false)` each
+run to completion
+**Then** each raises the flavor's recoverable hydration error (C#
+`InvalidOperationException`, Python `ValueError`, TypeScript `Error`, Swift
+`HierarchyError.invalidFactoryOutput`, Rust `Err(VmxError::InvalidArgument)`)
+and never stops the process
+**And** `C` has no parent and `B` keeps no children cache
+**And** each walk invokes `B`'s factory again, so the three walks invoke it
+three times
+**When** `find(root, n => n == A)` runs
+**Then** it returns `A` and does not invoke `B`'s factory
+**When** the factory then returns a valid snapshot
+**Then** `walk(root)` yields `root`, `A`, `B` and the new children
 
 ______________________________________________________________________
 
@@ -1489,6 +1652,23 @@ named transform is resolved, and the mutation sequence is replayed
 **Then** the sequence of `Value` reads (one initial, one after each mutation)
 matches `expected_values` exactly
 
+### DPROP-013 — a failing `ValueChanged` subscriber stops neither the property nor the other subscribers
+
+**Given** a `DerivedProperty` over one source
+**And** two `ValueChanged` subscribers, A then B, where A records each value
+and then fails on every delivery
+**When** the source emits two values whose transforms differ from each other
+and from the current value
+**Then** `Value` equals the second transformed value
+**And** A and B each record both changed values, once each
+**And** no failure reaches the code that made the source emit (C# discards it,
+Python logs it, TypeScript reports it through rxjs, and Rust catches the
+panic)
+**And** Swift, whose `ValueChanged` has the failure type `Never`, asserts that
+structure and the delivery to both subscribers
+
+> Spec: `15-derived-properties.md` §4.1, `03-messages.md` §3.6, ADR-0191.
+
 ______________________________________________________________________
 
 ## 18. Command decorators (`CMDD-NNN`) — spec v2.0
@@ -1496,7 +1676,8 @@ ______________________________________________________________________
 Each CMDD-NNN test verifies behaviour of the three decorators added in
 spec/04-commands.md §Decorators (CMDD-010 added in spec v3, ADR-0049;
 CMDD-011..CMDD-013 added in spec v3.24, ADR-0134; CMDD-014..CMDD-017 added in
-spec v3.29, ADR-0145).
+spec v3.29, ADR-0145; CMDD-018 added in spec v3.30, ADR-0195; CMDD-019 added
+in spec v3.30, ADR-0222).
 
 ### CMDD-001 — CompositeCommand.CanExecute is OR over inner commands
 
@@ -1579,7 +1760,9 @@ ships `ConfirmationDecoratorCommand` (C#, Python, TypeScript, Swift, Rust).
 rejects/raises
 **Then** the subscriber observes that exception on `errors` (it is NOT swallowed)
 **And** when instead `confirm` resolves `true` and `inner.Execute()` throws, the
-subscriber observes the inner exception on `errors`
+subscriber observes the inner exception on `errors` (not Swift: a Swift
+`Command.execute()` cannot throw, so Swift tests the throwing-`confirm` clause
+only; ADR-0184)
 
 ### CMDD-011 — Disposed composite and decorator commands are inert
 
@@ -1619,7 +1802,8 @@ disposes the decorator
 **And** the decorator does not invoke its inner command
 **And** the decorator whose pre-action ran invokes its post-action exactly once
 **And** a decorator whose inner command throws still invokes its post-action once
-and the exception propagates
+and the exception propagates (not Swift: a Swift `Command.execute()` cannot
+throw; ADR-0184)
 
 ### CMDD-014 — Awaited confirmation completes when an async inner completes
 
@@ -1695,6 +1879,34 @@ body ran exactly once
 
 **When** a decorator is disposed while its confirmation is pending
 **Then** resolving the confirmation `true` starts no inner work
+
+### CMDD-018 — `Execute()` never runs the inner command inside its own call
+
+Per spec/04-commands.md §8.3.1 and ADR-0195.
+
+**Given** a `ConfirmationDecoratorCommand` over a synchronous inner command
+**And** a `confirm` delegate that returns a `true` result that is already
+complete
+**And** the test marks its own thread as inside `Execute()` for the duration
+of the call (a thread-local mark where the flavor has threads)
+**When** `Execute()` is called and the test then waits a bounded time for the
+inner command
+**Then** the inner command ran exactly once
+**And** the inner command did not see the mark, so it did not run inside the
+`Execute()` call
+
+### CMDD-019 — Disposing a live wrapper notifies its own subscribers once
+
+Per spec/04-commands.md §8.4 and ADR-0222.
+
+**Given** a `CompositeCommand`, a `DecoratorCommand`, and a
+`ConfirmationDecoratorCommand`, each over its own inner relay command
+**And** a subscriber of the wrapper's `CanExecuteChanged` and a subscriber of
+the inner command's `CanExecuteChanged`
+**When** each wrapper is disposed twice
+**Then** the wrapper subscriber receives exactly one notification
+**And** the wrapper's `CanExecute()` returns `false`
+**And** the inner subscriber receives nothing
 
 ______________________________________________________________________
 
@@ -1835,21 +2047,76 @@ virtual time 0
 ### NOTIF-017 — Hub dispose resolves in-flight waiters with `Pending` — spec v2.5.0
 
 **Given** a `NotificationHub` with one or more posted-but-unresolved notifications
+**And** a subscriber to `Pending`
 **When** the hub is disposed
 **Then** every in-flight awaitable returned by `Post` resolves with
 `NotificationReaction.Pending`
-**And** the `Pending` observable completes
+**And** the `Pending` observable completes once
+**And** the subscriber receives no value from the dispose (no final empty
+snapshot; ADR-0197)
 **And** a subsequent `Post` resolves immediately with `Pending` and does not enqueue
 **And** a subsequent `Resolve` is a no-op
 **And** disposing again is a no-op (idempotent)
 
+### NOTIF-018 — commands report `CanExecute == false` during VM disposal
+
+**Given** a posted confirmation and a `ConfirmationVM` for it
+**And** a handler on the `CanExecuteChanged` of each of `DismissCommand`,
+`ApproveCommand`, and `RejectCommand`
+**And** each handler reads `CanExecute()` of all three commands and then calls
+`RejectCommand.Execute()`
+**When** `Dispose()` is called
+**Then** the handlers ran at least once
+**And** every read returned `false`
+**And** the notification is still pending in the hub, and the awaitable that
+`Post` returned has not resolved
+**When** `Dispose()` is called again
+**Then** no handler runs, and the notification is still pending
+
+**Given** a `NotificationVM` with a handler on `DismissCommand.CanExecuteChanged`
+that reads `DismissCommand.CanExecute()`
+**When** `Dispose()` is called
+**Then** every read returned `false`
+
+> Spec: `16-notifications.md §6.2`, ADR-0196.
+
+### NOTIF-019 — `NotificationVM` remaining time and opacity stop at resolution or disposal — spec v3.30.0
+
+**Given** a `NotificationVM` with `Lifespan = 10 s` over a posted notification,
+under a `TestScheduler` or fake clock at virtual time 0
+**When** `DismissCommand.Execute()` is called at 0 s and the clock advances by
+10 s
+**Then** `RemainingTime` is 10 s and `Opacity` is `1.0`
+**Given** a second such `NotificationVM`
+**When** it is disposed at 0 s and the clock advances by 10 s
+**Then** `RemainingTime` is 10 s and `Opacity` is `1.0`
+**Given** a third such `NotificationVM`
+**When** the clock advances by 4 s, `DismissCommand.Execute()` is called, and
+the clock advances by 6 s more
+**Then** `RemainingTime` is 6 s and `Opacity` is approximately `0.6` (±0.01)
+
+### NOTIF-020 — A `Pending` subscription made after hub dispose receives completion only — spec v3.30.0
+
+**Given** a `NotificationHub` with one posted notification
+**And** the hub has been disposed
+**When** a new subscriber subscribes to `Pending`
+**Then** the subscribe call does not raise
+**And** the subscriber receives completion once
+**And** it receives no value: neither the posted notification nor an empty list
+**And** it receives no error
+
 ______________________________________________________________________
 
-## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..046`)
+## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..054`)
 
 Search/filter (COMP-014..018, see ADR-0014), modeled CRUD (COMP-019..024,
-see ADR-0016), builder hooks (COMP-025..026, see ADR-0042), and the destruct
-order option (COMP-046, see ADR-0161) additions to chapter 06.
+see ADR-0016), builder hooks (COMP-025..026, see ADR-0042), the destruct
+order option (COMP-046, see ADR-0161), the construct-walk membership rule
+(COMP-047, see ADR-0186), the cross-thread membership rule (COMP-048, see
+ADR-0187), the `Disposed`-child, `Destructing` and child-`select()` rules
+(COMP-050..052, see ADR-0188 and ADR-0189), and the selector input and
+background-child compensation rules (COMP-053..054, see ADR-0218) additions to
+chapter 06.
 
 ### COMP-014 — SearchableState defaults to empty search term
 
@@ -2108,6 +2375,9 @@ after deferred disposal completes even if disposal also fails
 membership boundary
 **And** if required lifecycle compensation itself raises, the rollback failure
 is surfaced rather than swallowed; exact lifecycle restoration is then not claimed
+**And** the reported failure gives access to the original failure and to the
+first compensation failure, in the shape that `06-composite-vm.md §4.2` gives
+for the flavor (ADR-0218)
 
 ### COMP-041 — Transfer notifications commit removal before addition
 
@@ -2121,12 +2391,14 @@ observes a membership event
 
 ### COMP-042 — Composite collection changes publish on the hub
 
-**Given** a composite `p` with hub `H`, a recorder of `CollectionChangedMessage`
+**Given** a composite `p` named `people` with hub `H`, a recorder of
+`CollectionChangedMessage`
 on `H`, and a local collection-change recorder on `p`
 **When** `p` adds, inserts, removes, removes by index, replaces, moves, and
 clears children, one effective mutation at a time
 **Then** each local event is followed by exactly one `CollectionChangedMessage`
 on `H` whose sender is `p`
+**And** each message's sender name equals `p`'s `Name` (ADR-0194)
 **And** each message carries the local event's action, positions, and (in typed
 flavors) items, with replacement keeping the flavor's local decomposition
 **And** the local event is delivered before its hub message, and both observe
@@ -2177,6 +2449,177 @@ disposed
 the children in the same order as a composite built without the option
 **And** the modeled composite builder and the options form give the same order
 
+### COMP-047 — The construct walk counts members only
+
+**Given** a `CompositeVM<VM>` `p` built with `AutoConstructOnAdd(true)`, a
+member `a` whose construction completes in the background, and children whose
+construct hook fails
+**When** each of these runs in its own `construct()` of `p`, and the removed
+child's hook fails after the removal:
+
+- a snapshot child `s` is removed before the walk reaches it;
+- the snapshot child `a` is removed while the walk waits on it;
+- a late child `l`, added and started while `p` is `Constructing`, is removed
+  while the walk waits on it;
+- a late child `l` is removed before the walk reaches it
+
+**Then** each `construct()` of `p` succeeds and `p` reaches `Constructed`
+**And** `s` stays `Destructed`, because the walk never starts it
+**And** each removed child that was started settles at `Destructed` after its
+own rollback, and is not in `p`
+**And** a late child whose own add fails during its construction makes that
+add fail and be undone, and `p` still reaches `Constructed`
+
+### COMP-048 — A membership change fails at once during another thread's transaction
+
+**Given** a `CompositeVM<VM>` `p` whose membership transaction is open on
+another thread, held inside an attachment or construct hook of an add
+(TypeScript: on the call chain of that add)
+**When** an add, an insert, an index replacement, a population and a transfer
+out of `p` are attempted, and `remove`, `removeAt` and `clear` are called on
+`p`
+**Then** each call returns or raises at once, without waiting for the open
+transaction, with the flavor's "membership transaction in progress" error
+(Swift `remove(_:)` returns `false`; Swift `removeAt(_:)` and `clear()` return
+with no change)
+**And** the membership, the parent links, `Current` and the collection-change
+stream of `p`, and of the destination of the transfer, are unchanged by the
+refused calls
+**And** after the open transaction ends, the same calls succeed
+
+### COMP-049 — A disposal requested during a change suppresses its hub message
+
+**Given** composites `old` and `new` sharing hub `H`, a recorder of
+`CollectionChangedMessage` on `H`, and child `x` that is current in `old`
+**And** `old`'s `OnCurrentChanged` callback disposes `old` when it receives
+null
+**When** `new.Add(x)` succeeds
+**Then** `H` receives only `new`'s `Add(x)`, and `old` is `Disposed` after the
+call
+**And** `old`'s local `Remove(x)` event is still delivered
+
+**Given** a composite `p` whose local collection-change subscriber disposes `p`
+**When** `p.Add(c)` commits
+**Then** the local `Add(c)` event is delivered, `H` receives no message from
+`p`, and `p` is `Disposed` after the call
+
+**Given** a composite `p` with two children whose local subscriber disposes `p`
+**When** `p.Move(0, 1)` commits
+**Then** the local `Move` event is delivered, `H` receives no message from `p`,
+and `p` is `Disposed` after the call
+
+**And** a `GroupVM` gives the same results for the `Add` and `Move` cases
+
+In Rust, the local subscriber is
+`ObservableMembershipSource::subscribe_membership`, and `H` also receives no
+`Count` message from the disposed container.
+
+> Spec: `01-concepts.md §1.4`, `06-composite-vm.md §4/§4.2/§4.3`,
+> `07-group-vm.md §1`, ADR-0190.
+
+### COMP-050 — Disposing the current child clears `Current`
+
+**Given** a `CompositeVM<VM>` `p` in `Constructed` with children `a` and `b`
+and `Current = a`
+**And** an `OnCurrentChanged` recorder and a hub subscriber that records each
+`PropertyChangedMessage` from `p` and from `a`
+**When** `a.dispose()` is called
+**Then** when it returns, `p.Current` is null and `a.IsCurrent` is false
+**And** `p` published `PropertyChangedMessage("Current")` once, and
+`OnCurrentChanged` received null once
+**And** `a` published no `PropertyChangedMessage("IsCurrent")` after its
+`Disposed` message
+**And** `can_select_component(a)` is false, and `p.Current = a` raises the
+non-member error (Swift `setCurrent(_:)` throws `CompositeMembershipError`;
+Rust returns `VmxError::NonChild`) and leaves `Current` null
+**And** with `Current = b`, `p.dispose()` disposes `b` and publishes no
+`PropertyChangedMessage("Current")` from `p`
+
+> Normatively defined in `06-composite-vm.md §3` and §4.3 rules 2 and 9. See
+> ADR-0189.
+
+### COMP-051 — A selection while the composite is `Destructing` changes nothing
+
+**Given** a `CompositeVM<VM>` `p` in `Constructed` on an inline dispatcher,
+with children `a`, `b` and `c` in that order and `Current = a`
+**And** an `OnCurrentChanged` callback that, when it receives null while `p`
+is `Destructing`, sets `Current = b` and calls `p.select_component(b)` and
+`b.select()`, and records any error
+**And** a destruct hook on `b` that sets `Current = c`, calls `c.select()`,
+records `p.can_select_component(c)`, sets `Current = a` (already
+`Destructed`), and then sets `Current = null`, recording any error
+**When** `p.destruct()` is called
+**Then** it raises nothing, and no error is recorded
+**And** when it returns, `p` and every child are `Destructed`, and `Current`
+is null
+**And** the recorded `can_select_component(c)` is false
+**And** `p` published `PropertyChangedMessage("Current")` once, and
+`OnCurrentChanged` received null once
+**And** after `p.construct()` and `Current = a`, `p.reconstruct()` gives the
+same result for its destruct phase, and `p` ends in `Constructed` with
+`Current` null
+**And** Swift runs the setter cases through `setCurrent(_:)` and the `current`
+property setter; neither traps or throws
+
+> Normatively defined in `06-composite-vm.md §4.3` rule 8 and §5. See
+> ADR-0188.
+
+### COMP-052 — A refused child `select()` or `deselect()` changes nothing
+
+**Given** a `CompositeVM<VM>` `p` built with `AutoConstructOnAdd(true)`, in
+`Constructed`, with members `a` and `c` (`Constructed`) and `b`
+(`Destructed`), and `Current = null`
+**And** a hub subscriber that records each `PropertyChangedMessage("Current")`
+from `p`
+**When** `b.select()` is called
+**And** `a.deselect()` is called while `a` is not `Current`
+**And** `p.Add(d)` is called, and `d`'s construct hook calls `a.select()`
+inside the caller's own uncommitted membership transaction of `p`
+**And** `Current = c` is set, and the `OnCurrentChanged(c)` callback calls
+`p.dispose()`, which is deferred, and then `a.select()`
+**Then** no call raises
+**And** each refused call changes nothing: `Current` is null after the first
+three calls and `c` after the callback returns, and `p` publishes
+`PropertyChangedMessage("Current")` only for `Current = c`
+**And** the deferred disposal then disposes `p`
+
+> Normatively defined in `05-component-vm.md §6` and `06-composite-vm.md §3.1`.
+> See ADR-0188.
+
+### COMP-053 — The `Current(selector)` input is the live membership
+
+**Given** a `CompositeVM<VM>` `p` built with `AutoConstructOnAdd(true)` and a
+`Current(selector)` hook, with one member `a` whose construction completes in
+the background
+**And** the selector records its input and returns child `l` when `l` is in
+that input
+**When** `p.construct()` is called, and `l` is added while `p` is
+`Constructing` and the walk waits on `a`
+**And** the background work then runs
+**Then** `p` reaches `Constructed`
+**And** the selector ran once, and its input contained `a` and `l`
+**And** `p.Current == l`, and `l.IsCurrent` is true
+
+> Normatively defined in `06-composite-vm.md §3.2`. See ADR-0218.
+
+### COMP-054 — A failed add returns a background child to `Destructed`
+
+**Given** a `CompositeVM<VM>` `p` built with `AutoConstructOnAdd(true)`, and a
+queued background scheduler that has not run yet
+**And** a `Destructed` child `c` whose construction completes in the
+background, and a subscriber that calls `p.dispose()` when `c` publishes
+`Constructing`
+**When** `p.Add(c)` is called while `p` is `Constructed`, and again on a fresh
+`p` and `c` while `p` is `Constructing`
+**Then** each add fails with the flavor's disposal error, and `c` has no parent
+**And** after the background and foreground work drains, `c` is `Destructed`,
+with no parent
+**And** the same holds for `Insert` and for a replacement at an index
+**And** a synchronous child in the same steps makes the add fail, and the
+child ends `Destructed` with no parent
+
+> Normatively defined in `06-composite-vm.md §4.2`. See ADR-0218.
+
 ### SRCH-001 — source signal refreshes an unchanged search term
 
 **Given** a `SearchableState` over `["one"]` with an optional source-change
@@ -2214,8 +2657,6 @@ mutated and emits a pulse
 **Then** the source pulse immediately refreshes using the current new term
 **And** the pending term delivery is neither canceled nor restarted and remains
 eligible at its original deadline
-**And** a flavor whose established reactive facade delivers term notifications
-synchronously proves the source and term notifications remain independent
 
 ### SRCH-005 — source completion or failure is isolated
 
@@ -2244,9 +2685,42 @@ is produced where the flavor exposes a pushed filtered output
 **Then** the latest supplier projection is returned or emitted
 **And** the helper owns neither the supplier collection nor its items
 
+### SRCH-008 — construction starts no term debounce
+
+**Given** a `SearchableState` over `["one"]` with a non-zero term debounce, no
+source-change signal, and a subscriber to the filtered output
+**When** `"two"` is added to the supplier's collection and the clock passes
+the first debounce window with no term change and no `search()` call
+**Then** no filtered notification occurs after construction (a replaying
+output delivers only its initial value on subscribe; ADR-0198)
+**When** `search()` is called
+**Then** one filtered notification occurs, and its projection is
+`["one", "two"]`
+**When** a new term is set
+**Then** one filtered notification occurs after its debounce window
+
+### SRCH-009 — a failing predicate or `Filtered` subscriber keeps the helper live
+
+**Given** a `SearchableState` with no debounce over `["apple", "banana"]`
+**And** a predicate that fails for the term `"boom"` and otherwise matches
+items that contain the term
+**And** two `Filtered` subscribers, A then B, where A fails on every delivery
+**When** the search term is set to `"boom"`
+**Then** the call returns normally, and `Filtered` emits nothing
+**When** the search term is set to `"an"`
+**Then** A and B each receive `["banana"]` once
+**When** `search()` is called
+**Then** A and B each receive `["banana"]` again
+**And** Rust, which is pull-based, instead checks that `filtered()` panics
+while the term is `"boom"` and returns `["banana"]` after the term is `"an"`
+**And** Swift, whose predicate and subscribers cannot fail, asserts that
+structure
+
+> Spec: `06-composite-vm.md` §8.2, `03-messages.md` §3.6, ADR-0191.
+
 ______________________________________________________________________
 
-## 21. GroupVM v2.0 additions (`GRP-007..014`)
+## 21. GroupVM v2.0 additions (`GRP-007..017`)
 
 Search/filter additions to chapter 07. The helper is the same
 `SearchableState<TItem>` documented for composites (see ADR-0014); group-context
@@ -2290,11 +2764,13 @@ window elapses
 
 ### GRP-012 — Group collection changes publish on the hub
 
-**Given** a group `g` with hub `H` and a recorder of `CollectionChangedMessage`
+**Given** a group `g` named `team` with hub `H` and a recorder of
+`CollectionChangedMessage`
 on `H`
 **When** `g` adds, inserts, removes, replaces, moves, and clears children
 **Then** each local event is followed by exactly one message on `H` whose sender
 is `g`, carrying the local event's action and positions
+**And** each message's sender name equals `g`'s `Name` (ADR-0194)
 **And** the local event is delivered first
 **And** a mutation that raises no local event, and any mutation after `g` is
 disposed, publishes nothing
@@ -2320,6 +2796,45 @@ disposed
 **And** construct, including the construct phase of `reconstruct()`, settles
 the children in the same order as a group built without the option
 **And** the options form gives the same order
+
+### GRP-015 — The group construct walk counts members only
+
+**Given** a `GroupVM<VM>` `g` built with `AutoConstructOnAdd(true)`, a member
+`a` whose construction completes in the background, and children whose
+construct hook fails
+**When** the four removal cases of `COMP-047` run against `g`
+**Then** each `construct()` of `g` succeeds and `g` reaches `Constructed`
+**And** a snapshot child removed before the walk reaches it stays
+`Destructed`
+**And** each removed child that was started settles at `Destructed` after its
+own rollback, and is not in `g`
+**And** a late child whose own add fails makes that add fail and be undone,
+and `g` still reaches `Constructed`
+
+### GRP-016 — A group membership change fails at once during another thread's transaction
+
+**Given** a `GroupVM<VM>` `g` whose membership transaction is open on another
+thread, held inside an attachment or construct hook of an add (TypeScript: on
+the call chain of that add)
+**When** an add, an insert, an index replacement, a population and a transfer
+out of `g` are attempted, and `remove`, `removeAt` and `clear` are called on
+`g`
+**Then** each call returns or raises at once, without waiting, with the errors
+that `COMP-048` lists
+**And** the membership, the parent links and the collection-change stream of
+`g` are unchanged by the refused calls
+**And** after the open transaction ends, the same calls succeed
+
+### GRP-017 — A failed group add returns a background child to `Destructed`
+
+**Given** a `GroupVM<VM>` `g` built with `AutoConstructOnAdd(true)`, and a
+queued background scheduler that has not run yet
+**When** the steps of `COMP-054` run against `g`
+**Then** each add, insert and replacement fails, and the child has no parent
+**And** after the background and foreground work drains, the child is
+`Destructed`, with no parent
+
+> Normatively defined in `07-group-vm.md §1.1`. See ADR-0218.
 
 ______________________________________________________________________
 
@@ -2449,8 +2964,10 @@ ______________________________________________________________________
 Each COL-NNN test verifies a collection primitive from `spec/21-collections.md`.
 See ADR-0024 (`ServicedObservableCollection<T>`), ADR-0025 (`ObservableDictionary`),
 ADR-0026 (`ObservableList<T>`), ADR-0023 (`PagedComposition<TVM>`), and
-ADR-0096 (serviced collection parity), and ADR-0097 (keyed serviced
-collection).
+ADR-0096 (serviced collection parity), ADR-0097 (keyed serviced
+collection), ADR-0171 (failing local subscribers), ADR-0177 (dictionary
+key-view order), ADR-0193 (read-only key views and dictionary positions), and
+ADR-0220 (failing subscribers skip no notification step).
 
 ### COL-001 — `ServicedObservableCollection<T>` publishes to hub after local event on add
 
@@ -2713,9 +3230,6 @@ refreshed next token (COL-065 covers the branches that retain it)
 **Then** the added component VMs are constructed before subscribers observe the reset event
 
 ### COL-031 — `PagedComposition<TVM>` observes composite collection changes
-
-Applies to C#, Python, TypeScript, and Swift. Rust `PagedComposition` takes a
-`Vec` source and does not observe it (chapter 21 §5.5).
 
 **Given** a finite `PagedComposition<TVM>` wrapping a `CompositeVM<TVM>` source
 **And** a property-changed subscriber
@@ -3141,6 +3655,141 @@ refresh publishes one `Reset` before that same sequence
 **And** a load or refresh that completes after a later load or refresh started
 commits nothing and publishes nothing
 
+### COL-066 — a failing local subscriber does not suppress the hub message
+
+**Given** a `ServicedObservableCollection<T>`, a keyed serviced collection, or
+an `ObservableDictionary` with a hub
+**And** a local collection-change subscriber that fails on every delivery
+**When** an effective mutation occurs
+**Then** the change is committed
+**And** exactly one hub `CollectionChangedMessage` with the mutation's action
+is sent after the local delivery
+**And** C# and Python rethrow the local failure after publication, while
+TypeScript, Swift, and Rust return normally (Swift subscribers cannot fail;
+Swift asserts this structurally)
+
+### COL-067 — dictionary events and the hub message follow the key-view updates
+
+**Given** an `ObservableDictionary` with a hub and the entries `("a", 1)` and
+`("b", 2)`
+**And** subscribers on `Keys1`, `Keys2`, the dictionary's own events, and the
+hub, each of which records the entries, `Count`, `Keys1`, and `Keys2`
+**When** one of these mutations occurs:
+
+- `Add`, an indexer or `set` insert of `("c", 3)`, `Remove` of `("a", 1)`, or
+  `Clear`, each of which changes both key views
+- `Add` of `("a", 3)`, which changes only `Keys2`
+- `Remove` of `("a", 1)` when the dictionary also holds `("a", 3)`, which
+  changes only `Keys2`
+- `Add` of `("a", 2)`, which changes no key view
+
+**Then** only the key views that change notify, and each key-view subscriber
+sees the updated entries, the updated `Count`, and its own updated view
+**And** the dictionary events and the hub message arrive after the
+notification of each key view that changes
+**And** the dictionary-event and hub subscribers see the updated entries,
+`Count`, `Keys1`, and `Keys2`, and a key view that does not change keeps its
+content
+**And** the test does not check the order of two key-view notifications
+
+### COL-068 — dictionary Remove and Replace hub messages carry the entry position
+
+**Given** an `ObservableDictionary` with a hub and the entries `("a", 1)`,
+`("b", 2)`, and `("c", 3)`, inserted in that order
+**And** a hub subscriber that records each `CollectionChangedMessage`
+**When** the value of `("c", 3)` is replaced through the indexer or `set`
+**Then** the message has action Replace, and `Index`, `OldIndex`, and
+`NewIndex` all equal 2
+**When** `("b", 2)` is then removed
+**Then** the message has action Remove, `Index` and `OldIndex` equal 1, and
+`NewIndex` equals -1
+**And** Rust, for `ObservableMultiDictionary`, checks Replace as
+`old_index == Some(2)` and `new_index == Some(2)`, and Remove as
+`old_index == Some(1)` and `new_index == None`
+
+### COL-070 — dictionary key views give callers no mutator
+
+**Given** an `ObservableDictionary` with the entries `("a", 1)` and `("b", 2)`
+**When** a caller reads `Keys1` and `Keys2`
+**Then** each view lists the distinct keys in first-appearance order
+**And** the view's type is `ReadOnlyObservableList<T>`, which has no add,
+insert, remove, replace, clear, or batch member: C# checks the type by
+reflection, TypeScript with `@ts-expect-error` lines, and Python by the absence
+of each attribute; Swift binds each view to the declared type and has no
+runtime check for an absent member
+**And** in C#, the view cannot be cast to `ObservableList<T>`, and its
+`CollectionChanged` sender is the view itself
+**And** Rust binds each view to the declared `ReadOnlyObservableList` type,
+which has no mutator, and checks that an edit to a `to_vec()` snapshot leaves
+`keys1()`, `keys2()`, and `entries()` unchanged
+
+### COL-069 — a failing local subscriber does not stop the later local subscribers
+
+**Given** a `ServicedObservableCollection<T>`, a keyed serviced collection, or
+an `ObservableDictionary` with a hub
+**And** two local collection-change subscribers, A then B, where A fails on
+every delivery
+**When** two effective mutations occur
+**Then** B receives each change exactly once
+**And** A stays attached and receives both changes
+**And** the hub receives exactly one `CollectionChangedMessage` for each change
+**And** C# and Python rethrow A's failure after the hub send, while
+TypeScript and Rust return normally
+**And** in the dictionary, the same holds for two handlers of one granular
+event
+**And** Swift, whose local subscribers cannot fail, asserts that structure
+
+> Spec: `21-collections.md` §2.5, `01-concepts.md` §1.4, `03-messages.md` §3.6,
+> ADR-0191.
+
+### COL-071 — a duplicate dictionary `Add` fails and changes nothing
+
+**Given** an `ObservableDictionary` with a hub and the entries `("a", 1)` and
+`("b", 2)`
+**And** subscribers on the dictionary's own events, both key views, and the hub
+**When** `Add("a", 1, value)` is called with a new value
+**Then** the call fails with C# `ArgumentException`, Python `ValueError`,
+TypeScript `Error`, Swift `ObservableDictionaryError.duplicateKey`, or Rust
+`Err(VmxError::InvalidArgument(_))`
+**And** the stored value at `("a", 1)`, the entries, both key views, and
+`Count` do not change
+**And** no local event and no hub message is sent
+**And** Rust, which has no local event, checks the hub subscriber only
+
+### COL-072 — a failing subscriber skips no later notification step
+
+**Given** an `ObservableList<T>` with a subscriber that fails on every
+delivery of `ItemAdded`, `ItemRemoved`, or `Reset`, and a later subscriber of
+the same event
+**When** an add, insert, remove, remove-at, clear, whole-list replacement, or
+batch with one add occurs
+**Then** the change is committed, and the later subscriber receives the event
+once
+**And** `PropertyChanged("Count")` is emitted once, and in C# the
+`CollectionChanged` event is raised once
+**And** in C#, a throwing `ItemReplaced` handler does not skip the
+`CollectionChanged` event of a replace
+**Given** an `ObservableDictionary` with a hub and a `Keys1` or `Keys2`
+subscriber that fails on every delivery
+**When** an `Add`, an indexer or `set` insert, a `Remove`, or a `Clear`
+changes that key view
+**Then** the dictionary raises its granular event once, and in C# its
+`CollectionChanged` event once, and sends one hub `CollectionChangedMessage`
+**And** both key views match the entries when the call returns
+**And** after a failed `Keys2` notification on the add of a new key pair,
+`Keys1` lists the new key
+**And** in C#, a throwing `PropertyChanged("Count")` or
+`PropertyChanged("Item[]")` handler on a serviced or keyed serviced collection
+skips neither the single `CollectionChanged` event nor the single hub message
+of an add, remove, clear, or whole-list replacement, nor, for `Item[]`, of a
+replace or move
+**And** C# and Python rethrow the failure after the last step, TypeScript and
+Rust return normally, and Swift, whose subscribers cannot fail, asserts that
+structure
+
+> Spec: `21-collections.md` §2.5, §3.3, §4.6, `03-messages.md` §3.6,
+> ADR-0220.
+
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles
@@ -3150,6 +3799,10 @@ commits nothing and publishes nothing
 **When** the type is instantiated with a model and a children factory
 **Then** it compiles and constructs without generic-bound errors
 **And** per-flavor idiomatic naming applies (C#/Python/TypeScript/Swift/Rust conventions per ADR-0006)
+**And** Rust, which has no subclassing, binds a consumer node-data type `N` in
+`HierarchicalVm<M, N>` (ADR-0202): in a three-level tree, the nodes that
+`children()`, `parent()` and `path()` return expose their `N` through
+`node_data()`, with no downcast and no side table
 
 ### HIER-002 — `Parent` is null for root, non-null for non-root
 
@@ -3203,7 +3856,7 @@ the updated sequence
 
 ### HIER-008 — Eager child loading via constructor option
 
-**Given** a tree constructed with the `eagerChildren=true` (C# / TS) / `eager_children=True` (Python) constructor option
+**Given** a tree in which every node has the eager option: `eagerChildren=true` (C# / TS) / `eager_children=True` (Python) / `eagerChildren: true` (Swift) constructor option, or the Rust builder method `eager_children(true)`
 **And** a children factory delegate that records invocations per node
 **When** the root node's `construct()` completes
 **Then** the children factory has been invoked for every node in the tree
@@ -3290,7 +3943,7 @@ but no `Model`
 **When** `nodeA = b.Build()` and `nodeB = b.Build()` are called
 **Then** `nodeA` and `nodeB` are different instances
 **And** `nodeA.Model == nodeB.Model == m0`, `nodeA.Hint == nodeB.Hint == "h"`
-**And** both nodes' subtrees are materialized at construction time (per `EagerChildren`)
+**And** the construction of `nodeA` and of `nodeB` materializes that node's children (per `EagerChildren`)
 
 ### HIER-017 — `HierarchicalVMBuilder<M, VM>` field defaults applied when not set
 
@@ -3513,6 +4166,92 @@ own children, a hub subscriber, and a `TreeSelection` on the root
 **And** `Current` is null and `CanSelect` is false for every node
 **And** later `Select`, `Clear` and tree changes do nothing and do not raise
 **And** a second `Dispose` does nothing
+
+### HIER-041 — A disposed node refuses structural calls
+
+**Given** a constructed root `r` with children `a` and `b`, a child `aa` of
+`a`, every child list materialized, a detached node `d`, and a recorder of
+`TreeStructureChangedMessage` and `PropertyChangedMessage` on the hub
+**When** `a` is disposed, and then `a.AddChild(d)`, `a.RemoveChild(aa)`,
+`a.ReparentChild(d)`, `a.AddChild(aa)`, `a.RemoveChild(d)`,
+`a.InvalidateChildren()`, `a.InvalidateSubtree()` and `a.AttachMany([d])` are
+called
+**Then** each call refuses on the flavor's channel of chapter 18 §7.1, also the
+calls that would do nothing
+**And** `a.Children` is `[aa]`, `aa.Parent` is `a`, `d.Parent` is null, and the
+recorder holds no message after the dispose
+**When** `b.AddChild(aa)` and `b.ReparentChild(aa)` are called
+**Then** each call refuses, `aa` stays in `a`, and `b.Children` is unchanged
+**When** `r.AttachMany` receives `d` with `a`'s key as its parent key
+**Then** `d` gets an `AttachmentFailed` rejection, is not an orphan, and is not
+parked
+**When** `r.InvalidateSubtree()` is called
+**Then** `aa` and `r` drop their caches, `a` still holds `[aa]`, and the
+recorder holds no `Children` change from `a`
+
+**Given** a fresh tree whose root is disposed and whose child `c` is live
+**When** `c.AttachMany` receives an item with a missing parent key under `park`
+**Then** the call refuses and the root's parked count stays zero
+
+> Spec: `18-hierarchical-vm.md §7.1`, ADR-0190.
+
+### HIER-042 — An attached candidate's materialized subtree joins the batch index
+
+**Given** an empty hierarchy root, a detached node `p` with key `"p"` and root
+parent key, and its materialized child `c` with key `"c"`
+**And** a detached node `x` with key `"x"` and parent key `"c"`
+**When** the batch `[p, x]` is attached
+**Then** `Added` is `[p, x]`, `x` is a child of `c`, and the result has no
+rejection and no orphan
+**Given** a detached node `q` whose materialized child `d` has key `"d"`
+**And** `q`'s parent key is `"d"`
+**When** `q` is attached with `onMissingParent = park`
+**Then** `q` is rejected as `Cycle`, is not an orphan, and is not parked
+**And** reading the subtree keys invokes no children factory
+
+### HIER-043 — A descendant key collision rejects the candidate
+
+**Given** a hierarchy root with a materialized child whose key is `"c"`
+**And** a detached node `p` whose materialized child has key `"c"`
+**When** the batch `[p]` is attached
+**Then** `p` is in `Duplicates` with `DuplicateExistingKey`, is not attached,
+and keeps its child
+**Given** an empty hierarchy root, a detached node `p` whose materialized child
+`c` has key `"c"`, and a detached node `c2` with key `"c"` and parent key `"p"`
+**When** the batch `[p, c2]` is attached
+**Then** `p` is added and `c2` is in `Duplicates` with `DuplicateBatchKey`
+**And** `p` has the one child `c`
+**When** the batch `[c2, p]` is attached to a fresh root and fresh nodes
+**Then** `c2` stays unresolved as an orphan, and `p` is in `Duplicates` with
+`DuplicateBatchKey`
+**Given** an empty hierarchy root and a detached node `p` whose materialized
+child `c` has key `"c"`
+**When** the batch `[p, c]` is attached, and the batch `[c, p]` is attached to
+a fresh root and fresh nodes
+**Then** in both batches `p` is added, `c` is rejected as `AlreadyAttached` and
+stays a child of `p`, and `Duplicates` is empty
+**Given** an empty hierarchy root and a detached node `p` whose two materialized
+children both have key `"d"`
+**When** the batch `[p]` is attached
+**Then** `p` is in `Duplicates` with `DuplicateBatchKey`, is not attached, and
+keeps both children
+**Given** an empty hierarchy root and a node `p` parked with a missing parent
+**And** a child `b`, whose `keyOf` fails, then added to `p`
+**When** an empty batch is attached
+**Then** `p` is rejected as `SelectorFailed`, is not in `Duplicates`, and the
+parked count stays 1
+
+### HIER-044 — Factory children that `AddChild` materializes do not join the index
+
+**Given** a hierarchy root with a materialized child `L` whose children are not
+yet materialized
+**And** `L`'s children factory returns one child `f` with key `"f"`
+**When** the batch `[y, z]` is attached with `onMissingParent = park`, where
+`y` has parent key `"L"` and `z` has parent key `"f"`
+**Then** `y` is added below `L`, after `f`
+**And** `z` is an orphan with `MissingParent` and the parked count is 1
+**When** an empty batch is then attached
+**Then** `z` is added below `f` and the parked count is 0
 
 ## 26. DIA — IDialogService (chapter 19) — spec v2.1
 
@@ -4113,6 +4852,213 @@ candidate
 
 > Spec: `20-form-vm.md §5.4/§10`, ADR-0144.
 
+### FORM-039 — updates during approval publication replay after `OnApproved`
+
+**Given** a valid `FormVM<TM>` with a succeeding persister, a validator that
+rejects `x`, and a `resetOnApproved` that calls `SetModel(x)` and returns
+`pristine`
+**When** an approval succeeds
+**Then** the nested call publishes no `ErrorsChanged`, `CanExecuteChanged`, or
+model `PropertyChangedMessage` before `OnApproved`
+**And** an `OnApproved` observer sees `Model == pristine`, `IsDirty == false`,
+and `IsValid == true`
+**And** after the `OnApproved` delivery returns, `Model == x`, `Errors` holds
+the error for `x`, and one model `PropertyChangedMessage` is published for it
+**And** the last map that an `ErrorsChanged` observer received equals `Errors`
+
+**Given** a form without a reset whose model is edited to `newer` while the
+persister of an approval that captured `saved` runs, and a settlement
+`CanExecuteChanged` observer that calls `DenyCommand.Execute()`
+**When** the approval succeeds
+**Then** an `OnApproved` observer sees `Model == newer` and `IsDirty == true`
+**And** `FormRevertedMessage` is published after the `OnApproved` delivery,
+and `Model == saved` afterwards
+
+**When** the `resetOnApproved` calls `SetModel(a)` and then
+`DenyCommand.Execute()`
+**Then** the queued calls replay in call order after `OnApproved`: the model
+becomes `a`, then reverts to `pristine`
+
+> Spec: `20-form-vm.md §5.1/§5.3`, ADR-0174.
+
+### FORM-040 — a queued update prepares at call time and replays in isolation
+
+**Given** a valid `FormVM<TM>` with initial model `1`, a succeeding persister,
+and a validator that fails (throws, or panics in Rust) for `13`
+**And** the model was set to `2`
+**And** a settlement `CanExecuteChanged` observer that calls `SetModel(13)`,
+catches its failure, and then calls `SetModel(42)`
+**When** `ApproveAsync` is awaited, and separately when
+`ApproveCommand.Execute()` runs
+**Then** `SetModel(13)` fails at call time and nothing is queued for it
+**And** `OnApproved` emits `2` once, the awaited approval completes normally,
+and the command path emits nothing on `ApproveErrors`
+**And** `Model == 42` after the approval settles
+
+**Given** the same form with model `2` and a settlement observer that calls
+`SetModel(5)` and then `SetModel(2)`
+**Then** both calls are queued, and `Model == 2` after the approval settles
+
+**Given** two queued updates, where the first passes its call-time
+preparation and fails when it replays
+**Then** the second update still commits after it, and the approval stays
+settled: its commit stands and `OnApproved` emitted once
+**And** after the last replay, the first replay failure reaches the awaiter,
+or, on the command path, is emitted once on `ApproveErrors`
+**And** in a flavor where an `OnApproved` subscriber's failure propagates, a
+failing `OnApproved` subscriber's failure is the one reported instead
+
+Swift callbacks cannot fail, so a Swift test covers only the call-time
+equality and replay-order clauses. Rust's replay failure is a panic, so on
+both paths the first replay panic resumes from the call, `approve()` or
+`approve_command().execute()`, and nothing is emitted on `approve_errors`
+(ADR-0185).
+
+> Spec: `20-form-vm.md §5.3/§5.4`, ADR-0174, ADR-0185.
+
+### FORM-041 — a nested update notifies after it returns
+
+**Given** a valid, non-strict `FormVM<TM>` whose validator rejects `b` and,
+when it first sees `a`, calls `SetModel(b)` and then logs `nested returned`
+**And** observers that log each `ErrorsChanged`,
+`ApproveCommand.CanExecuteChanged`, `FormRevertedMessage`, and model
+`PropertyChangedMessage`
+**When** `SetModel(a)` is called, and the test logs `outer returned` after it
+returns
+**Then** the log is `nested returned`, `ErrorsChanged`, `CanExecuteChanged`,
+the model message, `outer returned`
+**And** `Model == b`, and `Errors` holds the error for `b` (`FORM-037`)
+
+**Given** a non-strict form whose validator rejects `x` and, when it first sees
+`a`, calls `DenyCommand.Execute()` and then logs `nested returned`
+**And** `Model` was set to `x`, so the form is dirty and invalid
+**When** `SetModel(a)` is called, and the test logs `outer returned` after it
+returns
+**Then** the log is `nested returned`, `ErrorsChanged`, `FormRevertedMessage`,
+the model message, `CanExecuteChanged`, `outer returned`
+**And** `Model` equals `Snapshot`, and `IsValid == true`
+
+**Given** a valid, non-strict form whose validator rejects `a`, and an
+`ErrorsChanged` observer that, on the first map it receives, calls
+`SetModel(c)` and then logs `nested returned`
+**When** `SetModel(a)` is called, and the test logs `outer returned` after it
+returns
+**Then** the log is `ErrorsChanged`, `nested returned`, `ErrorsChanged`,
+`CanExecuteChanged`, the model message, `CanExecuteChanged`, the model
+message, `outer returned`
+**And** the first map holds the error for `a`, the second map is empty, and
+`Model == c`
+
+In Rust, `errors_changed` carries no map, so the test reads `error_map()` when
+the notification arrives.
+
+> Spec: `20-form-vm.md §5.2/§5.4/§5.5`, ADR-0180.
+
+### FORM-042 — disposal before the persister starts prevents the persister call
+
+**Given** a valid, non-strict `FormVM<TM>` whose persister counts its calls,
+with counters on `ErrorsChanged`, `ApproveCommand.CanExecuteChanged`, model
+`PropertyChangedMessage`, `OnApproved`, and `ApproveErrors`
+**And** a validator that, when it first sees `trigger`, calls
+`ApproveCommand.Execute()` and then `Dispose()`
+**When** `SetModel(trigger)` is called and the test then waits a bounded time
+**Then** the persister was never called
+**And** no counter changed
+
+**Given** the same form with a validator that, when it first sees `a`, calls
+`SetModel(b)` and then `Dispose()`
+**When** `SetModel(a)` is called
+**Then** no `ErrorsChanged`, `CanExecuteChanged`, or model message is
+delivered
+
+**Given** the same form without these validators
+**When** `ApproveCommand.Execute()` returns, the test reads the persister call
+count `n`, then calls `Dispose()`, and then waits a bounded time
+**Then** the persister call count is still `n`
+
+In C#, TypeScript, and Rust, the command path calls the persister before
+`Execute()` returns, so `n == 1`. Python and Swift start the persister in a
+scheduled task. Their test calls `Dispose()` before that task runs, so
+`n == 0`: Python in the same event-loop turn, with a running loop, and Swift
+with the task start held back until `dispose()` returns.
+
+> Spec: `20-form-vm.md §5.3/§5.4/§10`, ADR-0180.
+
+### FORM-043 — an update raises the approve notification when its gates change
+
+**Given** a strict `FormVM<TM>` with a validator that rejects model `bad`, a
+counter on `ApproveCommand.CanExecuteChanged`, and the dirty, invalid model
+`bad`
+**When** `SetModel` sets a valid model equal to `Snapshot`
+**Then** the counter rose by exactly one
+**And** `ApproveCommand.CanExecute()` returns `false`
+**When** `SetModel` sets a valid model `a` that differs from `Snapshot`
+**Then** the counter rose by exactly one
+**And** `ApproveCommand.CanExecute()` returns `true`
+**When** `SetModel` sets another valid model `b` that differs from `Snapshot`
+**Then** the counter did not change
+
+**Given** a valid, non-strict form with the same validator and counter
+**And** a persister that calls `SetModel(bad)` and then reads the counter
+**When** `ApproveAsync()` is awaited
+**Then** the persister's read is exactly one more than the count after
+admission
+**And** the approval settles with exactly one more `CanExecuteChanged`
+
+> Spec: `20-form-vm.md §5.2/§5.3`, ADR-0196.
+
+### FORM-044 — a failed send stops the queue and releases unstarted nested approvals
+
+**Given** a valid, non-strict `FormVM<TM>` with model `x`, whose validators
+accept every model, and whose persister counts its calls
+**And** a hub that fails on the first model `PropertyChangedMessage` it
+receives, and records each model message it receives
+**And** a counter on `ApproveCommand.CanExecuteChanged`
+**And** a validator that, when it first sees `a`, calls
+`ApproveCommand.Execute()`, then `SetModel(b)`, then `SetModel(c)`
+**When** `SetModel(a)` is called
+**Then** the call fails with the hub's failure
+**And** the hub received one model message, for `b`, and none for `c`
+**And** `CanExecuteChanged` was raised twice: once for the admission and once
+for the release
+**And** after a bounded wait, the persister was never called
+**And** `ApproveCommand.CanExecute() == true`, and `Model == c`
+
+C#, Python, and TypeScript inject a hub whose `Send` throws. In Rust, a hub
+subscriber sends again on each message until the debug-build drain limit
+panics, and `set_model` resumes that panic. The Rust test runs in debug builds.
+Swift sinks and hubs cannot fail. The Swift test runs the same setup with a
+hub that does not fail: both model messages arrive, and the persister runs
+once after them.
+
+> Spec: `20-form-vm.md §5.4`, ADR-0216.
+
+### FORM-045 — an update runs the dirty comparisons only in strict mode
+
+**Given** a strict `FormVM<TM>` with model `x` whose equality counts its calls,
+and whose `Snapshot` is a separate copy of `x`
+**When** `SetModel(y)` is called
+**Then** the equality ran three times
+**When** the counter is reset and `DenyCommand.Execute()` is called
+**Then** the equality ran twice
+
+**Given** the same form in non-strict mode
+**When** `SetModel(y)` is called
+**Then** the equality ran once
+**When** the counter is reset and `DenyCommand.Execute()` is called
+**Then** the equality did not run
+
+**Given** a non-strict form whose equality fails when one operand is the
+`Snapshot` value, for example through a snapshotter that marks its copy
+**When** `SetModel(z)` is called
+**Then** the call returns normally, `Model == z`, and the model message is
+published
+
+The test reads no `IsDirty` and no `CanExecute()` between the calls it counts.
+Swift equality cannot fail, so the Swift test checks the call counts only.
+
+> Spec: `20-form-vm.md §5.2/§5.4`, ADR-0216.
+
 ## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1 and v3.23
 
 ### DISC-001 — Initial active key and `IsActive`
@@ -4288,7 +5234,8 @@ disposal member to types that do not otherwise own disposable resources.
 **When** multiple callers race to dispose the hub
 **Then** exactly one caller claims terminal teardown
 **And** the waiter resolves with the hub's documented safe result
-**And** completion or terminal snapshot publication occurs exactly once
+**And** completion occurs exactly once
+**And** a notification hub publishes no terminal `Pending` snapshot (ADR-0197)
 
 For flavors whose hub contract is single-threaded, a re-entrant disposal call
 MUST satisfy the same at-most-once observable result; this ID does not add a
@@ -4533,6 +5480,45 @@ otherwise owned by the aggregate
 beyond only the host reactive primitive's documented subscriber behavior
 **And** message-hub subscriber isolation is not implied
 
+### AGCH-011 — the subscribers of one envelope receive it in subscription order
+
+**Given** an `AggregateChangeStream` and five output subscribers, labelled 0
+to 4 in subscription order
+**When** a member is added outside a batch
+**Then** the five subscribers receive that change in the order 0, 1, 2, 3, 4
+**When** a member is added inside an explicit batch
+**Then** the five subscribers receive the final `Batch` in the order 0, 1, 2,
+3, 4
+**When** the aggregate is disposed
+**Then** the five subscribers complete in the order 0, 1, 2, 3, 4, where the
+host convention supports completion
+
+> Spec: `21-collections.md` §9.5, §9.6, and §9.7, ADR-0192.
+
+### AGCH-012 — the aggregate calls the source, selector, and subscriptions with no gate held
+
+**Given** a membership source that adds an item and raises its structural
+callback while it holds its own lock, and whose snapshot and unsubscribe take
+that lock
+**When** construction calls the selector for the first item, and the selector
+starts a second thread that adds a second item under the source lock and waits
+until that thread holds the lock
+**Then** both threads finish within a bounded time
+**And** a later emission from the second item's selected stream produces one
+`Item` change
+**When** a draining thread calls the selector during a structural
+reconciliation while a second thread adds an item under the source lock
+**Then** both threads finish within a bounded time
+**When** the aggregate is disposed while another thread holds the source lock
+and then raises the structural callback
+**Then** both threads finish within a bounded time
+**And** Rust, whose structural subscription is a hub subscription, does not
+take the source lock in its unsubscribe
+**And** TypeScript, which runs on one thread, checks the same sequences on one
+thread: a selector that adds a member during setup, a selector that adds a
+member during a drain, and a structural callback that the source raises after
+disposal began
+
 ## 32. Async resource viewmodel (`ARES-NNN`) — spec v3.20
 
 ### ARES-001 — Initial state and command eligibility
@@ -4637,3 +5623,103 @@ their host contract permits
 application callback occurs
 **And** a newly returned ownership unit is cleaned exactly once when cleanup is
 configured
+
+### ARES-012 — A loader's own cancellation restores the saved stable state
+
+**Given** a current loader that ends with its flavor's native cancellation
+signal, which the VM did not request: C# `OperationCanceledException` from
+another token, Python `asyncio.CancelledError`, a TypeScript rejection whose
+`name` is `"AbortError"`, Swift `CancellationError`, or Rust
+`Err(VmxError::Cancelled)`
+**When** this ends an initial load, a discard-mode reload from `Ready(oldValue)`,
+or a retained reload from `Ready(oldValue)`
+**Then** state returns to `Idle`, `Idle`, or `Ready(oldValue)`, as `Cancel`
+restores it
+**And** the awaitable intent completes normally, no `Error` state is installed,
+and no async-command error is emitted
+**And** the restored value is not cleaned, and the discarded value was cleaned
+exactly once at reload start
+**And** command eligibility matches the restored state
+**When** a superseded loader ends with the same signal after a newer operation
+became current
+**Then** the newer operation stays current, and the superseded completion
+causes no state or command notification
+
+______________________________________________________________________
+
+## 33. Delayed work (`DLY-NNN`) — spec v3.30
+
+Chapter 11 §6 and ADR-0219 define the scheduler and `DelayedTask`. Each test
+injects the flavor's virtual-time test scheduler (chapter 11 §6.1) and
+advances it.
+
+### DLY-001 — a scheduled action runs once at its due time
+
+**Given** a `DelayedTask` over a virtual-time scheduler at time 0
+**When** an action is scheduled with a delay of 10 s
+**Then** `IsPending` is `true`
+**When** the scheduler is advanced by 9 s
+**Then** the action has not run and `IsPending` is `true`
+**When** the scheduler is advanced by 1 s more
+**Then** the action has run once, and it read `IsPending` as `false`
+**And** `IsPending` is `false`
+**When** the scheduler is advanced by 10 s more
+**Then** the action has still run only once
+
+**Given** a `DelayedTask` whose action schedules itself again with a delay of
+5 s until it has run three times
+**When** the first schedule has a delay of 5 s and the scheduler is advanced by
+30 s
+**Then** the action ran at 5 s, 10 s and 15 s, and `IsPending` is `false`
+
+### DLY-002 — a second schedule replaces the pending action and restarts the delay
+
+**Given** a `DelayedTask` over a virtual-time scheduler at time 0
+**When** action A is scheduled with a delay of 10 s
+**And** the scheduler is advanced by 6 s
+**And** action B is scheduled with a delay of 10 s
+**And** the scheduler is advanced by 9 s, to 15 s
+**Then** neither A nor B has run and `IsPending` is `true`
+**When** the scheduler is advanced by 1 s more, to 16 s
+**Then** B has run once
+**And** A never runs, also after a further advance past 20 s
+
+### DLY-003 — cancel prevents the pending action
+
+**Given** a `DelayedTask` over a virtual-time scheduler with no pending action
+**When** `cancel()` is called
+**Then** nothing happens and `IsPending` is `false`
+**When** an action is scheduled with a delay of 10 s and `cancel()` is called
+at 4 s
+**Then** `IsPending` is `false`
+**And** the action does not run when the scheduler is advanced past 10 s
+**When** a new action is scheduled after the cancel
+**Then** the new action runs at its own due time
+
+### DLY-004 — disposal cancels the pending action, and later calls have no effect
+
+**Given** a `DelayedTask` over a virtual-time scheduler with a pending action
+**When** the task is disposed twice
+**Then** `IsPending` is `false`
+**And** the action does not run when the scheduler is advanced past its due
+time
+**When** `schedule` and `cancel` are called after disposal
+**Then** no error is raised, `IsPending` stays `false`, and the newly scheduled
+action never runs
+**And** the scheduler is still usable for other work
+
+### DLY-005 — a failing action stays isolated, and the task stays usable
+
+**Given** a `DelayedTask` over a virtual-time scheduler and an action that
+fails (throws, raises or panics)
+**When** the action is scheduled and the scheduler is advanced past its due
+time
+**Then** the failure does not reach the code that advances the scheduler, and
+it follows the stream-fed route of chapter 03 §3.6
+**And** `IsPending` is `false`
+**When** a second action is scheduled and the scheduler is advanced past its
+due time
+**Then** the second action runs once
+
+Swift actions cannot fail. The Swift test shows that the action type is a
+non-throwing closure and that a second schedule after a run still runs.

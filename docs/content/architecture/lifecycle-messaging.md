@@ -33,8 +33,10 @@ still avoid unbounded publish cycles; development diagnostics identify those
 cycles without truncating finite production delivery.
 
 Concurrent hubs keep synchronous delivery, also from a callback, unless waiting
-would close an actual cross-hub wait cycle (ADR-0119). In C# and Swift, that
-cycle can also run through a container membership wait. See
+would close an actual cross-hub wait cycle (ADR-0119). In C#, Python, Swift,
+and Rust, that cycle can also run through a lifecycle, container membership,
+or ownership wait, because each flavor records all of them in one wait-for
+graph (ADR-0172). See
 [Hub Transactions](../primitives/services-messages-dispatching.md#667-hub-transactions)
 for the full rule.
 

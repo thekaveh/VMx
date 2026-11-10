@@ -43,6 +43,7 @@ from notes_showcase.viewmodels.dialog_service import (
 )
 from notes_showcase.viewmodels.global_search_vm import GlobalSearchVM
 from notes_showcase.viewmodels.note_form_vm import NoteFormVM
+from notes_showcase.viewmodels.note_vm import NoteVM
 from notes_showcase.viewmodels.notebooks_root_vm import NotebooksRootVM
 from notes_showcase.viewmodels.notes_view_vm import NotesViewVM
 from notes_showcase.viewmodels.notifications_vm import NotificationsVM
@@ -103,6 +104,7 @@ class WorkspaceVM:
             .page_size(5)
             .dialog_service(dialog_service)
             .notification_hub(notification_hub)
+            .save_note(self._save_note)
             .build()
         )
         note_form = (
@@ -481,6 +483,19 @@ class WorkspaceVM:
         except RuntimeError:
             asyncio.run(_bind())
 
+    async def _save_note(self, note: NoteVM) -> None:
+        """Save one note for the capability action bar (ADR-0201 §2.3).
+
+        When the editor holds *note*, this is the editor Save: the same
+        validation, the same "Saved" toast, and no write for a clean or
+        invalid draft. Otherwise it persists the note's stored model.
+        """
+        form = self.note_form
+        if form.has_bound_note and form.snapshot.id == note.model.id:
+            await form.approve_command.execute_async()
+            return
+        await self._repo.save_note(note.model)
+
     async def _add_new_note_to_current(self) -> None:
         nb = self.notebooks_root.current
         if nb is None:
@@ -517,6 +532,11 @@ class WorkspaceVM:
             self._notification_hub.post(
                 Notification(NotificationType.ERROR, f"Export failed: {error}")
             )
+            return
+        # The scenario's Export step confirms the written file with a toast.
+        self._notification_hub.post(
+            Notification(NotificationType.NOTIFICATION, f"Exported to {path}")
+        )
 
     # ── Builder entry-point ────────────────────────────────────────────────
     @staticmethod

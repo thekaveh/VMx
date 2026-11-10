@@ -32,6 +32,17 @@ on:
     branches: [main, develop]
   workflow_dispatch:
 
+# #1440: a newer push to a pull request cancels that pull request's older run
+# of this workflow, so a superseded run frees its runners. Push, schedule and
+# workflow_dispatch runs each get a group of their own and are never cancelled
+# or replaced; a shared group would replace a pending run (#534).
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request'
+    && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)
+    || format('{0}-run-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   contract:
     timeout-minutes: 15
@@ -44,7 +55,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.11.28"
           python-version: "3.12"
@@ -78,16 +89,16 @@ jobs:
 
       - name: build local TypeScript package
         run: |
-          npm ci --prefix langs/typescript
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix langs/typescript
           npm run build --prefix langs/typescript
 
       - name: build official React bindings
         run: |
-          npm ci --prefix packages/react
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix packages/react
           npm run build --prefix packages/react
 
       - name: install React showcase dependencies
-        run: npm ci --prefix examples/typescript/react/notes-showcase
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix examples/typescript/react/notes-showcase
 
       - name: React semantic and keyboard accessibility
         run: npm test --prefix examples/typescript/react/notes-showcase

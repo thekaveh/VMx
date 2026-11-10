@@ -301,6 +301,8 @@ public class ComponentVMConformanceTests
         vm.Dispose();
 
         vm.EmitValueNotification();
+        // The local-only primitive is inert after disposal too (ADR-0223, #1542).
+        vm.RaiseLocalValueNotification();
 
         hubCount.Should().Be(0);
         localCount.Should().Be(0);
@@ -757,6 +759,7 @@ public class ComponentVMConformanceTests
 
         public void SelectChild(IComponentVM vm) => _current = vm;
         public void DeselectChild(IComponentVM vm) { if (_current == vm) _current = null; }
+        public void ChildDisposed(IComponentVM vm) { }
         public bool ContainsChild(IComponentVM vm) => false;
         public ParentTransferToken DetachForTransfer(IComponentVM vm)
             => throw new InvalidOperationException("Selection-only test parent cannot transfer children.");
@@ -785,6 +788,8 @@ public class ComponentVMConformanceTests
         }
 
         public void EmitValueNotification() => NotifyPropertyChanged(nameof(Value));
+
+        public void RaiseLocalValueNotification() => RaisePropertyChanged(nameof(Value));
     }
 
     private sealed class ReferenceModel(int value) : IEquatable<ReferenceModel>

@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import join_thread, wait_event
 from vmx.forms import FormVM
 from vmx.messages import FormRevertedMessage, PropertyChangedMessage
 from vmx.services.message_hub import MessageHub
@@ -142,15 +142,19 @@ async def test_form_030_set_model_publishes_one_settled_hub_message() -> None:
         subscription.dispose()
 
 
-def test_admitted_set_model_finishes_before_concurrent_dispose() -> None:
+def test_concurrent_dispose_during_preparation_returns_and_the_update_commits_nothing() -> None:
+    # A dispose() from another thread during a preparation marks the form
+    # disposed and returns. The update commits nothing, and the teardown runs
+    # when it returns (spec/20 §5.4, §10, ADR-0215).
     validation_started = Event()
     release_validation = Event()
     dispose_finished = Event()
+    completed: list[str] = []
 
     def validate(model: _Model) -> str | None:
         if model.value == "accepted":
             validation_started.set()
-            assert release_validation.wait(HANG_GUARD)
+            assert wait_event(release_validation)
         return None
 
     form = FormVM(
@@ -159,26 +163,31 @@ def test_admitted_set_model_finishes_before_concurrent_dispose() -> None:
         snapshotter=lambda model: model,
         validators={"value": validate},
     )
+    form.errors_changed.subscribe(on_completed=lambda: completed.append("errors"))
 
     setter = Thread(target=lambda: form.set_model(_Model("accepted")), daemon=True)
     setter.start()
-    assert validation_started.wait(HANG_GUARD)
+    assert wait_event(validation_started)
 
     disposer = Thread(
         target=lambda: (form.dispose(), dispose_finished.set()),
         daemon=True,
     )
     disposer.start()
-    disposed_during_validation = dispose_finished.wait(0.1)
-    release_validation.set()
+    try:
+        assert wait_event(dispose_finished)
+        completed_during_validation = bool(completed)
+    finally:
+        release_validation.set()
 
-    setter.join(timeout=HANG_GUARD)
-    disposer.join(timeout=HANG_GUARD)
+    join_thread(setter)
+    join_thread(disposer)
 
     assert not setter.is_alive()
     assert not disposer.is_alive()
-    assert not disposed_during_validation
-    assert form.model == _Model("accepted")
+    assert not completed_during_validation
+    assert completed == ["errors"]
+    assert form.model == _Model("initial")
 
 
 def test_validator_observes_the_previous_live_model() -> None:
@@ -275,7 +284,7 @@ def test_form_mutation_does_not_hold_gate_while_waiting_for_hub_delivery(
         if not (isinstance(message, FormRevertedMessage) and message.sender is blocker_sender):
             return
         blocker_entered.set()
-        assert release_blocker.wait(HANG_GUARD)
+        assert wait_event(release_blocker)
         form.set_model(_Model("nested"))
         reentry_finished.set()
 
@@ -287,24 +296,24 @@ def test_form_mutation_does_not_hold_gate_while_waiting_for_hub_delivery(
         daemon=True,
     )
     blocker.start()
-    assert blocker_entered.wait(HANG_GUARD)
+    assert wait_event(blocker_entered)
 
     mutator = Thread(
         target=(form.deny_command.execute if deny else lambda: form.set_model(_Model("outer"))),
         daemon=True,
     )
     mutator.start()
-    assert form_send_started.wait(HANG_GUARD)
+    assert wait_event(form_send_started)
     release_blocker.set()
 
     # Await the deterministic reentry signal directly: a real gate-held-across-
     # hub-delivery regression would hang reentry_finished forever, so a finite
     # ceiling still distinguishes bug from no-bug without conflating latency.
-    reentered_without_deadlock = reentry_finished.wait(HANG_GUARD)
+    reentered_without_deadlock = wait_event(reentry_finished)
     if not reentered_without_deadlock:
         inner_hub.dispose()
-    mutator.join(timeout=HANG_GUARD)
-    blocker.join(timeout=HANG_GUARD)
+    join_thread(mutator)
+    join_thread(blocker)
     if reentered_without_deadlock:
         inner_hub.dispose()
     subscription.dispose()

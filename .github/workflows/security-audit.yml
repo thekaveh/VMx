@@ -12,6 +12,17 @@ on:
     - cron: "23 6 * * 1"
   workflow_dispatch:
 
+# #1440: a newer push to a pull request cancels that pull request's older run
+# of this workflow, so a superseded run frees its runners. Push, schedule and
+# workflow_dispatch runs each get a group of their own and are never cancelled
+# or replaced; a shared group would replace a pending run (#534).
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request'
+    && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)
+    || format('{0}-run-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   secrets:
     timeout-minutes: 10
@@ -57,8 +68,25 @@ jobs:
             runner: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # A transient 5xx while init downloads the CodeQL bundle fails the job
+      # (#1360). The first attempt may fail; a second attempt runs after a
+      # pause, and only its failure fails the job.
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        id: codeql-init
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+      - name: Wait before the second Initialize CodeQL attempt
+        if: steps.codeql-init.outcome != 'success'
+        timeout-minutes: 2
+        run: sleep 60
+      - name: Initialize CodeQL (second attempt)
+        if: steps.codeql-init.outcome != 'success'
+        timeout-minutes: 10
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -68,7 +96,7 @@ jobs:
           swift build -c release --package-path langs/swift
           swift build -c release --package-path examples/swift/notes-showcase
       - name: Analyze
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: "/language:${{ matrix.language }}"
 
@@ -81,6 +109,7 @@ jobs:
         project:
           - langs/typescript
           - packages/react
+          - packages/react-18-deps
           - examples/typescript/console/hello-vmx
           - examples/typescript/react/notes-showcase
           - examples/typescript/integration-recipes
@@ -89,9 +118,9 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
-      - run: npm ci --prefix "${{ matrix.project }}" --ignore-scripts
+      - run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix "${{ matrix.project }}" --ignore-scripts
       - run: npm run check:deps --prefix "${{ matrix.project }}"
-      - run: npm audit --prefix "${{ matrix.project }}" --package-lock-only --audit-level=low
+      - run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm audit --prefix "${{ matrix.project }}" --package-lock-only --audit-level=low
 
   cargo:
     timeout-minutes: 15
@@ -123,7 +152,7 @@ jobs:
           - examples/python/nicegui/notes_showcase
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.11.28"
           python-version: "3.12"
@@ -149,16 +178,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: |
             8.0.x
             9.0.x
             10.0.x
-      - run: >
-          dotnet restore langs/csharp/VMx.sln --locked-mode
-          -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low
-          "-warnaserror:NU1901;NU1902;NU1903;NU1904"
+      - name: Restore with the NuGet audit
+        # NU1901-NU1904 name a vulnerable package. NU1004 names a lock file
+        # that differs from the project graph (#1361).
+        run: |
+          dotnet restore langs/csharp/VMx.sln --locked-mode \
+            -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low \
+            "-warnaserror:NU1901;NU1902;NU1903;NU1904" || {
+            echo "::error::The locked restore or the NuGet audit failed. For NU1901-NU1904, update the vulnerable package. For NU1004, a packages.lock.json differs from the project graph. Regenerate it with: dotnet restore langs/csharp/VMx.sln --force-evaluate (see docs/maintenance/2026-11-09-dependency-lock-regeneration.md)."
+            exit 1
+          }
       - run: >
           dotnet restore examples/csharp/Examples.sln -p:EnableWindowsTargeting=true
           -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low

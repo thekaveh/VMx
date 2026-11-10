@@ -346,6 +346,13 @@ public class COL_056_to_064_KeyedServicedObservableCollectionTests
                 sut.Upsert(new Item("nested", "Nested"));
             }
         };
+        // A second handler (#1343): the BCL ObservableCollection rejects a nested
+        // mutation when an event has two handlers; VMx collections accept it.
+        sut.CollectionChanged += (_, args) =>
+        {
+            AssertLookupMatchesOrder(sut);
+            deliveries.Add($"second:{((Item)args.NewItems![0]!).Key}");
+        };
         hub.Messages.Subscribe(message =>
         {
             AssertLookupMatchesOrder(sut);
@@ -356,8 +363,14 @@ public class COL_056_to_064_KeyedServicedObservableCollectionTests
         sut.Upsert(new Item("outer", "Outer"));
 
         sut.Select(item => item.Key).Should().Equal("a", "outer", "nested");
-        deliveries.IndexOf("local:outer").Should().BeLessThan(deliveries.IndexOf("hub:outer"));
-        deliveries.IndexOf("local:nested").Should().BeLessThan(deliveries.IndexOf("hub:nested"));
+        foreach (string key in new[] { "outer", "nested" })
+        {
+            deliveries.Should().Contain($"local:{key}");
+            deliveries.Should().Contain($"second:{key}");
+            deliveries.Where(entry => entry == $"hub:{key}").Should().ContainSingle();
+            deliveries.IndexOf($"local:{key}").Should().BeLessThan(deliveries.IndexOf($"hub:{key}"));
+            deliveries.IndexOf($"second:{key}").Should().BeLessThan(deliveries.IndexOf($"hub:{key}"));
+        }
     }
 
     private static List<NotifyCollectionChangedEventArgs> ObserveLocal(

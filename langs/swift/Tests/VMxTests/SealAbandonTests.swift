@@ -5,9 +5,9 @@ import XCTest
 
 /// A disposal that cancels a construct walk while its commit-time seal runs
 /// publishes no `.destructed` rollback ahead of the disposal (spec/06 §5.1,
-/// #744). The walk had finished, so the container commits `.constructed` as
-/// it would have without the seal, then the disposal publishes `.disposed`.
-/// Every wait is bounded.
+/// #744). The disposal's inline cascade has started when the seal resumes, so
+/// the container commits no `.constructed` either: its next and last status
+/// is `.disposed` (spec/02 §7.2, ADR-0175, #1167). Every wait is bounded.
 final class SealAbandonTests: XCTestCase {
     private final class Locked<T> {
         private let lock = NSLock()
@@ -53,7 +53,7 @@ final class SealAbandonTests: XCTestCase {
                 if message.senderName == "first" && message.status == .disposed {
                     // Hold the disposal's child cascade until the seal resumed.
                     childDisposing.signal()
-                    _ = goDispose.wait(timeout: .now() + 5)
+                    _ = goDispose.wait(timeout: .now() + hangGuard * 2)
                 }
             }
         defer { subscription.cancel() }
@@ -68,7 +68,7 @@ final class SealAbandonTests: XCTestCase {
             guard stage == .sealing, !paused.value else { return }
             paused.value = true
             sealing.signal()
-            _ = goSeal.wait(timeout: .now() + 5)
+            _ = goSeal.wait(timeout: .now() + hangGuard * 2)
         }
 
         // The first child settles on a pump thread; the walk ends there and
@@ -81,7 +81,7 @@ final class SealAbandonTests: XCTestCase {
             }
             pumped.signal()
         }.start()
-        XCTAssertEqual(sealing.wait(timeout: .now() + 5), .success, "\(kind): the seal starts")
+        XCTAssertEqual(sealing.wait(timeout: .now() + hangGuard), .success, "\(kind): the seal starts")
 
         // A disposal from another thread cancels the walk, then holds in its
         // child cascade before the container's own disposal.
@@ -91,18 +91,16 @@ final class SealAbandonTests: XCTestCase {
             disposed.signal()
         }.start()
         XCTAssertEqual(
-            childDisposing.wait(timeout: .now() + 5), .success, "\(kind): the cascade starts"
+            childDisposing.wait(timeout: .now() + hangGuard), .success, "\(kind): the cascade starts"
         )
-        // The seal resumes and finds its walk cancelled. Its terminal status
-        // is committed before its publication, which queues behind the held
-        // delivery; release the cascade once that status is decided.
+        // The seal resumes and finds its walk cancelled. The cascade has
+        // started, so the seal's commit is dropped and the pump finishes
+        // while the cascade is still held.
         goSeal.signal()
-        let deadline = Date().addingTimeInterval(5)
-        while root.status == .constructing && Date() < deadline { usleep(1_000) }
-        XCTAssertNotEqual(root.status, .constructing, "\(kind): the seal commits a status")
+        XCTAssertEqual(pumped.wait(timeout: .now() + hangGuard), .success, "\(kind): the seal finishes")
+        XCTAssertEqual(root.status, .constructing, "\(kind): the seal commits no status")
         goDispose.signal()
-        XCTAssertEqual(pumped.wait(timeout: .now() + 5), .success, "\(kind): the seal finishes")
-        XCTAssertEqual(disposed.wait(timeout: .now() + 5), .success, "\(kind): the disposal ends")
+        XCTAssertEqual(disposed.wait(timeout: .now() + hangGuard), .success, "\(kind): the disposal ends")
         XCTAssertEqual(root.status, .disposed, kind)
         return log.value
     }
@@ -111,7 +109,7 @@ final class SealAbandonTests: XCTestCase {
         for kind in ["composite", "group"] {
             XCTAssertEqual(
                 try rootStatusesWhenDisposalCancelsTheSeal(kind),
-                [.constructing, .constructed, .disposed],
+                [.constructing, .disposed],
                 kind
             )
         }

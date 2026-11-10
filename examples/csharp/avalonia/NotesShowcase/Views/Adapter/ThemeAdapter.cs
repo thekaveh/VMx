@@ -101,10 +101,10 @@ public static class ThemeAdapter
         var (bg, pane, border, text, subtle) = model.HighContrast ?
             ("#FF000000", "#FF000000", "#FFFFFFFF", "#FFFFFFFF", "#FFFFFF66") :
             model.Name switch
-        {
-            "light" => ("#FFF7F9FC", "#FFFFFFFF", "#FFD7DCE5", "#FF1A2235", "#FF5C6378"),
-            _ /* dark + system fallback */ => ("#FF0E1320", "#FF141B2D", "#FF2A3045", "#FFE6EAF2", "#FF9AA3B8"),
-        };
+            {
+                "light" => ("#FFF7F9FC", "#FFFFFFFF", "#FFD7DCE5", "#FF1A2235", "#FF5C6378"),
+                _ /* dark + system fallback */ => ("#FF0E1320", "#FF141B2D", "#FF2A3045", "#FFE6EAF2", "#FF9AA3B8"),
+            };
 
         var accent = NormalizeAccentHex(model.AccentColor);
         var rd = new ResourceDictionary

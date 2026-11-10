@@ -20,6 +20,61 @@ def test_every_workflow_job_has_a_hard_timeout() -> None:
             )
 
 
+# #1440: these workflows run on pull requests, and a superseded run holds
+# runners that the newer head needs.
+_PULL_REQUEST_CI_WORKFLOWS = (
+    "python",
+    "csharp",
+    "typescript",
+    "swift",
+    "rust",
+    "conformance",
+    "spec-discipline",
+    "security-audit",
+    "examples-contract-checks",
+)
+
+
+def workflow_concurrency(text: str) -> tuple[str, str] | None:
+    """The workflow-level concurrency (group, cancel-in-progress), whitespace-folded."""
+    header = text.split("\njobs:\n", maxsplit=1)[0]
+    match = re.search(r"(?ms)^concurrency:\n(?P<body>(?:  .*\n|\n)*)", header + "\n")
+    if match is None:
+        return None
+    body = match.group("body")
+    group = re.search(r"(?ms)^  group:(?P<value>.*?)(?=^  \S|\Z)", body)
+    cancel = re.search(r"(?m)^  cancel-in-progress:(?P<value>.*)$", body)
+    if group is None or cancel is None:
+        return None
+    return " ".join(group.group("value").replace(">-", "").split()), cancel.group("value").strip()
+
+
+def test_pull_request_runs_cancel_superseded_runs_and_branch_runs_never_share_a_group() -> None:
+    for name in _PULL_REQUEST_CI_WORKFLOWS:
+        concurrency = workflow_concurrency((WORKFLOWS / f"{name}.yml").read_text(encoding="utf-8"))
+        assert concurrency is not None, f"{name}.yml declares no workflow-level concurrency"
+        group, cancel = concurrency
+        # A pull_request run groups by workflow and pull-request number and
+        # cancels the older run of that pull request.
+        assert group.startswith("${{ github.event_name == 'pull_request' && "), name
+        assert "format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)" in group, (
+            name
+        )
+        assert cancel == "${{ github.event_name == 'pull_request' }}", name
+        # Every other event (push to develop or main, schedule,
+        # workflow_dispatch) gets a group of its own, so it is never cancelled
+        # or replaced as a pending run (#534).
+        assert group.endswith("|| format('{0}-run-{1}', github.workflow, github.run_id) }}"), name
+
+
+def test_concurrency_reader_rejects_a_workflow_without_a_group() -> None:
+    assert workflow_concurrency("name: x\non: push\njobs:\n  a:\n") is None
+    assert workflow_concurrency(
+        "name: x\nconcurrency:\n  group: x-${{ github.ref }}\n  cancel-in-progress: false\n"
+        "\njobs:\n  a:\n"
+    ) == ("x-${{ github.ref }}", "false")
+
+
 def test_recipe_suites_run_once_inside_the_package_test_steps() -> None:
     # #783: the C# Test step (VMx.sln) and both Swift package test steps already
     # run the recipe suites, so a filtered rerun step only repeats them.
@@ -84,11 +139,17 @@ def test_protected_branch_checks_are_always_present_and_aggregate_every_job() ->
             "required: python",
             "needs: [build, examples, small-examples, inspector, nicegui, package]",
         ),
-        "rust.yml": ("required: rust", "needs: [audit, build, examples, package, coverage]"),
-        "swift.yml": ("required: swift", "needs: [build, platforms, examples, coverage]"),
+        "rust.yml": (
+            "required: rust",
+            "needs: [audit, build, msrv, examples, package, public-api, coverage]",
+        ),
+        "swift.yml": (
+            "required: swift",
+            "needs: [build, platforms, examples, public-api, coverage, thread-sanitizer]",
+        ),
         "typescript.yml": (
             "required: typescript",
-            "needs: [build, runtime-floor, react, package, examples]",
+            "needs: [build, runtime-floor, react, react-runtime-floor, package, examples]",
         ),
         "docs.yml": ("required: docs", "needs: [build]"),
         "examples-contract-checks.yml": ("required: examples", None),
@@ -171,6 +232,50 @@ def test_python_release_updates_the_compatibility_matrix() -> None:
     assert header.index("python") < header.index("csharp")
     current = next(line for line in matrix.splitlines() if line.startswith("| 3.30.x"))
     assert "x-release-please-version" in current
+
+
+def test_release_yml_alone_creates_the_python_github_release() -> None:
+    config = json.loads((REPO_ROOT / "release-please-config.json").read_text(encoding="utf-8"))
+    assert config["packages"]["langs/python"]["skip-github-release"] is True
+
+    release = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    notes = release.split("\n  python-release-notes:\n", 1)[1].split("\n  typescript:\n", 1)[0]
+    assert "    needs: python-verify-published\n" in notes
+    assert 'gh release create "$tag"' in notes
+
+    runbook = (REPO_ROOT / "langs/python/RELEASING.md").read_text(encoding="utf-8")
+    assert "skip-github-release: true" in runbook
+    assert "autorelease: tagged" in runbook
+    assert "tools/release-please-labels.py" in runbook
+
+
+def _release_job(workflow: str, name: str) -> str:
+    return workflow.split(f"\n  {name}:\n", 1)[1].split("\n\n  ", 1)[0]
+
+
+def test_python_release_notes_job_relabels_after_the_github_release() -> None:
+    # #1447: release-please builds no Python release, so release.yml relabels.
+    job = _release_job(
+        (WORKFLOWS / "release.yml").read_text(encoding="utf-8"), "python-release-notes"
+    )
+
+    assert "    permissions:\n      contents: write\n      pull-requests: write\n" in job
+    create = job.index('gh release create "$tag"')
+    relabel = job.index("python3 tools/release-please-labels.py relabel")
+    assert create < relabel
+    assert '--version "${GITHUB_REF#refs/tags/python-v}"' in job
+
+
+def test_release_please_workflow_fails_on_a_stale_pending_label() -> None:
+    workflow = (WORKFLOWS / "release-please.yml").read_text(encoding="utf-8")
+
+    assert "permissions:\n  contents: read\n  pull-requests: read\n" in workflow
+    check = workflow.index("run: python3 tools/release-please-labels.py check")
+    action = workflow.index("googleapis/release-please-action@")
+    assert check < action
+    step = workflow[workflow.rindex("      - name:", 0, check) : check]
+    assert "if:" not in step
+    assert "GH_TOKEN: ${{ github.token }}" in step
 
 
 def test_release_please_explicitly_targets_main_when_develop_is_default() -> None:
@@ -259,3 +364,125 @@ def test_filtered_csharp_test_steps_fail_when_no_test_matches() -> None:
     assert filtered, "csharp.yml has no filtered dotnet test command"
     for command in filtered:
         assert "RunConfiguration.TreatNoTestsAsError=true" in command, command
+
+
+# #1333: a step in a job with id-token: write can request the publishing OIDC
+# token, so such a job must not install, build or test third-party code.
+_OIDC_FORBIDDEN = (
+    re.compile(r"\bnpm ci\b"),
+    re.compile(r"\bnpm (?:run|test)\b"),
+    re.compile(r"\bnpm install\b(?! --global npm@\d+\.\d+\.\d+\s*$)"),
+    re.compile(r"\buv (?:sync|build|run|pip|tool|venv)\b"),
+    re.compile(r"\buvx\b"),
+    re.compile(r"\bpytest\b"),
+    re.compile(r"\bcargo (?:test|build|clippy|install)\b"),
+    re.compile(r"\bdotnet (?:restore|build|test|pack)\b"),
+    re.compile(r"tools/smoke-[a-z-]+\.py"),
+)
+
+
+def _workflow_jobs(text: str) -> dict[str, str]:
+    body = text.split("\njobs:\n", maxsplit=1)[1]
+    body = re.sub(r"(?m)^\s*#.*\n", "", body)
+    parts = re.split(r"(?m)^  ([A-Za-z0-9_-]+):\n", body)
+    return dict(zip(parts[1::2], parts[2::2], strict=True))
+
+
+def oidc_job_violations(text: str) -> list[str]:
+    """Return 'job: line' for each forbidden command in a job with id-token: write."""
+    violations: list[str] = []
+    for name, job in _workflow_jobs(text).items():
+        if not re.search(r"(?m)^      id-token: write$", job):
+            continue
+        violations.extend(
+            f"{name}: {line.strip()}"
+            for line in job.splitlines()
+            if any(pattern.search(line) for pattern in _OIDC_FORBIDDEN)
+        )
+    return violations
+
+
+def test_release_jobs_with_id_token_install_build_and_test_nothing() -> None:
+    workflow = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    assert oidc_job_violations(workflow) == []
+
+
+def test_oidc_job_check_rejects_each_forbidden_command() -> None:
+    for command in (
+        "npm ci",
+        "npm test --prefix packages/react",
+        "uv sync --project langs/python --locked --all-extras",
+        "uv build --project langs/python --out-dir dist",
+        "uv run python -m pytest",
+        "python3 tools/smoke-rust-consumer.py --package-dir langs/rust",
+        "npm install left-pad",
+    ):
+        workflow = (
+            "on: push\njobs:\n  publish:\n    permissions:\n      id-token: write\n"
+            f"    steps:\n      - run: {command}\n"
+        )
+        assert oidc_job_violations(workflow) == [f"publish: - run: {command}"], command
+    allowed = (
+        "on: push\njobs:\n  publish:\n    permissions:\n      id-token: write\n"
+        "    steps:\n      - run: npm install --global npm@11.18.0\n"
+        "  build:\n    permissions:\n      contents: read\n"
+        "    steps:\n      - run: npm ci\n"
+    )
+    assert oidc_job_violations(allowed) == []
+
+
+def test_registry_publish_jobs_alone_hold_id_token_and_an_environment() -> None:
+    jobs = _workflow_jobs((WORKFLOWS / "release.yml").read_text(encoding="utf-8"))
+    oidc = {name for name, job in jobs.items() if "      id-token: write\n" in job}
+    environments = {name for name, job in jobs.items() if "    environment:\n" in job}
+    publishers = {
+        "csharp-publish",
+        "python-publish",
+        "typescript-publish",
+        "react-publish",
+        "rust-publish",
+    }
+    assert oidc == environments == publishers
+    for flavor, artifact in (
+        ("python", "python-dist-${{ github.run_id }}"),
+        ("typescript", "typescript-release-${{ github.run_id }}"),
+        ("react", "react-release-${{ github.run_id }}"),
+    ):
+        build = jobs[f"{flavor}-build"]
+        publish = jobs[f"{flavor}-publish"]
+        assert "actions/upload-artifact@" in build
+        assert f"name: {artifact}" in build
+        assert "actions/download-artifact@" in publish
+        assert f"name: {artifact}" in publish
+        assert f"needs: [{flavor}-build, release-metadata]" in publish
+        assert "actions/checkout@" not in publish
+    for flavor in ("typescript", "react"):
+        publish = jobs[f"{flavor}-publish"]
+        assert publish.count('npm publish "$TARBALL" --access public') == 2
+    assert "smoke-rust-consumer.py" in jobs["rust-test"]
+
+
+def test_csharp_example_projects_are_format_checked_in_ci_and_pre_commit() -> None:
+    # #1384: the library format gate covers only VMx.sln.
+    jobs = _workflow_jobs((WORKFLOWS / "csharp.yml").read_text(encoding="utf-8"))
+    cases = {
+        "examples": (
+            "examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj",
+            "examples/csharp/avalonia/NotesShowcase.Tests/NotesShowcase.Tests.csproj",
+            "examples/csharp/console/HelloVMx/HelloVMx.csproj",
+        ),
+        "wpf-example": (
+            "examples/csharp/wpf/TodoApp/WpfTodoApp.csproj",
+            "examples/csharp/wpf/TodoAppHostCheck/TodoAppHostCheck.csproj",
+            "examples/csharp/wpf/RecipeHostCheck/RecipeHostCheck.csproj",
+        ),
+    }
+    for name, projects in cases.items():
+        job = jobs[name]
+        check = job.index('dotnet format "$project" --verify-no-changes --no-restore')
+        for project in projects:
+            assert project in job[:check], (name, project)
+            assert job.index("dotnet restore") < check
+    hook = (REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert r"files: ^(langs|examples)/csharp/.*\.(cs|csproj|props)$" in hook
+    assert 'dotnet format "$project" --verify-no-changes --no-restore --include "$f"' in hook

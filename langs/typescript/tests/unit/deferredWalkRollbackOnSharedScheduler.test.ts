@@ -19,6 +19,16 @@ import {
   type IDispatcher,
   type IMessageHub,
 } from "../../src/index.js";
+import { captureRxUnhandledErrors } from "../setup.js";
+
+/** Let rxjs deliver the unhandled-error reports it queued on a timer. */
+async function afterReports(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function messagesOf(errors: unknown[]): string[] {
+  return errors.map((error) => (error as Error).message);
+}
 
 /** A background parent that walks one background member in its hooks. */
 class WalkingParentVM extends ComponentVMBase {
@@ -443,7 +453,8 @@ describe.each(sharedSchedulerDispatchers)("rollback failures in one flush on %s"
     expect(outer.canConstruct()).toBe(true);
   });
 
-  it("throws the first of two independent failures and rolls both back", () => {
+  it("throws the first of two independent failures, reports the other, and rolls both back", async () => {
+    const reports = captureRxUnhandledErrors();
     const shared = dispatcher();
     const hub = new MessageHub();
     const first = parentWithBackgroundMember(shared, hub);
@@ -468,30 +479,42 @@ describe.each(sharedSchedulerDispatchers)("rollback failures in one flush on %s"
       ConstructionStatus.Destructed,
     ]);
     expect(first.canConstruct() && second.canConstruct()).toBe(true);
+    // ADR-0200 §2.3: the other failure goes to config.onUnhandledError once,
+    // after the flush returns.
+    expect(reports).toEqual([]);
+    await afterReports();
+    expect(messagesOf(reports)).toEqual(["second failed"]);
   });
 
-  it("rolls back two independent failures inside a caller's flush", () => {
+  it("rolls back two independent failures inside a caller's flush and reports the dropped one", async () => {
+    const reports = captureRxUnhandledErrors();
     const shared = dispatcher();
     const hub = new MessageHub();
     const first = parentWithBackgroundMember(shared, hub);
     const second = parentWithBackgroundMember(shared, hub);
     first.failConstructAfter = true;
+    first.constructAfterError = "first failed";
     second.failConstructAfter = true;
+    second.constructAfterError = "second failed";
 
     // No drain records these failures, so each one goes to the throw that waits
-    // for the counted actions. The first of those throws to run leaves the
-    // flush, and the flush drops the other one with its error.
+    // for the counted actions. The first of those throws to run, here the one
+    // of `second`, leaves the flush. The flush drops the other throw, and VMx
+    // reports its failure on config.onUnhandledError (ADR-0200 §2.3).
     expect(() =>
       queueScheduler.schedule(() => {
         first.construct();
         second.construct();
       }),
-    ).toThrow("after failed");
+    ).toThrow("second failed");
     expect([first.status, second.status]).toEqual([
       ConstructionStatus.Destructed,
       ConstructionStatus.Destructed,
     ]);
     expect(first.canConstruct() && second.canConstruct()).toBe(true);
+    expect(reports).toEqual([]);
+    await afterReports();
+    expect(messagesOf(reports)).toEqual(["first failed"]);
   });
 
   /** A background parent over a failing foreground walking parent. */
@@ -563,6 +586,9 @@ describe("a completion that never runs", () => {
         });
       }),
     ).toThrow("caller failed");
+    // #1052: the dropped completion is recovered, so `dropped` still settles.
+    expect(dropped.status).toBe(ConstructionStatus.Constructed);
+    expect(dropped.canConstruct() && dropped.canDestruct()).toBe(true);
 
     const parent = parentWithBackgroundMember(RxDispatcher.default(), hub);
     parent.failConstructAfter = true;

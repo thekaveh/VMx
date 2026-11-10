@@ -173,8 +173,37 @@ def _run(args: list[str], *, cwd: Path, timeout: float = 300) -> None:
     subprocess.run(args, cwd=cwd, check=True, timeout=timeout)
 
 
+def _target_directory(package_dir: Path, cargo: str, *, timeout: float = 300) -> Path:
+    """Return the target directory Cargo uses for ``package_dir``.
+
+    It honors ``CARGO_TARGET_DIR`` and the ``build.target-dir`` setting.
+    """
+    result = subprocess.run(
+        [
+            cargo,
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+            "--locked",
+            "--manifest-path",
+            str(package_dir / "Cargo.toml"),
+        ],
+        cwd=package_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    target = json.loads(result.stdout).get("target_directory")
+    if not isinstance(target, str) or not target:
+        raise ValueError("cargo metadata did not report a target_directory")
+    return Path(target)
+
+
 def _package(package_dir: Path, version: str, cargo: str, *, timeout: float = 300) -> Path:
-    tarball = package_dir / "target" / "package" / f"{PACKAGE_NAME}-{version}.crate"
+    target = _target_directory(package_dir, cargo, timeout=timeout)
+    tarball = target / "package" / f"{PACKAGE_NAME}-{version}.crate"
     tarball.unlink(missing_ok=True)
     _run(
         [

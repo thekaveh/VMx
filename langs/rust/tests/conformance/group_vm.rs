@@ -357,8 +357,8 @@ fn clear_releases_every_child_and_emits_one_reset() {
     group.add(a.clone()).unwrap();
     group.add(b.clone()).unwrap();
 
-    group.clear();
-    group.clear(); // already empty: no second reset
+    group.clear().unwrap();
+    group.clear().unwrap(); // already empty: no second reset
     group.dispose().unwrap();
 
     assert!(group.is_empty());
@@ -526,8 +526,9 @@ mod reentrant_construct {
     //! Child hooks and hub subscribers that change a group during its construct
     //! walk do not deadlock it (#702).
 
+    use super::super::bounded_wait::within_timeout;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::{mpsc, Arc};
+    use std::sync::Arc;
     use std::time::Duration;
     use vmx::{Command, ComponentVm, ConstructionStatus, GroupVm, Message, MessageHub, VmxResult};
 
@@ -549,18 +550,6 @@ mod reentrant_construct {
         (hub, group, first)
     }
 
-    /// Runs `action` on a worker thread and fails the test if it does not
-    /// return within `BOUND`.
-    fn bounded<R: Send + 'static>(action: impl FnOnce() -> R + Send + 'static) -> R {
-        let (sent, received) = mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = sent.send(action());
-        });
-        received
-            .recv_timeout(BOUND)
-            .expect("group call did not return: re-entrant change deadlocked")
-    }
-
     /// Makes `child`'s construct hook add one more leaf on its `nth` run.
     fn add_on_construct(hub: &MessageHub, group: &Group, child: &Leaf, nth: usize) {
         let (hub, group, runs) = (hub.clone(), group.clone(), Arc::new(AtomicUsize::new(0)));
@@ -578,7 +567,10 @@ mod reentrant_construct {
             let (hub, group, first) = group_with_leaf(auto_construct);
             add_on_construct(&hub, &group, &first, 1);
             let worker = group.clone();
-            assert_eq!(bounded(move || worker.construct()), Ok(()));
+            assert_eq!(
+                within_timeout("group call", BOUND, move || worker.construct()),
+                Ok(())
+            );
             assert_eq!(group.len(), 2, "auto_construct = {auto_construct}");
             assert_eq!(group.status(), ConstructionStatus::Constructed);
         }
@@ -598,7 +590,10 @@ mod reentrant_construct {
             }
         });
         let worker = group.clone();
-        assert_eq!(bounded(move || worker.construct()), Ok(()));
+        assert_eq!(
+            within_timeout("group call", BOUND, move || worker.construct()),
+            Ok(())
+        );
         assert_eq!(group.len(), 2);
     }
 
@@ -611,7 +606,10 @@ mod reentrant_construct {
             Ok(())
         });
         let worker = group.clone();
-        assert_eq!(bounded(move || worker.construct()), Ok(()));
+        assert_eq!(
+            within_timeout("group call", BOUND, move || worker.construct()),
+            Ok(())
+        );
     }
 
     #[test]
@@ -620,7 +618,10 @@ mod reentrant_construct {
         add_on_construct(&hub, &group, &first, 2);
         group.construct().unwrap();
         let worker = group.clone();
-        assert_eq!(bounded(move || worker.reconstruct()), Ok(()));
+        assert_eq!(
+            within_timeout("group call", BOUND, move || worker.reconstruct()),
+            Ok(())
+        );
         assert_eq!(group.len(), 2);
     }
 
@@ -630,7 +631,7 @@ mod reentrant_construct {
         add_on_construct(&hub, &group, &first, 2);
         group.construct().unwrap();
         let command = group.reconstruct_command();
-        bounded(move || command.execute());
+        within_timeout("group call", BOUND, move || command.execute());
         assert_eq!(group.len(), 2);
     }
 }

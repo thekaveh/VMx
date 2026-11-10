@@ -1435,15 +1435,27 @@ def test_release_tag_rejects_noncanonical_markdown_h2(tmp_path: Path, heading: s
 
 @pytest.mark.parametrize("fence", ["```", "~~~"])
 def test_release_tag_ignores_heading_examples_inside_fences(tmp_path: Path, fence: str) -> None:
+    # The C# notes renderer reads CommonMark, so fenced examples are not headings.
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text(
         "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
         "## [3.22.1]\n\n- Tagged notes.\n\n"
         f"{fence}markdown\n## [Unreleased]\n## Draft\nDraft\n---\n{fence}\n",
         encoding="utf-8",
     )
 
-    assert cvc.check_release_unreleased(changelog) == []
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == []
+    # #1381: the release-notes extractor would end a section at each raw "##" line.
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: line {line} {text!r} starts with '##' but is not a CHANGELOG "
+        "heading (it is inside a code block or HTML block); the release-notes "
+        "extractor would end the section there"
+        for line, text in ((14, "## [Unreleased]"), (15, "## Draft"))
+    ]
 
 
 @pytest.mark.parametrize(
@@ -1578,7 +1590,12 @@ def test_release_gates_use_current_commonmark_html_block_tags(tmp_path: Path) ->
         encoding="utf-8",
     )
 
-    assert cvc.check_release_unreleased(changelog) == []
+    # #1381: an extractor-read CHANGELOG rejects the raw "##" line instead.
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: line 14 '## [Unreleased]' starts with '##' but is not a CHANGELOG "
+        "heading (it is inside a code block or HTML block); the release-notes "
+        "extractor would end the section there"
+    ]
     assert cvc.check_csharp_unreleased_structure(changelog) == []
     for package in cvc.CSHARP_UNRELEASED_PACKAGES:
         assert cvc.check_release_unreleased(changelog, package) == []
@@ -2010,6 +2027,22 @@ def test_react_changelog_section_is_required_for_the_current_version(tmp_path: P
     assert cvc.check_react_changelog_section(tmp_path) == []
 
 
+@pytest.mark.parametrize("version", ["Unreleased", "0.1.3-rc.1", "v0.1.3", "01.1.3"])
+def test_react_changelog_check_requires_stable_semver_package_version(
+    tmp_path: Path, version: str
+) -> None:
+    # #1401: "Unreleased" used to match the [Unreleased] section and pass.
+    react = tmp_path / "packages/react"
+    react.mkdir(parents=True)
+    (react / "package.json").write_text(json.dumps({"version": version}), encoding="utf-8")
+    (react / "CHANGELOG.md").write_text("## [Unreleased]\n\n- A note.\n", encoding="utf-8")
+
+    assert cvc.check_react_changelog_section(tmp_path) == [
+        f"  react: packages/react/package.json version={version!r} "
+        "is not exact stable SemVer (X.Y.Z)"
+    ]
+
+
 @pytest.mark.parametrize(
     ("sections", "error"),
     [
@@ -2071,3 +2104,106 @@ def test_typescript_example_locks_include_the_integration_recipes() -> None:
         Path("examples/typescript/integration-recipes/package-lock.json")
         in cvc.TYPESCRIPT_EXAMPLE_LOCKS
     )
+
+
+# ── check_unreleased_source_placement (#1337) ─────────────────────────
+
+
+def _write_changelog(root: Path, flavor: str, text: str) -> None:
+    path = root / "langs" / flavor / "CHANGELOG.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def test_unreleased_notes_are_rejected_while_the_source_version_is_unreleased(
+    tmp_path: Path,
+) -> None:
+    _write_changelog(
+        tmp_path,
+        "python",
+        "## [Unreleased]\n\n- Pending note.\n\n## [1.1.0] — unreleased source version\n\n- Bump.\n",
+    )
+
+    issues = cvc.check_unreleased_source_placement(tmp_path, {"python": {"version": "1.1.0"}})
+
+    assert issues == [
+        "  python: [Unreleased] has notes, but [1.1.0] is an unreleased source version; "
+        "record them in that section"
+    ]
+
+
+def test_unreleased_notes_are_allowed_after_the_current_version_is_released(
+    tmp_path: Path,
+) -> None:
+    _write_changelog(
+        tmp_path,
+        "rust",
+        "## [Unreleased]\n\n- Pending note.\n\n## [0.2.0] — 2026-01-02\n\n- Release.\n",
+    )
+
+    assert cvc.check_unreleased_source_placement(tmp_path, {"rust": {"version": "0.2.0"}}) == []
+
+
+def test_unreleased_placement_scopes_each_csharp_package(tmp_path: Path) -> None:
+    manifests = {
+        "csharp": {"version": "3.1.0", "package_id": "VMx"},
+        "csharp/VMx.Notifications": {"version": "1.2.0", "package_id": "VMx.Notifications"},
+        "csharp/VMx.Extensions.DependencyInjection": {
+            "version": "2.1.1",
+            "package_id": "VMx.Extensions.DependencyInjection",
+        },
+    }
+    head = "## [Unreleased]\n\n### VMx\n\n{core}### VMx.Notifications\n\n{notifications}"
+    tail = (
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.1.0] — unreleased source version\n\n- Core.\n\n"
+        "## [VMx.Notifications 1.2.0] — unreleased source version\n\n- Notifications.\n\n"
+        "## [VMx.Extensions.DependencyInjection 2.1.1] — 2026-01-01\n\n- DI.\n"
+    )
+    _write_changelog(tmp_path, "csharp", head.format(core="", notifications="") + tail)
+    assert cvc.check_unreleased_source_placement(tmp_path, manifests) == []
+
+    _write_changelog(
+        tmp_path, "csharp", head.format(core="", notifications="- Pending.\n\n") + tail
+    )
+    assert cvc.check_unreleased_source_placement(tmp_path, manifests) == [
+        "  csharp/VMx.Notifications: [Unreleased] VMx.Notifications has notes, but "
+        "[VMx.Notifications 1.2.0] is an unreleased source version; record them in that section"
+    ]
+
+    _write_changelog(
+        tmp_path, "csharp", head.format(core="- Pending.\n\n", notifications="") + tail
+    )
+    assert cvc.check_unreleased_source_placement(tmp_path, manifests) == [
+        "  csharp: [Unreleased] VMx has notes, but [3.1.0] is an unreleased source version; "
+        "record them in that section"
+    ]
+
+
+def test_unreleased_placement_covers_the_react_adapter(tmp_path: Path) -> None:
+    react = tmp_path / "packages" / "react"
+    react.mkdir(parents=True)
+    (react / "package.json").write_text('{"version": "0.2.0"}', encoding="utf-8")
+    changelog = react / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n- Pending note.\n\n## [0.2.0] - unreleased source version\n\n- Bump.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_unreleased_source_placement(tmp_path, {}) == [
+        "  react: [Unreleased] has notes, but [0.2.0] is an unreleased source version; "
+        "record them in that section"
+    ]
+
+    changelog.write_text(
+        "## [Unreleased]\n\n- Pending note.\n\n## [0.2.0] - 2026-01-02\n\n- Release.\n",
+        encoding="utf-8",
+    )
+    assert cvc.check_unreleased_source_placement(tmp_path, {}) == []
+
+
+def test_repository_changelogs_follow_the_placement_rule() -> None:
+    root = Path(__file__).resolve().parents[2]
+    manifests = cvc.collect_manifests(root)
+
+    assert cvc.check_unreleased_source_placement(root, manifests) == []

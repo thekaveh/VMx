@@ -1,12 +1,14 @@
 //
-// CommandWrapperDisposalTests — conformance tests CMDD-011, CMDD-012, CMDD-013.
+// CommandWrapperDisposalTests — conformance tests CMDD-011, CMDD-012, CMDD-013
+// and CMDD-019 (the wrapper disposal notification, #1459).
 //
 // Disposed CompositeCommand, DecoratorCommand, and ConfirmationDecoratorCommand
 // are inert, and disposal during execution or a pending confirmation admits no
 // later inner work (spec/04-commands.md §8.4, ADR-0134).
 //
-// Swift commands cannot throw from `execute()`, so the admitted-pair rethrow case
-// of CMDD-013 is covered by `DecoratorCommand`'s `defer` (ADR-0062 §2.5).
+// Swift commands cannot throw from `execute()`, so CMDD-013's throwing-inner
+// clause does not apply to Swift (spec/04-commands.md §8.4, ADR-0184). The
+// post-action still runs from `DecoratorCommand`'s `defer` (ADR-0062 §2.5).
 //
 import XCTest
 import Combine
@@ -52,8 +54,6 @@ final class CommandWrapperDisposalTests: XCTestCase {
             continuation?.resume(with: result)
         }
     }
-
-    private let signalTimeout: TimeInterval = 30
 
     private func makeCommand(label: String, into recorder: Recorder) -> RelayCommand {
         RelayCommand.builder()
@@ -138,7 +138,7 @@ final class CommandWrapperDisposalTests: XCTestCase {
         let settled = expectation(description: "fire-and-forget flow settled")
         command.onExecuteSettledForTesting = { settled.fulfill() }
         command.execute()
-        await fulfillment(of: [settled], timeout: signalTimeout)
+        await fulfillment(of: [settled], timeout: hangGuard)
 
         XCTAssertEqual(confirms.entries, [])
         XCTAssertEqual(recorder.entries, [])
@@ -170,11 +170,11 @@ final class CommandWrapperDisposalTests: XCTestCase {
             command.onExecuteSettledForTesting = { settled.fulfill() }
 
             command.execute()
-            await fulfillment(of: [pending.parked], timeout: signalTimeout)
+            await fulfillment(of: [pending.parked], timeout: hangGuard)
             command.dispose()
-            await fulfillment(of: [completed], timeout: signalTimeout)
+            await fulfillment(of: [completed], timeout: hangGuard)
             pending.resolve(outcome)
-            await fulfillment(of: [settled], timeout: signalTimeout)
+            await fulfillment(of: [settled], timeout: hangGuard)
 
             XCTAssertEqual(recorder.entries, [], label)
             XCTAssertEqual(errors.entries, [], label)
@@ -203,9 +203,9 @@ final class CommandWrapperDisposalTests: XCTestCase {
             )
 
             let awaited = Task { try await command.executeAsync() }
-            await fulfillment(of: [pending.parked], timeout: signalTimeout)
+            await fulfillment(of: [pending.parked], timeout: hangGuard)
             command.dispose()
-            await fulfillment(of: [completed], timeout: signalTimeout)
+            await fulfillment(of: [completed], timeout: hangGuard)
             pending.resolve(outcome)
             let result = await awaited.result
 
@@ -240,7 +240,7 @@ final class CommandWrapperDisposalTests: XCTestCase {
             )
 
             let awaited = Task { try await command.executeAsync() }
-            await fulfillment(of: [pending.parked], timeout: signalTimeout)
+            await fulfillment(of: [pending.parked], timeout: hangGuard)
             let resolver = Task.detached { pending.resolve(.success(true)) }
             command.dispose()
             await resolver.value
@@ -369,5 +369,47 @@ final class CommandWrapperDisposalTests: XCTestCase {
         decorator?.execute()
 
         XCTAssertEqual(recorder.entries, ["pre", "post"])
+    }
+
+    // MARK: - CMDD-019 disposal notification (#1459)
+
+    private func assertDisposalNotifiesOnce(
+        _ wrapper: Command,
+        inner: RelayCommand,
+        dispose: () -> Void
+    ) {
+        var wrapperSeen = 0
+        var innerSeen = 0
+        let wrapperCancel = wrapper.canExecuteChanged.sink {
+            wrapperSeen += 1
+            XCTAssertFalse(wrapper.canExecute())
+        }
+        let innerCancel = inner.canExecuteChanged.sink { innerSeen += 1 }
+
+        dispose()
+        dispose()
+
+        XCTAssertEqual(wrapperSeen, 1)
+        XCTAssertEqual(innerSeen, 0)
+        wrapperCancel.cancel()
+        innerCancel.cancel()
+    }
+
+    /// CMDD-019 — Disposing a live wrapper notifies the wrapper's
+    /// `canExecuteChanged` subscribers once; a second dispose and the inner
+    /// command's subscribers receive nothing (ADR-0222).
+    func testWrapperDisposalNotifiesWrapperSubscribersOnce() {
+        let recorder = Recorder()
+        let compositeInner = makeCommand(label: "c", into: recorder)
+        let composite = CompositeCommand(compositeInner)
+        assertDisposalNotifiesOnce(composite, inner: compositeInner) { composite.dispose() }
+
+        let decoratorInner = makeCommand(label: "d", into: recorder)
+        let decorator = DecoratorCommand(decoratorInner)
+        assertDisposalNotifiesOnce(decorator, inner: decoratorInner) { decorator.dispose() }
+
+        let confirmationInner = makeCommand(label: "f", into: recorder)
+        let confirmation = ConfirmationDecoratorCommand(confirmationInner) { true }
+        assertDisposalNotifiesOnce(confirmation, inner: confirmationInner) { confirmation.dispose() }
     }
 }

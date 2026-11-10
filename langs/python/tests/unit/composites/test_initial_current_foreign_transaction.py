@@ -4,9 +4,9 @@ holds the composite's membership transaction (spec/06 §3.2, #1064).
 The assignment is non-raising and never waits for the foreign transaction, so
 the composite reaches Constructed with the selected child current. It selects
 only committed members: a child that an in-flight add attached but has not
-admitted is not contained yet. Mirrors the C# InitialCurrentForeignTransactionTests,
-except the owner-thread case: in C# the walk resumes on a pool thread, never
-inside the add's own completion callback.
+admitted is not contained yet. A walk that waits on a late add's start
+attempt resumes only after that add ended its transaction (ADR-0218). Mirrors
+the C# InitialCurrentForeignTransactionTests.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.components._late_child_starts import _LateChildStage
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -130,9 +130,12 @@ def _start(action: Any, errors: list[BaseException]) -> threading.Thread:
 
 
 @pytest.mark.parametrize("owner_waits_for_walk", [False, True])
-def test_selector_assigns_while_another_thread_holds_the_add_transaction(
+def test_walk_selects_after_the_late_add_ends_its_transaction(
     owner_waits_for_walk: bool,
 ) -> None:
+    # The walk waits on the late add's start attempt. The add ends that
+    # attempt only after it ends its transaction, so the walk selects and
+    # publishes Constructed after the owner's handler returns (ADR-0218).
     bg, dispatcher, hub = _services()
     first = _child(hub, dispatcher, "first", background=True)
     late = _child(hub, dispatcher, "late", background=True)
@@ -148,25 +151,29 @@ def test_selector_assigns_while_another_thread_holds_the_add_transaction(
         in_handler.set()
         # The transaction owner holds its committed add transaction here.
         if owner_waits_for_walk:
-            owner_saw_constructed.append(root.constructed.wait(HANG_GUARD))
+            # A negative window: the walk cannot finish inside this add.
+            owner_saw_constructed.append(root.constructed.wait(0.05))
         else:
-            release.wait(2 * HANG_GUARD)
+            wait_event(release, 2 * HANG_GUARD)
 
     root.vm.on_collection_changed.subscribe(on_changed)
     root.vm.construct()
     errors: list[BaseException] = []
     worker = _start(lambda: root.vm.add(late), errors)
-    assert in_handler.wait(HANG_GUARD)
+    assert wait_event(in_handler)
 
-    bg.run_all()  # the walk resumes on this thread and assigns the selector result
-    assert root.vm.status is S.CONSTRUCTED
+    bg.run_all()  # first settles; the walk then waits on the late add
+    if not owner_waits_for_walk:
+        assert root.vm.status is S.CONSTRUCTING
     release.set()
-    worker.join(3 * HANG_GUARD)
+    join_thread(worker, 3 * HANG_GUARD)
     assert not worker.is_alive()
+    bg.run_all()
+    assert root.vm.status is S.CONSTRUCTED
 
     assert errors == []
     if owner_waits_for_walk:
-        assert owner_saw_constructed == [True]
+        assert owner_saw_constructed == [False]
     assert root.vm.current is first
     assert first.is_current
     assert root.changes == ["first"]
@@ -187,16 +194,16 @@ def test_selector_assigns_while_the_owner_of_a_remove_waits_for_the_walk() -> No
         if threading.get_ident() == main:
             return
         in_handler.set()
-        owner_saw_constructed.append(root.constructed.wait(HANG_GUARD))
+        owner_saw_constructed.append(wait_event(root.constructed))
 
     root.vm.on_collection_changed.subscribe(on_changed)
     root.vm.construct()  # extra constructs now; the walk then waits on first
     errors: list[BaseException] = []
     worker = _start(lambda: root.vm.remove(extra), errors)
-    assert in_handler.wait(HANG_GUARD)
+    assert wait_event(in_handler)
 
     bg.run_all()
-    worker.join(3 * HANG_GUARD)
+    join_thread(worker, 3 * HANG_GUARD)
     assert not worker.is_alive()
 
     assert errors == []
@@ -222,18 +229,18 @@ def test_selector_result_is_ignored_after_the_owner_disposes_the_composite() -> 
             return
         root.vm.dispose()  # deferred: this thread owns the transaction
         in_handler.set()
-        release.wait(2 * HANG_GUARD)
+        wait_event(release, 2 * HANG_GUARD)
 
     root.vm.on_collection_changed.subscribe(on_changed)
     root.vm.construct()
     errors: list[BaseException] = []
     worker = _start(lambda: root.vm.add(late), errors)
-    assert in_handler.wait(HANG_GUARD)
+    assert wait_event(in_handler)
 
     bg.run_all()
     assert root.vm.current is None
     release.set()
-    worker.join(3 * HANG_GUARD)
+    join_thread(worker, 3 * HANG_GUARD)
     assert not worker.is_alive()
 
     assert root.changes == []
@@ -245,15 +252,19 @@ def test_dispose_from_the_selector_publication_defers_to_the_lease(foreign_owner
     # A dispose from the selection's own callback defers until the publication
     # ends; it must not wait for another thread's transaction (spec/06 §3.2).
     bg, dispatcher, hub = _services()
+    extra = _child(hub, dispatcher, "extra")
     first = _child(hub, dispatcher, "first", background=True)
-    late = _child(hub, dispatcher, "late", background=True)
     seen: list[S] = []
 
     def dispose_root(_value: ComponentVM | None) -> None:
         root.vm.dispose()
         seen.append(root.vm.status)
 
-    root = _Root([first], hub, dispatcher, on_current=dispose_root)
+    # The foreign owner removes ``extra``: the walk does not wait on a remove,
+    # so it selects while the owner holds the remove transaction.
+    root = _Root(
+        [extra, first] if foreign_owner else [first], hub, dispatcher, on_current=dispose_root
+    )
     main = threading.get_ident()
     in_handler = threading.Event()
     owner_saw_constructed: list[bool] = []
@@ -262,18 +273,18 @@ def test_dispose_from_the_selector_publication_defers_to_the_lease(foreign_owner
         if threading.get_ident() == main:
             return
         in_handler.set()
-        owner_saw_constructed.append(root.constructed.wait(HANG_GUARD))
+        owner_saw_constructed.append(wait_event(root.constructed))
 
     root.vm.on_collection_changed.subscribe(on_changed)
     root.vm.construct()
     errors: list[BaseException] = []
-    worker = _start(lambda: root.vm.add(late), errors) if foreign_owner else None
+    worker = _start(lambda: root.vm.remove(extra), errors) if foreign_owner else None
     if worker is not None:
-        assert in_handler.wait(HANG_GUARD)
+        assert wait_event(in_handler)
 
     bg.run_all()
     if worker is not None:
-        worker.join(3 * HANG_GUARD)
+        join_thread(worker, 3 * HANG_GUARD)
         assert not worker.is_alive()
         assert owner_saw_constructed == [True]
 
@@ -304,7 +315,7 @@ def test_deferred_dispose_admits_no_transaction_after_the_owner_transaction_ends
         calls.append(1)
         if len(calls) == 2:  # the handoff from the transaction end
             worker = _start(lambda: root.add(x), errors)
-            worker.join(HANG_GUARD)
+            join_thread(worker)
             assert not worker.is_alive()
         original_dispose()
 
@@ -363,7 +374,7 @@ def test_dispose_from_an_ordinary_selection_callback_defers_to_the_lease() -> No
 
     def on_current(_value: ComponentVM | None) -> None:
         workers.append(_start(lambda: root.add(c), errors))
-        assert in_handler.wait(HANG_GUARD)
+        assert wait_event(in_handler)
         root.dispose()
         seen.append(root.status)
         dispose_returned.set()
@@ -382,11 +393,11 @@ def test_dispose_from_an_ordinary_selection_callback_defers_to_the_lease() -> No
         if threading.get_ident() == main:
             return
         in_handler.set()
-        owner_saw_dispose_return.append(dispose_returned.wait(HANG_GUARD))
+        owner_saw_dispose_return.append(wait_event(dispose_returned))
 
     root.on_collection_changed.subscribe(on_changed)
     root.current = a
-    workers[0].join(3 * HANG_GUARD)
+    join_thread(workers[0], 3 * HANG_GUARD)
     assert not workers[0].is_alive()
 
     assert errors == []
@@ -414,7 +425,7 @@ def test_deferred_dispose_admits_no_transaction_during_the_handoff() -> None:
         calls.append(1)
         if len(calls) == 2:  # the handoff from the lease end
             worker = _start(lambda: root.vm.add(x), errors)
-            worker.join(HANG_GUARD)
+            join_thread(worker)
             assert not worker.is_alive()
         original_dispose()
 
@@ -450,7 +461,7 @@ def test_selector_result_whose_add_is_not_admitted_is_not_selected(operation: st
 
     def selector(_children: Any) -> ComponentVM:
         workers.append(_start(attach_late, errors))
-        assert attached.wait(HANG_GUARD)
+        assert wait_event(attached)
         return late  # attached, not admitted
 
     root: CompositeVM[ComponentVM] = (
@@ -466,7 +477,7 @@ def test_selector_result_whose_add_is_not_admitted_is_not_selected(operation: st
     def probe(child: object, stage: _LateChildStage) -> None:
         if stage is _LateChildStage.ATTACHED and child is late:
             attached.set()
-            release.wait(2 * HANG_GUARD)
+            wait_event(release, 2 * HANG_GUARD)
             raise RuntimeError("the add rolls back")
 
     root._late_starts.probe_for_testing = probe
@@ -474,7 +485,7 @@ def test_selector_result_whose_add_is_not_admitted_is_not_selected(operation: st
     bg.run_all()
     assert root.current is None
     release.set()
-    workers[0].join(3 * HANG_GUARD)
+    join_thread(workers[0], 3 * HANG_GUARD)
     assert not workers[0].is_alive()
     bg.run_all()
 
@@ -485,11 +496,15 @@ def test_selector_result_whose_add_is_not_admitted_is_not_selected(operation: st
 
 
 @pytest.mark.parametrize("pick_late", [True, False])
-def test_walk_resumed_on_the_add_owner_thread_selects_only_admitted_children(
+def test_walk_resumed_by_the_owner_add_selects_after_the_add_commits(
     pick_late: bool,
 ) -> None:
-    # The walk waits for the add's start attempt, then resumes in the add's
-    # completion callback on the owner thread, before the add admits the child.
+    # The walk waits for the add's start attempt. The add ends the attempt
+    # only after it committed and ended its transaction, so the walk resumes
+    # on the owner thread after that. The late child is then a committed
+    # member, and the selector's pick is assigned (ADR-0218). Before, the
+    # walk resumed inside the uncommitted add, and the assignment was a
+    # silent no-op (spec/06 §4.3 rule 4, ADR-0173).
     bg, dispatcher, hub = _services()
     first = _child(hub, dispatcher, "first", background=True)
     late = _child(hub, dispatcher, "late")
@@ -517,7 +532,7 @@ def test_walk_resumed_on_the_add_owner_thread_selects_only_admitted_children(
     def probe(child: object, stage: _LateChildStage) -> None:
         if stage is _LateChildStage.ATTACHED and child is late:
             attached.set()
-            release.wait(2 * HANG_GUARD)
+            wait_event(release, 2 * HANG_GUARD)
         if stage is _LateChildStage.WALK_WAITING_ON_ADD:
             walk_waiting.set()
 
@@ -525,11 +540,11 @@ def test_walk_resumed_on_the_add_owner_thread_selects_only_admitted_children(
     root.construct()
     errors: list[BaseException] = []
     worker = _start(lambda: root.add(late), errors)
-    assert attached.wait(HANG_GUARD)
+    assert wait_event(attached)
     bg.run_all()
-    assert walk_waiting.wait(HANG_GUARD)
+    assert wait_event(walk_waiting)
     release.set()
-    worker.join(3 * HANG_GUARD)
+    join_thread(worker, 3 * HANG_GUARD)
     assert not worker.is_alive()
     bg.run_all()
 
@@ -537,7 +552,9 @@ def test_walk_resumed_on_the_add_owner_thread_selects_only_admitted_children(
     assert selector_threads == ["owner"]
     assert root.status is S.CONSTRUCTED
     assert any(child is late for child in root.snapshot())
-    assert root.current is (None if pick_late else first)
+    assert root.current is (late if pick_late else first)
+    assert late.is_current is pick_late
+    assert first.is_current is not pick_late
 
 
 @pytest.mark.parametrize(
@@ -558,8 +575,10 @@ def test_transaction_that_detached_the_current_child_keeps_the_selector_result(m
     )
     # Y's old parent: its removal callback runs after root admits Y and before
     # root clears the replaced child, so the walk can select inside that window.
-    # The case guards against reading Current before that callback; the clear's
-    # own check-and-clear is atomic under the gates and has no user code inside.
+    # The case guards against reading Current before that callback. The clear's
+    # own check-and-clear is atomic under the gates and has no user code inside;
+    # test_replacement_keeps_a_selection_that_commits_before_the_clear covers
+    # that check.
     source: CompositeVM[ComponentVM] = (
         CompositeVMBuilder[ComponentVM]()
         .name("source")
@@ -579,7 +598,7 @@ def test_transaction_that_detached_the_current_child_keeps_the_selector_result(m
     def on_source_changed(event: Any) -> None:
         if event.action == "remove":
             paused.set()
-            saw_selection.append(selected.wait(HANG_GUARD))
+            saw_selection.append(wait_event(selected))
 
     source.on_collection_changed.subscribe(on_source_changed)
 
@@ -596,7 +615,7 @@ def test_transaction_that_detached_the_current_child_keeps_the_selector_result(m
 
     def selector(_children: Any) -> ComponentVM:
         workers.append(_start(foreign, errors))
-        assert paused.wait(HANG_GUARD)
+        assert wait_event(paused)
         return first
 
     root: CompositeVM[ComponentVM] = (
@@ -618,7 +637,7 @@ def test_transaction_that_detached_the_current_child_keeps_the_selector_result(m
     def probe(_child: object, stage: _LateChildStage) -> None:
         if stage is _LateChildStage.ATTACHED:
             paused.set()
-            release.wait(2 * HANG_GUARD)
+            wait_event(release, 2 * HANG_GUARD)
             if mode == "transfer-rollback":
                 raise RuntimeError("dest attach fails")
 
@@ -628,7 +647,7 @@ def test_transaction_that_detached_the_current_child_keeps_the_selector_result(m
     dest.construct()
     bg.run_first()  # first settles; root's walk runs the selector
     release.set()
-    workers[0].join(3 * HANG_GUARD)
+    join_thread(workers[0], 3 * HANG_GUARD)
     assert not workers[0].is_alive()
     bg.run_all()
 
@@ -643,3 +662,51 @@ def test_transaction_that_detached_the_current_child_keeps_the_selector_result(m
     if mode == "replace-from-container":
         assert saw_selection == [True]  # selected after root admitted Y
         assert root.snapshot() == (first, y)
+
+
+def test_replacement_keeps_a_selection_that_commits_before_the_clear() -> None:
+    # #1406: an index replacement clears current only while the replaced child
+    # is still current, and it checks that inside its locked clear. The probe
+    # runs before the clear takes its locks. There another thread selects B,
+    # and that selection commits before the probe returns.
+    _bg, dispatcher, hub = _services()
+    a, b = _child(hub, dispatcher, "A"), _child(hub, dispatcher, "B")
+    replacement = _child(hub, dispatcher, "R")
+    changes: list[str | None] = []
+    root: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder[ComponentVM]()
+        .name("root")
+        .services(hub, dispatcher)
+        .children(lambda: [a, b])
+        .on_current_changed(lambda value: changes.append(None if value is None else value.name))
+        .build()
+    )
+    root.construct()
+    root.current = a
+    changes.clear()
+    errors: list[BaseException] = []
+    probed: list[ComponentVM] = []
+
+    def probe(detached: ComponentVM) -> None:
+        probed.append(detached)
+
+        def select_b() -> None:
+            root.current = b
+
+        selector = _start(select_b, errors)
+        join_thread(selector)
+        assert not selector.is_alive(), "the selection commits before the probe returns"
+        assert root.current is b
+
+    root._detach_probe_for_testing = probe
+
+    root[0] = replacement
+
+    root._detach_probe_for_testing = None
+    assert probed == [a]
+    assert errors == []
+    assert list(root.snapshot()) == [replacement, b]
+    assert root.current is b
+    assert b.is_current
+    assert not a.is_current
+    assert changes == ["B"]

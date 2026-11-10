@@ -24,7 +24,8 @@ public struct CollectionChangedMessage<T>: Message {
     public let senderObject: AnyObject
     /// The sender's name. A collection or dictionary message carries its type
     /// name (e.g. `"ServicedObservableCollection"`). A `CompositeVM` or
-    /// `GroupVM` message carries the container's `name`.
+    /// `GroupVM` message, including one from a subclass, carries the
+    /// container's `name` (ADR-0194).
     public let senderName: String
     /// The kind of mutation.
     public let action: CollectionChangedAction

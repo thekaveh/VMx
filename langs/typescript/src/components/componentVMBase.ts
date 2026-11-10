@@ -21,6 +21,8 @@ import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import { RelayCommand } from "../commands/relayCommand.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { isSchedulerCancelled } from "../services/cancelledSchedulers.js";
+import { reportUnhandled } from "../services/reportUnhandled.js";
 import { declareCapabilities } from "../capabilities/registry.js";
 import { disposeBestEffort } from "./disposal.js";
 
@@ -38,6 +40,12 @@ export interface IOwningParentVM extends IParentVM {
   readonly ownerParent: IOwningParentVM | null;
   containsChild(vm: ComponentVMBase): boolean;
   detachForTransfer(vm: ComponentVMBase): ParentTransfer;
+  /**
+   * Called once by a child right after it publishes Disposed from its own
+   * `dispose()`. A composite clears `current` if that child is still current
+   * (spec/06 §4.3 rule 9, ADR-0189); other parents do nothing.
+   */
+  childDisposed(vm: ComponentVMBase): void;
 }
 
 /** @internal One-shot staged old-parent removal. */
@@ -85,6 +93,64 @@ export class ContainerRollbackError extends Error {
     this.name = "ContainerRollbackError";
     this.rollbackError = rollbackError;
   }
+}
+
+/** Set by the `ComponentVMBase` static block: runs `continuation` once `vm` is released. */
+let runWhenReleased: (vm: ComponentVMBase, continuation: () => void) => void;
+
+/**
+ * @internal Return a child that a failed container change auto-started to
+ * `Destructed` (spec/06 §4.2, ADR-0218 rule 7). Call it after the rollback
+ * took the child out of the container. Returns the failure of an immediate
+ * compensation, or `undefined`.
+ *
+ * - A child that was not `Destructed` before the change is left alone.
+ * - A `Constructed` child is destructed now.
+ * - A child whose construct is still in flight is not waited for. Once its
+ *   construct settles `Constructed` with no parent, its `destruct()` runs. A
+ *   failure of that later call goes to `reportUnhandled` (ADR-0200 §2.3).
+ */
+export function compensateAutoConstruct(
+  child: ComponentVMBase,
+  originalStatus: ConstructionStatus,
+): unknown {
+  if (originalStatus !== ConstructionStatus.Destructed) return undefined;
+  if (child.status === ConstructionStatus.Constructed) {
+    try {
+      child.destruct();
+    } catch (error) {
+      return error;
+    }
+    return undefined;
+  }
+  if (child.status !== ConstructionStatus.Constructing) return undefined;
+  let done = false;
+  let subscription: Subscription | undefined;
+  const stop = (): boolean => {
+    if (done) return false;
+    done = true;
+    subscription?.unsubscribe();
+    return true;
+  };
+  subscription = child.propertyChanged.subscribe({
+    next: (name) => {
+      // "isConstructed" is the last per-status notification _setStatus raises.
+      if (name !== "isConstructed" || child.status === ConstructionStatus.Constructing) return;
+      if (!stop()) return;
+      // Destruct only after the child released its in-flight guard.
+      runWhenReleased(child._ownershipIdentity, () => {
+        if (child.status !== ConstructionStatus.Constructed || child._parent !== null) return;
+        try {
+          child.destruct();
+        } catch (error) {
+          reportUnhandled(error);
+        }
+      });
+    },
+    // The child's notifications ended: it is Disposed.
+    complete: () => { stop(); },
+  });
+  return undefined;
 }
 
 /** @internal Validate exclusive ownership/cycles and stage the old removal. */
@@ -174,9 +240,14 @@ class DeferredLifecycle {
   }
 }
 
-/** The first rollback failure recorded in a background `construct()` or `destruct()` flush. */
+/** The first failure recorded in a background `construct()` or `destruct()` flush. */
 interface BackgroundScheduling {
   failure: { error: unknown } | null;
+  /**
+   * Set when an error left the flush before any failure was recorded (#1052).
+   * That error is then the first failure, and later ones are not recorded.
+   */
+  flushFailed: boolean;
 }
 
 /**
@@ -187,21 +258,82 @@ interface BackgroundScheduling {
  */
 const activeSharedDrains = new WeakMap<SchedulerLike, BackgroundScheduling>();
 
-/** Runs `run` as `scheduling`, the outermost drain of `scheduler` if none is active. */
-function drainAs(scheduler: SchedulerLike | null, scheduling: BackgroundScheduling, run: () => void): void {
+/**
+ * Run `schedule` as the outermost drain of `scheduler` if none is active, then
+ * throw the first failure of the flush. An error that leaves the flush, for
+ * example from an action that VMx did not queue, is that first failure unless
+ * a failure was recorded before it (#1052). Then that error is reported
+ * through `reportUnhandled` (ADR-0200 §2.3).
+ */
+function drainBackground(scheduler: SchedulerLike | null, schedule: () => void): void {
+  const scheduling: BackgroundScheduling = { failure: null, flushFailed: false };
   const outermost = scheduler !== null && !activeSharedDrains.has(scheduler);
   if (outermost) activeSharedDrains.set(scheduler, scheduling);
+  let thrown: { error: unknown } | null = null;
   try {
-    run();
+    schedule();
+  } catch (error) {
+    thrown = { error };
   } finally {
     if (outermost) activeSharedDrains.delete(scheduler);
+  }
+  const recorded = scheduling.failure;
+  if (recorded !== null && thrown !== null && thrown.error !== recorded.error) {
+    reportUnhandled(thrown.error);
+  }
+  const failure = recorded ?? thrown;
+  if (failure !== null) throw failure.error;
+}
+
+/**
+ * The VMx actions that a flush error dropped and that run now, per scheduler
+ * (#1052). VMx work queued on that scheduler while they run joins this queue,
+ * so it does not start a nested flush. Each dropped action's finalizer starts
+ * or joins this queue in turn, so the order is that of the finalizers plus the
+ * work they queue, not the order of a normal flush. Work that joins the queue
+ * goes straight to it, past any `_scheduleForeground` override; this happens
+ * only while a failed flush tears down.
+ */
+const recoveries = new WeakMap<SchedulerLike, Array<() => void>>();
+
+/**
+ * Run `run`, a VMx action that an error in a flush of `scheduler` dropped.
+ *
+ * rxjs calls this from the finalizer of the dropped action, while the flush
+ * error is on its way to the caller. That error leaves the flush first, so a
+ * failure of the recovered work is a later failure of the same flush. It is
+ * reported through `reportUnhandled` (ADR-0200 §2.3) and is never thrown from
+ * here: a throw from a finalizer would replace the flush error.
+ */
+function recoverDropped(scheduler: SchedulerLike, run: () => void): void {
+  const drain = activeSharedDrains.get(scheduler);
+  if (drain !== undefined) drain.flushFailed = true;
+  const active = recoveries.get(scheduler);
+  if (active !== undefined) {
+    active.push(run);
+    return;
+  }
+  const queue = [run];
+  recoveries.set(scheduler, queue);
+  try {
+    for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+      try {
+        next();
+      } catch (error) {
+        // A later failure of a failed flush (see above).
+        reportUnhandled(error);
+      }
+    }
+  } finally {
+    recoveries.delete(scheduler);
   }
 }
 
 /**
- * The lifecycle actions that VMx queued on a scheduler and that have not run
- * yet (#1053). These are the completions on the foreground, and the background
- * actions of `construct()` and `destruct()`.
+ * The actions that VMx queued on a scheduler and that have not run yet
+ * (#1053). These are the lifecycle completions on the foreground, the
+ * background actions of `construct()` and `destruct()`, and the asynchronous
+ * selection deliveries of a composite (#1421).
  */
 interface CountedActions {
   pending: number;
@@ -220,20 +352,55 @@ function countedActionsOf(scheduler: SchedulerLike): CountedActions {
   return counted;
 }
 
-/** Queue `work` through `schedule` as a counted action of `scheduler` (#1053). */
+/**
+ * Queue `work` through `schedule` as a counted action of `scheduler` (#1053).
+ *
+ * An error in a flush of `scheduler` unsubscribes the actions queued behind
+ * it, including an error from an action that VMx did not queue. The finalizer
+ * added here runs on any unsubscribe of the action. When the action has not
+ * run and `scheduler` has not marked itself cancelled, the finalizer treats
+ * the action as dropped and runs `work`, so the VM still settles (#1052).
+ * VMx never unsubscribes these actions itself. A custom scheduler that cancels
+ * queued work by unsubscribing it calls the public `markSchedulerCancelled`
+ * first, as `ManualDispatcher` does; otherwise VMx runs that work, including
+ * lifecycle work and asynchronous selection deliveries (ADR-0200).
+ * `schedule` returns null when it cannot give the action's subscription, such
+ * as for an override of `_scheduleForeground`.
+ */
 function scheduleCounted(
   scheduler: SchedulerLike,
-  schedule: (work: () => void) => void,
+  schedule: (work: () => void) => Subscription | null,
   work: () => void,
 ): void {
   const counted = countedActionsOf(scheduler);
   counted.pending++;
   counted.version++;
-  schedule(() => {
+  let ran = false;
+  const run = (): void => {
+    if (ran) return;
+    ran = true;
     counted.pending = Math.max(0, counted.pending - 1);
     counted.version++;
     work();
-  });
+  };
+  const recovery = recoveries.get(scheduler);
+  if (recovery !== undefined) {
+    recovery.push(run);
+    return;
+  }
+  // A custom SchedulerLike can return an object without rxjs `add`.
+  const subscription: Partial<Subscription> | null = schedule(run);
+  if (typeof subscription?.add === "function" && subscription.closed !== true) {
+    subscription.add(() => {
+      if (!ran && !isSchedulerCancelled(scheduler)) recoverDropped(scheduler, run);
+    });
+  }
+}
+
+/** A foreground schedule whose subscription VMx keeps for recovery (#1052). */
+interface ForegroundTracking {
+  readonly work: () => void;
+  subscription: Subscription | null;
 }
 
 export abstract class ComponentVMBase {
@@ -270,6 +437,13 @@ export abstract class ComponentVMBase {
   #members: ComponentVMBase[] = [];
   /** Set once `dispose()` starts, so a re-entrant call is a no-op. */
   #disposeStarted = false;
+  /**
+   * Set when the inline dispose cascade starts, before the first child or
+   * member is disposed (spec/02 §7.2, ADR-0175). From then on no lifecycle
+   * call starts, no hook is admitted, and no status other than Disposed
+   * commits.
+   */
+  #cascadeStarted = false;
   #activeLifecycleHook = false;
   #terminalCleanupPending = false;
   #terminalCleanupStarted = false;
@@ -277,6 +451,8 @@ export abstract class ComponentVMBase {
   #deferredLifecycle: DeferredLifecycle | null = null;
   /** Cancels the active child-settle subscription, if any. */
   #cancelChildWait: (() => void) | null = null;
+  /** The foreground work whose subscription `_scheduleForeground` reports (#1052). */
+  #foregroundTracking: ForegroundTracking | null = null;
 
   readonly #selectCommand: RelayCommand;
   readonly #deselectCommand: RelayCommand;
@@ -376,8 +552,20 @@ export abstract class ComponentVMBase {
     return this.#status;
   }
 
-  #isDisposed(): boolean {
-    return this.#status === ConstructionStatus.Disposed;
+  /** Disposed, or the inline dispose cascade has started (spec/02 §7.2). */
+  #isDisposedOrCascading(): boolean {
+    return this.#status === ConstructionStatus.Disposed || this.#cascadeStarted;
+  }
+
+  /**
+   * A lifecycle call that starts during the inline dispose cascade fails with
+   * the error of the same call on a Disposed VM, before the idempotent no-op,
+   * the legality check and the in-flight check (spec/02 §7.2, ADR-0175).
+   */
+  #refuseDuringDisposeCascade(operation: string): void {
+    if (this.#cascadeStarted) {
+      throw new StatusTransitionError(ConstructionStatus.Disposed, operation);
+    }
   }
 
   get isConstructed(): boolean {
@@ -391,12 +579,30 @@ export abstract class ComponentVMBase {
   }
 
   _setIsCurrent(value: boolean): void {
+    if (this._commitIsCurrent(value)) this._publishIsCurrent();
+  }
+
+  /**
+   * Internal: commits the current flag without publishing it and reports
+   * whether it changed. A composite commits `current` and both flags before it
+   * publishes any of them (spec/06 §4.3 rule 1, ADR-0173).
+   */
+  _commitIsCurrent(value: boolean): boolean {
     // Post-dispose guard: spec/02 invariant 3 — Disposed is terminal. A
-    // selection change on an already-disposed VM is a silent no-op (no
-    // local or hub property-change emission), mirroring Swift (VMX-006).
-    if (this.#status === ConstructionStatus.Disposed) return;
-    if (this.#isCurrent === value) return;
+    // selection change on an already-disposed VM publishes nothing (VMX-006).
+    // Only a change to false still applies, when the composite stops making
+    // this VM current (ADR-0189); a change to true is a no-op.
+    if (this.#status === ConstructionStatus.Disposed) {
+      if (!value) this.#isCurrent = false;
+      return false;
+    }
+    if (this.#isCurrent === value) return false;
     this.#isCurrent = value;
+    return true;
+  }
+
+  /** Internal: publishes a flag change that `_commitIsCurrent` reported. */
+  _publishIsCurrent(): void {
     this._notifyPropertyChanged("isCurrent");
   }
 
@@ -406,14 +612,33 @@ export abstract class ComponentVMBase {
     return this.#propertyChangedSubject.asObservable();
   }
 
+  /**
+   * Emit `propertyName` only on the VM-local `propertyChanged` stream. A
+   * forwarding decorator emits through its canonical ownership identity, whose
+   * stream it exposes (#1352).
+   */
   protected _raisePropertyChanged(propertyName: string): void {
+    const owner = this._ownershipIdentity;
+    if (owner !== this) {
+      owner._raisePropertyChanged(propertyName);
+      return;
+    }
     if (!this.#triggersDisposed) {
       this.#propertyChangedSubject.next(propertyName);
     }
   }
 
-  /** Publish one hub message, then one VM-local notification for assigned state. */
+  /**
+   * Publish one hub message, then one VM-local notification for assigned
+   * state. A forwarding decorator publishes through its canonical ownership
+   * identity: the message names that VM as its sender (#1352).
+   */
   protected _notifyPropertyChanged(propertyName: string): void {
+    const owner = this._ownershipIdentity;
+    if (owner !== this) {
+      owner._notifyPropertyChanged(propertyName);
+      return;
+    }
     if (this.#status === ConstructionStatus.Disposed || this.#triggersDisposed) return;
     this.#activePropertyNotifications += 1;
     try {
@@ -480,6 +705,7 @@ export abstract class ComponentVMBase {
   // ── Lifecycle operations ─────────────────────────────────────────────────
 
   construct(): void {
+    this.#refuseDuringDisposeCascade("construct");
     if (this.#status === ConstructionStatus.Constructed) return;
 
     requireTransition(this.#status, "construct");
@@ -497,13 +723,12 @@ export abstract class ComponentVMBase {
         this.#releaseInFlight();
         throw error;
       }
-      const scheduling: BackgroundScheduling = { failure: null };
-      drainAs(this.#sharedScheduler(), scheduling, () => {
+      drainBackground(this.#sharedScheduler(), () => {
         this.#scheduleBackground(() => {
           // dispose() may have run between scheduling and execution; Disposed is
-          // terminal (spec/02 invariant 3), so skip the work and the marshalled
-          // emission.
-          if (this.#status === ConstructionStatus.Disposed) {
+          // terminal (spec/02 invariant 3), and a started dispose cascade admits
+          // no hook (spec/02 §7.2), so skip the work and the marshalled emission.
+          if (this.#isDisposedOrCascading()) {
             this.#releaseInFlight();
             return;
           }
@@ -529,7 +754,6 @@ export abstract class ComponentVMBase {
           );
         });
       });
-      if (scheduling.failure) throw scheduling.failure.error;
     } else {
       let pending = false;
       try {
@@ -539,7 +763,7 @@ export abstract class ComponentVMBase {
           this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
           throw error;
         }
-        if (this.#isDisposed()) return;
+        if (this.#isDisposedOrCascading()) return;
         let deferred: DeferredLifecycle | null;
         try {
           deferred = this.#runLifecycleHookPhase(() => this._onConstruct());
@@ -564,6 +788,7 @@ export abstract class ComponentVMBase {
   }
 
   destruct(): void {
+    this.#refuseDuringDisposeCascade("destruct");
     if (this.#status === ConstructionStatus.Destructed) return;
 
     requireTransition(this.#status, "destruct");
@@ -581,13 +806,12 @@ export abstract class ComponentVMBase {
         this.#releaseInFlight();
         throw error;
       }
-      const scheduling: BackgroundScheduling = { failure: null };
-      drainAs(this.#sharedScheduler(), scheduling, () => {
+      drainBackground(this.#sharedScheduler(), () => {
         this.#scheduleBackground(() => {
           // dispose() may have run between scheduling and execution; Disposed is
-          // terminal (spec/02 invariant 3), so skip the work and the marshalled
-          // emission.
-          if (this.#status === ConstructionStatus.Disposed) {
+          // terminal (spec/02 invariant 3), and a started dispose cascade admits
+          // no hook (spec/02 §7.2), so skip the work and the marshalled emission.
+          if (this.#isDisposedOrCascading()) {
             this.#releaseInFlight();
             return;
           }
@@ -613,7 +837,6 @@ export abstract class ComponentVMBase {
           );
         });
       });
-      if (scheduling.failure) throw scheduling.failure.error;
     } else {
       let pending = false;
       try {
@@ -623,7 +846,7 @@ export abstract class ComponentVMBase {
           this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
           throw error;
         }
-        if (this.#isDisposed()) return;
+        if (this.#isDisposedOrCascading()) return;
         let deferred: DeferredLifecycle | null;
         try {
           deferred = this.#runLifecycleHookPhase(() => this._onDestruct());
@@ -647,6 +870,7 @@ export abstract class ComponentVMBase {
   }
 
   reconstruct(): void {
+    this.#refuseDuringDisposeCascade("reconstruct");
     requireTransition(this.#status, "reconstruct");
 
     if (this.#inFlight) {
@@ -662,7 +886,7 @@ export abstract class ComponentVMBase {
         this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
         throw error;
       }
-      if (this.#isDisposed()) return;
+      if (this.#isDisposedOrCascading()) return;
       let deferred: DeferredLifecycle | null;
       try {
         deferred = this.#runLifecycleHookPhase(() => this._onDestruct());
@@ -715,7 +939,7 @@ export abstract class ComponentVMBase {
    */
   #reconstructConstructPhase(): boolean {
     this._setStatus(ConstructionStatus.Destructed);
-    if (this.#isDisposed()) return false;
+    if (this.#isDisposedOrCascading()) return false;
 
     try {
       this._setStatus(ConstructionStatus.Constructing);
@@ -723,7 +947,7 @@ export abstract class ComponentVMBase {
       this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
       throw error;
     }
-    if (this.#isDisposed()) return false;
+    if (this.#isDisposedOrCascading()) return false;
     let deferred: DeferredLifecycle | null;
     try {
       deferred = this.#runLifecycleHookPhase(() => this._onConstruct());
@@ -846,6 +1070,11 @@ export abstract class ComponentVMBase {
     }
   }
 
+  static {
+    // Internal seam for compensateAutoConstruct; stays out of the declarations.
+    runWhenReleased = (vm, continuation) => { vm.#runWhenReleased(continuation); };
+  }
+
   /** Run a lifecycle hook and return its deferred completion, if it registered one. */
   #runLifecycleHookPhase(hook: () => void): DeferredLifecycle | null {
     this.#deferredLifecycle = null;
@@ -858,7 +1087,7 @@ export abstract class ComponentVMBase {
     // The hook may have registered a deferral through _transitionChildren.
     const deferred = this.#deferredLifecycle as DeferredLifecycle | null;
     this.#deferredLifecycle = null;
-    if (deferred !== null && this.#isDisposed()) {
+    if (deferred !== null && this.#isDisposedOrCascading()) {
       this.#abandonDeferredLifecycle();
       return null;
     }
@@ -873,11 +1102,27 @@ export abstract class ComponentVMBase {
   }
 
   /**
-   * Stop waiting for a pending child transition without settling this VM.
-   * Containers call this at the start of `dispose()`, before disposing their
-   * children, so a child reaching Disposed does not roll this VM back first.
+   * Stop waiting for a pending child transition without settling this VM, so
+   * a child reaching Disposed does not roll this VM back first. The VMx
+   * containers do this through `_beginDisposeCascade` at the start of
+   * `dispose()`, which also closes hook admission.
    */
   protected _abandonChildTransition(): void {
+    this.#abandonDeferredLifecycle();
+  }
+
+  /**
+   * @internal Unsupported: not part of the public API; containers only.
+   * Start the inline dispose cascade (spec/02 §7.2, ADR-0175). A container
+   * calls this at the start of `dispose()`, before it disposes its first
+   * child. It abandons a pending child wait, as `_abandonChildTransition`
+   * does, and closes hook admission: until this VM publishes Disposed, a
+   * `construct()`, `destruct()` or `reconstruct()` call throws the
+   * `StatusTransitionError` of a Disposed VM, no hook runs, and no status
+   * other than Disposed commits.
+   */
+  protected _beginDisposeCascade(): void {
+    this.#cascadeStarted = true;
     this.#abandonDeferredLifecycle();
   }
 
@@ -891,16 +1136,18 @@ export abstract class ComponentVMBase {
    * - The walk takes `children` in the order given, one child at a time: a
    *   child starts only after the previous child settled. To destruct in
    *   reverse order, pass a reversed list.
-   * - A child already at the target status is skipped. A child already in the
-   *   transient status (`Constructing` / `Destructing`) is joined: the walk
-   *   waits for it and does not start it again.
+   * - A child already at the target status, or `Disposed`, is skipped. A
+   *   child already in the transient status (`Constructing` /
+   *   `Destructing`) is joined: the walk waits for it and does not start it
+   *   again. A child that reaches `Disposed` during the wait counts as
+   *   settled (ADR-0189).
    * - A child left in its transient status (a background child) defers this
    *   VM's terminal status. This VM stays `Constructing` / `Destructing` until
    *   the child settles, and then the walk continues.
-   * - A child that settles at any other status (its hook failed, or it was
-   *   disposed) stops the walk and rolls this VM back to its prior settled
-   *   status. Siblings that already reached the target are not undone. A
-   *   synchronous failure is thrown from `construct()` / `destruct()`.
+   * - A child that settles at any other status (its hook failed) stops the
+   *   walk and rolls this VM back to its prior settled status. Siblings that
+   *   already reached the target are not undone. A synchronous failure is
+   *   thrown from `construct()` / `destruct()`.
    * - `after` runs exactly once, after every child reached the target and
    *   before this VM publishes its terminal status. A throwing `after` rolls
    *   this VM back like a child failure.
@@ -926,7 +1173,7 @@ export abstract class ComponentVMBase {
     after?: () => void,
   ): void {
     this.#requireOwnLifecycleHook();
-    this.#walkChildren(children, construct, after, undefined);
+    this.#walkChildren(children, construct, after, undefined, undefined);
   }
 
   /**
@@ -935,15 +1182,19 @@ export abstract class ComponentVMBase {
    * `joined` already started this transition (factory population): it is
    * joined and its settled status is final, so it is never restarted.
    * `joined` is read live, so a container can extend its walk while it runs.
+   * With `isMember`, the walk counts members only (spec/06 §5.1, ADR-0186): it
+   * skips a child that is not a member before it starts or joins it, and a
+   * child that is no longer a member when it settles does not fail the walk.
    */
   protected _transitionChildrenJoining(
     children: Iterable<ComponentVMBase>,
     construct: boolean,
     after: (() => void) | undefined,
     joined: ReadonlySet<ComponentVMBase>,
+    isMember?: (child: ComponentVMBase) => boolean,
   ): void {
     this.#requireOwnLifecycleHook();
-    this.#walkChildren(children, construct, after, joined);
+    this.#walkChildren(children, construct, after, joined, isMember);
   }
 
   #requireOwnLifecycleHook(): void {
@@ -959,7 +1210,10 @@ export abstract class ComponentVMBase {
     construct: boolean,
     after: (() => void) | undefined,
     joined: ReadonlySet<ComponentVMBase> | undefined,
+    isMember: ((child: ComponentVMBase) => boolean) | undefined,
   ): void {
+    // A child that is no longer a member does not change this VM (ADR-0186).
+    const removed = (child: ComponentVMBase): boolean => isMember?.(child) === false;
     const target = construct ? ConstructionStatus.Constructed : ConstructionStatus.Destructed;
     const transient = construct
       ? ConstructionStatus.Constructing
@@ -967,6 +1221,8 @@ export abstract class ComponentVMBase {
     const targetName = construct ? "Constructed" : "Destructed";
     const iterator = children[Symbol.iterator]();
     let deferred: DeferredLifecycle | null = null;
+    const reachedTargetOrDisposed = (child: ComponentVMBase): boolean =>
+      child.status === target || child.status === ConstructionStatus.Disposed;
 
     const settle = (result: DeferredLifecycleResult): void => {
       this.#cancelChildWait = null;
@@ -990,6 +1246,31 @@ export abstract class ComponentVMBase {
         subscription?.unsubscribe();
         return true;
       };
+      const continueWalk = (): void => {
+        // This VM was disposed (or abandoned the wait) in the meantime.
+        if (cancelled) return;
+        // Read the status now, not at the settle: a joined reconstructing
+        // child is Constructed again by its release (spec/02 §6). A child
+        // that reached Disposed meanwhile counts as settled (ADR-0189), and
+        // one that is no longer a member does not change this VM (ADR-0186).
+        if (!reachedTargetOrDisposed(child) && !removed(child)) {
+          // The child rolled back and surfaced its own failure.
+          settle({
+            failed: true,
+            error: new Error(`Child '${child.name}' did not reach ${targetName}`),
+            rethrow: false,
+          });
+          return;
+        }
+        let stillPending: boolean;
+        try {
+          stillPending = advance();
+        } catch (error) {
+          settle({ failed: true, error, rethrow: !(error instanceof JoinedChildFailure) });
+          return;
+        }
+        if (!stillPending) settle({ failed: false, error: undefined, rethrow: false });
+      };
       subscription = child.propertyChanged.subscribe({
         next: (name) => {
           // "isConstructed" is the last per-status notification _setStatus raises.
@@ -998,37 +1279,12 @@ export abstract class ComponentVMBase {
           // Continue only after the child finished publishing and released its
           // in-flight guard, so this VM may start the child's next transition
           // and a failure here does not escape from the child's subscriber.
-          child._ownershipIdentity.#runWhenReleased(() => {
-            // This VM was disposed (or abandoned the wait) in the meantime.
-            if (cancelled) return;
-            // Read the status now, not at the settle: a joined reconstructing
-            // child is Constructed again by its release (spec/02 §6).
-            if (child.status !== target) {
-              // The child rolled back (and surfaced its own failure) or was disposed.
-              settle({
-                failed: true,
-                error: new Error(`Child '${child.name}' did not reach ${targetName}`),
-                rethrow: false,
-              });
-              return;
-            }
-            let stillPending: boolean;
-            try {
-              stillPending = advance();
-            } catch (error) {
-              settle({ failed: true, error, rethrow: !(error instanceof JoinedChildFailure) });
-              return;
-            }
-            if (!stillPending) settle({ failed: false, error: undefined, rethrow: false });
-          });
+          child._ownershipIdentity.#runWhenReleased(continueWalk);
         },
+        // The child's notifications ended: it is Disposed (ADR-0189).
         complete: () => {
           if (!stopWaiting()) return;
-          settle({
-            failed: true,
-            error: new Error(`Child '${child.name}' was disposed before reaching ${targetName}`),
-            rethrow: false,
-          });
+          continueWalk();
         },
       });
       // propertyChanged does not replay, so no settle can have arrived yet.
@@ -1042,6 +1298,9 @@ export abstract class ComponentVMBase {
     const advance = (): boolean => {
       for (let next = iterator.next(); next.done !== true; next = iterator.next()) {
         const child = next.value;
+        if (removed(child)) continue;
+        // A Disposed child is skipped: no lifecycle call (spec/02 §6, ADR-0189).
+        if (child.status === ConstructionStatus.Disposed) continue;
         if (
           child.status !== target &&
           child.status !== transient &&
@@ -1054,7 +1313,8 @@ export abstract class ComponentVMBase {
           waitFor(child);
           return true;
         }
-        if (child.status !== target) {
+        // A child disposed during its own transition counts as settled.
+        if (!reachedTargetOrDisposed(child) && !removed(child)) {
           const message = `Child '${child.name}' did not reach ${targetName}`;
           // A joined child already surfaced its own failure.
           throw joined?.has(child) === true ? new JoinedChildFailure(message) : new Error(message);
@@ -1072,6 +1332,8 @@ export abstract class ComponentVMBase {
     // the outer call finishes the teardown.
     if (this.#status === ConstructionStatus.Disposed || this.#disposeStarted) return;
     this.#disposeStarted = true;
+    // The member cascade closes hook admission first (spec/02 §7.2).
+    this.#cascadeStarted = true;
 
     disposeBestEffort([
       // A transition waiting on a child never settles once Disposed.
@@ -1080,6 +1342,9 @@ export abstract class ComponentVMBase {
       // this VM publishes Disposed.
       () => this.#disposeMembers(),
       () => this._setStatus(ConstructionStatus.Disposed),
+      // A composite clears this VM as its current child (spec/06 §4.3 rule 9,
+      // ADR-0189). It skips the clear during its own dispose cascade.
+      () => this._parent?.childDisposed(this),
       // A parent waiting for this VM's release now sees Disposed and settles.
       () => this.#runAfterRelease(),
       () => {
@@ -1274,6 +1539,10 @@ export abstract class ComponentVMBase {
     // racing dispose() must neither resurrect the VM nor publish
     // post-dispose status messages.
     if (this.#status === ConstructionStatus.Disposed) return;
+    // Once the inline dispose cascade has started, the next and last status is
+    // Disposed (spec/02 §7.2, ADR-0175). A commit, rollback or restore of a
+    // transition that started earlier publishes nothing.
+    if (this.#cascadeStarted && newStatus !== ConstructionStatus.Disposed) return;
 
     this.#status = newStatus;
 
@@ -1355,24 +1624,60 @@ export abstract class ComponentVMBase {
     this.#throwAfterCountedActions(error);
   }
 
-  /** Record `error` on the active drain of this VM's shared scheduler, if any. */
+  /**
+   * Record `error` on the active drain of this VM's shared scheduler, if any.
+   * The drain keeps the first failure of its flush. It reports every later
+   * one through `reportUnhandled` (ADR-0200 §2.3).
+   */
   #recordOnActiveDrain(error: unknown): boolean {
     const shared = this.#sharedScheduler();
     const drain = shared === null ? undefined : activeSharedDrains.get(shared);
     if (drain === undefined) return false;
-    drain.failure ??= { error };
+    // An error that already left the flush is its first failure (#1052).
+    if (drain.flushFailed || drain.failure !== null) reportUnhandled(error);
+    else drain.failure = { error };
     return true;
   }
 
   /** Queue `work` on the foreground as a counted completion (#1053). */
   #queueCompletion(work: () => void): void {
-    scheduleCounted(this.#dispatcher.foreground, (w) => { this._scheduleForeground(w); }, work);
+    this._scheduleForegroundCounted(work);
+  }
+
+  /**
+   * @internal Unsupported: not part of the public API; containers only.
+   * Queue `work` through `_scheduleForeground` as a counted foreground
+   * action (#1053). A flush error from other work, also work that
+   * VMx did not queue, does not drop it: its finalizer runs it (#1052). A
+   * composite queues an asynchronous selection delivery here (#1421). A
+   * scheduler that marks itself cancelled, such as a disposed
+   * `ManualDispatcher`, does not run it.
+   */
+  protected _scheduleForegroundCounted(work: () => void): void {
+    scheduleCounted(this.#dispatcher.foreground, (w) => this.#scheduleForegroundTracked(w), work);
   }
 
   /** Queue `work` on the background as a counted action (#1053). */
   #scheduleBackground(work: () => void): void {
     const { background } = this.#dispatcher;
-    scheduleCounted(background, (w) => { background.schedule(w); }, work);
+    scheduleCounted(background, (w) => background.schedule(w), work);
+  }
+
+  /**
+   * Schedule `work` through `_scheduleForeground` and return its subscription.
+   * Returns null when an override does not pass `work` itself to the base
+   * method, so VMx cannot recover that action (#1052).
+   */
+  #scheduleForegroundTracked(work: () => void): Subscription | null {
+    const tracking: ForegroundTracking = { work, subscription: null };
+    const outer = this.#foregroundTracking;
+    this.#foregroundTracking = tracking;
+    try {
+      this._scheduleForeground(work);
+    } finally {
+      this.#foregroundTracking = outer;
+    }
+    return tracking.subscription;
   }
 
   /**
@@ -1386,22 +1691,42 @@ export abstract class ComponentVMBase {
    * waiting. It clears the stale count and throws.
    *
    * Two such failures in one synchronous flush both wait. Only the error of
-   * the first throw to run leaves the flush. An active drain keeps the first
-   * recorded failure instead.
+   * the first throw to run leaves the flush. A throw that the scheduler
+   * unsubscribes before it runs, for example after that error, reports
+   * `error` through `reportUnhandled` instead (ADR-0200 §2.3). It does so even
+   * on a scheduler that marked itself cancelled: cancellation stops work, not
+   * reports. An active drain keeps the first recorded failure instead.
    */
   #throwAfterCountedActions(error: unknown): void {
+    // During recovery, an error is already leaving the failed flush. This
+    // failure is a later one, so it is reported (#1052, ADR-0200 §2.3).
+    if (recoveries.has(this.#dispatcher.foreground)) {
+      reportUnhandled(error);
+      return;
+    }
     const counted = countedActionsOf(this.#dispatcher.foreground);
     let seen = counted.version;
-    const attempt = (): void => {
-      if (counted.pending > 0 && counted.version !== seen) {
-        seen = counted.version;
-        this._scheduleForeground(attempt);
-        return;
+    const schedule = (): void => {
+      let ran = false;
+      const attempt = (): void => {
+        ran = true;
+        if (counted.pending > 0 && counted.version !== seen) {
+          seen = counted.version;
+          schedule();
+          return;
+        }
+        counted.pending = 0;
+        throw error;
+      };
+      // A custom SchedulerLike can return an object without rxjs `add`.
+      const subscription: Partial<Subscription> | null = this.#scheduleForegroundTracked(attempt);
+      if (typeof subscription?.add === "function" && subscription.closed !== true) {
+        subscription.add(() => {
+          if (!ran) reportUnhandled(error);
+        });
       }
-      counted.pending = 0;
-      throw error;
     };
-    this._scheduleForeground(attempt);
+    schedule();
   }
 
   /** The scheduler that serves both channels, or null with separate schedulers. */
@@ -1412,6 +1737,8 @@ export abstract class ComponentVMBase {
 
   /** Schedule work on the foreground scheduler. */
   protected _scheduleForeground(work: () => void): void {
-    this.#dispatcher.foreground.schedule(work);
+    const subscription = this.#dispatcher.foreground.schedule(work);
+    const tracking = this.#foregroundTracking;
+    if (tracking?.work === work) tracking.subscription = subscription;
   }
 }

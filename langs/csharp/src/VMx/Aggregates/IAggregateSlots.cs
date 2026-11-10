@@ -1,5 +1,5 @@
 using VMx.Components;
-using VMx.Lifecycle;
+using VMx.Internal;
 
 namespace VMx.Aggregates;
 
@@ -17,15 +17,23 @@ internal interface IAggregateSlots
 
 }
 
-internal sealed class AggregateParent(IComponentVM owner, IAggregateSlots slots)
+internal sealed class AggregateParent(ComponentVMBase owner, IAggregateSlots slots)
     : IParentCompositeVM
 {
     public IComponentVM Owner => owner;
+
+    /// <summary>
+    /// Assigns the aggregate's new slots in one step with the owner's terminal
+    /// check; see <see cref="ComponentVMBase.CommitUnlessDisposing"/>.
+    /// </summary>
+    internal bool CommitUnlessDisposing(Action assign) => owner.CommitUnlessDisposing(assign);
+
     public IParentCompositeVM? OwnerParent => owner.GetParent();
     public bool SupportsChildSelection => false;
     public IComponentVM? CurrentChild => null;
     public void SelectChild(IComponentVM vm) { }
     public void DeselectChild(IComponentVM vm) { }
+    public void ChildDisposed(IComponentVM vm) { }
     public bool ContainsChild(IComponentVM vm)
     {
         var identity = vm.GetOwnershipIdentity();
@@ -39,38 +47,65 @@ internal sealed class AggregateParent(IComponentVM owner, IAggregateSlots slots)
 
 internal static class AggregateOwnership
 {
+    /// <summary>
+    /// Runs one slot factory. When it throws, the candidates that earlier
+    /// factories of the same population built are disposed, then the failure
+    /// propagates (#1324).
+    /// </summary>
+    internal static T Build<T>(AggregateParent parent, List<IComponentVM> built, Func<T> factory)
+        where T : class, IComponentVM
+    {
+        T next;
+        try { next = factory(); }
+        catch
+        {
+            UnownedCandidates.Dispose(parent, built);
+            throw;
+        }
+        built.Add(next);
+        return next;
+    }
+
     internal static bool Replace(
-        IParentCompositeVM parent,
+        AggregateParent parent,
         IComponentVM?[] previous,
         IComponentVM[] next,
         Action assign,
         Action notifyCommittedError)
     {
-        using var reservation = ComponentOwnership.BeginExclusiveReservationBatch(next);
-        Validate(parent, next);
+        IDisposable reservation;
+        try
+        {
+            reservation = ComponentOwnership.BeginExclusiveReservationBatch(next);
+            try { Validate(parent, next); }
+            catch
+            {
+                reservation.Dispose();
+                throw;
+            }
+        }
+        catch
+        {
+            // The preflight refused the population: the old slots stay, and
+            // the candidates nobody else owns are disposed (#1324).
+            UnownedCandidates.Dispose(parent, next);
+            throw;
+        }
+        using var _ = reservation;
         System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstError = null;
         foreach (var child in previous)
         {
-            try { child?.Dispose(); }
-            catch (Exception error)
-            {
-                firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-            }
+            if (child is not null) FirstFailure.Capture(ref firstError, child.Dispose);
         }
-        if (parent.Owner?.Status == ConstructionStatus.Disposed)
+        // The terminal check and the assignment are one step under the owner's
+        // lifecycle gate: a concurrent disposal either sees the committed slots
+        // in its cascade snapshot, or makes this commit fail (spec/08 §4).
+        if (!parent.CommitUnlessDisposing(assign))
         {
-            foreach (var child in next)
-            {
-                try { child.Dispose(); }
-                catch (Exception error)
-                {
-                    firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-                }
-            }
+            foreach (var child in next) FirstFailure.Capture(ref firstError, child.Dispose);
             firstError?.Throw();
             return false;
         }
-        assign();
         Commit(parent, previous, next);
         if (firstError is not null)
         {

@@ -6,9 +6,10 @@
 **Branch:** `examples-notes-showcase` off `main` (merged)
 **Sister artefacts:** [`examples/notes-showcase-parity.md`](../../examples/notes-showcase-parity.md)
 is the maintained 19-feature × 4-flavor parity matrix; [ADR-0034](../ADRs/0034-aggregate-vm6.md)
-shipped the `AggregateVM6` extension. The four framework screenshots remain an
-explicit capture backlog in [`assets/notes-showcase/README.md`](../../assets/notes-showcase/README.md);
-they are not shipped artefacts.
+shipped the `AggregateVM6` extension. The planned framework screenshots were
+never captured, and their placeholder directory was removed
+([#1338](https://github.com/thekaveh/VMx/issues/1338)). The parity matrix's
+VM-layer diagrams are the visual companion.
 
 ## 1. Executive summary
 
@@ -80,8 +81,8 @@ exercised by the example.
   spec extension (Phase 2.s), not by the example apps themselves.
   Conformance is at 220 IDs after this branch lands.
 - N3. Pixel-perfect visual parity or visual regression tests. Four framework
-  screenshots are planned as manual references; their capture status is tracked
-  in `assets/notes-showcase/README.md`.
+  screenshots were planned as manual references but were never captured; their
+  placeholder directory was removed.
 - N4. End-to-end simulated-user tests (Playwright / FlaUI / pyautogui). Headless
   smoke per framework (§9.3) is the substitute.
 - N5. Multiple frameworks per language *in this PR* — see §4.2 for the
@@ -182,11 +183,17 @@ examples/
    `NotesViewVM.bindTo(notebook)`, which awaits a ~150 ms simulated
    notes-for-notebook fetch (via `reconstruct()`).
 1. **Notes display.** `NotesViewVM` filters by selected notebook, applies the
-   `SearchableState` debounced 150 ms title-search predicate, applies the
+   `SearchableState` debounced 150 ms note-search predicate (title, body or
+   tag), applies the
    `showStarredOnly` `IFilterable` predicate, and paginates 5 per page via
-   `PagedComposition`.
+   `PagedComposition`. A search, the starred filter or a page change never
+   changes `current` (ADR-0201 §2.1). While the current note is not on the
+   visible page, the editor keeps that note and its draft. When the note is
+   visible again, the list marks it as selected again.
 1. **Note selection.** Notes-list `current` change drives `NoteFormVM` to
-   re-snapshot from `current.model`; `draft` becomes the editable copy.
+   re-snapshot from `current.model`; `draft` becomes the editable copy. The
+   switch discards the unsaved draft of the earlier note with no prompt
+   (ADR-0201 §2.2).
 1. **Editing.** Mutating `draft.{title,body,starred,tags}` raises
    `PropertyChangedMessage`; `isDirty` (a `DerivedProperty`) flips true.
 1. **Save.** `approveCommand.canExecute` = `isDirty && strict-valid`. Approve
@@ -206,7 +213,10 @@ examples/
 1. **Capability action bar.** Reflects `workspace.focusedVM`'s implemented
    capabilities (§14.4 of the spec) — buttons for `ISelectable`, `IClosable`,
    `IDeletable`, `IPageable` (when focus is the notes view), etc. The
-   capability set is observed via a `DerivedProperty`; the view binds.
+   capability set is observed via a `DerivedProperty`; the view binds. The
+   action-bar Save on the note that the editor holds is the editor Save: it
+   persists the draft, or nothing when the draft is clean or not valid
+   (ADR-0201 §2.3).
 1. **Notifications.** All toasts flow through the optional `INotificationHub`
    sub-package; `NotificationsVM` materializes auto-dismissing `NotificationVM`
    instances (spec §16.6-7), cap 5 visible.
@@ -237,7 +247,7 @@ notebook has ≥ 6 notes (multi-page demonstration). 3 notes starred.
 | 4   | `FormVM` snapshot/revert (ch. 20)                 | Note editor                                        |
 | 5   | `DerivedProperty` (ch. 15)                        | Status bar, `isDirty`, capability actions          |
 | 6   | `RelayCommand` reactive `canExecute` (ch. 4)      | Save / Revert / Delete                             |
-| 7   | `SearchableState` + `IFilterable<T>` (§14.5–14.6) | Title search + starred filter                      |
+| 7   | `SearchableState` + `IFilterable<T>` (§14.5–14.6) | Note search + starred filter                       |
 | 8   | `IPageable` + `PagedComposition` (§14.10, ch. 21) | Notes pagination                                   |
 | 9   | `INotificationHub` + `NotificationVM` (ch. 16)    | Toast region                                       |
 | 10  | Async `construct()` + dispatcher (ch. 2, 11)      | Workspace load + notebook switch + save            |
@@ -715,7 +725,7 @@ assert each flavor's test suite contains the 10 VM test files from §9.1.
 | 4   | Adapters per framework                        | 3a/3b/3c     | **4a ‖ 4b ‖ 4c**    | The 5 bridge files per §7.3 each. Adapter unit tests where applicable.                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | 5   | UI per framework                              | 4a / 4b / 4c | **5a ‖ 5b ‖ 5c**    | Views per §8. Headless smoke (§9.3) green. Manual run verified once on macOS.                                                                                                                                                                                                                                                                                                                                                                                                           |
 | 6   | Pure-VM contract checks                       | 5a/5b/5c     | partly parallel     | The three §9.2 scripts + the cross-layer import check. All three apps pass.                                                                                                                                                                                                                                                                                                                                                                                                             |
-| 7   | Polish + parity artefacts                     | 6            | parallel internally | `examples/notes-showcase-parity.md`, three screenshots in `assets/notes-showcase/`, README updates, root README §4.3, scenario-doc cross-links.                                                                                                                                                                                                                                                                                                                                         |
+| 7   | Polish + parity artefacts                     | 6            | parallel internally | `examples/notes-showcase-parity.md`, README updates, root README §4.3, scenario-doc cross-links.                                                                                                                                                                                                                                                                                                                                                                                        |
 | 8   | CI wiring                                     | 6, 7         | —                   | Extend the three lang workflows; add `examples-contract-checks` job; verify on a draft PR.                                                                                                                                                                                                                                                                                                                                                                                              |
 | 9   | Multi-agent audit (clean-pass gate)           | 8            | 4–6 parallel agents | Repeated parallel audits (Critical / Important / Minor) until **10 consecutive zero-finding passes**; spot-checks between runs reset the counter on any miss. Phase-2 spec/library work and phase 3+ example work are audited together since they ship in one PR.                                                                                                                                                                                                                       |
 | 10  | Merge to `main`                               | 9 (clean)    | —                   | PR-merge to `main`; close worktree. Spec v2.2.0 + three flavor v2.2.0 packages + three flagship example apps all land in one merge.                                                                                                                                                                                                                                                                                                                                                     |

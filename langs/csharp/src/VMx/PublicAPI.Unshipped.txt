@@ -1,0 +1,30 @@
+#nullable enable
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Keys1.get -> VMx.Collections.ReadOnlyObservableList<TKey1>!
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Keys2.get -> VMx.Collections.ReadOnlyObservableList<TKey2>!
+VMx.Collections.ReadOnlyObservableList<T>
+VMx.Collections.ReadOnlyObservableList<T>.CollectionChanged -> System.Collections.Specialized.NotifyCollectionChangedEventHandler?
+VMx.Collections.ReadOnlyObservableList<T>.Count.get -> int
+VMx.Collections.ReadOnlyObservableList<T>.GetEnumerator() -> System.Collections.Generic.IEnumerator<T>!
+VMx.Collections.ReadOnlyObservableList<T>.ItemAdded -> System.EventHandler<VMx.Collections.ItemAddedEventArgs<T>!>?
+VMx.Collections.ReadOnlyObservableList<T>.ItemRemoved -> System.EventHandler<VMx.Collections.ItemRemovedEventArgs<T>!>?
+VMx.Collections.ReadOnlyObservableList<T>.ItemReplaced -> System.EventHandler<VMx.Collections.ItemReplacedEventArgs<T>!>?
+VMx.Collections.ReadOnlyObservableList<T>.PropertyChanged -> System.ComponentModel.PropertyChangedEventHandler?
+VMx.Collections.ReadOnlyObservableList<T>.Reset -> System.EventHandler?
+VMx.Collections.ReadOnlyObservableList<T>.this[int index].get -> T
+VMx.Messages.CollectionChangedMessage<T>.SenderName.init -> void
+override VMx.Collections.ServicedObservableCollection<T>.CollectionChanged -> System.Collections.Specialized.NotifyCollectionChangedEventHandler?
+VMx.Services.DelayedTask
+VMx.Services.DelayedTask.Cancel() -> void
+VMx.Services.DelayedTask.DelayedTask(System.Reactive.Concurrency.IScheduler! scheduler) -> void
+VMx.Services.DelayedTask.Dispose() -> void
+VMx.Services.DelayedTask.IsPending.get -> bool
+VMx.Services.DelayedTask.Schedule(System.TimeSpan delay, System.Action! action) -> void
+override VMx.Collections.ServicedObservableCollection<T>.InsertItem(int index, T item) -> void
+override VMx.Collections.ServicedObservableCollection<T>.OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs! e) -> void
+override VMx.Collections.ServicedObservableCollection<T>.PropertyChanged -> System.ComponentModel.PropertyChangedEventHandler?
+override VMx.Collections.ServicedObservableCollection<T>.RemoveItem(int index) -> void
+override VMx.Collections.ServicedObservableCollection<T>.SetItem(int index, T item) -> void
+VMx.Forwarding.ForwardingComponentVM<M>.NotifyPropertyChanged(string! propertyName) -> void
+VMx.Forwarding.ForwardingComponentVM<M>.RaisePropertyChanged(string! propertyName) -> void
+VMx.Forwarding.ForwardingCompositeVM<VM>.NotifyPropertyChanged(string! propertyName) -> void
+VMx.Forwarding.ForwardingCompositeVM<VM>.RaisePropertyChanged(string! propertyName) -> void

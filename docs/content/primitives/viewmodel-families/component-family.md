@@ -190,11 +190,11 @@ raises the usage error. To destruct in reverse, pass the reversed list.
 Register each member with the member-disposal helper. `dispose()` then
 disposes the members in registration order before the parent publishes
 `Disposed`, so the cascade stays depth-first (spec 02 §7.1). While a construct
-or destruct hook of the parent runs on another thread, the parent publishes
-`Disposed` first. It disposes the members after that hook returns. Rust disposes
-the members before it waits for that hook
-([Rust parity ledger §12.13](../../../maintenance/2026-07-16-rust-capability-parity.md#1213-open-item-leaf-member-disposal-and-admitted-hooks)).
-One failing member
+or destruct hook of the parent runs on another thread, the dispose is foreign
+and the parent publishes `Disposed` first. It disposes the members after that
+hook returns, before its subclass dispose hook (spec 02 §7). While the
+members are disposed inline, a construct, destruct, or reconstruct of the parent
+fails with the lifecycle error for `Disposed` (spec 02 §7.2). One failing member
 does not stop the others, and the first failure is reported after the parent's
 teardown. Swift `dispose()` does not throw, so in Swift every member is still
 attempted but a failing member is not reported.
@@ -238,13 +238,17 @@ class PanelVM extends ComponentVMBase {
 | Python     | `self._complete_lifecycle_hook_after(self._transition_children(members, construct=…))` | `self._own_member(member)` |
 | TypeScript | `this._transitionChildren(members, construct, after)`                                  | `this.ownMember(member)`   |
 | Swift      | `try _transitionChildren(members, construct: …, after: …)`                             | `ownMember(member)`        |
-| Rust       | `vm.construct_with_children(\|walk\| walk.transition(&member))`                        | `vm.own_member(&member)`   |
+| Rust       | `vm.on_construct_children(move \|walk\| walk.transition(&member))`                     | `vm.own_member(&member)`   |
 
-Rust has no subclassing. A Rust view-model type wraps a `ComponentVm` and calls
-`construct_with_children`, `destruct_with_children` and
-`reconstruct_with_children`. The closure receives a `ChildTransitions` handle:
-`transition(&member)` adds the next member and `then(after)` adds the `after`
-step.
+Rust has no subclassing. A Rust view-model type wraps a `ComponentVm` and gives
+it walk closures with `on_construct_children` and `on_destruct_children`. Every
+construct, destruct, reconstruct and reconstruct command then runs the walk
+after the hook, on the background dispatcher for a background construct or
+destruct. `construct_with_children`, `destruct_with_children` and
+`reconstruct_with_children` run a walk for one call instead. The closure
+receives a `ChildTransitions` handle: `transition(&member)` adds the next member
+and `then(after)` adds the `after` step. A walk captures clones of the members,
+never the component (ADR-0203).
 
 Use a container instead when the children are a collection:
 
@@ -292,7 +296,8 @@ current value. A call begun after disposal is inert, while a call admitted
 before disposal completes both channels even if a hub observer disposes the VM.
 Property names follow the flavor idiom (`ActiveTab`, `active_tab`, or
 `activeTab`). The lower-level local-only raise primitive stays available for
-framework lifecycle properties that deliberately do not publish to the hub.
+framework lifecycle properties that deliberately do not publish to the hub. A
+call to it after disposal is also a no-op (ADR-0223).
 
 Ordinary top-level delivery is observed hub first. Inside a hub transaction or
 re-entrant drain, the hub queues its delivery, so a local observer may run

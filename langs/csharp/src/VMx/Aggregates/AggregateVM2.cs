@@ -17,7 +17,9 @@ public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1,
     where VM1 : class, IComponentVM
     where VM2 : class, IComponentVM
 {
-    private readonly IParentCompositeVM _aggregateParent;
+    private readonly AggregateParent _aggregateParent;
+    // Set by the first Dispose(); a later or re-entrant call returns at once.
+    private int _disposeRequested;
     private readonly Func<VM1> _factory1;
     private readonly Func<VM2> _factory2;
     private VM1? _component1;
@@ -65,8 +67,10 @@ public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1,
     {
         lock (_aggregateParent)
         {
-            var next1 = _factory1();
-            var next2 = _factory2();
+            // A failed factory disposes the candidates built before it (#1324).
+            var built = new List<IComponentVM>(2);
+            var next1 = AggregateOwnership.Build(_aggregateParent, built, _factory1);
+            var next2 = AggregateOwnership.Build(_aggregateParent, built, _factory2);
             IComponentVM?[] previous = [_component1, _component2];
             // On Reconstruct, dispose previous slot instances before overwriting
             // so their hub subscriptions and command Subjects don't leak.
@@ -97,22 +101,22 @@ public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1,
 
     /// <summary>
     /// Dispose cascade (LIFE-013): dispose each component slot depth-first, then self.
+    /// The slots are disposed at the base's admitted-hook boundary (LIFE-015): a
+    /// foreign disposal publishes Disposed and disposes no slot while this
+    /// aggregate's hook runs. The slot snapshot is taken when the cascade starts,
+    /// under the slot lock, so it holds the slots that the last finished slot
+    /// replacement committed (spec/08 §4, #1166). A further call is a no-op.
     /// </summary>
+#pragma warning disable CA2215 // DisposeWithChildrenFrom runs the base disposal at its hook-lease boundary (LIFE-015).
     public override void Dispose()
+#pragma warning restore CA2215
     {
-        lock (_aggregateParent)
+        if (Interlocked.Exchange(ref _disposeRequested, 1) != 0) return;
+        DisposeWithChildrenFrom(() =>
         {
-            // Abandon a pending child walk first, so a disposed slot does not
-            // roll this aggregate back before its own Disposed (#755).
-            AbandonChildTransition();
-            var firstError = DisposeChildren([_component1, _component2]);
-            try { base.Dispose(); }
-            catch (Exception error)
-            {
-                firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-            }
-            firstError?.Throw();
-        }
+            lock (_aggregateParent)
+                return [_component1, _component2];
+        });
     }
 
     // ── Builder factory ─────────────────────────────────────────────────────

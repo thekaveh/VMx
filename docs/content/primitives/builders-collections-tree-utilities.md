@@ -35,6 +35,11 @@ The main operational rules:
   [ObservableList Whole-List Refresh](#679-observablelist-whole-list-refresh)
 - `ServicedObservableCollection` publishes local collection events before hub
   messages
+- a failing local collection subscriber does not suppress the hub message; C#
+  and Python rethrow the first failure after the hub send (ADR-0171)
+- a failing subscriber skips no later notification step: `ObservableList`
+  still sends `Count`, and a failing key-view subscriber skips no dictionary
+  event or hub message (ADR-0220)
 - `KeyedServicedObservableCollection` adds a captured-key index without
   changing the ordered serviced message contract
 - `TokenPagedComposition` uses `null` as its first and last token, so a C#
@@ -355,13 +360,16 @@ Swift and Rust page a stored copy that they take at construction. A later
 change to the caller's array or `Vec` does not reach that copy. To change the
 Swift copy, call `setSource(_:)`. To change the Rust copy, call `set_source`,
 `push` or `remove_at`. Each of these calls clamps `currentPageIndex`. Swift
-`init(sourceComposite:)` follows the composite through `collectionChanged`. Each
-emission replaces the stored copy.
+`init(sourceComposite:)` and Rust `PagedComposition::from_composite` follow the
+composite through its local collection-change stream. Each emission replaces
+the stored copy. Rust publishes each paging change as a `PropertyChangedMessage`
+on the pager's `hub()`, with snake_case names, and stops after `dispose()`.
 
 Python and TypeScript materialize a one-shot source when they construct the
 pager. In TypeScript, a one-shot source is a direct iterator such as a generator
 object. In Python, it is any `Iterator`. Swift takes an array or a
-`CompositeVM`, and Rust takes a `Vec`, so a one-shot source cannot occur there.
+`CompositeVM`, and Rust takes a `Vec` or a `CompositeVm`, so a one-shot source
+cannot occur there.
 C# does not materialize a one-shot source. Materialize it first, for example
 with `ToList()`. The pager then pages that copy. Every source must be finite,
 because `pageCount` needs its total length.
@@ -412,6 +420,13 @@ Representative traversal contract:
 - `walk(root)` yields root first, then descendants in depth-first pre-order
 - `find(root, predicate)` returns the first match in walk order
 - `walk_expanded(root)` respects `IExpandable` boundaries
+- `walk`, `walk_expanded`, and `find` report a children factory's invalid
+  output as an error and leave the node retryable. Swift `walk`,
+  `walkExpanded`, and `find` are `throws` functions, so each call needs `try`.
+  Rust `walk`, `walk_expanded`, and `find` return a `VmxResult`. C#, Python,
+  and TypeScript raise the `Children` / `children` error when the walk reaches
+  the node
+  ([spec/13 §6.1](../../../spec/13-tree-utilities.md#61-invalid-factory-output)).
 
 On the collection side, the Notes Workspace note lists and notifications layers
 are practical references for observable-list and paging composition.

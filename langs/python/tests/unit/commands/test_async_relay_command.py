@@ -10,7 +10,7 @@ from threading import Barrier, Event, Lock, Thread
 import pytest
 from reactivex.subject import Subject
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.commands import AsyncRelayCommand
 
 
@@ -30,7 +30,7 @@ async def test_predicate_cannot_reentrantly_admit_a_second_execution() -> None:
             reentered = True
             nested = Thread(target=lambda: asyncio.run(command.execute_async()))
             nested.start()
-            nested.join(timeout=HANG_GUARD)
+            join_thread(nested)
             assert not nested.is_alive()
         return True
 
@@ -170,14 +170,14 @@ def test_execute_without_running_loop_returns_before_async_work_finishes() -> No
     caller.start()
 
     try:
-        assert started.wait(HANG_GUARD), "the async command starts on a background event loop"
-        returned_before_release = returned.wait(HANG_GUARD)
+        assert wait_event(started), "the async command starts on a background event loop"
+        returned_before_release = wait_event(returned)
     finally:
         release.set()
-        caller.join(timeout=HANG_GUARD)
+        join_thread(caller)
 
     assert returned_before_release, "fire-and-forget execute must not run the coroutine inline"
-    assert finished.wait(HANG_GUARD)
+    assert wait_event(finished)
     command.dispose()
 
 
@@ -217,7 +217,7 @@ def test_execute_async_admission_is_atomic_across_threads() -> None:
     finally:
         release.set()
         for caller in callers:
-            caller.join(timeout=HANG_GUARD)
+            join_thread(caller)
 
     assert invocations == 1
     assert all(not caller.is_alive() for caller in callers)
@@ -270,7 +270,7 @@ def test_concurrent_dispose_returns_but_defers_terminal_for_active_subject_emiss
     class BlockingSubject(Subject[object]):
         def on_next(self, item: object) -> None:
             emission_started.set()
-            assert release_emission.wait(HANG_GUARD)
+            assert wait_event(release_emission)
             super().on_next(item)
 
     command = AsyncRelayCommand.builder().build()
@@ -289,7 +289,7 @@ def test_concurrent_dispose_returns_but_defers_terminal_for_active_subject_emiss
 
     emitter = Thread(target=publish, daemon=True)
     emitter.start()
-    assert emission_started.wait(HANG_GUARD)
+    assert wait_event(emission_started)
 
     def dispose() -> None:
         dispose_started.set()
@@ -298,13 +298,13 @@ def test_concurrent_dispose_returns_but_defers_terminal_for_active_subject_emiss
 
     disposer = Thread(target=dispose, daemon=True)
     disposer.start()
-    assert dispose_started.wait(HANG_GUARD)
-    disposed_during_emission = dispose_finished.wait(HANG_GUARD)
+    assert wait_event(dispose_started)
+    disposed_during_emission = wait_event(dispose_finished)
     assert completions == []
     release_emission.set()
 
-    emitter.join(timeout=HANG_GUARD)
-    disposer.join(timeout=HANG_GUARD)
+    join_thread(emitter)
+    join_thread(disposer)
 
     assert not emitter.is_alive()
     assert not disposer.is_alive()
@@ -344,7 +344,7 @@ def test_observer_can_wait_for_foreign_disposer_without_deadlock(
         )
         disposer_threads.append(disposer)
         disposer.start()
-        assert dispose_finished.wait(HANG_GUARD), "dispose must not wait on observer-held progress"
+        assert wait_event(dispose_finished), "dispose must not wait on observer-held progress"
 
     observable.subscribe(
         observe,
@@ -353,7 +353,7 @@ def test_observer_can_wait_for_foreign_disposer_without_deadlock(
 
     emit(command, value)
     for disposer in disposer_threads:
-        disposer.join(timeout=HANG_GUARD)
+        join_thread(disposer)
 
     assert all(not disposer.is_alive() for disposer in disposer_threads)
     assert events == [("next", value), ("complete", None)]
@@ -396,15 +396,13 @@ def test_observer_can_wait_for_other_channel_emission_without_deadlock(
         )
         target_threads.append(target)
         target.start()
-        assert target_finished.wait(HANG_GUARD), (
-            "independent channels must not share delivery progress"
-        )
+        assert wait_event(target_finished), "independent channels must not share delivery progress"
 
     getattr(command, source_channel).subscribe(observe)
 
     source_emit(command, source_value)
     for target in target_threads:
-        target.join(timeout=HANG_GUARD)
+        join_thread(target)
 
     assert all(not target.is_alive() for target in target_threads)
 
@@ -555,6 +553,79 @@ async def test_throwing_start_observer_releases_the_admission() -> None:
     with pytest.raises(RuntimeError):
         command.execute()
 
+    assert not command.is_executing
+    assert command.can_execute()
+    command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_throwing_start_observer_sends_a_compensating_notification() -> None:
+    """Issue #1328: observers that saw the start edge also see the release."""
+    calls = 0
+
+    async def task() -> None:
+        nonlocal calls
+        calls += 1
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    seen: list[tuple[bool, bool]] = []
+    failing = [True]
+
+    def recorder(_: object) -> None:
+        seen.append((command.is_executing, command.can_execute()))
+
+    def thrower(_: object) -> None:
+        if failing[0]:
+            failing[0] = False
+            raise RuntimeError("start observer failed")
+
+    command.can_execute_changed.subscribe(recorder)
+    command.can_execute_changed.subscribe(thrower)
+
+    with pytest.raises(RuntimeError, match="start observer failed"):
+        command.execute()
+
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert calls == 0, "the task body does not run"
+    assert seen == [(True, False), (False, True)]
+    assert not command.is_executing
+    assert command.can_execute()
+
+    command.execute()
+    deadline = time.monotonic() + HANG_GUARD
+    while command.is_executing and time.monotonic() < deadline:
+        await asyncio.sleep(0.01)
+    assert calls == 1, "a later execute() runs the task body once"
+    command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_start_observer_failure_wins_over_a_release_notification_failure() -> None:
+    """Issue #1328: the start-notification exception reaches the caller."""
+
+    async def task() -> None:
+        await asyncio.sleep(0)
+
+    class StartObserverError(Exception):
+        pass
+
+    class ReleaseObserverError(Exception):
+        pass
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    raised: list[type[Exception]] = [StartObserverError, ReleaseObserverError]
+
+    def thrower(_: object) -> None:
+        if raised:
+            raise raised.pop(0)("observer failed")
+
+    command.can_execute_changed.subscribe(thrower)
+
+    with pytest.raises(StartObserverError):
+        command.execute()
+
+    assert raised == [], "the release notification also ran"
     assert not command.is_executing
     assert command.can_execute()
     command.dispose()

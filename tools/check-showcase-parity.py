@@ -37,7 +37,7 @@ outcome every full showcase asserts through its own adapter
 ``sharedScenario.test.ts``, ``SharedScenarioTests.swift``):
 
 * ``examples/notes-showcase-scenario.json`` -- one bounded workspace lifecycle;
-* ``examples/notes-showcase-theme-scenario.json`` -- the five THEME scenarios
+* ``examples/notes-showcase-theme-scenario.json`` -- the THEME scenarios
   run in order against one ThemeVM.
 
 This tool validates both definitions and requires each adapter to load both

@@ -182,3 +182,27 @@ async def test_reject_then_approve_is_idempotent() -> None:
 
     assert await task == NotificationReaction.REJECT  # first wins
     vm.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Kept render state (ADR-0197, NOTIF-019)
+# ---------------------------------------------------------------------------
+
+
+async def test_approve_keeps_opacity() -> None:
+    vm, _, scheduler, _ = await make_confirmation_vm()
+    scheduler.advance_by(60)
+    vm.approve_command.execute()
+    scheduler.advance_by(240)
+    assert vm.remaining_time == timedelta(seconds=240)
+    assert vm.opacity == pytest.approx(0.8)
+    vm.dispose()
+
+
+async def test_dispose_keeps_opacity_without_resolution() -> None:
+    vm, _, scheduler, _ = await make_confirmation_vm()
+    scheduler.advance_by(30)
+    vm.dispose()
+    scheduler.advance_by(300)
+    assert not vm.is_resolved
+    assert vm.opacity == pytest.approx(0.9)

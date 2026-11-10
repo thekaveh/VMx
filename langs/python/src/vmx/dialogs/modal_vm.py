@@ -3,9 +3,24 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Generic, TypeVar
+import threading
+from typing import Generic, TypeVar, cast
 
 T = TypeVar("T")
+
+
+def _complete_waiter(future: asyncio.Future[None]) -> None:
+    """Wake ``future`` on its owning loop; ``set_result`` is not thread-safe."""
+    try:
+        future.get_loop().call_soon_threadsafe(_set_if_pending, future)
+    except RuntimeError:
+        # The waiter's loop is already closed; nothing is left to wake.
+        pass
+
+
+def _set_if_pending(future: asyncio.Future[None]) -> None:
+    if not future.done():
+        future.set_result(None)
 
 
 class ModalVM(Generic[T]):
@@ -14,13 +29,18 @@ class ModalVM(Generic[T]):
     Hosts call :meth:`dismiss` with the selected result. Consumers can await
     :meth:`wait_result`. Disposing resolves the modal with its cancellation
     result so waiters never hang.
+
+    :meth:`dismiss` and :meth:`dispose` can run on any thread. The first result
+    is claimed under a lock, and each waiter is woken on its own event loop
+    (#1323).
     """
 
     def __init__(self, cancellation_result: T) -> None:
         self._cancellation_result = cancellation_result
         self._result: T | None = None
         self._is_dismissed = False
-        self._event = asyncio.Event()
+        self._lock = threading.Lock()
+        self._waiters: list[asyncio.Future[None]] = []
 
     @property
     def cancellation_result(self) -> T:
@@ -38,12 +58,15 @@ class ModalVM(Generic[T]):
         return self._is_dismissed
 
     def dismiss(self, result: T) -> None:
-        """Complete the modal with ``result``. Idempotent."""
-        if self._is_dismissed:
-            return
-        self._result = result
-        self._is_dismissed = True
-        self._event.set()
+        """Complete the modal with ``result``. Idempotent; the first result wins."""
+        with self._lock:
+            if self._is_dismissed:
+                return
+            self._result = result
+            self._is_dismissed = True
+            waiters, self._waiters = self._waiters, []
+        for waiter in waiters:
+            _complete_waiter(waiter)
 
     def dispose(self) -> None:
         """Cancel the modal with :attr:`cancellation_result`. Idempotent."""
@@ -51,5 +74,15 @@ class ModalVM(Generic[T]):
 
     async def wait_result(self) -> T:
         """Wait for dismissal and return the resolved result."""
-        await self._event.wait()
-        return self._result  # type: ignore[return-value]
+        with self._lock:
+            if self._is_dismissed:
+                return cast(T, self._result)
+            waiter: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+            self._waiters.append(waiter)
+        try:
+            await waiter
+        finally:
+            with self._lock:
+                if waiter in self._waiters:
+                    self._waiters.remove(waiter)
+        return cast(T, self._result)

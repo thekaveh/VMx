@@ -8,7 +8,11 @@ import { ViewModelType } from "../components/types.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
-import { AggregateParent, replaceAggregateSlots } from "./ownership.js";
+import {
+  AggregateParent,
+  buildAggregateCandidate,
+  replaceAggregateSlots,
+} from "./ownership.js";
 import { disposeBestEffort } from "../components/disposal.js";
 
 const SENTINEL = Symbol("not-set");
@@ -54,9 +58,11 @@ export class AggregateVM3<
   }
 
   protected override _onConstruct(): void {
-    const next1 = this.#factory1();
-    const next2 = this.#factory2();
-    const next3 = this.#factory3();
+    // A failed factory disposes the candidates built before it (#1324).
+    const built: ComponentVMBase[] = [];
+    const next1 = buildAggregateCandidate(this.#aggregateParent, built, () => this.#factory1());
+    const next2 = buildAggregateCandidate(this.#aggregateParent, built, () => this.#factory2());
+    const next3 = buildAggregateCandidate(this.#aggregateParent, built, () => this.#factory3());
     const previous = [this.#component1, this.#component2, this.#component3];
     // On Reconstruct, dispose previous slot instances before overwriting
     // so their hub subscriptions and command Subjects don't leak.
@@ -83,7 +89,7 @@ export class AggregateVM3<
   override dispose(): void {
     // Depth-first dispose (LIFE-013): each component slot first, then self.
     disposeBestEffort([
-      () => this._abandonChildTransition(),
+      () => this._beginDisposeCascade(),
       () => this.#component1?.dispose(),
       () => this.#component2?.dispose(),
       () => this.#component3?.dispose(),

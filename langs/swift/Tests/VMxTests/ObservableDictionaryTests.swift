@@ -4,7 +4,7 @@
 // Claimed IDs: COL-010, COL-011, COL-012, COL-013, COL-014, COL-015, COL-022.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 import Combine

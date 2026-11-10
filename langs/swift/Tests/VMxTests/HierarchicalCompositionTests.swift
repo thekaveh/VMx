@@ -10,7 +10,7 @@
 //           createNewCommand adds a child node; deleteCurrentCommand removes it.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 import Combine
@@ -95,35 +95,39 @@ final class HierarchicalCompositionTests: XCTestCase {
     /// HIER-012 — walkExpanded honors ExpandableState lazy boundary when composed
     /// on a HierarchicalVM node: a collapsed node gates descent; after expand() the
     /// child is included.
-    func testHier012WalkExpandedHonorsExpandableState() {
+    func testHier012WalkExpandedHonorsExpandableState() throws {
         let hub = MessageHub()
         let childLeaf = ExpandableHierNode(children: [], initiallyExpanded: true, hub: hub)
         let root = ExpandableHierNode(children: [childLeaf], initiallyExpanded: false, hub: hub)
         _ = root.children // force materialization so parent back-pointer is wired
 
         // Collapsed root: walkExpanded yields only root; child is pruned.
-        let walkedCollapsed = walkExpanded(root)
+        let walkedCollapsed = try walkExpanded(root)
         XCTAssertEqual(walkedCollapsed.count, 1,
             "Collapsed root must yield only itself")
         XCTAssertTrue(walkedCollapsed[0] === root,
             "The single yielded node must be root")
 
         root.expand()
-        let walkedExpanded = walkExpanded(root)
+        let walkedExpanded = try walkExpanded(root)
         XCTAssertEqual(walkedExpanded.count, 2,
             "After expand(), root + childLeaf must be yielded")
     }
 
     /// HIER-013 — SearchableState composed over the materialized portion of
-    /// the tree, taken from `walkExpanded`, filters it: "an" retains "banana"
-    /// and "mango", and the lazy child behind the collapsed "cherry" stays out.
-    func testHier013SearchableStateFiltersTheMaterializedPortion() {
+    /// the tree, taken from `walkExpanded`, filters it: "an" retains "pecan"
+    /// below the expanded "apple", "banana" and "mango", and the lazy child
+    /// behind the collapsed "cherry" stays out.
+    func testHier013SearchableStateFiltersTheMaterializedPortion() throws {
         let hub = MessageHub()
         // cherry is collapsed and owns a lazy child "bandana", which would
         // match "an" if it were materialized.
         var lazyFactoryCalls = 0
         let bandana = SearchHierNode("bandana", hub: hub)
-        let apple = SearchHierNode("apple", hub: hub)
+        // "pecan" matches below the expanded "apple", so the search must cover
+        // deeper materialized nodes, not only the root's children (#1399).
+        let pecan = SearchHierNode("pecan", hub: hub)
+        let apple = SearchHierNode("apple", hub: hub) { _ in [pecan] }
         let banana = SearchHierNode("banana", hub: hub)
         let mango = SearchHierNode("mango", hub: hub)
         let cherry = SearchHierNode("cherry", collapsed: true, hub: hub) { _ in
@@ -133,12 +137,13 @@ final class HierarchicalCompositionTests: XCTestCase {
         let root = SearchHierNode("root", hub: hub) { _ in [apple, banana, mango, cherry] }
 
         // The materialized portion comes from the library's expand-aware walk,
-        // which stops at the collapsed cherry without touching its children.
-        func materialized() -> [SearchHierNode] {
-            walkExpanded(root).dropFirst().compactMap { $0 as? SearchHierNode }
+        // which descends into the expanded apple and stops at the collapsed
+        // cherry without touching its children.
+        func materialized() throws -> [SearchHierNode] {
+            try walkExpanded(root).dropFirst().compactMap { $0 as? SearchHierNode }
         }
         let search = SearchableState<SearchHierNode>(
-            items: { materialized() },
+            items: { (try? materialized()) ?? [] },
             predicate: { node, term in
                 node.model.value.lowercased().contains(term.lowercased())
             }
@@ -151,7 +156,7 @@ final class HierarchicalCompositionTests: XCTestCase {
         search.searchTerm = "an"
         search.search() // force immediate recompute, bypassing debounce
 
-        XCTAssertEqual(result.map { $0.model.value }, ["banana", "mango"])
+        XCTAssertEqual(result.map { $0.model.value }, ["pecan", "banana", "mango"])
         XCTAssertFalse(result.contains { $0 === bandana },
             "Un-materialized lazy child must not be included")
         XCTAssertEqual(lazyFactoryCalls, 0,
@@ -159,12 +164,12 @@ final class HierarchicalCompositionTests: XCTestCase {
 
         // Non-vacuity: the walk reaches the collapsed node, and its lazy child
         // matches once materialized. The collapsed boundary still hides it.
-        XCTAssertTrue(materialized().contains { $0 === cherry })
+        XCTAssertTrue(try materialized().contains { $0 === cherry })
         XCTAssertEqual(lazyFactoryCalls, 0)
-        XCTAssertTrue(walk(root).contains { $0 === bandana })
+        XCTAssertTrue(try walk(root).contains { $0 === bandana })
         XCTAssertEqual(lazyFactoryCalls, 1)
         search.search()
-        XCTAssertEqual(result.map { $0.model.value }, ["banana", "mango"],
+        XCTAssertEqual(result.map { $0.model.value }, ["pecan", "banana", "mango"],
             "A collapsed boundary still hides the lazy child")
 
         search.dispose()

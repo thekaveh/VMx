@@ -15,7 +15,7 @@
 // diverge because they are immutable and copied from the wrapped at init.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 @testable import VMx
@@ -377,6 +377,8 @@ final class ForwardingTests: XCTestCase {
     }
 
     /// FWD-001 — a disposed wrapper does not change its parent's selection.
+    /// Disposing the current wrapper clears the parent's `current` once
+    /// (spec/06 §4.3 rule 9, ADR-0189); later selection calls stay inert.
     func testFWD001DisposedWrapperSelectionIsInert() throws {
         func inner(_ name: String) throws -> ComponentVMOf<String> {
             try ComponentVMOf<String>.builder().name(name).model("").withNullServices().build()
@@ -396,7 +398,9 @@ final class ForwardingTests: XCTestCase {
         wrapper.deselect()
         other.select()
 
-        XCTAssertTrue(parent.current === wrapper)
+        XCTAssertNil(parent.current)
+        XCTAssertFalse(wrapper.isCurrent)
+        XCTAssertFalse(other.isCurrent)
     }
 
     /// FWD-001 — a selected, destructed forwarding child can still be
@@ -582,5 +586,71 @@ final class ForwardingTests: XCTestCase {
         XCTAssertFalse(inner.canSelect())
         XCTAssertFalse(decorator.canSelect())
         XCTAssertTrue(decorator.selectCommand === inner.selectCommand)
+    }
+
+    // ── Decorator notification helpers (#1352) ─────────────────────────
+
+    private func assertHelpersPublishThroughWrapped(
+        inner: ComponentVMBase,
+        decorator: ComponentVMBase,
+        hub: MessageHub
+    ) {
+        var messages: [PropertyChangedMessage] = []
+        let hubCancel = hub.messages
+            .compactMap { $0 as? PropertyChangedMessage }
+            .sink { messages.append($0) }
+        var names: [String] = []
+        let localCancel = decorator.propertyChanged.sink { names.append($0) }
+
+        decorator._notifyPropertyChanged("custom")
+
+        XCTAssertEqual(names, ["custom"])
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertTrue(messages.first?.sender === inner)
+        XCTAssertEqual(messages.first?.propertyName, "custom")
+
+        decorator._raisePropertyChanged("local")
+
+        XCTAssertEqual(names, ["custom", "local"])
+        XCTAssertEqual(messages.count, 1)
+
+        inner.dispose()
+        names.removeAll()
+        messages.removeAll()
+        decorator._notifyPropertyChanged("after")
+        decorator._raisePropertyChanged("after")
+
+        XCTAssertEqual(names, [])
+        XCTAssertTrue(messages.isEmpty)
+        hubCancel.cancel()
+        localCancel.cancel()
+    }
+
+    /// FWD-006 — A component decorator's notification helpers act on the
+    /// wrapped VM (#1352, ADR-0221): one hub message with the wrapped VM as
+    /// sender, one `propertyChanged` emission, nothing after the wrapped VM is
+    /// disposed.
+    func testComponentDecoratorHelpersPublishThroughWrapped() throws {
+        let hub = MessageHub()
+        let inner = try ComponentVMOf<String>.builder()
+            .name("inner")
+            .model("m")
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        let decorator = NoopForwardingComponent(inner)
+        assertHelpersPublishThroughWrapped(inner: inner, decorator: decorator, hub: hub)
+    }
+
+    /// FWD-006 — The composite decorator follows the same rule (#1352,
+    /// ADR-0221).
+    func testCompositeDecoratorHelpersPublishThroughWrapped() throws {
+        let hub = MessageHub()
+        let inner = try CompositeVM<ComponentVM>.builder()
+            .name("inner")
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .children { [] }
+            .build()
+        let decorator = NoopForwardingComposite(inner)
+        assertHelpersPublishThroughWrapped(inner: inner, decorator: decorator, hub: hub)
     }
 }

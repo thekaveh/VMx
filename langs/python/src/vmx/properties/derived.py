@@ -5,14 +5,18 @@ See spec/15-derived-properties.md and ADR-0011.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Generic, TypeVar, cast
 
 import reactivex as rx
-from reactivex import Observable, Subject
+from reactivex import Observable
 from reactivex import operators as ops
 
 from vmx._disposal import _run_disposal_steps
+from vmx._subscriber_failures import FanOutSubject, isolated
+
+_logger = logging.getLogger(__name__)
 
 TValue = TypeVar("TValue")
 
@@ -28,7 +32,7 @@ class DerivedProperty(Generic[TValue]):
     ) -> None:
         self._value: TValue
         self._has_value = False
-        self._changes: Subject[TValue] = Subject()
+        self._changes: FanOutSubject[TValue] = FanOutSubject()
         self._can_set = can_set
         self._set_action = set_action
         self._disposed = False
@@ -53,7 +57,9 @@ class DerivedProperty(Generic[TValue]):
 
     @property
     def value_changed(self) -> Observable[TValue]:
-        return self._changes.pipe(ops.as_observable())
+        # A failing subscriber is logged and stays attached; the failure never
+        # reaches the source publisher (spec/03 §3.6, ADR-0191).
+        return isolated(self._changes, _logger, "DerivedProperty.value_changed")
 
     def can_set(self, value: TValue) -> bool:
         # A disposed property rejects writes (spec/15 §4).

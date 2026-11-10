@@ -11,11 +11,11 @@ Per ADR-0013, the distribution shape is per-flavor:
 - **TypeScript**: subpath export `@thekaveh/vmx/notifications` (same package
   as `@thekaveh/vmx`)
 - **Swift**: module namespace in the `VMx` package
-- **Rust**: notification types in `vmx-rs`, using the VMx-owned hot-stream
-  and executor-neutral completion facades
-
-Open Rust gap: the Rust notification types are not behind a Cargo feature. The
-crate root always exports them, so Rust consumers do not opt in at build time.
+- **Rust**: the `notifications` Cargo feature of `vmx-rs`, on by default,
+  using the VMx-owned hot-stream and executor-neutral completion facades. The
+  types are re-exported at the crate root. The opt-in is the feature, which
+  `default` enables, so no explicit import path is needed. A dependency with
+  `default-features = false` builds the core without it (ADR-0211).
 
 The asymmetry preserves "opt-in, no core surface impact" without forcing a
 TypeScript monorepo restructure.
@@ -76,8 +76,12 @@ Rust splits `Post` into three inherent methods on `NotificationHub`.
 `Notification`. `post_notification(notification)` posts an existing value and
 returns its `NotificationWaiter`. `post_with_waiter(kind, message)` returns
 both. `resolve` takes the notification id. `pending()` returns the current
-snapshot, `pending_stream()` returns the replaying stream, and
-`pending_snapshots()` returns the history of committed snapshots.
+snapshot, and `pending_stream()` returns the replaying stream. The hub keeps no
+history of committed snapshots. The deprecated `pending_snapshots()` always
+returns an empty list; a caller subscribes to `pending_stream()` instead
+(ADR-0211). The public trait `NotificationHubApi` declares
+`post_notification`, `resolve`, `pending` and `pending_stream`, and
+`NotificationHub` and `NullNotificationHub` both implement it.
 
 ### 2.1 `Post` semantics
 
@@ -108,6 +112,13 @@ snapshot, `pending_stream()` returns the replaying stream, and
 - New subscribers immediately receive the current snapshot (BehaviorSubject-like).
 - Implementations MAY emit an immutable copy of the list, or a stable
   reference; consumers MUST NOT mutate the emitted list.
+- Dispose sends no snapshot of its own. Snapshots queued before dispose are
+  delivered in order, and then `Pending` completes once (§9).
+- A subscription made after `dispose` returns receives completion only. It
+  receives no snapshot and no error, and the subscribe call does not raise. A
+  subscription that races a dispose on another thread MAY first receive the
+  current snapshot (ADR-0197). Rust applies both rules to `pending_stream()`.
+  Rust dispose also sends no `pending` message on `pending_changed()`.
 
 ## 3. Null variant — `NullNotificationHub`
 
@@ -118,10 +129,11 @@ variant:
 - `Resolve(notification, reaction)` is a no-op.
 - `Pending` is an observable that emits the empty list once and completes.
 
-Open Rust gap: Rust has no `INotificationHub` trait, so `NullNotificationHub`
-cannot replace `NotificationHub` at a call site. It is a unit struct with the
-associated functions `post`, `post_message`, and `pending_stream`. It has no
-`resolve` function.
+Rust `NullNotificationHub` implements `NotificationHubApi`, so it replaces
+`NotificationHub` wherever a caller takes that trait, such as `make_confirm`.
+Its `resolve` has no effect, and its `pending()` is always empty.
+`NotificationVm` and `ConfirmationVm` keep the concrete `NotificationHub`,
+because they read its record of each resolution and reaction (ADR-0211).
 
 ## 4. Bridging command decorators
 
@@ -179,7 +191,34 @@ double-resolve.
 
 Scheduler is injected at construction. Production code passes the default
 system scheduler; tests pass a `TestScheduler` / fake clock for deterministic
-time advancement.
+time advancement. Chapter 11 §6.1 lists the scheduler and the virtual-time test
+scheduler of each flavor. The VM reads the elapsed time from the scheduler's
+`now` and arms its lifespan timer on that scheduler. Rust takes the scheduler
+in `with_scheduler`, and its `new` and `with_hub` conveniences use
+`SystemScheduler`. A Rust test advances a `VirtualTimeScheduler` (ADR-0219).
+
+Swift takes any `NotificationScheduler`, a Combine `Scheduler` that also
+converts the interval between two of its instants to seconds. VMx conforms
+`VirtualTimeScheduler`, `DispatchQueue`, `RunLoop`, and `OperationQueue`. The
+Swift VM keeps no lock and runs its timers on the injected scheduler, so the
+caller passes a serial scheduler on the thread that uses the VM, such as
+`DispatchQueue.main` (ADR-0225).
+
+A VM released without `Dispose()` can still auto-dismiss in C#, Python and
+TypeScript, because the scheduler holds its timer. In Swift and Rust the timer
+holds the VM weakly. Releasing every reference cancels auto-dismiss, and the
+notification stays pending. Dispose a VM that leaves the visible list.
+
+Resolution and disposal stop the clock (ADR-0197). The VM stops it at the first
+of these steps: its own resolution, an observed hub resolution, or its
+disposal. Its own resolution includes `DismissCommand` and auto-dismiss. From
+that step on, `RemainingTime` and `Opacity` keep the values that they had at
+that step, and a later clock advance does not change them. After auto-dismiss
+they are 0 and 0.0. A real timer can fire while the clock still reads a little
+before expiry. The VM then stores 0 and 0.0 too, and does not read the clock.
+
+A `NotificationVM` built over a disposed hub constructs normally. Its pending
+subscription completes at once, and the hub ignores its resolve call.
 
 ### 6.1 Lifespan timeline
 
@@ -194,6 +233,17 @@ gantt
     section Resolved
     Auto-dismiss (Approve)   :milestone, 60, 1
 ```
+
+### 6.2 Commands during disposal (spec v3.30, ADR-0196)
+
+`Dispose()` first marks the VM disposed and then disposes the commands that
+the VM owns. These are `DismissCommand` and, for a `ConfirmationVM` (§7),
+`ApproveCommand` and `RejectCommand`. From the moment the VM is marked
+disposed, each of these commands reports `CanExecute == false`. This holds
+also inside a `CanExecuteChanged` notification that a command raises while
+`Dispose()` disposes the commands, and also for a command that is not yet
+disposed. `Execute` stays a no-op, and disposal does not resolve the
+notification. The order in which a VM disposes its commands is not specified.
 
 ## 7. `ConfirmationVM`
 
@@ -214,6 +264,10 @@ externally.
 
 `DismissCommand` (inherited) still resolves with `Approve` and cancels the
 timer if the consumer provides a dismiss affordance.
+
+`ApproveCommand`, `RejectCommand` and `DismissCommand` stop the clock as §6
+describes, and so do an observed hub resolution and disposal. A confirmation
+that expires without a decision is not resolved; its `RemainingTime` stays 0.
 
 ### 7.1 Lifespan comparison
 
@@ -268,8 +322,12 @@ that owns the list can expose it as a property.
 
 Rust exposes the stream as `pending_stream()` and the current list as
 `pending()`; the other flavors expose `Pending` as an observable. Rust builds a
-`NotificationVm` with `with_hub(notification, hub, lifespan_ms)` (no scheduler)
-and has no `dispose`, so dropping the list entry releases it.
+`NotificationVm` with `with_scheduler(notification, hub, scheduler, lifespan_ms)`, or with `with_hub(notification, hub, lifespan_ms)`, which uses
+`SystemScheduler` (chapter 11 §6.1).
+Rust `NotificationVm` and `ConfirmationVm` have `dispose()`, as in the other
+flavors (ADR-0178). Call it when the entry leaves the list. Dropping the entry
+does not make a kept command inert: a kept command still resolves the hub until
+its VM is disposed.
 
 This pattern generalises to any service whose state is an observable collection
 of items. It is a documented composition recipe, not a normative spec addition —
@@ -286,10 +344,18 @@ the command-decorator bridge.
 
 `NOTIF-017` (added in v2.5.0 via ADR-0037) covers hub disposal: disposing the
 hub resolves every in-flight `Post` awaitable with
-`NotificationReaction.Pending`, completes the `Pending` observable, turns
-subsequent `Post` calls into immediately-`Pending` results that do not
-enqueue, makes subsequent `Resolve` calls no-ops, and is idempotent. These
-were previously C#-only shutdown semantics; all flavors now share them.
+`NotificationReaction.Pending`, completes the `Pending` observable with no
+final snapshot (ADR-0197), turns subsequent `Post` calls into
+immediately-`Pending` results that do not enqueue, makes subsequent `Resolve`
+calls no-ops, and is idempotent. These were previously C#-only shutdown
+semantics; all flavors now share them.
+
+`NOTIF-019` covers the render state after resolution or disposal (§6), and
+`NOTIF-020` covers a `Pending` subscription made after dispose (§2.3). Both
+were added in v3.30.0 via ADR-0197.
+
+`NOTIF-018` (added in v3.30.0 via ADR-0196) covers the commands of a rendering
+VM during its disposal (§6.2).
 
 `DISP-003` adds concurrent/re-entrant at-most-once teardown for the hub, while
 `DISP-004` covers repeated rendering-VM/interaction-owner disposal. Both retain

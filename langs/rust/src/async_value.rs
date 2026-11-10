@@ -225,7 +225,8 @@ impl<T: Clone + Send + 'static> AsyncValue<T> {
         }
     }
 
-    #[cfg(test)]
+    // Only the notification waiter tests observe the native wait.
+    #[cfg(all(test, feature = "notifications"))]
     pub(crate) fn observe_wait(&self) -> crate::runtime::wait_observation::Observation<'_> {
         crate::runtime::wait_observation::observe(&self.inner.ready)
     }
@@ -304,25 +305,43 @@ impl<T: Clone + Send + 'static> AsyncValue<T> {
     where
         F: FnOnce(Result<T, AsyncValuePanic>) + Send + 'static,
     {
-        let mut continuation = Some(continuation);
-        let settled = {
-            let mut state = lock(&self.inner.state);
-            if let Some(outcome) = state.outcome.clone() {
-                Some(outcome)
-            } else {
-                let queued = continuation.take().expect("continuation available");
-                state
-                    .continuations
-                    .push(Box::new(move |outcome: Outcome<T>| {
-                        queued(outcome.into_result())
-                    }));
-                None
-            }
-        };
-        if let Some(outcome) = settled {
-            let continuation = continuation.expect("continuation not queued");
+        if let Some((continuation, outcome)) = self.queue_or_take(continuation) {
             let _ = catch_unwind(AssertUnwindSafe(|| continuation(outcome.into_result())));
         }
+    }
+
+    /// Runs `continuation` with the outcome once the handle settles, but
+    /// never on the calling thread (spec/04 §8.3.1, ADR-0195).
+    ///
+    /// A settled handle runs it on a new VMx worker thread. A pending handle
+    /// queues it, and the thread that settles the handle runs it.
+    pub(crate) fn when_settled_off_caller<F>(&self, continuation: F)
+    where
+        F: FnOnce(Result<T, AsyncValuePanic>) + Send + 'static,
+    {
+        if let Some((continuation, outcome)) = self.queue_or_take(continuation) {
+            drop(crate::spawn_worker(move || {
+                let _ = catch_unwind(AssertUnwindSafe(|| continuation(outcome.into_result())));
+            }));
+        }
+    }
+
+    /// Queues `continuation` on a pending handle, or returns it with the
+    /// outcome of a settled one. No lock is held when it returns.
+    fn queue_or_take<F>(&self, continuation: F) -> Option<(F, Outcome<T>)>
+    where
+        F: FnOnce(Result<T, AsyncValuePanic>) + Send + 'static,
+    {
+        let mut state = lock(&self.inner.state);
+        if let Some(outcome) = state.outcome.clone() {
+            return Some((continuation, outcome));
+        }
+        state
+            .continuations
+            .push(Box::new(move |outcome: Outcome<T>| {
+                continuation(outcome.into_result())
+            }));
+        None
     }
 }
 

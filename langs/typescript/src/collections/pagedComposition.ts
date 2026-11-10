@@ -58,6 +58,7 @@ export class PagedComposition<TVM> implements IPageable {
   readonly #factory: () => Iterable<TVM>;
   #pageSize: number;
   #currentPageIndex = 0;
+  #disposed = false;
 
   readonly #propertyChanged = new Subject<string>();
   readonly #subscriptions: Subscription[] = [];
@@ -119,6 +120,8 @@ export class PagedComposition<TVM> implements IPageable {
   }
 
   set pageSize(value: number) {
+    // After dispose(), paging calls change no state and emit nothing (ADR-0214).
+    if (this.#disposed) return;
     const clamped = Math.max(0, requireFiniteInteger(value, "pageSize"));
     if (this.#pageSize === clamped) return;
     this.#pageSize = clamped;
@@ -135,6 +138,7 @@ export class PagedComposition<TVM> implements IPageable {
   }
 
   set currentPageIndex(value: number) {
+    if (this.#disposed) return;
     const clamped = this.#clampIndex(requireFiniteInteger(value, "currentPageIndex"));
     if (this.#currentPageIndex === clamped) return;
     this.#currentPageIndex = clamped;
@@ -155,6 +159,7 @@ export class PagedComposition<TVM> implements IPageable {
   }
 
   moveToFirstPage(): void {
+    if (this.#disposed) return;
     if (this.#currentPageIndex === 0) return;
     this.#currentPageIndex = 0;
     this.#notify("currentPageIndex");
@@ -162,6 +167,7 @@ export class PagedComposition<TVM> implements IPageable {
   }
 
   moveToPreviousPage(): void {
+    if (this.#disposed) return;
     if (this.#currentPageIndex <= 0) return;
     this.#currentPageIndex--;
     this.#notify("currentPageIndex");
@@ -169,6 +175,7 @@ export class PagedComposition<TVM> implements IPageable {
   }
 
   moveToNextPage(): void {
+    if (this.#disposed) return;
     const max = this.pageCount - 1;
     if (this.#currentPageIndex >= max) return;
     this.#currentPageIndex++;
@@ -177,6 +184,7 @@ export class PagedComposition<TVM> implements IPageable {
   }
 
   moveToLastPage(): void {
+    if (this.#disposed) return;
     const last = this.pageCount - 1;
     if (this.#currentPageIndex >= last) return;
     this.#currentPageIndex = last;
@@ -221,8 +229,13 @@ export class PagedComposition<TVM> implements IPageable {
     return this.#propertyChanged.asObservable();
   }
 
-  /** Unsubscribes from source observables. Idempotent. */
+  /**
+   * Unsubscribes from source observables. Idempotent. After disposal,
+   * `pageSize` and `currentPageIndex` writes and the four move calls change
+   * no state and emit nothing; reads keep the last page (ADR-0214).
+   */
   dispose(): void {
+    this.#disposed = true;
     for (const sub of this.#subscriptions) sub.unsubscribe();
     this.#subscriptions.length = 0;
     this.#propertyChanged.complete();

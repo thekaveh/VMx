@@ -17,6 +17,7 @@ import { CollectionChangedMessage } from "../messages/collectionChanged.js";
 import type { ObservableMembershipSource } from "./observableMembership.js";
 import { emittedIndex } from "./emittedIndex.js";
 import { resolveSpliceStart } from "./spliceStart.js";
+import { itemAt } from "./itemAt.js";
 
 export { CollectionChangedMessage };
 
@@ -44,7 +45,7 @@ export class ServicedObservableCollection<T>
 
   /** Return the item at *index*. */
   at(index: number): T | undefined {
-    return this.#items[index];
+    return itemAt(this.#items, index);
   }
 
   /** Return a shallow copy of the backing array. */

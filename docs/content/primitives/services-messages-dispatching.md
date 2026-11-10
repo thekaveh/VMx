@@ -104,6 +104,16 @@ Requests follow the hub delivery rules. Rust adds one limit:
 - **Rust.** `Message::Custom` has only the sender fields and a `name`, so a
   Rust request carries no payload (#673).
 
+### 6.6.3.2. Delayed Work
+
+The dispatcher takes work without a delay. Delayed work runs on an injected
+scheduler instead (spec/11 §6, ADR-0219). The scheduler has a current time
+and runs an action once after a delay. `DelayedTask` holds at most one pending
+action on it. The action runs where the scheduler runs it, never through
+`IDispatcher`. A host that needs UI-thread delivery passes a UI scheduler.
+See [Delayed Work By Flavor](state-reactive-helpers.md#6532-delayed-work-by-flavor)
+for the schedulers and recipes.
+
 ## 6.6.4. Cross-Language Surface
 
 | Service            | Purpose                                              |
@@ -360,12 +370,22 @@ Threaded flavors serialize another producer behind the active transaction. They
 then deliver on that producer's calling thread, also from inside a callback.
 Unrelated busy targets therefore still wait synchronously.
 
-The only exception is an actual cross-hub thread wait cycle (ADR-0119). In C#
-and Swift, the cycle can also run through a container membership wait. The
-send that would close the cycle enqueues and returns to the active owner's
-drain. A disposal in that position records terminal intent for the owner to
-finish. A cyclic batch borrows the target until its body exits, so the owner
-cannot resume draining early.
+The only exception is an actual cross-hub thread wait cycle (ADR-0119). C#,
+Python, Swift, and Rust each record hub, lifecycle, and container membership
+waits in one wait-for graph, so the cycle can also run through any of those
+waits (ADR-0172). C#, Python, and Swift record their ownership waits there
+too. Rust claims ownership without waiting, so it has no ownership wait. The send that would close the cycle enqueues and
+returns to the active owner's drain. A disposal in that position records
+terminal intent for the owner to finish. A cyclic batch borrows the target
+until its body exits, so the owner cannot resume draining early.
+
+A borrowed scope is itself a wait-for owner. Inside it, the borrower's own
+send, batch, and disposal on that hub do not wait. A drainer with an empty
+queue does not wait for the borrow: the borrow's exit drains what its body
+sent. In one rare case, a drainer with queued messages would close a cycle by
+waiting for the borrow. It then hands its queued messages to the borrow's
+exit, so its outermost send returns before they are delivered. Specification
+chapter 03 §4.2 states the rules.
 
 Keep transaction bodies short. Never wait for a thread that is itself trying to
 send through the same hub.
@@ -547,7 +567,8 @@ executes the synchronous launch plus caller-thread cancellation and disposal:
 
 ```bash
 cd langs/python
-PYTHONASYNCIODEBUG=1 uv run pytest \
+uv sync --locked --all-extras
+PYTHONASYNCIODEBUG=1 uv run python -m pytest \
   tests/unit/state/test_async_resource_threading.py::test_no_loop_command_caller_cancels_on_operation_loop \
   -q
 ```

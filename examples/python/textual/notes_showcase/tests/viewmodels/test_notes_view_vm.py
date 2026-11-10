@@ -20,7 +20,7 @@ from vmx import (
 from vmx.messages.protocols import Message
 
 from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
-from notes_showcase.models.note_model import NoteModel
+from notes_showcase.models.note_model import NoteModel, note_matches
 from notes_showcase.models.seed import build_seed
 from notes_showcase.viewmodels.note_vm import NoteVM
 from notes_showcase.viewmodels.notes_view_vm import NotesViewVM
@@ -598,8 +598,7 @@ def _build_global_search(repo: InMemoryNoteRepository) -> GlobalSearchVM:
 
 
 def _matches(note: NoteVM, term: str) -> bool:
-    model = note.model
-    return term in f"{model.title} {model.body} {' '.join(model.tags)}".lower()
+    return note_matches(note.model, term)
 
 
 async def _settle(vm: GlobalSearchVM) -> None:
@@ -619,18 +618,37 @@ async def test_global_search_vm_loads_more_for_the_term_of_the_loaded_pages() ->
 
     vm.search_term = "review"
     await vm.refresh_command.execute_async()
-    # Edit the term without a search, then ask for the next page. After that
-    # load, the view model refreshes for the edited term. Hold that first page.
+    # Edit the term without a search, then ask for the next page. Only a
+    # search() request refreshes, so the edit starts no refresh (#1468).
     vm.search_term = "plan"
-    repo.hold(first_pages_only=True)
     await vm.load_more_command.execute_async()
+    await _settle(vm)
 
-    assert repo.searches[:2] == [("review", None), ("review", "1")]
+    assert repo.searches == [("review", None), ("review", "1")]
     loaded = vm.results
     assert len(loaded) == 2
     assert all(_matches(note, "review") for note in loaded)
+    vm.dispose()
+
+
+async def test_global_search_vm_runs_a_search_requested_during_a_refresh() -> None:
+    repo = _HeldSearchRepository()
+    vm = _build_global_search(repo)
+
+    vm.search_term = "review"
+    repo.hold()
+    vm.search()
+    assert vm.refresh_command.is_executing
+    # The request for the new term arrives while the refresh is held.
+    vm.search_term = "plan"
+    vm.search()
     repo.release()
     await _settle(vm)
+
+    results = vm.results
+    assert results
+    assert all(_matches(note, "plan") for note in results)
+    assert repo.searches[-1] == ("plan", None)
     vm.dispose()
 
 
@@ -754,3 +772,98 @@ async def test_closing_a_note_that_is_not_current_keeps_the_selection() -> None:
     second.close_command.execute()
 
     assert vm.current is first
+
+
+async def test_starred_filter_search_and_paging_never_change_current() -> None:
+    # ADR-0201 §2.1: a refilter or a page change never changes ``current``;
+    # the note is on the visible page again once it matches.
+    vm = _build(page_size=2)
+    vm.construct()
+    await vm.bind_to_async("nb-reviews")
+    note = next(n for n in vm.inner if not n.model.starred)
+    vm.current = note
+
+    vm.show_starred_only = True
+    assert note not in vm.visible_items
+    assert vm.current is note
+    vm.show_starred_only = False
+
+    vm.search_term = "no-note-matches-this-term"
+    assert vm.visible_items == []
+    assert vm.current is note
+    vm.search_term = ""
+
+    vm.move_to_last_page()
+    assert note not in vm.visible_items
+    assert vm.current is note
+    vm.move_to_first_page()
+
+    assert vm.current is note
+    assert note in vm.visible_items
+
+
+# ── One search rule across flavors (#1330) ─────────────────────────────────
+# Note A is "Auth migration plan" (tags security, q2) and note B is "Standup
+# notes" (no tags), with their seed bodies. The term is trimmed, an empty term
+# matches every note, and a note matches when its title, its body or one tag
+# contains the term, ignoring case.
+_SEARCH_RULE_CASES = [
+    ("plan ", ["Auth migration plan"]),
+    ("  ", ["Auth migration plan", "Standup notes"]),
+    ("notes (seed", []),
+]
+
+
+def _search_rule_repo() -> InMemoryNoteRepository:
+    import dataclasses
+
+    notebooks, notes = build_seed()
+    picked = [
+        dataclasses.replace(note, notebook_id="nb-reviews")
+        for note in notes
+        if note.id in ("note-02", "note-08")
+    ]
+    return InMemoryNoteRepository((notebooks, picked), load_all_delay=0.0, load_notes_delay=0.0)
+
+
+@pytest.mark.parametrize(("query", "expected"), _SEARCH_RULE_CASES)
+async def test_notes_list_search_uses_the_shared_rule(query: str, expected: list[str]) -> None:
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    vm = (
+        NotesViewVM.builder()
+        .name("notes")
+        .services(hub, dispatcher)
+        .repository(_search_rule_repo())
+        .search_debounce_seconds(0.0)
+        .build()
+    )
+    vm.construct()
+    await vm.bind_to_async("nb-reviews")
+
+    vm.search_term = query
+
+    assert [n.title for n in vm.filtered_items] == expected
+    vm.dispose()
+
+
+@pytest.mark.parametrize(("query", "expected"), _SEARCH_RULE_CASES)
+async def test_global_search_uses_the_shared_rule(query: str, expected: list[str]) -> None:
+    from notes_showcase.viewmodels.global_search_vm import GlobalSearchVM
+
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    vm = (
+        GlobalSearchVM.builder()
+        .name("global-search")
+        .services(MessageHub[Message](), dispatcher)
+        .repository(_search_rule_repo())
+        .page_size(5)
+        .search_debounce_seconds(0.0)
+        .build()
+    )
+
+    vm.search_term = query
+    await vm.refresh_command.execute_async()
+
+    assert [n.title for n in vm.results] == expected
+    vm.dispose()

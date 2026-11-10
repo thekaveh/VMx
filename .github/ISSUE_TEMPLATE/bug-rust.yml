@@ -1,0 +1,74 @@
+name: Bug report — Rust (vmx-rs crate)
+description: Something is broken in the Rust flavor.
+labels: [bug, rust]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences that say what is wrong and where.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: vmx-rs version
+      placeholder: "e.g., 0.37.0"
+    validations:
+      required: true
+  - type: input
+    id: toolchain
+    attributes:
+      label: Rust toolchain version
+      description: The output of `rustc --version`.
+      placeholder: "e.g., rustc 1.88.0 (6b00bc388 2025-06-23)"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: "e.g., Ubuntu 24.04 x86_64, macOS 15 arm64, Windows 11 x86_64"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: >-
+        How to reproduce the defect, the observed output (error text, wrong
+        value or stack trace) and the behavior that you expected. Put the
+        reproduction code in the next field.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The smallest program that shows the defect that Context describes.
+      render: rust
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: >-
+        Checkable conditions that show the defect is fixed, one checkbox per
+        condition.
+      placeholder: "- [ ] A second `dispose()` call returns `Ok(())`."
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >-
+        A `Location | What it shows` table. Each row names a file and line
+        range, a log, a CI run or a link, and says in one sentence what it
+        shows.
+      value: |
+        | Location | What it shows |
+        |---|---|
+    validations:
+      required: false

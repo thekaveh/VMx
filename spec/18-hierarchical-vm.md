@@ -30,9 +30,14 @@ subclass; the recursive constraint is enforced per flavor (ADR-0028 §3 item 2).
 Swift's compiler rejects the self-referential bound, so Swift binds only
 `TVM: AnyObject`.
 
-Open Rust gap: Rust `HierarchicalVm<M>` has no `TVM` parameter. Children and
-parent are the same `HierarchicalVm<M>` type, so a consumer cannot specialize
-the node type.
+Rust has no subclassing, so Rust `HierarchicalVm<M, N = ()>` takes a node-data
+type `N` in place of `TVM` (ADR-0202). The concrete node type is
+`HierarchicalVm<M, N>`. `parent()`, `children()`, `path()`, the children
+factory and `attach_many` use that type, and `node_data()` returns the node's
+own `N`. A consumer keeps per-node state in `N`, with interior mutability for
+state that changes, and adds node methods through an extension trait. `N` is
+`Send + Sync + 'static`. It must not hold a strong handle to its own node or an
+ancestor, because that handle forms a reference cycle.
 
 ```
 HierarchicalVM<TModel, TVM>:
@@ -122,8 +127,12 @@ The cache remains empty and a later access retries the factory.
 
 Swift exposes fallible `tryChildren()` and Rust exposes `try_children()` for
 this validation result. Their existing `children` accessors delegate and fail
-fast on invalid factory output for source compatibility. C#, Python, and
-TypeScript use their ordinary invalid-operation errors.
+fast on invalid factory output for source compatibility. Swift `isLeaf` and
+Rust `is_leaf` read those accessors and follow the same rule. C#, Python, and
+TypeScript use their ordinary invalid-operation errors. The tree utilities
+`walk`, `walk_expanded`, and `find` read the fallible accessors in Swift and
+Rust, so they report the error in every flavor and never fail fast
+(chapter 13 §6.1, ADR-0170).
 
 Constructor option `eagerChildren=true` (C# / TS) / `eager_children=True`
 (Python) / `eagerChildren: true` (Swift) / builder method
@@ -183,11 +192,33 @@ Later same-key items are returned in `duplicates` with
 authoritative node. An item already attached outside the indexed tree is
 rejected as `AlreadyAttached` and its original links remain unchanged.
 
+An active candidate also claims the key of every node in its own materialized
+subtree: the descendants that the candidate's already-materialized child lists
+reach. Reading these keys MUST NOT invoke a children factory. The claims follow
+the candidate's own key, in depth-first pre-order. If a descendant key is in the
+index, the candidate is rejected as `DuplicateExistingKey`. If a descendant key
+equals an earlier claim in the batch, including one from the same subtree, the
+candidate is rejected as `DuplicateBatchKey`. A rejected candidate is returned
+in `duplicates`, is not attached, and keeps its subtree unchanged. A `keyOf`
+failure on a descendant rejects the candidate as `SelectorFailed`, and a parked
+candidate stays parked, as for its own selectors (ADR-0212). An item that is
+itself a node of an earlier candidate's materialized subtree is attached outside
+the indexed tree. It is rejected as `AlreadyAttached`, not as a duplicate, so
+the batch order does not change its rejection.
+
 Candidates are scanned repeatedly in input order. A candidate attaches when
-its parent is in the materialized/added index; each successful node immediately
-joins that index. Scanning stops at a fixpoint. This resolves arbitrary
-child-before-parent chains and preserves relative input order among siblings.
-Previously parked items precede new input in the active scan.
+its parent is in the index. When it attaches, the candidate and every node of
+its materialized subtree join the index at once, so a later candidate can name
+any of them as its parent. Scanning stops at a fixpoint. This resolves
+arbitrary child-before-parent chains and preserves relative input order among
+siblings. Previously parked items precede new input in the active scan.
+
+`AddChild` reads the children of the target parent before it appends the
+candidate, so a lazy parent runs its factory (§4). Those factory children do not
+join the index during that batch. A candidate whose parent key names one of
+them stays unresolved, and the next batch, which indexes them as materialized
+descendants, can resolve it. A key that a factory child shares with a candidate
+is not detected, as for every unmaterialized subtree (ADR-0212).
 
 The structured result contains:
 
@@ -206,14 +237,19 @@ BatchAttachRejection<TVM>:
 ```
 
 Every non-added active item has one rejection entry. `Orphans` contains only
-items whose parent key is absent at the fixpoint. Parent-key cycles are reported
-as `Cycle`, are not orphans, and are never retained.
+items whose parent key is absent from the index at the fixpoint. Parent-key
+cycles are reported as `Cycle`, are not orphans, and are never retained. A
+candidate whose parent-key chain reaches a node of its own materialized subtree
+is in a cycle.
 
 With `park`, new missing-parent items are retained in a structural-root-owned
 pending list and retried before the next batch. With `reject`, they are returned
 but not retained. Already-parked items remain parked until resolved, terminally
 rejected, or the root is disposed. `ParkedAttachCount` exposes the pending count;
 root disposal clears it.
+
+A disposed receiver, a disposed structural root, or a disposed parent follows
+§7.1.
 
 Duplicates, missing parents, cycles, already-attached items, selector failures,
 and underlying attachment failures MUST NOT abort the batch. Successful nodes
@@ -252,6 +288,42 @@ reference remain unchanged. Swift reports `AddChild` rejection through its
 idiomatic `Result`; Rust uses `VmxResult`; the other flavors throw their
 standard invalid-operation error (ADR-0105).
 
+### 7.1 Disposed nodes (spec v3.30)
+
+Disposal freezes a node's child list. From the moment a node's `Status` is
+`Disposed`, these rules apply (ADR-0190, `HIER-041`):
+
+- `AddChild`, `RemoveChild`, `ReparentChild`, `InvalidateChildren`,
+  `InvalidateSubtree` and `AttachMany` on the disposed node refuse. They refuse
+  also where the call would otherwise do nothing.
+- `AddChild` and `ReparentChild` on a live node refuse when the child's
+  current parent is disposed. The child stays in that parent.
+- `AttachMany` also refuses when the structural root is disposed. On a live
+  root, a candidate whose parent is disposed gets an `AttachmentFailed`
+  rejection (§6). It is not parked and is not an orphan.
+- `InvalidateSubtree` on a live node skips each disposed descendant. That node
+  keeps its cache and publishes nothing. The call still visits that node's
+  materialized children.
+
+A refused call changes no child list, parent link, path, cache or parked item,
+and it publishes no message. It reports the refusal on the channel that a
+structural re-entry uses (§4):
+
+| Flavor     | `AddChild`, `RemoveChild`, `ReparentChild`                                                                  | `AttachMany`                                         | `InvalidateChildren`, `InvalidateSubtree` |
+| ---------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------- |
+| C#         | throw `ObjectDisposedException`                                                                             | throws `ObjectDisposedException`                     | throw `ObjectDisposedException`           |
+| Python     | raise `RuntimeError`                                                                                        | raises `RuntimeError`                                | raise `RuntimeError`                      |
+| TypeScript | throw `Error`                                                                                               | throws `Error`                                       | throw `Error`                             |
+| Swift      | `addChild` and `removeChild` return `.failure(.disposed)`; `reparentChild` throws `HierarchyError.disposed` | returns each item as an `attachmentFailed` rejection | return without a change                   |
+| Rust       | return `Err(VmxError::Disposed)`                                                                            | returns each item as an `AttachmentFailed` rejection | return without a change                   |
+
+The rules cover only a disposed node's own child list. A live node can still
+remove, transfer or invalidate a disposed child. A read of `Children` on a
+disposed node still materializes lazy children silently (§4), and disposal
+still never detaches a child (§3). In Rust, a dispose on another thread can
+land after a call's check; the call then completes as if the dispose came
+after it.
+
 ## 8. `TreeStructureChangedMessage`
 
 ```
@@ -269,10 +341,10 @@ TreeStructureChangedMessage:
   `parent → children[0] → children[0].children[0] → … → children[1] → …`.
 - **`ExpandableState`** (chapter 05 §8, ADR-0015): consumers may compose the
   non-generic `ExpandableState` to expose `IExpandable`. `walk_expanded`
-  (chapter 13 §5, §6) then skips the children of a collapsed node; Rust does
-  not stop there yet (chapter 13 §6 open gap). Expansion does not materialize
-  children: they materialize on first `Children` access, or at construct time
-  with the eager option (§4). `HierarchicalVM` does NOT auto-implement
+  (chapter 13 §5, §6) then skips the children of a collapsed node. Rust
+  composes it with `HierarchicalVm::compose_expansion` (ADR-0207). Expansion
+  does not materialize children: they materialize on first `Children` access,
+  or at construct time with the eager option (§4). `HierarchicalVM` does NOT auto-implement
   `IExpandable` — per ADR-0028 §3.6 and ADR-0010, capabilities are opt-in.
 - **`SearchableState`** (chapter 06 §8, ADR-0014): consumers may compose
   `SearchableState<TVM>` to provide a filtered view of a tree. The filter
@@ -300,13 +372,13 @@ TreeSelection<TVM>:                     # constructed on a root node
     Dispose()      -> void
 ```
 
-| Flavor     | Type                         | Change stream                                                 | Rejection                      |
-| ---------- | ---------------------------- | ------------------------------------------------------------- | ------------------------------ |
-| C#         | `TreeSelection<TModel, TVM>` | `IObservable<TVM?> CurrentChanged`                            | `InvalidOperationException`    |
-| Python     | `TreeSelection[TVM]`         | `current_changed: Observable[TVM \| None]`                    | `ValueError`                   |
-| TypeScript | `TreeSelection<TVM>`         | `currentChanged: Observable<TVM \| null>`                     | `Error`                        |
-| Swift      | `TreeSelection<TModel, TVM>` | `currentChanged: AnyPublisher<TVM?, Never>`                   | `TreeSelectionError.notInTree` |
-| Rust       | `TreeSelection<M>`           | `current_changed() -> ValueStream<Option<HierarchicalVm<M>>>` | `VmxError::InvalidArgument`    |
+| Flavor     | Type                         | Change stream                                                    | Rejection                      |
+| ---------- | ---------------------------- | ---------------------------------------------------------------- | ------------------------------ |
+| C#         | `TreeSelection<TModel, TVM>` | `IObservable<TVM?> CurrentChanged`                               | `InvalidOperationException`    |
+| Python     | `TreeSelection[TVM]`         | `current_changed: Observable[TVM \| None]`                       | `ValueError`                   |
+| TypeScript | `TreeSelection<TVM>`         | `currentChanged: Observable<TVM \| null>`                        | `Error`                        |
+| Swift      | `TreeSelection<TModel, TVM>` | `currentChanged: AnyPublisher<TVM?, Never>`                      | `TreeSelectionError.notInTree` |
+| Rust       | `TreeSelection<M, N = ()>`   | `current_changed() -> ValueStream<Option<HierarchicalVm<M, N>>>` | `VmxError::InvalidArgument`    |
 
 Swift's `select(_:)` throws (ADR-0053), and Rust's `select` returns a
 `VmxResult<()>`.
@@ -383,7 +455,7 @@ After disposal the helper is inert, and a second `Dispose()` does nothing.
 Disposing the helper never disposes or detaches a node.
 
 The helper follows the threading model of its tree. The Rust helper is
-`Send + Sync`, like `HierarchicalVm<M>`. In the other flavors the helper, like
+`Send + Sync`, like `HierarchicalVm<M, N>`. In the other flavors the helper, like
 the tree, is used from one thread.
 
 ### 10.4 Selection does not navigate
@@ -395,7 +467,8 @@ hub message. A host maps `Current` to a route or a detail view.
 ## 11. Conformance
 
 - `HIER-001` — Recursive generic constraint compiles per flavor with the bound
-  type parameter.
+  type parameter. Rust builds a three-level tree of a consumer node-data type
+  and reads it from `children()`, `parent()` and `path()` (ADR-0202).
 - `HIER-002` — `Parent` is null for the root and a `TVM` reference for every
   non-root node.
 - `HIER-003` — `Depth` derivation: root is 0; child is parent + 1.
@@ -482,3 +555,19 @@ hub message. A host maps `Current` to a route or a detail view.
   and publishes no hub message.
 - `HIER-040` — A disposed `TreeSelection` completes its stream, reads null and
   ignores later calls and tree changes.
+- `HIER-041` — A disposed node refuses every structural call, also a call that
+  would do nothing, without mutation or messages. A transfer from a disposed
+  parent refuses. `AttachMany` rejects a candidate under a disposed parent, and
+  `InvalidateSubtree` skips a disposed descendant (§7.1, ADR-0190).
+- `HIER-042` — An attached candidate's materialized subtree joins the batch
+  index, so a later candidate can attach below any node of it; a parent key
+  that names the candidate's own descendant is a `Cycle` (ADR-0212).
+- `HIER-043` — A descendant key of a candidate that equals a key in the index
+  or an earlier claim in the batch rejects the candidate as
+  `DuplicateExistingKey` or `DuplicateBatchKey` without attaching it; a
+  descendant `keyOf` failure is `SelectorFailed` and keeps a parked candidate
+  parked; a node of an earlier candidate's subtree is `AlreadyAttached` in
+  either batch order.
+- `HIER-044` — Children that `AddChild` materializes from a lazy factory do not
+  join the index during that batch; the next batch resolves a candidate aimed
+  at one of them.

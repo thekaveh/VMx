@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Runtime.ExceptionServices;
+using VMx.Internal;
 
 namespace VMx.Collections;
 
@@ -65,6 +67,13 @@ public sealed class ItemReplacedEventArgs<T> : EventArgs
 /// The <see cref="Count"/> property change notification fires <b>after</b> the
 /// granular event on every mutation that changes Count (add/remove; not replace).
 /// This ordering is normative per spec §3.3 and ADR-0026.
+/// </para>
+///
+/// <para>
+/// A throwing handler does not stop the notification sequence: every handler
+/// of each event runs, <see cref="CollectionChanged"/> and the <c>Count</c>
+/// notification still follow, and the first failure is rethrown to the caller
+/// after the last step (spec §3.3).
 /// </para>
 ///
 /// <para>
@@ -185,9 +194,7 @@ public sealed class ObservableList<T> :
 
         _items.Clear();
         _items.AddRange(snapshot);
-        OnReset();
-        if (oldCount != snapshot.Count && _batchDepth == 0)
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Count)));
+        OnReset(countChanged: oldCount != snapshot.Count);
     }
 
     /// <summary>Remove all items and emit <see cref="Reset"/> (and <c>Count</c> when it changed).</summary>
@@ -197,12 +204,10 @@ public sealed class ObservableList<T> :
         _items.Clear();
         // Clearing an empty list is a no-op: emit neither Reset nor Count
         // (ADR-0037 §2.2, mirroring the empty-batch precedent).
-        if (countChanged)
-            OnReset();
         // spec/21 §3.3: PropertyChanged("Count") fires after every mutation
         // that changes Count. Inside a batch the batch-exit path emits it.
-        if (countChanged && _batchDepth == 0)
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Count)));
+        if (countChanged)
+            OnReset(countChanged: true);
     }
 
     // ── Batch update ──────────────────────────────────────────────────────────
@@ -236,55 +241,85 @@ public sealed class ObservableList<T> :
             {
                 int finalCount = _owner._items.Count;
                 _owner._mutatedInBatch = false;
-                _owner.Reset?.Invoke(_owner, EventArgs.Empty);
-                _owner.CollectionChanged?.Invoke(
-                    _owner,
-                    new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
                 // Emit Count notification only if count actually changed (spec §3.3).
-                if (finalCount != _owner._countAtBatchStart)
-                    _owner.PropertyChanged?.Invoke(_owner, new PropertyChangedEventArgs(nameof(Count)));
+                _owner.RaiseReset(countChanged: finalCount != _owner._countAtBatchStart);
             }
         }
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
 
+    // Each step runs every handler of its event, even when one throws. A
+    // failure skips neither CollectionChanged nor the Count notification of the
+    // committed change; the first failure is rethrown after the last step
+    // (spec/21 §3.3).
     private void OnAdded(T item, int index)
     {
         if (_batchDepth > 0) { _mutatedInBatch = true; return; }
 
-        ItemAdded?.Invoke(this, new ItemAddedEventArgs<T>(item, index));
-        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Add, item, index));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Count)));
+        ExceptionDispatchInfo? firstFailure =
+            FanOut.Raise(ItemAdded, handler => handler(this, new ItemAddedEventArgs<T>(item, index)));
+        Notify(
+            ref firstFailure,
+            new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Add, item, index),
+            countChanged: true);
+        firstFailure?.Throw();
     }
 
     private void OnRemoved(T item, int index)
     {
         if (_batchDepth > 0) { _mutatedInBatch = true; return; }
 
-        ItemRemoved?.Invoke(this, new ItemRemovedEventArgs<T>(item, index));
-        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Remove, item, index));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Count)));
+        ExceptionDispatchInfo? firstFailure =
+            FanOut.Raise(ItemRemoved, handler => handler(this, new ItemRemovedEventArgs<T>(item, index)));
+        Notify(
+            ref firstFailure,
+            new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Remove, item, index),
+            countChanged: true);
+        firstFailure?.Throw();
     }
 
     private void OnReplaced(T newItem, T oldItem, int index)
     {
         if (_batchDepth > 0) { _mutatedInBatch = true; return; }
 
-        ItemReplaced?.Invoke(this, new ItemReplacedEventArgs<T>(newItem, oldItem, index));
-        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Replace, newItem, oldItem, index));
+        ExceptionDispatchInfo? firstFailure = FanOut.Raise(
+            ItemReplaced,
+            handler => handler(this, new ItemReplacedEventArgs<T>(newItem, oldItem, index)));
         // Count does not change on replace — no PropertyChanged("Count")
+        Notify(
+            ref firstFailure,
+            new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Replace, newItem, oldItem, index),
+            countChanged: false);
+        firstFailure?.Throw();
     }
 
-    private void OnReset()
+    private void OnReset(bool countChanged)
     {
         if (_batchDepth > 0) { _mutatedInBatch = true; return; }
+        RaiseReset(countChanged);
+    }
 
-        Reset?.Invoke(this, EventArgs.Empty);
-        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Reset));
+    private void RaiseReset(bool countChanged)
+    {
+        ExceptionDispatchInfo? firstFailure = FanOut.Raise(Reset, handler => handler(this, EventArgs.Empty));
+        Notify(
+            ref firstFailure,
+            new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset),
+            countChanged);
+        firstFailure?.Throw();
+    }
+
+    // Raises CollectionChanged, then PropertyChanged("Count") when the count
+    // changed, and keeps the first failure in firstFailure.
+    private void Notify(ref ExceptionDispatchInfo? firstFailure, NotifyCollectionChangedEventArgs args, bool countChanged)
+    {
+        ExceptionDispatchInfo? collectionFailure =
+            FanOut.Raise(CollectionChanged, handler => handler(this, args));
+        firstFailure ??= collectionFailure;
+        if (!countChanged) return;
+        ExceptionDispatchInfo? countFailure = FanOut.Raise(
+            PropertyChanged, handler => handler(this, new PropertyChangedEventArgs(nameof(Count))));
+        firstFailure ??= countFailure;
     }
 }

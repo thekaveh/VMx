@@ -9,7 +9,7 @@ spec/02 §6, spec/06 §5.1, spec/07).
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
@@ -18,6 +18,7 @@ from vmx.collections.batch import BatchUpdateHandle
 from vmx.collections.collection_changed import CollectionChangedEvent
 from vmx.components._late_child_starts import _LateChildStage
 from vmx.components.base import _ComponentVMBase
+from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
 
 if TYPE_CHECKING:
@@ -44,6 +45,9 @@ class ChildContainer(Protocol[VM]):
     _late_starts: _LateChildStarts
 
     @property
+    def name(self) -> str: ...
+
+    @property
     def _membership_gate(self) -> AbstractContextManager[object]: ...
 
     def snapshot(self) -> tuple[VM, ...]: ...
@@ -54,7 +58,7 @@ class ChildContainer(Protocol[VM]):
 
     def _maybe_auto_construct(self, child: VM) -> None: ...
 
-    def _mark_constructed_before_publication(self) -> None: ...
+    def _disposal_pending_locked(self) -> bool: ...
 
 
 def emit_collection_changed(container: ChildContainer[VM], event: CollectionChangedEvent) -> None:
@@ -81,7 +85,8 @@ def deliver_collection_changed(
     so a hub transaction defers it. A failing local subscriber does not
     suppress the hub message for the committed change; the first failure
     is re-raised afterwards. A container disposed before or during local
-    delivery publishes nothing.
+    delivery publishes nothing. So does one whose disposal a local
+    subscriber requested, also when that disposal is deferred (ADR-0190).
     """
     subject = container._collection_changed_subject
     first_error: BaseException | None = None
@@ -89,9 +94,11 @@ def deliver_collection_changed(
         subject.on_next(event)
     except BaseException as error:
         first_error = error
-    if not (subject.is_disposed or subject.is_stopped):
+    with container._membership_gate:
+        disposal_pending = container._disposal_pending_locked()
+    if not (subject.is_disposed or subject.is_stopped or disposal_pending):
         try:
-            container._hub.send(collection_changed_message_for(container, event))
+            container._hub.send(collection_changed_message_for(container, container.name, event))
         except BaseException as error:
             if first_error is None:
                 first_error = error
@@ -151,16 +158,89 @@ def auto_construct_attached(
         container._maybe_auto_construct(child)
         return
     # The construct walk never starts a late child; it waits for this
-    # attempt, then joins the child (spec/06 §5.1). The record is done
-    # before this add publishes or ends its transaction.
+    # attempt, then joins the child (spec/06 §5.1). The add marks the record
+    # done only after it ends its membership transaction, on success and on
+    # failure (``finish_add_start``, ADR-0218). After a failure, the walk
+    # then resumes only after the child left the container (ADR-0186).
     try:
         container._late_starts.probe(child, _LateChildStage.ATTACHED)
         if child.status is ConstructionStatus.DESTRUCTED:
-            child.construct()
+            start_unless_constructing(child)
     finally:
-        record.mark_done()
         if container._status is not ConstructionStatus.CONSTRUCTING:
             container._late_starts.remove(child, record)
+
+
+def start_unless_constructing(child: VM) -> None:
+    """Construct *child*, unless another caller started its construct meanwhile.
+
+    The construct walk may start a child that this add attached before the
+    walk's snapshot. When it does so between the add's status read and this
+    call, the add leaves the construct to the walk and does not wait for it
+    (spec/06 §5.1, ADR-0218). A child whose own construction fails still
+    fails the add.
+    """
+    try:
+        child.construct()
+    except StatusTransitionError:
+        if child._join_raced_transition(construct=True) is None:
+            raise
+
+
+def finish_add_start(record: _StartRecord | None) -> None:
+    """Mark an add's start attempt done, after the add ended its transaction.
+
+    Call it after ``_end_membership_transaction``, on success and on
+    failure (ADR-0218). A walk that waits on the attempt resumes only then,
+    so the container publishes Constructed outside this add's transaction.
+    After a failure, the undo counts as a removal (ADR-0186): the walk reads
+    the child as a non-member and does not join it.
+    """
+    if record is not None:
+        record.mark_done()
+
+
+def compensate_auto_construct(
+    child: VM, original_status: ConstructionStatus | None
+) -> BaseException | None:
+    """Return a child that a failed attempt auto-constructed to Destructed.
+
+    Only a child that was Destructed before the attempt is compensated
+    (spec/06 §4.2). A Constructed child is destructed now, and the failure
+    of that call is returned. A child whose construct is still in flight (a
+    background child) is not waited for. Once its construct settles at
+    Constructed with no parent, it is destructed. The failed operation does
+    not report a failure of that later call (ADR-0218).
+    """
+    if original_status is not ConstructionStatus.DESTRUCTED:
+        return None
+    if child.status is ConstructionStatus.CONSTRUCTED:
+        try:
+            child.destruct()
+        except BaseException as error:
+            return error
+        return None
+    if child.status is ConstructionStatus.CONSTRUCTING:
+        settled = child._join_transition_future(construct=True)
+
+        def destruct_if_detached(_: object) -> None:
+            # A failure of this call reaches the future's callback logger,
+            # not the failed operation.
+            if child.status is ConstructionStatus.CONSTRUCTED and child._parent is None:
+                child.destruct()
+
+        settled.add_done_callback(destruct_if_detached)
+    return None
+
+
+def is_member(container: ChildContainer[VM], child: object) -> bool:
+    """Whether *child* is a member now, read under the membership gate.
+
+    The construct walk counts members only: it reads this before it starts
+    or joins a child, and again after the child settles (ADR-0186).
+    """
+    with container._membership_gate:
+        return any(member is child for member in container._children)
 
 
 def join_if_pending(container: ChildContainer[VM], child: VM) -> None:
@@ -184,13 +264,13 @@ def construct_walk(
     The membership snapshot comes first. With auto-construct-on-add, each
     child added while the walk runs follows when its add registered a
     start record in this walk's scope: it is joined like a population
-    child after that add's start attempt, so one whose own construction
-    failed rolls the container back. The walk never starts a late child;
+    child after that add's start attempt. The walk never starts a late child;
     one without a record was not started by an add, so it is skipped. The
     scope stays open after the last scan: ``_seal_or_next_late`` joins a
     child added after it, then commits Constructed under the membership
     gate and ends the scope; a failed walk ends it from ``_on_construct``
-    (spec/02 §6, spec/06 §5.1).
+    (spec/02 §6, spec/06 §5.1). The walk skips a yielded child that is no
+    longer a member (ADR-0186).
     """
     snapshot = list(container.snapshot())
     # Keyed by id but holding each child, so a freed child's id is never
@@ -215,15 +295,18 @@ def seal_or_next_late(
     joined: list[VM],
     visited: dict[int, VM],
     walk: _LateWalk,
+    commit: Callable[[], None],
 ) -> VM | None:
     """The construct walk's commit step (spec/02 §6, spec/06 §5.1).
 
     Under the membership gate, return the next unvisited member that an
     add started (it has a start record in this walk's scope), which the
-    walk then joins. Without one, commit the Constructed state in the same
-    gated section, so an add reads either Constructing (and is joined) or
-    Constructed, then end the walk's scope.
+    walk then joins. Without one, ``commit`` the Constructed state in the
+    same gated section, so an add reads either Constructing (and is joined)
+    or Constructed, then end the walk's scope. ``commit`` is bound to the
+    hook that started this walk (ADR-0186).
     """
+    container._late_starts.probe(container, _LateChildStage.SEALING)
     with container._membership_gate:
         for child in container._children:
             if visited.get(id(child)) is child:
@@ -232,6 +315,6 @@ def seal_or_next_late(
             if walk.take(child):
                 joined.append(child)
                 return child
-        container._mark_constructed_before_publication()
+        commit()
     walk.end()
     return None

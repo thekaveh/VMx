@@ -227,6 +227,50 @@ public sealed class NotesViewVMTests
     }
 
     [Fact]
+    public async Task A_search_that_hides_the_current_note_keeps_it_and_reselects_it_when_it_shows_again()
+    {
+        // ADR-0201 §2.1: a refilter never changes Current. When the note goes
+        // back into the visible slice, Current is raised again so a bound list
+        // selects the row again.
+        var (vm, _) = await BuildAndBindAsync("nb-reviews");
+        var note = vm.VisibleItems.Single(n => n.Title == "Vendor shortlist");
+        vm.Current = note;
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.SearchTerm = "Q1";
+
+        Assert.Same(note, vm.Current);
+        Assert.DoesNotContain(note, vm.VisibleItems);
+
+        raised.Clear();
+        vm.SearchTerm = string.Empty;
+
+        Assert.Same(note, vm.Current);
+        Assert.Contains(note, vm.VisibleItems);
+        Assert.Contains(nameof(NotesViewVM.Current), raised);
+    }
+
+    [Fact]
+    public async Task A_page_change_keeps_the_current_note()
+    {
+        // ADR-0201 §2.1: a page change never changes Current.
+        var (vm, _) = await BuildAndBindAsync("nb-reviews");
+        var note = vm.VisibleItems[0];
+        vm.Current = note;
+
+        vm.MoveToNextPageCommand.Execute(null);
+
+        Assert.Same(note, vm.Current);
+        Assert.DoesNotContain(note, vm.VisibleItems);
+
+        vm.MoveToPreviousPageCommand.Execute(null);
+
+        Assert.Same(note, vm.Current);
+        Assert.Contains(note, vm.VisibleItems);
+    }
+
+    [Fact]
     public async Task Reconstruct_resets_lifecycle_and_keeps_items_via_rebind()
     {
         var (vm, _) = await BuildAndBindAsync("nb-reviews");
@@ -573,12 +617,7 @@ public sealed class NotesViewVMTests
     }
 
     private static bool MatchesTerm(NoteVM note, string term)
-    {
-        var model = note.Model;
-        return $"{model.Title} {model.Body} {string.Join(" ", model.Tags)}"
-            .ToLowerInvariant()
-            .Contains(term, StringComparison.Ordinal);
-    }
+        => NoteSearch.Matches(note.Model, term);
 
     [Fact]
     public async Task GlobalSearchVM_loads_more_for_the_term_of_the_loaded_pages_after_an_unsearched_term_edit()
@@ -651,6 +690,64 @@ public sealed class NotesViewVMTests
             .ToArray();
         Assert.True(sharedTerms.Length > 0, $"results {ids} mix two terms");
         Assert.Equal(new[] { "plan" }, sharedTerms);
+        vm.Dispose();
+    }
+
+    // One search rule across flavors (#1330). Note A is "Auth migration plan"
+    // (tags security, q2) and note B is "Standup notes" (no tags), with their
+    // seed bodies. The term is trimmed, an empty term matches every note, and
+    // a note matches when its title, its body or one tag contains the term,
+    // ignoring case.
+    public static TheoryData<string, string[]> SearchRuleCases => new()
+    {
+        { "plan ", new[] { "Auth migration plan" } },
+        { "  ", new[] { "Auth migration plan", "Standup notes" } },
+        { "notes (seed", Array.Empty<string>() },
+    };
+
+    private static InMemoryNoteRepository SearchRuleRepository()
+    {
+        var (notebooks, notes) = SeedData.Build();
+        var picked = notes
+            .Where(n => n.Id is "note-02" or "note-08")
+            .Select(n => n with { NotebookId = "nb-reviews" })
+            .ToList();
+        return new InMemoryNoteRepository(
+            (notebooks, picked),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero);
+    }
+
+    [Theory]
+    [MemberData(nameof(SearchRuleCases))]
+    public async Task The_notes_list_search_uses_the_shared_rule(string query, string[] expected)
+    {
+        var vm = BuildVM(SearchRuleRepository(), debounce: TimeSpan.Zero);
+        vm.Construct();
+        await vm.BindToAsync("nb-reviews");
+
+        vm.SearchTerm = query;
+
+        Assert.Equal(expected, vm.FilteredItems.Select(n => n.Title).ToArray());
+        vm.Dispose();
+    }
+
+    [Theory]
+    [MemberData(nameof(SearchRuleCases))]
+    public async Task The_global_search_uses_the_shared_rule(string query, string[] expected)
+    {
+        var vm = GlobalSearchVM.Builder()
+            .Name("global-search")
+            .Services(new MessageHub(), new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance))
+            .Repository(SearchRuleRepository())
+            .PageSize(5)
+            .SearchDebounce(TimeSpan.Zero)
+            .Build();
+
+        vm.SearchTerm = query;
+        await vm.RefreshCommand.ExecuteAsync();
+
+        Assert.Equal(expected, vm.Results.Select(n => n.Model.Title).ToArray());
         vm.Dispose();
     }
 }
