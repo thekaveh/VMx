@@ -815,7 +815,7 @@ def _background(action: Callable[[], object]) -> threading.Thread:
 
 def _joined(thread: threading.Thread | None) -> bool:
     assert thread is not None
-    thread.join(_JOIN_BOUND)
+    join_thread(thread, _JOIN_BOUND)
     return not thread.is_alive()
 
 
@@ -828,7 +828,7 @@ def _waiting_selector(
     def select(item: _LockedItem) -> Observable[object]:
         if item is trigger and not adders:
             adders.append(_background(lambda: source.add_under_lock(second)))
-            assert source.holding.wait(_JOIN_BOUND)
+            assert wait_event(source.holding, _JOIN_BOUND)
             time.sleep(0.2)
         return item.changes
 
@@ -889,7 +889,7 @@ def test_AGCH_012_dispose_does_not_deadlock_with_a_source_that_notifies_under_it
     source.while_holding_lock = lambda: time.sleep(0.2)
 
     adder = _background(lambda: source.add_under_lock(_LockedItem("second")))
-    assert source.holding.wait(_JOIN_BOUND)
+    assert wait_event(source.holding, _JOIN_BOUND)
     disposer = _background(aggregate.dispose)
 
     assert _joined(disposer)

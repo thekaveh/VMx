@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD, join_thread
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.components._late_child_starts import _LateChildStage
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -429,7 +429,7 @@ def test_a_walk_its_raising_hook_abandoned_never_commits_constructed(kind: str) 
     def raising_hook() -> None:
         start_walk()  # starts the walk and defers the hook's completion
         started.set()
-        assert raise_now.wait(HANG_GUARD), "the walk reaches its commit step"
+        assert wait_event(raise_now, HANG_GUARD), "the walk reaches its commit step"
         raise RuntimeError("hook raised after deferring")
 
     root._on_construct = raising_hook
@@ -438,11 +438,11 @@ def test_a_walk_its_raising_hook_abandoned_never_commits_constructed(kind: str) 
         if stage is _LateChildStage.SEALING:
             # The walk is at its commit step on this thread; the hook now raises.
             raise_now.set()
-            assert cancelled.wait(HANG_GUARD), "the raising hook cancels the walk"
+            assert wait_event(cancelled, HANG_GUARD), "the raising hook cancels the walk"
         elif stage is _LateChildStage.WALK_ENDED and not cancelled.is_set():
             # The hook's thread cancels the walk; hold it until the commit step ran.
             cancelled.set()
-            sealed.wait(3 * HANG_GUARD)
+            wait_event(sealed, 3 * HANG_GUARD)
 
     root._late_starts.probe_for_testing = probe
 
@@ -455,7 +455,7 @@ def test_a_walk_its_raising_hook_abandoned_never_commits_constructed(kind: str) 
     hook_thread = threading.Thread(target=construct, daemon=True)
     hook_thread.start()
     try:
-        assert started.wait(HANG_GUARD), "the hook starts the walk"
+        assert wait_event(started, HANG_GUARD), "the hook starts the walk"
         harness.bg.run_all()  # the anchor's hook; its CONSTRUCTED goes to the foreground
         harness.fg.run_all()  # the walk resumes here and runs its commit step
         assert raise_now.is_set(), "the walk reached its commit step"
@@ -463,7 +463,7 @@ def test_a_walk_its_raising_hook_abandoned_never_commits_constructed(kind: str) 
     finally:
         sealed.set()
         raise_now.set()
-        hook_thread.join(HANG_GUARD)
+        join_thread(hook_thread, HANG_GUARD)
     assert not hook_thread.is_alive()
     harness.fg.run_all()
 
@@ -495,12 +495,12 @@ def test_a_stale_walk_never_commits_the_next_transition(kind: str) -> None:
     def raising_hook() -> None:
         start_walk()  # starts the walk and defers the hook's completion
         started.set()
-        assert raise_now.wait(HANG_GUARD), "the walk reaches its commit step"
+        assert wait_event(raise_now, HANG_GUARD), "the walk reaches its commit step"
         raise RuntimeError("hook raised after deferring")
 
     def second_hook() -> None:
         second_admitted.set()
-        assert release_second.wait(HANG_GUARD), "the stale commit step ran"
+        assert wait_event(release_second, HANG_GUARD), "the stale commit step ran"
 
     hooks = [raising_hook, second_hook]
     root._on_construct = lambda: hooks.pop(0)()
@@ -510,7 +510,7 @@ def test_a_stale_walk_never_commits_the_next_transition(kind: str) -> None:
             # The stale walk is at its commit step; the hook raises, the root
             # rolls back and the second construct() is admitted meanwhile.
             raise_now.set()
-            assert second_admitted.wait(HANG_GUARD), "the second construct is admitted"
+            assert wait_event(second_admitted, HANG_GUARD), "the second construct is admitted"
 
     root._late_starts.probe_for_testing = probe
 
@@ -524,7 +524,7 @@ def test_a_stale_walk_never_commits_the_next_transition(kind: str) -> None:
     hook_thread = threading.Thread(target=construct_twice, daemon=True)
     hook_thread.start()
     try:
-        assert started.wait(HANG_GUARD), "the hook starts the walk"
+        assert wait_event(started, HANG_GUARD), "the hook starts the walk"
         harness.bg.run_all()  # the anchor's hook; its CONSTRUCTED goes to the foreground
         harness.fg.run_all()  # the stale walk resumes here and runs its commit step
         assert second_admitted.is_set(), "the stale walk reached its commit step"
@@ -532,7 +532,7 @@ def test_a_stale_walk_never_commits_the_next_transition(kind: str) -> None:
     finally:
         raise_now.set()
         release_second.set()
-        hook_thread.join(HANG_GUARD)
+        join_thread(hook_thread, HANG_GUARD)
     assert not hook_thread.is_alive()
     _settle(harness)
 
