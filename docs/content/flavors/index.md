@@ -7,13 +7,13 @@ language.
 
 ## 7.1.1. At A Glance
 
-| Flavor     | Reactive primitive | Naming idiom |
-| ---------- | ------------------ | ------------ |
-| C#         | `System.Reactive`  | PascalCase   |
-| Python     | `reactivex`        | snake_case   |
-| TypeScript | `rxjs`             | camelCase    |
-| Swift      | `Combine`          | camelCase    |
-| Rust       | VMx-owned facade   | snake_case   |
+| Flavor     | Reactive primitive |
+| ---------- | ------------------ |
+| C#         | `System.Reactive`  |
+| Python     | `reactivex`        |
+| TypeScript | `rxjs`             |
+| Swift      | `Combine`          |
+| Rust       | VMx-owned facade   |
 
 Package status for each flavor is in [Availability](../index.md#11-availability).
 [Installation](../installation.md) gives the package and source-checkout steps.
@@ -40,14 +40,11 @@ Package status for each flavor is in [Availability](../index.md#11-availability)
 - All five catalog-complete source flavors target the same VM family model and
   library conformance catalog. The
   [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-  (recorded difference in §12.7, open item in §12.13) tracks the remaining Rust
-  public-surface and behavior gaps.
-- Public naming follows ADR-0006: PascalCase in C#, snake_case in Python,
-  camelCase in TypeScript and Swift, and snake_case for Rust methods with
-  Rust-style type names such as `ComponentVm`.
-- The substantive naming divergence is the modeled leaf/container type: C# and
-  Rust retain `ComponentVM<M>` / `ComponentVm<M>`, while Python, TypeScript,
-  and Swift use `ComponentVMOf[...]` / `ComponentVMOf<...>`.
+  lists the open Rust public-surface and behavior items and the recorded
+  differences.
+- Public naming follows each language idiom (ADR-0006).
+  [Cross-Language Naming](cross-language-naming.md) gives the casing, the
+  spelling of each concept, and the one structural naming divergence.
 
 For source-tree status and the long-form API surface, use the flavor READMEs in
 the repository:

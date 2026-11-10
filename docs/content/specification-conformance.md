@@ -33,8 +33,8 @@ Catalog completeness is a source statement: every library ID has a marked
 test in every flavor. Executed evidence, below, shows that each marked test ran
 and passed. The
 [Rust parity ledger](../maintenance/2026-07-16-rust-capability-parity.md)
-(recorded difference in §12.7, open item in §12.13) adds focused member and
-edge-behavior evidence for Rust.
+adds focused member and edge-behavior evidence for Rust. It also lists the open
+Rust items and the recorded differences.
 
 ### 10.3.1. Catalog, Execution, And Behavioral Evidence
 
@@ -228,7 +228,8 @@ marker. Without `--require`, the report still lists it for information.
 
 1. Read `spec/README.md` for chapter ownership and `spec/HISTORY.md` for release
    history.
-1. Read the primitive pages on this site for a faster conceptual map.
+1. Read the [Framework Primitives](primitives/index.md) pages for a faster
+   conceptual map.
 1. Use the flavor README when you need package details or host-specific
    examples.
 1. Use the parity matrix and conformance catalog when you need proof rather than

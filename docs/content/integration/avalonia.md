@@ -5,7 +5,7 @@ Wire a `ComponentVM<M>` to an Avalonia 12 view. Avalonia targets desktop
 on its headless platform; the mobile and browser targets are framework
 capabilities that VMx tests do not exercise.
 
-## 9.2.1. Reactivity primitive
+## 9.2.1. Reactivity Primitive
 
 Avalonia binds through `INotifyPropertyChanged` and `ICommand`, as WPF does.
 The shared rules are in [WPF: Reactivity primitive](wpf.md#931-reactivity-primitive).
@@ -22,7 +22,7 @@ The [shared XAML mapping](wpf.md#932-mapping) applies. Avalonia adds these rows:
 | `AvaloniaList<T>` / `ObservableCollection` | `ServicedObservableCollection<T>` or wrap `ObservableList<T>`       |
 | `Dispatcher.UIThread`                      | `SynchronizationContextScheduler` created on the UI thread (`host`) |
 
-## 9.2.3. Adapter skeleton
+## 9.2.3. Adapter Skeleton
 
 Avalonia uses the [XAML adapter](wpf.md#933-xaml-adapter) `BindableVm<M>`
 unchanged, with the same four rules. The Avalonia showcase tests
@@ -47,7 +47,7 @@ Then in XAML: `<TextBlock Text="{Binding Model.Title}"/>`,
 `ServicedObservableCollection<T>` and observe its `CollectionChangedMessage` to
 refresh an `AvaloniaList<T>`.
 
-## 9.2.4. Fuller example
+## 9.2.4. Fuller Example
 
 [`examples/csharp/avalonia/NotesShowcase/`](../../../examples/csharp/avalonia/NotesShowcase/) —
 the Notes-Showcase Avalonia flagship: end-to-end `WorkspaceVM`,

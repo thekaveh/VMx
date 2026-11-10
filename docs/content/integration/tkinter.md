@@ -4,7 +4,7 @@ Wire a `ComponentVMOf[M]` to a Tkinter widget through `StringVar`,
 `IntVar`, and friends. Tkinter ships with most CPython installers; some Linux
 distributions package it separately (for example `python3-tk`).
 
-## 9.7.1. Reactivity primitive
+## 9.7.1. Reactivity Primitive
 
 Tkinter variables (`StringVar`, `IntVar`, `BooleanVar`, `DoubleVar`)
 are observable: any widget bound via `textvariable=` re-renders when
@@ -21,7 +21,7 @@ variables may only be touched from the thread that runs `mainloop()`.
 | `Listbox.insert/delete` | `CollectionChangedMessage` handler, applied on the Tk thread  |
 | `root.after(ms, fn)`    | drain a thread-safe queue that VM notifications are posted to |
 
-## 9.7.3. Adapter skeleton
+## 9.7.3. Adapter Skeleton
 
 The code below is the exact module that CI runs under Xvfb
 (`examples/python/tk/note_recipe`, run with `python -m note_recipe`). The run
@@ -134,7 +134,7 @@ If this host also owns an asyncio loop, capture it while running before creating
 `RxDispatcher.asyncio(loop)` and explicitly clean up its background pool as
 shown in [Python asyncio dispatcher ownership](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership).
 
-## 9.7.4. Fuller example
+## 9.7.4. Fuller Example
 
 [`examples/python/tk/todo_app/`](../../../examples/python/tk/todo_app/) — a
 working Tkinter Todo app backed by a `CompositeVM[TodoItemVM]`.

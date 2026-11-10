@@ -1,6 +1,6 @@
 # 11. Contributing & Releases
 
-This page is the site's contributor and release guide. It covers the
+This page is the contributor and release guide. It covers the
 contribution flow, local checks, coverage and performance review, and the
 release procedure for every flavor.
 
@@ -59,9 +59,14 @@ The main local check families are:
 - Rust: `cargo fmt --check`,
   `cargo clippy --locked --all-targets --all-features -- -D warnings`, and
   `cargo test --locked --all-features`
+- Public API baselines: CI compares each flavor's public API with a recorded
+  baseline. The C#, Python, and TypeScript checks fail on any difference. The
+  Rust and Swift checks fail on a breaking change. Commit the updated baseline
+  in the same pull request as the API change.
 - Repo-wide coverage and example-contract tools
 
-The repository's `CONTRIBUTING.md` lists the full commands for each flavor.
+The repository's `CONTRIBUTING.md` lists the full commands for each flavor. Its
+§2.8 names the baseline file and the check for each flavor.
 
 For reproducible Python checks, set `UV_PYTHON` to a supported version
 (3.10–3.14) before locked sync and every later uv command. Installing Python
@@ -93,9 +98,7 @@ Negative controls mutate the production boundary that the test exercises. They
 run in a subprocess group with a watchdog and restore the original source bytes
 in `finally`. A valid control reaches the selected assertion or ends as a
 demonstrated deadlock mutant. A compilation failure, zero matched tests, an
-unrelated assertion, a crash, or watchdog expiry is not proof. The Swift lane
-records five normal passes, five failures without admission-cancellation
-forwarding, and a rebuilt restored pass.
+unrelated assertion, a crash, or watchdog expiry is not proof.
 
 Order test infrastructure like runtime participants. A build that rewrites
 imported fixtures or schemas must finish before workers read them; TypeScript

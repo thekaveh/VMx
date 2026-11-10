@@ -19,10 +19,10 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Known gaps: the public surface and some behaviors are not fully aligned with
   the other flavors. The
   [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-  lists the recorded difference in §12.7 and the open item in §12.13.
+  lists the open items and the recorded differences.
 
 For hub delivery and callback ordering, see
-[Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering).
+[Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#542-callback-safe-transition-ordering).
 
 ## 7.6.2. Runtime Behavior
 
@@ -83,14 +83,17 @@ Containers stay Constructing or Destructing until their background children
 settle. Thus a container `construct`, `destruct`, or `reconstruct` call can
 return `Ok` while the container is still transient. A child failure rolls the
 container back and arrives on the container's `background_errors()` stream.
+
 Wrapper nodes should forward `VmNode::when_lifecycle_settled`. If a node does
-not forward it, the container watches its own message hub instead. The
-container waits when it started the node and, by the time the start call
-returned, the hub delivered or queued the node's Constructing or Destructing
-status. A node that then settles at another status rolls the container back.
-Otherwise, for example when the node publishes on another hub, the container
-accepts the node while it is still in flight, so it never waits without limit
-(ADR-0205).
+not forward it, the container watches its own message hub instead (ADR-0205):
+
+- The container waits for a node that it started when the hub delivered or
+  queued the node's Constructing or Destructing status before the start call
+  returned. If that node then settles at another status, the container rolls
+  back.
+- Otherwise, for example when the node publishes on another hub, the container
+  accepts the node while it is still in flight. Thus the container never waits
+  without limit.
 
 An admitted `AsyncRelayCommand` execution runs on one worker thread, and a
 rejected `execute()` starts none. A rejected `execute_async()` still returns a
@@ -98,6 +101,21 @@ rejected `execute()` starts none. A rejected `execute_async()` still returns a
 `AsyncResourceVm` load runs its loader on its own worker. The thread that awaits
 the load blocks, without polling, until the loader reports or the load is
 cancelled (ADR-0140).
+
+Delayed work does not use `Dispatcher`. It runs on an injected `Scheduler`:
+`SystemScheduler` in real time, or `VirtualTimeScheduler` in tests, where the
+test advances the clock. `DelayedTask` holds at most one delayed action on a
+scheduler, and disposal cancels it. These types use a scheduler by default:
+
+- `SearchableState` debounces term changes, 1 second by default. The
+  `filtered` message arrives on the scheduler's thread. A zero debounce keeps
+  the immediate message.
+- `NotificationVm` and `ConfirmationVm` expire in real time on
+  `SystemScheduler`. To control the clock in a test, pass a
+  `VirtualTimeScheduler` through `with_scheduler` and advance it.
+
+[Delayed Work By Flavor](../primitives/state-reactive-helpers.md#6532-delayed-work-by-flavor)
+gives the full contract.
 
 ## 7.6.4. Fixed Aggregates
 
@@ -170,9 +188,10 @@ Both dictionaries find keys through a hash index, so a lookup makes O(1) key
 comparisons on average. `CompositeVm`, `GroupVm`, and `ModeledCompositeVm`
 expose their children's local stream as `collection_changed()` (ADR-0208).
 
-The caller owns the subscription and controls each stored VM's construct,
-destruct, and dispose operations. Membership retains an item as an ordinary
-Rust value but does not transfer lifecycle ownership.
+The caller owns the subscription. Membership retains an item as an ordinary
+Rust value but does not transfer lifecycle ownership. The
+[Serviced Mutation Contract](../primitives/builders-collections-tree-utilities.md#677-serviced-mutation-contract)
+gives the shared rules for no-op cases, delivery order, and item ownership.
 
 `KeyedServicedObservableCollection<K,T>` adds captured-key access while
 preserving that ordered surface. Rust keeps positional `get(usize)` and names
@@ -194,13 +213,9 @@ Without an external hub, construct it with `new(owner_id, key_of)`.
 `contains_key` tests membership. Keys require `Eq + Hash + Send`, not `Clone`.
 Projector and duplicate-key failures are atomic `VmxResult` failures.
 
-Captured keys do not follow mutable item properties. Indexed `replace` or
-remove-then-push rekeys explicitly, and a same mutated instance can occupy two
-memberships. Lookup and target discovery are expected O(1), push is amortized
-O(1), and ordered middle shifts remain O(n). Local delivery precedes optional
-hub publication; a hub transaction defers only external delivery. The keyed
-type has no batch or VM lifecycle interface and never owns stored-item
-lifecycle.
+The
+[Keyed Serviced Mutation Contract](../primitives/builders-collections-tree-utilities.md#678-keyed-serviced-mutation-contract)
+gives the shared rules for captured keys, costs, and hub delivery.
 
 ## 7.6.6. Imperative Engine Bridge
 
@@ -229,11 +244,10 @@ let exposure_subscription: Subscription = hub.subscribe_value(
 exposure_subscription.dispose();
 ```
 
-The callback receives `(current, previous)` by value; immediate delivery uses
-the initial value for both. The selector reevaluates after every property
-message carrying this fixed sender ID rather than on every render frame. The
-host adapter owns the subscription; VMx does not attach it to the observed VM's
-lifetime.
+The callback receives `(current, previous)` by value. The selector reevaluates
+after every property message that carries this fixed sender ID. The
+[Imperative Selected-State Bridge](../primitives/services-messages-dispatching.md#666-imperative-selected-state-bridge)
+gives the shared callback and ownership rules.
 
 ### 7.6.6.1. Nested Command Execution
 
@@ -246,12 +260,14 @@ component, CRUD, notification, and async-resource commands, run the nested
 call inline.
 
 A command built from a user `FnMut` action (`RelayCommand::new` or the
-builder's `action`) cannot run that action while it is already running, so an
-admitted nested call on the same thread is deferred: it runs after the current
-action returns and before the outermost `execute` returns, in the order inline
-recursion would give. A call from another thread waits for the running action.
-A deferred call does not run once the command is disposed, and a panicking
-action drops the calls deferred during it.
+builder's `action`) cannot run that action while it is already running. Thus
+VMx defers an admitted nested call on the same thread. The deferred call runs
+after the current action returns and before the outermost `execute` returns,
+in the order that inline recursion would give.
+
+A call from another thread waits for the running action. A deferred call does
+not run once the command is disposed, and a panicking action drops the calls
+deferred during it.
 
 ## 7.6.7. Local Use
 

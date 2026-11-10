@@ -33,7 +33,7 @@ def _checked_fences(guide: str, heading: str, language: str) -> list[str]:
 
 
 def test_wpf_guide_holds_the_shared_xaml_adapter_and_its_usage() -> None:
-    assert _checked_fences("wpf.md", "## 9.3.3. XAML adapter", "csharp") == [
+    assert _checked_fences("wpf.md", "## 9.3.3. XAML Adapter", "csharp") == [
         XAML_ADAPTER,
         "examples/csharp/wpf/RecipeHostCheck/Program.cs#wpf-create-adapter",
     ]
@@ -44,13 +44,13 @@ def test_wpf_guide_holds_the_shared_xaml_adapter_and_its_usage() -> None:
     [
         (
             "avalonia.md",
-            "## 9.2.3. Adapter skeleton",
+            "## 9.2.3. Adapter Skeleton",
             "examples/csharp/avalonia/NotesShowcase.Tests/Views/AvaloniaRecipeTests.cs"
             "#avalonia-create-adapter",
         ),
         (
             "maui.md",
-            "## 9.4.3. Adapter skeleton",
+            "## 9.4.3. Adapter Skeleton",
             "langs/csharp/tests/VMx.Tests/Integration/XamlRecipeTests.cs#maui-binding-context",
         ),
     ],
@@ -63,7 +63,7 @@ def test_other_xaml_guides_check_their_usage_and_link_the_shared_adapter(
 
 
 def test_textual_recipe_is_checked_against_the_executed_widget() -> None:
-    assert _checked_fences("textual.md", "## 9.5.3. Adapter skeleton", "python") == [TEXTUAL_WIDGET]
+    assert _checked_fences("textual.md", "## 9.5.3. Adapter Skeleton", "python") == [TEXTUAL_WIDGET]
 
 
 def test_textual_grid_recipe_is_checked_against_the_executed_grid() -> None:
@@ -85,12 +85,12 @@ def test_ci_runs_the_xaml_adapter_on_a_wpf_dispatcher() -> None:
 
 
 def test_nicegui_recipe_is_checked_against_the_executed_example() -> None:
-    assert _checked_fences("nicegui.md", "## 9.6.3. Adapter skeleton", "python") == [
+    assert _checked_fences("nicegui.md", "## 9.6.3. Adapter Skeleton", "python") == [
         f"{NICEGUI}/adapter/delivery.py#nicegui-delivery",
         f"{NICEGUI}/adapter/binding.py#nicegui-bind-property",
         f"{NICEGUI}/adapter/binding.py#nicegui-release",
     ]
-    assert _checked_fences("nicegui.md", "## 9.6.4. Host lifetime", "python") == [
+    assert _checked_fences("nicegui.md", "## 9.6.4. Host Lifetime", "python") == [
         f"{NICEGUI}/host.py#nicegui-host"
     ]
     assert _checked_fences("nicegui.md", "## 9.6.5. Page", "python") == [

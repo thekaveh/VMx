@@ -3,7 +3,7 @@
 Wire a `ComponentVM<M>` to a .NET MAUI page (desktop and mobile XAML) through
 the same `INotifyPropertyChanged` adapter as WPF.
 
-## 9.4.1. Reactivity primitive
+## 9.4.1. Reactivity Primitive
 
 MAUI binds through `INotifyPropertyChanged` and `ICommand`, as WPF does. The
 shared rules are in [WPF: Reactivity primitive](wpf.md#931-reactivity-primitive).
@@ -18,7 +18,7 @@ The [shared XAML mapping](wpf.md#932-mapping) applies. MAUI adds these rows:
 | `MainThread.BeginInvokeOnMainThread` | `SynchronizationContextScheduler` created on the UI thread (`host`) |
 | page `BindingContext`                | the `BindableVm<M>` adapter                                         |
 
-## 9.4.3. Adapter skeleton
+## 9.4.3. Adapter Skeleton
 
 MAUI uses the [XAML adapter](wpf.md#933-xaml-adapter) `BindableVm<M>`
 unchanged, with the same four rules. `XamlRecipeTests.cs` executes the adapter
@@ -35,7 +35,7 @@ BindingContext = new BindableVm<Note>(
     vm, new SynchronizationContextScheduler(SynchronizationContext.Current!));
 ```
 
-## 9.4.4. Fuller example
+## 9.4.4. Fuller Example
 
 There is no MAUI Notes-Showcase. For copyable starting points, see the WPF
 TodoApp in [wpf.md](wpf.md) and the Avalonia flagship in

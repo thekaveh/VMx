@@ -77,3 +77,14 @@ def test_wiki_workflow_runs_full_docs_gate_before_publication() -> None:
     docs_gate = workflow.index("run: make docs-check")
     publish = workflow.index("name: Publish wiki")
     assert docs_gate < publish
+
+
+def test_wiki_workflow_grants_write_only_to_the_publish_job() -> None:
+    workflow = _WORKFLOW.read_text(encoding="utf-8")
+    build, publish = workflow.split("\n  publish:\n", maxsplit=1)
+
+    assert "contents: write" not in build
+    assert "make docs-check" in build
+    assert "pip install" not in publish
+    assert publish.count("contents: write") == 1
+    assert workflow.count("persist-credentials: false") == workflow.count("actions/checkout@")

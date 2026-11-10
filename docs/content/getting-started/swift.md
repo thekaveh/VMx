@@ -32,12 +32,12 @@ Dispatch and has no third-party dependencies.
 
 ______________________________________________________________________
 
-## 3.5.2. Wire up `MessageHub` and a `Dispatcher`
+## 3.5.2. Wire Up `MessageHub` And A `Dispatcher`
 
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your scheduler pair.
 
-### 3.5.2.1. Option A — immediate (test suites / synchronous scripts)
+### 3.5.2.1. Option A — Immediate (Test Suites / Synchronous Scripts)
 
 ```swift
 import VMx
@@ -48,7 +48,7 @@ let dispatcher = ImmediateDispatcher.INSTANCE
 // Safe for XCTest suites with no async event loop.
 ```
 
-### 3.5.2.2. Option B — default (SwiftUI / UIKit / AppKit apps)
+### 3.5.2.2. Option B — Default (SwiftUI / UIKit / AppKit Apps)
 
 ```swift
 import VMx
@@ -61,7 +61,7 @@ let dispatcher = DefaultDispatcher()
 
 ______________________________________________________________________
 
-## 3.5.3. Build a `ComponentVMOf<UserModel>`
+## 3.5.3. Build A `ComponentVMOf<UserModel>`
 
 `ComponentVMOf<M>` is the primary leaf viewmodel. It holds a typed model,
 fires `PropertyChangedMessage` on the hub when the model changes, and
@@ -107,7 +107,7 @@ print(userVM.isConstructed) // true
 
 ______________________________________________________________________
 
-## 3.5.4. Build a `RelayCommand`
+## 3.5.4. Build A `RelayCommand`
 
 `RelayCommand` wraps an optional `task` closure (the execute body), an
 optional `predicate` (the `canExecute` test), and Combine `Publisher`
@@ -149,7 +149,7 @@ saveCommand.dispose()
 
 ______________________________________________________________________
 
-## 3.5.5. Build a `CompositeVM<TabVM>`
+## 3.5.5. Build A `CompositeVM<TabVM>`
 
 `CompositeVM<VM>` owns an ordered child collection and a `current`
 selection slot. Children are provided by a factory that runs on the first
@@ -199,7 +199,7 @@ print((0..<tabs.count).compactMap { tabs.at($0).name })  // ["home-tab", "settin
 
 ______________________________________________________________________
 
-## 3.5.6. Lifecycle and cleanup
+## 3.5.6. Lifecycle And Cleanup
 
 Every VM has five lifecycle states. Four of them form a reversible cycle,
 `destructed → constructing → constructed → destructing → destructed`. The fifth
@@ -240,8 +240,8 @@ transaction (ADR-0173). A builder throws `BuilderValidationError` from `build()`
 required field is missing.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
-> full lifecycle contract (`LIFE-001..022`),
-> including the transition table and admitted-hook/disposal coordination.
+> transition table, the error of a refused operation, and the callback
+> ordering.
 
 ______________________________________________________________________
 
@@ -314,7 +314,7 @@ hub.dispose()
 
 ______________________________________________________________________
 
-## 3.5.8. Where to go next
+## 3.5.8. Where To Go Next
 
 | Resource             | Documentation page                                                                             |
 | -------------------- | ---------------------------------------------------------------------------------------------- |
