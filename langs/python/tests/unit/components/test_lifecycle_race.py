@@ -542,7 +542,7 @@ def test_cycle_deferred_disposal_failure_is_raised_from_hook_thread_construct() 
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=2 * HANG_GUARD)
+        join_thread(thread, 2 * HANG_GUARD)
 
     assert all(not thread.is_alive() for thread in threads)
     reported = [str(error) for name in ("a", "b") for error in caught[name]]

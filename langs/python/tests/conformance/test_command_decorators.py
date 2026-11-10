@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 from reactivex import Subject
 
-from tests.liveness import HANG_GUARD, join_thread
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.commands import (
     CompositeCommand,
     ConfirmationDecoratorCommand,
@@ -640,5 +640,5 @@ def test_CMDD_018_execute_off_a_loop_runs_the_inner_after_it_returns() -> None:
 
     _execute_marked(decorator, mark)
 
-    assert ran.wait(HANG_GUARD)
+    assert wait_event(ran, HANG_GUARD)
     assert seen == [False], "the inner ran once, outside the execute() call"

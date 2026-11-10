@@ -29,7 +29,7 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from tests.conformance.fixtures.loader import load
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, wait_event
 from vmx.commands.async_relay_command import AsyncRelayCommand
 from vmx.commands.relay_command import RelayCommand, RelayCommandOf
 
@@ -450,7 +450,7 @@ def test_CMD_020_fault_reaches_errors_after_completion_off_a_loop() -> None:
 
     cmd.execute()
 
-    assert failed.wait(HANG_GUARD)
+    assert wait_event(failed, HANG_GUARD)
     assert log == ["change", "change", ("error", boom, False)]
     cmd.dispose()
 

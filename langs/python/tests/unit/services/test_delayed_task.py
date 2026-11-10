@@ -10,6 +10,7 @@ from reactivex.internal.exceptions import WouldBlockException
 from reactivex.scheduler import ImmediateScheduler, TimeoutScheduler
 from reactivex.testing import TestScheduler
 
+from tests.liveness import wait_event
 from vmx.services import DelayedTask
 
 
@@ -67,7 +68,7 @@ def test_real_time_polling_reschedules_from_inside_the_action() -> None:
 
     task.schedule(0.01, poll)
     try:
-        assert done.wait(5.0), "the polling loop did not finish"
+        assert wait_event(done, 5.0), "the polling loop did not finish"
         assert len(runs) == 3
         assert task.is_pending is False
     finally:

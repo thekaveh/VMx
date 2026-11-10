@@ -71,6 +71,18 @@ slot fails. Consumers must explicitly remove a component from a mutable parent
 before supplying it to an aggregate; a component cannot be transferred out of
 an existing aggregate because doing so would leave an invalid empty slot.
 
+A population fails before its commit when a slot factory throws or when the
+reservation or ownership preflight refuses it. The failed population disposes
+each candidate that it built and that nobody owns (ADR-0224). It skips a
+candidate that has a parent, a candidate that another ownership transaction
+holds, and a candidate that is an owner on the aggregate's ancestor chain. It
+disposes each canonical ownership identity once. The cleanup is best-effort:
+a disposal failure does not replace the population's failure, which
+propagates. Swift factories cannot throw, so Swift applies the rule to a
+refused preflight only. Rust does not dispose the fresh lazy-slot candidates of
+a refused preflight yet, and an eager Rust slot keeps its existing value; the
+Rust parity status records the gap.
+
 ## 3. Destruction
 
 `destruct()`:
@@ -104,11 +116,12 @@ implementations drive the slots sequentially.
    its terminal slot snapshot.
 
 A factory/preflight failure occurs before cleanup and therefore preserves the
-existing slots and parent links exactly. Cleanup failures do not roll back
-already-disposed previous slots; candidate commit is the stable recoverable
-state unless terminal disposal won. This contract is flavor-neutral even where
-the disposal surface cannot throw: such flavors still perform the same cleanup
-and commit-or-terminal-abort steps.
+existing slots and parent links exactly. The failed population disposes its
+unowned candidates under the §2 rule (ADR-0224), and no candidate commits.
+Cleanup failures do not roll back already-disposed previous slots; candidate
+commit is the stable recoverable state unless terminal disposal won. This
+contract is flavor-neutral even where the disposal surface cannot throw: such
+flavors still perform the same cleanup and commit-or-terminal-abort steps.
 
 ## 5. Disposal
 

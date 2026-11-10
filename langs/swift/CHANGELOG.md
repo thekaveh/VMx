@@ -39,8 +39,9 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   `fromSources` still trap; the ADR-0009 section "Swift traps that remain"
   lists the remaining Swift traps.
 - `NotificationVM` and `ConfirmationVM` accept any `NotificationScheduler`,
-  so an app can drive them in real time (#1347, spec/16 §6). The new public
-  protocol refines the Combine `Scheduler` with `seconds(from:to:)`. VMx
+  so an app can drive them in real time (#1347, ADR-0225, spec/16 §6). The
+  new public protocol refines the Combine `Scheduler` with `seconds(from:to:)`.
+  VMx
   conforms `VirtualTimeScheduler`, `DispatchQueue`, `RunLoop` and
   `OperationQueue`. The lifespan and decay-tick timers run on the injected
   scheduler, and the VMs have no lock, so pass a serial scheduler on the
@@ -198,8 +199,8 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   overrides `init(notification:hub:scheduler:lifespan:tickInterval:)` with a
   `VirtualTimeScheduler` parameter. Such an override no longer compiles, and it
   must be declared generic over `NotificationScheduler`. Callers that only
-  construct the VMs are not affected. An ADR for #1347 still has to record this
-  decision and its version consequence.
+  construct the VMs are not affected. ADR-0225 records this decision and its
+  version consequence: the change ships in this major release.
 
 ### Fixed
 
@@ -217,6 +218,12 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   §6, #1326). Before, later sibling starts, the `Current` change and consumer
   callbacks ran on the dispatcher of the child that settled last. A walk whose
   children settle at once still finishes on the caller.
+
+- A walk that waited now always commits on the container's foreground
+  dispatcher (ADR-0218 rule 3, #1557). Before, a resumed walk could end before
+  `construct()` or `destruct()` registered its commit step. The commit step and
+  the terminal `Constructed` or `Destructed` publication then ran on the
+  caller. C# and Python already schedule this step on the foreground.
 
 - An add now ends its start attempt after it ends its membership transaction
   (ADR-0218, spec/06 §5.1, #1371). A container that a late add resumes

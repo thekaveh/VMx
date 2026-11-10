@@ -13,6 +13,7 @@ import threading
 from collections.abc import Iterable
 from typing import Any
 
+from tests.liveness import join_thread
 from vmx import ComponentVM, ForwardingComponentVM
 from vmx.components.builders import ComponentVMBuilder
 from vmx.composites.builders import CompositeVMBuilder
@@ -120,7 +121,7 @@ def test_selection_from_another_thread_during_the_destruct_walk_changes_nothing(
 
         worker = threading.Thread(target=run)
         worker.start()
-        worker.join(timeout=10)
+        join_thread(worker, 10)
         assert not worker.is_alive()
 
     a = ComponentVMBuilder().name("a").services(hub, dispatcher).build()

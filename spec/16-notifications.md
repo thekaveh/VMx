@@ -197,6 +197,13 @@ scheduler of each flavor. The VM reads the elapsed time from the scheduler's
 in `with_scheduler`, and its `new` and `with_hub` conveniences use
 `SystemScheduler`. A Rust test advances a `VirtualTimeScheduler` (ADR-0219).
 
+Swift takes any `NotificationScheduler`, a Combine `Scheduler` that also
+converts the interval between two of its instants to seconds. VMx conforms
+`VirtualTimeScheduler`, `DispatchQueue`, `RunLoop`, and `OperationQueue`. The
+Swift VM keeps no lock and runs its timers on the injected scheduler, so the
+caller passes a serial scheduler on the thread that uses the VM, such as
+`DispatchQueue.main` (ADR-0225).
+
 A VM released without `Dispose()` can still auto-dismiss in C#, Python and
 TypeScript, because the scheduler holds its timer. In Swift and Rust the timer
 holds the VM weakly. Releasing every reference cancels auto-dismiss, and the

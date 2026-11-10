@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
 from vmx.composites.builders import CompositeVMBuilder
@@ -91,7 +91,7 @@ class _Scene:
             if hold is not None:
                 entered, release = hold
                 entered.set()
-                assert release.wait(HANG_GUARD), "the test releases the hook"
+                assert wait_event(release, HANG_GUARD), "the test releases the hook"
             if fails:
                 raise RuntimeError(f"{name} hook failed")
 
@@ -189,12 +189,12 @@ def _late_child_whose_add_fails_is_undone(kind: str) -> None:
     adder = threading.Thread(target=add, daemon=True)
     adder.start()
     try:
-        assert entered.wait(HANG_GUARD), "the add starts the late child"
+        assert wait_event(entered, HANG_GUARD), "the add starts the late child"
         scene.bg.run(0)  # the anchor settles; the walk waits on the add's attempt
         assert scene.root.status is S.CONSTRUCTING, "the walk waits on the add"
     finally:
         release.set()  # the late child's hook fails now
-        adder.join(HANG_GUARD)
+        join_thread(adder, HANG_GUARD)
     assert not adder.is_alive(), "the failed add completes"
     scene.bg.run_all()
 
