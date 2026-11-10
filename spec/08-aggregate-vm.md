@@ -163,6 +163,11 @@ of each ID.
 | `AGG-007`            | §4 reconstruction transactions (ADR-0125)  |
 | `DISP-001`           | §5 repeated aggregate disposal             |
 
+Focused aggregate regression tests in all five flavors cover factory
+preflight rollback, candidate commit, and concurrent terminal abort. Throwing
+and result-based flavors also cover first-error propagation. Swift's disposal
+surface is intentionally nonthrowing.
+
 Swift slot factories (`() -> C`) cannot throw, so the factory-failure branch
-of §4 does not occur in Swift. In Swift, `AGG-007` exercises the preflight
-failure, which behaves as in the other flavors.
+of §4 does not occur in Swift. Preflight failures behave as in the other
+flavors, and §2 applies the candidate cleanup to them.

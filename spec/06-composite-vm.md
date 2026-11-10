@@ -338,8 +338,8 @@ Add, insert, replacement, and factory or bulk population MUST recheck
 destination viability after successful construction hooks. Destination
 disposal at that point rejects admission and performs the same exact rollback.
 Replacement rollback identifies the candidate by identity. It restores the
-displaced child before deferred disposal can take a terminal snapshot, and it
-MUST NOT mutate an unrelated member merely because the original index changed
+displaced child before deferred disposal can take a terminal snapshot. It MUST
+NOT mutate an unrelated member merely because the original index changed
 (ADR-0118).
 
 The selection rules of §4.3 keep `Current` out of the rollback: the owner

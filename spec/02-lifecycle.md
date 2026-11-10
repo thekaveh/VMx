@@ -601,7 +601,8 @@ of each ID.
 
 | IDs                                            | Rules                                                      |
 | ---------------------------------------------- | ---------------------------------------------------------- |
-| `LIFE-001`..`LIFE-004`                         | §2 operations                                              |
+| `LIFE-001`, `LIFE-002`, `LIFE-004`             | §2 operations                                              |
+| `LIFE-003`                                     | §5 reconstruct                                             |
 | `LIFE-005`..`LIFE-007`                         | §3 invariants                                              |
 | `LIFE-008`                                     | §2.4 concurrency guard                                     |
 | `LIFE-009`, `LIFE-010`, `LIFE-012`             | §4 idempotency                                             |

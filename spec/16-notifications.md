@@ -206,8 +206,10 @@ system scheduler; tests pass a `TestScheduler` / fake clock for deterministic
 time advancement. Chapter 11 §6.1 lists the scheduler and the virtual-time test
 scheduler of each flavor. The VM reads the elapsed time from the scheduler's
 `now` and arms its lifespan timer on that scheduler. Rust takes the scheduler
-in `with_scheduler`, and its `new` and `with_hub` conveniences use
-`SystemScheduler`. A Rust test advances a `VirtualTimeScheduler` (ADR-0219).
+in `with_scheduler(notification, hub, scheduler, lifespan_ms)`. Its
+`with_hub(notification, hub, lifespan_ms)` and `new(notification)`
+conveniences use `SystemScheduler`. A Rust test advances a
+`VirtualTimeScheduler` (ADR-0219).
 
 Swift takes any `NotificationScheduler`, a Combine `Scheduler` that also
 converts the interval between two of its instants to seconds. VMx conforms
@@ -364,5 +366,5 @@ of each ID.
 | `NOTIF-018`                                        | §6.2 commands during disposal (ADR-0196)                |
 | `NOTIF-019`                                        | §6 render state after resolution or disposal (ADR-0197) |
 | `NOTIF-020`                                        | §2.3 a `Pending` subscription after dispose (ADR-0197)  |
-| `DISP-003`                                         | §2.4 concurrent and re-entrant hub disposal             |
+| `DISP-003`                                         | §2.4 hub disposal                                       |
 | `DISP-004`                                         | §6 and §7 repeated rendering-VM disposal                |
