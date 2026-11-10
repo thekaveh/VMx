@@ -1,8 +1,11 @@
 # VMx Rust Examples
 
 Demos for the [VMx Rust crate](../../langs/rust/).
-Generated architecture diagrams for all examples live in
-[`../DIAGRAMS.md`](../DIAGRAMS.md).
+The [Example Diagram Gallery](../../docs/content/examples/example-diagram-gallery.md)
+collects the generated architecture diagrams for all examples.
+
+Prerequisite: Rust 1.88 or later, the `rust-version` that both example
+crates declare.
 
 ## 1. Example 1 — `console/hello-vmx`
 

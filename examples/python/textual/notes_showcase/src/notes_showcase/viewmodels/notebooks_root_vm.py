@@ -9,8 +9,10 @@ supports
 surface the plan assumed). Instead we own a flat
 :class:`~vmx.ObservableList` of :class:`NotebookVM` instances, exposing
 ``roots`` / ``children_of`` walks for the view, and publish a
-:class:`vmx.TreeStructureChangedMessage` on every add/remove so subscribers
-observe structural changes identically to the HierarchicalVM contract.
+:class:`vmx.TreeStructureChangedMessage` with the ``ADDED`` kind when a
+notebook is added or the tree is populated, so subscribers observe structural
+changes as they do under the HierarchicalVM contract. The showcase never
+removes a notebook.
 """
 
 from __future__ import annotations

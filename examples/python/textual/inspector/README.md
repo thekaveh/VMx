@@ -10,25 +10,30 @@ Architecture diagram:
 ## 1. What it does
 
 The inspector renders a live VMx hierarchy and lets you drive lifecycle operations
-from the keyboard:
+from the keyboard. This abbreviated sketch shows the sample tree after a
+reconstruct of the root node. The real message log shows more rows and the
+full message type names.
 
-```
-┌─────────────────────┬──────────────────────────────┐
-│  VM Tree            │  Node Details                │
-│                     │  ─────────────               │
-│  ▼ app              │  name:           app         │
-│    header           │  type:           Composite   │
-│  ▼ workspace        │  status:         Constructed │
-│      editor         │  is_constructed: True        │
-│      terminal       │  is_current:     False       │
-│      inspector      │  parent:         —           │
-│  ▼ sidebar          ├──────────────────────────────┤
-│      files          │  Hub messages                │
-│      git            │  ts         sender  type     │
-│      search         │  12:34:05   app     Construct│
-│                     │  …                           │
-└─────────────────────┴──────────────────────────────┘
- q quit  c construct  d destruct  r reconstruct  x dispose  s select  ? help
+```text
+┌───────────────────────────────┬──────────────────────────────────────────┐
+│ VM Tree                       │ Node Details                             │
+│                               │                                          │
+│ ▼ app                         │ name:           app                      │
+│     header                    │ type:           Composite                │
+│   ▼ workspace                 │ status:         CONSTRUCTED              │
+│       editor                  │ is_constructed: True                     │
+│       terminal                │ is_current:     False                    │
+│       inspector               │ parent:         —                        │
+│   ▼ state-lab                 ├──────────────────────────────────────────┤
+│       form-vm                 │ Hub Messages                             │
+│       discriminator-vm        │ Time      Sender  Type       Detail      │
+│       token-paged-composition │ 12:34:05  app     Construc…  DESTRUCTING │
+│   ▼ sidebar                   │ …                                        │
+│       files                   │ 12:34:05  app     Construc…  CONSTRUCTED │
+│       git                     │                                          │
+│       search                  │                                          │
+└───────────────────────────────┴──────────────────────────────────────────┘
+ q Quit  c Construct  d Destruct  r Reconstruct  x Dispose  s Select  ? Help
 ```
 
 The left pane shows the VM tree (built with `walk(root)` from `vmx.tree`).  
