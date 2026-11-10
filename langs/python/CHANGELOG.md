@@ -14,6 +14,9 @@ below for them.
 
 ### Added
 
+- `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
+  `construct()` or `reconstruct()` disposes the fresh candidate and keeps the
+  owned candidate's status and parent. Python already behaved this way.
 - `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
   ADR-0222). They cover the #1367, #1430, #1352 and #1459 changes under
   Changed and Fixed.
@@ -33,8 +36,8 @@ below for them.
   (#1346, ADR-0049, spec/04 §4.2). The helper wires it as a trigger on the
   Update and Delete commands, so their `can_execute_changed` fires when the
   selection changes. `dispose()` releases the trigger subscriptions. A helper
-  built without the trigger behaves as before. Spec/06 §7 still says this
-  helper accepts no trigger. Its update needs an ADR and is tracked in #1346.
+  built without the trigger behaves as before. Spec/06 §7 now lists all five
+  flavors as accepting the trigger.
 - `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
   and `find` report invalid children-factory output as a recoverable error,
   assign no parent and retry the factory on the next walk; `find` returns a

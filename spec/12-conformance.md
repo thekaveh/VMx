@@ -1094,6 +1094,27 @@ one stable slot snapshot
 
 (Clarified in spec 3.22.0 per ADR-0125.)
 
+### AGG-008 — A refused fixed-slot population disposes its unowned candidates
+
+**Given** a fixed-slot `AggregateVM2` whose first factory returns a fresh
+component and whose second factory returns a component that a constructed
+composite owns
+**When** `construct()` is called
+**Then** the ownership preflight refuses the population and its failure
+propagates
+**And** the fresh candidate is `Disposed`
+**And** the owned component keeps its `Constructed` status and its parent, and
+the composite still holds it
+**And** both slots stay empty
+**And** given a constructed aggregate whose replacement factories return a
+fresh first candidate and the owned component
+**When** `reconstruct()` is called
+**Then** the preflight failure propagates, the old slots and parent links stay
+unchanged, the fresh candidate is `Disposed`, and the owned component keeps
+its status and parent
+
+(Added in spec 3.30.0 per ADR-0224 and ADR-0226.)
+
 ______________________________________________________________________
 
 ## 11. Forwarding (`FWD-NNN`)

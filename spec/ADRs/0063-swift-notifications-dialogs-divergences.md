@@ -1,6 +1,6 @@
 # ADR 0063 — Swift Phase-3 Inc-5 forced divergences (notifications / dialogs: NOTIF / DIA)
 
-**Status:** Accepted (2026-06-30)
+**Status:** Accepted (2026-06-30; §2.4 amended by ADR-0225)
 **Spec version:** 3.0.0 (subset — Phase 3, Increment 5)
 **Relates-to:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
 language), [ADR-0009](0009-cross-flavor-divergence-catalogue.md) (cross-flavor
@@ -207,6 +207,13 @@ on the caller, and Combine sinks fire on the same thread — so the four entry
 points cannot interleave. (The `NSLock` mentioned elsewhere in this ADR belongs
 to `NotificationHub`, not `NotificationVM`.)
 
+> **Amended by ADR-0225.** `NotificationVM` and `ConfirmationVM` now accept any
+> `NotificationScheduler`, not only `VirtualTimeScheduler`. A real-time
+> scheduler such as `DispatchQueue.main` runs the timer work on its own thread,
+> not on the caller of `advance`. The VM still keeps no lock, so the caller
+> passes a serial scheduler on the thread that uses the VM. The four entry
+> points then run on that one thread and still cannot interleave.
+
 **`ConfirmationVM` never arms the expiry timer:** `NotificationVM.armsExpiryTimer()`
 is an `open` method (default `true`). `ConfirmationVM` overrides it to return
 `false`. The override is called via dynamic dispatch during `super.init`, so no
@@ -217,6 +224,7 @@ also overridden to a no-op for completeness.
 in Swift" must consult ADR-0061 §2.7 and this ADR §2.4 before importing a
 third-party scheduler. `VirtualTimeScheduler` is the single hand-rolled
 scheduler for both threading (Inc-3) and notification-timer (Inc-5) tests.
+Apps pass a real-time `NotificationScheduler` instead (ADR-0225).
 Future passes that see `schedule(at:)` (not `schedule(after:)`) in VM code
 must not rename it — the `at:` label is deliberate (Combine extension collision
 avoidance, documented above).

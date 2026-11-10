@@ -316,6 +316,26 @@ def test_compatibility_matrix_has_no_history_ledger() -> None:
     assert "+50 leaf-area" not in matrix
 
 
+HISTORY_CATALOG_COUNT = re.compile(r"\b(\d+)\s+library\s+IDs\s+plus\s+5\s+scenario\s+IDs\b")
+
+
+def test_spec_history_release_sections_state_one_catalog_count() -> None:
+    # Issue #1478: per-change paragraphs each stated their own catalog count,
+    # so a release section gave a reader several conflicting counts.
+    history = (ROOT / "spec/HISTORY.md").read_text(encoding="utf-8")
+    sections = re.split(r"(?m)^(?=## )", history)
+
+    for section in sections:
+        counts = HISTORY_CATALOG_COUNT.findall(section)
+        assert len(counts) <= 1, f"{section.splitlines()[0]} states {counts}"
+
+
+def test_history_catalog_count_pattern_matches_wrapped_counts() -> None:
+    assert HISTORY_CATALOG_COUNT.findall(
+        "brings the catalog to 495 library IDs plus 5\nscenario IDs."
+    ) == ["495"]
+
+
 def test_swift_readme_summarizes_current_conformance_without_history_ledger() -> None:
     readme = (ROOT / "langs/swift/README.md").read_text(encoding="utf-8")
     status = readme.split("## 1. Status", maxsplit=1)[1].split("## 2. Install", maxsplit=1)[0]

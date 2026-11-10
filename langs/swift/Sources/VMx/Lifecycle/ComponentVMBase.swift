@@ -447,10 +447,21 @@ public enum ViewModelType: String, Sendable {
 }
 
 /// One-shot completion of a lifecycle hook deferred by `_transitionChildren`.
+///
+/// A deferral exists only for a walk that waited, so its callback is the
+/// commit step of that walk. A callback registered before the settle runs on
+/// the settling thread, which is the walking VM's foreground. A callback
+/// registered after the settle runs through `resume`, on that same
+/// foreground, and never on the registering caller (ADR-0218 rule 3).
 final class LifecycleDeferral {
     private let lock = NSLock()
     private var result: Bool?
     private var callback: ((Bool) -> Void)?
+    private let resume: (@escaping () -> Void) -> Void
+
+    init(resume: @escaping (@escaping () -> Void) -> Void = { $0() }) {
+        self.resume = resume
+    }
 
     func settle(_ succeeded: Bool) {
         lock.lock()
@@ -469,7 +480,9 @@ final class LifecycleDeferral {
         lock.lock()
         if let result {
             lock.unlock()
-            callback(result)
+            // The resumed walk already ended on the foreground: the commit
+            // step runs there too (#1557).
+            resume { callback(result) }
             return
         }
         self.callback = callback
@@ -587,7 +600,7 @@ final class ChildTransitionWalker {
     /// Runs a resumed walk on the walking VM's foreground dispatcher
     /// (spec/02 §6, ADR-0218 rule 3).
     private let resume: (@escaping () -> Void) -> Void
-    private var currentDeferral = LifecycleDeferral()
+    private var currentDeferral: LifecycleDeferral
     /// Settled when the walk finishes; a seal that joins another late child
     /// replaces it with a fresh one (`seal()`).
     var deferral: LifecycleDeferral { lock.withLock { currentDeferral } }
@@ -605,6 +618,7 @@ final class ChildTransitionWalker {
     ) {
         self.beforeStart = beforeStart
         self.resume = resume
+        self.currentDeferral = LifecycleDeferral(resume: resume)
         self.children = children
         self.after = after
         self.joined = Set(joined.map(ObjectIdentifier.init))
@@ -685,7 +699,7 @@ final class ChildTransitionWalker {
                 late = child
                 record = start
             }
-            let fresh = LifecycleDeferral()
+            let fresh = LifecycleDeferral(resume: resume)
             lock.lock()
             if cancelled {
                 lock.unlock()
