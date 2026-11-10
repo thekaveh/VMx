@@ -70,11 +70,18 @@ final class TestCaseHangGuard: NSObject, XCTestObservation, @unchecked Sendable 
 }
 
 /// XCTest builds every class's default suite before the first case runs, so
-/// the guard is in place for the whole run.
+/// the guard is in place for the whole run. A run of selected tests, such as a
+/// `swift test --parallel` worker, may skip `defaultTestSuite`; the class
+/// `setUp` installs the guard before this class's first case starts.
 final class TestCaseHangGuardTests: XCTestCase {
     override class var defaultTestSuite: XCTestSuite {
         TestCaseHangGuard.install()
         return super.defaultTestSuite
+    }
+
+    override class func setUp() {
+        TestCaseHangGuard.install()
+        super.setUp()
     }
 
     func testTheGuardSawThisCaseStart() {
