@@ -62,10 +62,17 @@ the tarball's name and version against the tag, and publishes that tarball.
 If npm accepts a broken version, fix forward with a patch; never move or reuse
 the tag/version.
 
-If a release fails before npm accepts the package, the tag still stays
-immutable. Do not rerun that tag's workflow: a rerun uses the `release.yml` of
-the tag commit, so it cannot pick up a fix. Ship the fix as the next patch
-version with a new tag.
+If a release fails before npm accepts the package, keep the tag where it is.
+A rerun uses the `release.yml` of the tag commit, so it cannot pick up a fix.
+If the failure needs a code or workflow fix, ship the fix as the next patch
+version with a new tag. Rerun the failed job only for a transient failure or a
+corrected external setting, such as the trusted publisher.
+
+The `react-v0.1.2` release failed with `E404`. Its `release.yml` runs a full
+`npm audit`, which now fails on dev-only advisories, so a rerun cannot publish
+0.1.2. Its fixes ship as 0.1.3.
+[#1039](https://github.com/thekaveh/VMx/issues/1039) tracks the documentation
+update after npm serves the adapter.
 
 ## 4. Recover missing GitHub Release metadata
 
