@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread
 from vmx.dialogs import ModalVM
 
 
@@ -37,7 +37,7 @@ def test_worker_thread_dismiss_wakes_a_waiter_without_other_loop_activity(
             result = await asyncio.wait_for(modal.wait_result(), timeout=HANG_GUARD)
             return result, time.monotonic()
         finally:
-            thread.join(timeout=HANG_GUARD)
+            join_thread(thread, HANG_GUARD)
 
     result, returned_at = asyncio.run(main(), debug=debug)
 
@@ -64,7 +64,7 @@ def test_racing_dismiss_calls_keep_the_first_result() -> None:
         for thread in threads:
             thread.start()
         for thread in threads:
-            thread.join(timeout=HANG_GUARD)
+            join_thread(thread, HANG_GUARD)
         return await asyncio.wait_for(waiter, timeout=HANG_GUARD)
 
     awaited = asyncio.run(main())
