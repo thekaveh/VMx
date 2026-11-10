@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
+  `construct()` or `reconstruct()` disposes the fresh candidate and keeps the
+  owned candidate's status and parent. TypeScript already behaved this way.
 - `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
   ADR-0222). `FWD-006` covers the #1352 fix below. TypeScript already met
   `COL-072` and `CMDD-019`: rxjs reports a failing collection subscriber and
@@ -31,8 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (#1346, ADR-0049, spec/04 §4.2). The helper wires it as a trigger on the
   Update and Delete commands, so their `canExecuteChanged` fires when the
   selection changes. `dispose()` releases the trigger subscriptions. A helper
-  built without the trigger behaves as before. Spec/06 §7 still says this
-  helper accepts no trigger. Its update needs an ADR and is tracked in #1346.
+  built without the trigger behaves as before. Spec/06 §7 now lists all five
+  flavors as accepting the trigger.
 - `ForwardingCompositeVM` extends `ComponentVMBase`, so `CompositeVM.add` and
   `GroupVM.add` accept it (#1272, ADR-0213). It shares the ownership identity
   of the wrapped composite: adding it removes the wrapped composite from its

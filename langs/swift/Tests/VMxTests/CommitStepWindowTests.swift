@@ -7,7 +7,7 @@
 // follows the add-after-Constructed rule. A walk abandoned before the commit
 // step commits nothing. Both tests use the test-only late-child probe.
 //
-// NOTE: `swift test` needs full Xcode (XCTest); CI runs it on macos-latest.
+// NOTE: `swift test` needs full Xcode (XCTest); CI runs it on macos-15.
 //
 import Combine
 import XCTest

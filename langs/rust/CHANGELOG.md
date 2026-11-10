@@ -16,6 +16,8 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Added
 
+- `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). They cover the
+  #1324 fix under Fixed.
 - `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
   ADR-0222). `CMDD-019` covers the #1459 change below. Rust already met
   `COL-072` and `FWD-006`: each subscriber runs inside `catch_unwind`, and the
@@ -656,6 +658,14 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   is the snapshot that is current at subscription.
 
 ### Fixed
+
+- A refused `AggregateVm1` to `AggregateVm6` `construct()` or `reconstruct()`
+  now disposes each fresh lazy-slot candidate that nobody owns (ADR-0224,
+  ADR-0226, spec/08 §2 and §4, #1324). Before, the ownership preflight
+  returned its error and left those candidates live. The cleanup skips a
+  candidate that has a parent, that another ownership claim holds, or that is
+  an owner on the aggregate's ancestor chain, and it disposes each identity
+  once. An eager slot keeps its value. The preflight error still propagates.
 
 - A container walk that waited for a background child or for a late add now
   continues on the container's own foreground dispatcher (ADR-0218, spec/02
