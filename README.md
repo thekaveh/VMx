@@ -255,7 +255,7 @@ bindings ship as the `@thekaveh/vmx-react` adapter over the TypeScript flavor.
 ### 6.1 SemVer policy
 
 The spec and each language flavor version independently in SemVer. Every
-package declares the spec version it implements (`MinSpecVersion` in C#,
+flavor package declares the spec version it implements (`MinSpecVersion` in C#,
 `__min_spec_version__` in Python, `__minSpecVersion__` in TypeScript,
 `VMxVersion.minSpecVersion` in Swift, `MIN_SPEC_VERSION` in Rust). A spec major
 bump triggers a major bump in every active flavor. A spec minor bump only adds
@@ -304,7 +304,7 @@ python3 tools/check-conformance-coverage.py
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
-│   ├── HISTORY.md         release and ADR history of the conformance catalog
+│   ├── HISTORY.md         spec release history
 │   └── VERSION            spec SemVer
 ├── langs/
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
@@ -333,10 +333,13 @@ python3 tools/check-conformance-coverage.py
 
 ### 7.1 Documentation map
 
-The [documentation landing page](docs/content/index.md) is the entry point to
-the guides: installation, concepts, architecture, primitives, flavors,
-examples, integration recipes, and specification. Each package also has its
-own documents:
+The [documentation landing page](docs/content/index.md) links the installation,
+quickstart, architecture, core-concepts, and integration guides. The other
+guide sections are [framework primitives](docs/content/primitives/index.md),
+[language flavors](docs/content/flavors/index.md),
+[examples](docs/content/examples/index.md), and
+[contributing and releases](docs/content/contributing-releases.md). Each
+package also has its own documents:
 
 | Package       | Overview and commands                     | Release history                                 | Release runbook                                 |
 | ------------- | ----------------------------------------- | ----------------------------------------------- | ----------------------------------------------- |
