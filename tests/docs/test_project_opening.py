@@ -112,8 +112,8 @@ def availability_mismatches(readme: str, site: str) -> list[str]:
             mismatches.append(
                 f"{flavor} row: README.md names {expected}, docs/content/index.md names {actual}"
             )
-    # W12: the Source line column is copied too, so both pages must name the
-    # same bare version for every flavor.
+    # The Source line column is copied too, so both pages must name the same
+    # bare version for every flavor.
     readme_sources = _availability_cells(readme, AVAILABILITY_PAGES["README.md"], 2)
     site_sources = _availability_cells(site, AVAILABILITY_PAGES["docs/content/index.md"], 2)
     for flavor, expected_source in readme_sources.items():

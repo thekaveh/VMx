@@ -33,14 +33,14 @@ keys consumed by tools, tests, and review checklists.
 
 ## 3. Build / test / lint commands
 
-`CONTRIBUTING.md` §2 is the source for the commands of each flavor, the React adapter (§2.7), the cross-cutting conformance and example checks (§2.6), and the public-API baselines (§2.8). CI runs the same commands. These notes add the setup details that the commands depend on:
+`CONTRIBUTING.md` §2 is the source for each flavor's commands. It also covers the React adapter (§2.7), cross-cutting checks (§2.6), and public-API baselines (§2.8). CI runs the same commands. These notes add the setup details that the commands depend on:
 
 - **Python environment.** Each new worktree has its own `langs/python/.venv`. In `langs/python`, set `UV_PYTHON` and run `uv sync --locked --all-extras` once before the first test (§2.2). Run `uv run python -m pytest`, never a bare `pytest`: before the sync, a bare `pytest` can run an outside `pytest` from `PATH` that imports `vmx` from another checkout.
 - **One conformance ID.** `uv run python -m pytest -k LIFE_005` (Python), `dotnet test VMx.sln -c Release --filter "Conformance=LIFE-005"` (C#), `npx vitest run -t "LIFE-005"` (TypeScript).
 - **Tool tests.** `uv --project langs/python run python -m pytest tools/tests/` after the sync. Run ruff on `tools/` with `--config langs/python/pyproject.toml`.
 - **Swift.** `swift test` needs full Xcode (XCTest). If it reports that the Xcode license is not accepted, run `sudo xcodebuild -license accept` once. Do not chain a member access onto a dictionary lookup, as in `dict[key]?.field`; CI rejects every `]?.` (§2.4).
 - **Rust packaging.** Run `cargo package` in its own `CARGO_TARGET_DIR`, as §2.5 shows. In a shared target directory it leaves a stale `vmx-rs` library that later test builds link. If that has happened, run `cargo clean -p vmx-rs` there once.
-- **Pre-commit.** Run `pre-commit install` once. The hooks are ruff (Python), mdformat (`spec/`, `docs/`, `langs/*/CHANGELOG.md` and `packages/react/CHANGELOG.md`), `dotnet format --verify-no-changes` (C#), eslint (TypeScript), and whitespace/EOL hygiene. mdformat is pinned to 0.7.x, because 1.0 is incompatible with `mdformat-gfm`.
+- **Pre-commit.** Run `pre-commit install` once. The hooks run ruff on Python, eslint on TypeScript, and `dotnet format --verify-no-changes` on C#. mdformat formats `spec/`, `docs/`, `langs/*/CHANGELOG.md`, and `packages/react/CHANGELOG.md`. Other hooks check whitespace, line endings, YAML, JSON, large files, and merge-conflict markers. mdformat is pinned to 0.7.x, because 1.0 is incompatible with `mdformat-gfm`.
 
 ## 4. When changing behavior
 
