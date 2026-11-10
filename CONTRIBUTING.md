@@ -483,12 +483,16 @@ does not establish warm-cache coverage. Record the run URL and exact revision.
 
 ### 5.1 Sources and publication
 
-The pages in `docs/content/`, listed in `docs/manifest.yaml`, are the single
-source for three surfaces: this repository, the documentation site on GitHub
-Pages, and the GitHub wiki. The manifest also
-publishes the Rust parity ledger from `docs/maintenance/`. The build writes the
-site and wiki pages to the untracked `generated/` directory, so edit only the
-sources.
+The pages in `docs/content/` are the source for three surfaces: this
+repository, the documentation site on GitHub Pages, and the GitHub wiki.
+`docs/manifest.yaml` lists these pages and also publishes the Rust parity
+ledger from `docs/maintenance/`. The build writes the site and wiki pages to
+the untracked `generated/` directory, so edit only the sources.
+
+`docs/opener.yaml` holds the shared opener: the tagline, the summary, and the
+poster. `README.md` and `docs/content/index.md` each keep a copy, and
+`make docs-check` fails when a copy differs from `docs/opener.yaml`. To change
+the opener, edit `docs/opener.yaml` and both copies in the same PR.
 
 Run these checks before you open a documentation PR. Use a Python with
 `docs/requirements.txt` installed:
@@ -499,8 +503,8 @@ make docs-wiki PYTHON=python3    # generate the wiki and dry-run its sync
 make docs-serve PYTHON=python3   # optional: serve the site locally
 ```
 
-The `docs` workflow runs `make docs-check` on every PR and on pushes to
-`develop` and `main`. It deploys the site only from `main`. The `wiki` workflow
+The `docs` workflow runs `make docs-check` on every PR, and on each push to
+`develop` and `main` that changes documentation paths. It deploys the site only from `main`. The `wiki` workflow
 publishes the wiki only from pushes to `main`.
 
 Do not edit the wiki directly. Each wiki sync deletes every wiki page and

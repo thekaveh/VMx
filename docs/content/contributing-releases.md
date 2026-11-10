@@ -23,8 +23,9 @@ release procedure for every flavor.
   protected `main` through a separate PR.
 - For behavior changes, start in `spec/` and follow the ADR discipline.
 - Keep all supported flavors visible when a change affects shared behavior.
-- Edit documentation only in its sources under `docs/content/`, and run
-  `make docs-check` before the PR. The site and wiki are generated from these
+- Edit the site and wiki pages only in their sources: `docs/content/` and the
+  other files that `docs/manifest.yaml` lists. Run `make docs-check` before the
+  PR. The site and wiki are generated from these
   sources and publish only from `main`. Do not edit the wiki directly: each
   publication replaces every wiki page.
 
