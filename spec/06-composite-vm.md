@@ -609,6 +609,13 @@ Identical to `CompositeVM<VM>` except the children come from a model factory:
   - `ChildModelToChildViewModel : (M) -> VM`
 - On `construct()`, the composite first evaluates `ChildrenModels()`, then maps
   each `M` to a `VM`, then orchestrates children construction as above.
+- When the projector throws, the composite disposes the children it already
+  projected for that population and keeps no children. It applies the
+  candidate-cleanup rule of chapter 08 §2 (ADR-0224): it skips a child that has
+  a parent, that another ownership transaction holds, or that is an owner on
+  the composite's ancestor chain, and it disposes each canonical ownership
+  identity once. The projector's failure propagates. Swift and Rust projectors
+  return plain values and cannot fail.
 
 The model values themselves are NOT exposed on the composite; the composite is a
 container of VMs, not models. Each child VM is responsible for holding its own
@@ -658,13 +665,12 @@ Behavior:
   RECOMMENDED whenever the commands are bound to UI; omitting it leaves
   `CanExecute` correct on demand but non-reactive. Exposing the optional
   `current_changed` parameter is, per ADR-0049, a clarification first realized in
-  C# (VMX-011). C# (`currentChanged`), Swift (`currentChanged`), and Rust
-  (`ModeledCrudCommands::with_options`, which also takes the confirm gates, and
-  `ModeledCrudCommands::with_current_changed`) accept the trigger. The Python and
-  TypeScript helpers accept no trigger input, so their Update and Delete commands
-  stay correct on demand but non-reactive. To get reactive commands in these two
-  flavors, build the commands directly with the base `Triggers` mechanism
-  (chapter 04 §4.2).
+  C# (VMX-011). All five flavors accept the trigger: C# (`currentChanged`),
+  Python (`current_changed`), TypeScript (the `currentChanged` option field),
+  Swift (`currentChanged`), and Rust (`ModeledCrudCommands::with_options`, which
+  also takes the confirm gates, and `ModeledCrudCommands::with_current_changed`).
+  The trigger also reaches the Update and Delete commands that a confirm gate
+  wraps, and `dispose()` releases the trigger subscriptions.
 
 Rust takes the two gates as `Fn() -> AsyncValue<bool>` closures in
 `ModeledCrudCommands::with_options`, with the `current_changed` trigger. Its
@@ -837,6 +843,12 @@ nothing (ADR-0207).
 `ScoredFilteredCompositeVM<VM>` filters out null/absent scores and orders visible
 items by descending score with source-order stable tie breaks. `RefreshScores()`
 forces a recompute when external score state changes.
+
+A view whose first recompute throws, from its predicate or its scorer, detaches
+from its source before the failure propagates (ADR-0224). A later source change
+runs neither the predicate nor the scorer of the unreachable view. A C#
+`ScoredFilteredCompositeVM` with a null scorer detaches the same way. Swift and
+Rust predicates and scorers return plain values and cannot fail.
 
 ## 10. Conformance
 

@@ -108,9 +108,8 @@ The canonical case is `ModeledCrudCommands` (chapter 06 §7): its
 `UpdateCurrentCommand` / `DeleteCurrentCommand` predicates read `current != null`,
 so a reactive binding needs a current-changed trigger derived from the owning
 composite's current-selection stream. Chapter 06 §7 makes the trigger
-RECOMMENDED, not required: C#, Swift, and Rust accept it, and the Python and
-TypeScript helpers accept no trigger, so those two flavors build reactive
-commands directly with `Triggers`:
+RECOMMENDED, not required, and the helper accepts it in all five flavors. The
+helper wires it as a hand-built command would:
 
 ```
 # the composite's current-changed stream, projected to Unit, becomes the trigger
