@@ -694,8 +694,8 @@ auto-construct add joins or leaves a child transition that started in its
 check-then-start window, and a failed add returns a background child to
 `Destructed` once its construct settles (`COMP-054`, `GRP-017`). A population
 that fails before its commit disposes each candidate it built that nobody
-owns, and a filtered view whose first recompute throws detaches from its
-source.
+owns, in all five flavors (`AGG-008`), and a filtered view whose first
+recompute throws detaches from its source.
 
 v3.30.0 also clarifies selection and hierarchy behavior. Selection and the
 initial `Current` assignment never wait for a membership transaction.
@@ -772,8 +772,8 @@ v3.30.0 also corrects spec prose that disagreed with the code and names all
 five flavors where ADR-0121 requires it. It moves the spec release history from
 `spec/README.md` to this file. These changes add no behavior.
 
-The 70 new conformance IDs bring the catalog to 495 library IDs plus 5
+The 71 new conformance IDs bring the catalog to 496 library IDs plus 5
 scenario IDs. Chapter count stays at 24.
 
-See ADR-0146 through ADR-0180, ADR-0184 through ADR-0225 and the affected
+See ADR-0146 through ADR-0180, ADR-0184 through ADR-0226 and the affected
 behavior chapters. No ADR uses the numbers 0181 to 0183.

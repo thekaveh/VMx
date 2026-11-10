@@ -46,7 +46,8 @@ the tarball's name and version against the tag, and publishes that tarball.
    a substantive matching changelog section. Immediately before the tag, a
    release-prep PR replaces `unreleased source version` in the `## [X.Y.Z]`
    heading with the release date, so the heading date equals the tag date
-   (`CONTRIBUTING.md` §4.3).
+   (`CONTRIBUTING.md` §4.3). The same PR updates the npm status in
+   `packages/react/README.md` §1, because that README becomes the npm page.
 2. Run the package, React 18/19, packed-consumer, showcase, security, and docs
    gates from a clean checkout.
 3. Confirm `react-v<X.Y.Z>` and the npm version do not exist.
