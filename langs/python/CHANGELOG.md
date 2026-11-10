@@ -33,8 +33,8 @@ below for them.
   (#1346, ADR-0049, spec/04 §4.2). The helper wires it as a trigger on the
   Update and Delete commands, so their `can_execute_changed` fires when the
   selection changes. `dispose()` releases the trigger subscriptions. A helper
-  built without the trigger behaves as before. Spec/06 §7 still says this
-  helper accepts no trigger. Its update needs an ADR and is tracked in #1346.
+  built without the trigger behaves as before. Spec/06 §7 now lists all five
+  flavors as accepting the trigger.
 - `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
   and `find` report invalid children-factory output as a recoverable error,
   assign no parent and retry the factory on the next walk; `find` returns a

@@ -428,8 +428,9 @@ disposes any candidate, and `reconstruct()` runs the same `construct()`. Only
 lazy slots produce fresh candidates, so only they need the cleanup. An eager
 slot keeps its existing value.
 
-Spec/08 §2 and §4 do not state the rule yet. #1324 stays open for the ADR, the
-spec/08 and spec/06 text, any conformance ID, and the Rust cleanup.
+ADR-0224 records the rule, and spec/08 §2 and §4 and spec/06 §6 and §9 state
+it, with this Rust gap. #1324 stays open for the Rust cleanup and for the
+conformance ID that ADR-0224 defers until Rust applies the rule.
 
 ## 12.14. Open Item: Container Destruct Walk Join
 

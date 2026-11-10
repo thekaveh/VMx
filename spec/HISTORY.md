@@ -648,322 +648,132 @@ exposes expand, collapse and toggle commands (`EXP-006`..`EXP-008`).
 The child-transition helper is supported API for leaf view-models
 (`LIFE-016`..`LIFE-020`). TypeScript adds the `isTreeStructureChanged`
 predicate. A new `TreeSelection` helper tracks one current node of a hierarchy
-(`HIER-033`..`HIER-040`). Rust `NotificationVm` and `ConfirmationVm` gain
-`dispose()`. A Rust hierarchy node carries consumer node data, and a Rust
-token read holds no lock while `Token::clone` runs. A built Rust `CompositeVm` or
-`GroupVm` runs its children factory on the first construct, and Rust
-containers own their registered members.
+(`HIER-033`..`HIER-040`). Every flavor gains `DelayedTask`, which holds at most
+one pending action (`DLY-001`..`DLY-005`). The scheduler is the one clock for
+delayed work: it has `now` and a cancellable delayed `schedule`, each flavor
+names one virtual-time test scheduler, and delayed work never goes through
+`IDispatcher`. Python and TypeScript `ModeledCrudCommands` accept the
+`current_changed` trigger, so all five flavors do. Swift `NotificationVM` and
+`ConfirmationVM` accept any `NotificationScheduler`, so an app drives them in
+real time. The `ObservableDictionary` key views are read-only
+`ReadOnlyObservableList` facades in C#, Python, TypeScript and Swift
+(`COL-070`). Swift `FilteredCompositeVM` gains the catchable
+`setCurrentResult(_:)`. Rust gains a `Scheduler` trait, `SystemScheduler` and
+`VirtualTimeScheduler`. Rust `SearchableState` debounces its term, and Rust
+notification VMs take a scheduler in place of `advance_by_ms`. Rust
+`NotificationVm` and `ConfirmationVm` gain `dispose()`. A Rust hierarchy node
+carries consumer node data, and a Rust token read holds no lock while
+`Token::clone` runs. A built Rust `CompositeVm` or `GroupVm` runs its children
+factory on the first construct, and Rust containers own their registered
+members.
 
-v3.30.0 also clarifies concurrent and failure behavior. A cross-thread container
-disposal that would close a wait cycle defers to the transaction owner, and each
-threaded flavor records its blocking waits in one wait-for graph. Selection and
-the initial `Current` assignment never wait for a membership transaction. Tree
-walks report invalid factory output as a recoverable error, which is a source
-break for Swift and Rust callers. A failing local subscriber does not suppress
-the hub message (`COL-066`). A lifecycle call during the inline dispose cascade
-fails as a call on a `Disposed` view-model (`LIFE-021`). A foreign dispose
-publishes `Disposed` first. `ObservableDictionary` updates its key views before
-its events (`COL-067`). `FormVM` queues updates made during approval
-publication, its publication waits join the wait-for graph, and nested updates
-notify at the outermost update (`FORM-039`..`FORM-042`). A current
-`AsyncResourceVM` loader that ends with its own cancellation restores the saved
-stable state, as `Cancel` does (`ARES-012`). Each lifecycle failure reaches
-exactly one reporting route, including a cycle-deferred terminal cleanup and
-every failure of a shared-scheduler flush. A refused child `select()` or
-`deselect()`, and a non-null selection while a composite is `Destructing`,
-change nothing and raise nothing (`COMP-051`, `COMP-052`). Container walks and
-the child-transition helper skip a `Disposed` child, and the composite clears
-`Current` when its current child disposes itself (`LIFE-022`, `COMP-050`).
-`Current(selector)` runs on every construct phase, and first access to lazy
-children does not construct them. `PagedComposition` states which flavors keep a
-live source, and a token-paged load that finds no more pages fetches nothing.
-The awaited `ExecuteAsync()` of a confirmation awaits its inner command, and
-TypeScript form equality compares a `DOMException` by name and message.
+v3.30.0 also clarifies lifecycle and container behavior. A cross-thread
+container disposal that would close a wait cycle defers to the transaction
+owner, and each threaded flavor records its blocking waits in one wait-for
+graph. A lifecycle call that starts during the inline dispose cascade fails
+with the error of a call on a `Disposed` view-model, even where it would be a
+no-op. It publishes no status, runs no hook and calls no slot factory, and the
+member cascade follows the same rules (`LIFE-021`). A foreign dispose publishes
+`Disposed` first. Each lifecycle failure reaches exactly one reporting route,
+including a cycle-deferred terminal cleanup and every failure of a
+shared-scheduler flush. Container walks and the child-transition helper skip a
+`Disposed` child, so the container still destructs, constructs and
+reconstructs (`LIFE-022`). The construct walk of a composite or group counts
+members only: a child that a removal or a failed add takes out during the walk
+does not roll the container back, and a walk that disposal stopped or a raising
+hook abandoned commits nothing (`COMP-047`, `GRP-015`). A membership change
+fails at once while another thread holds the container's membership
+transaction, and only disposal still waits; Rust `clear()` now returns
+`VmxResult<()>` (`COMP-048`, `GRP-016`). A rollback error gives access to the
+original failure and to the first compensation failure; Swift adds
+`ContainerRollbackError` and Rust adds `VmxError::ContainerRollback`. A walk
+that resumed after a wait continues on its own foreground dispatcher. An add
+ends its start attempt after its membership transaction. A container that a
+foreign `dispose()` superseded calls no children factory. A walk or an
+auto-construct add joins or leaves a child transition that started in its
+check-then-start window, and a failed add returns a background child to
+`Destructed` once its construct settles (`COMP-054`, `GRP-017`). A population
+that fails before its commit disposes each candidate it built that nobody
+owns, and a filtered view whose first recompute throws detaches from its
+source.
+
+v3.30.0 also clarifies selection and hierarchy behavior. Selection and the
+initial `Current` assignment never wait for a membership transaction.
+`Current(selector)` runs on every construct phase and reads the live
+membership (`COMP-053`), and first access to lazy children does not construct
+them. A refused child `select()` or `deselect()`, and a non-null selection
+while a composite is `Destructing`, change nothing and raise nothing, so
+`destruct()` always returns with `Current` null (`COMP-051`, `COMP-052`). For a
+non-null selection, the disposal refusal applies before the non-member
+refusal. A `Disposed` child is not selectable, and the composite clears
+`Current` when its current child disposes itself (`COMP-050`). A disposed
+`HierarchicalVM` node refuses every structural call, also where the call would
+do nothing (`HIER-041`). `attachMany` indexes the materialized subtree of each
+attached item, so a later item in the batch can name any node of it as its
+parent, and a descendant key collision rejects the item
+(`HIER-042`..`HIER-044`). Tree walks report invalid factory output as a
+recoverable error, which is a source break for Swift and Rust callers
+(`UTIL-004`). Python tree walks stop catching a `TypeError` from `iter(node)`.
+
+v3.30.0 also defines failing subscribers and notification order. A delivery on
+a library channel reaches every attached subscriber once, even when an earlier
+one fails, and no failure detaches a subscriber or the library's own source
+subscription. A call-fed failure is rethrown in C# and Python after delivery,
+and a failing `SearchableState` predicate keeps the last snapshot (`HUB-007`,
+`DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069`). A failing local subscriber does
+not suppress the hub message (`COL-066`) and skips no later notification step
+of a committed collection change (`COL-072`). The subscribers of one
+`AggregateChangeStream` envelope receive it in subscription order, and the
+stream calls the source, the selector and subscriptions with no gate held
+(`AGCH-011`, `AGCH-012`). A `CompositeVM` or `GroupVM` sends no
+`CollectionChangedMessage` once its disposal is requested or deferred
+(`COMP-049`), and its collection messages carry the container's `Name`
+(`COMP-042`, `GRP-012`). `ObservableDictionary` updates its entries, `Count`
+and key views before its events and hub message (`COL-067`). Its Remove and
+Replace hub messages carry the entry's position (`COL-068`), and a duplicate
+`Add` fails with the keyed-collection duplicate-key type and changes nothing
+(`COL-071`). Python's unkeyed `reverse()` sends one Reset, and Python keyed
+`extend` and `+=` are atomic slice assignments at the end. C# serviced
+collections accept a nested mutation from a `CollectionChanged` handler. After
+`dispose()`, `PagedComposition` paging calls change no state and emit nothing.
+`PagedComposition` states which flavors keep a live source, and a token-paged
+load that finds no more pages fetches nothing. A forwarding decorator's
+notification helpers emit through the wrapped component (`FWD-006`), and the
+local-only raise primitive is a no-op after disposal, so C#
+`RaisePropertyChanged` now matches the other flavors (`CVM-009`).
+
+v3.30.0 also settles form, command, notification and async-resource rules.
+`FormVM` queues updates made during approval publication and replays them after
+`OnApproved` (`FORM-039`, `FORM-040`). Its publication waits join the wait-for
+graph, and an update nested in a form callback notifies at the outermost
+update, with no form lock held (`FORM-041`, `FORM-042`). A failed send of the
+update queue stops the queue and releases each nested approval whose persister
+has not started (`FORM-044`). An update raises
+`ApproveCommand.CanExecuteChanged` exactly once when its gates change
+(`FORM-043`) and runs the dirty comparisons only in strict mode (`FORM-045`).
+Form callbacks run with no form lock held, and TypeScript form equality
+compares a `DOMException` by name and message. The fire-and-forget `Execute()`
+of `ConfirmationDecoratorCommand` never invokes the inner command inside its
+own call (`CMDD-018`), and its awaited `ExecuteAsync()` awaits the inner
+command. A fire-and-forget `AsyncRelayCommand` fault reaches `errors` after the
+completion `CanExecuteChanged` (`CMD-020`), and VMx does not marshal the work
+that follows an awaited step. Disposing a live command wrapper notifies its own
+`CanExecuteChanged` subscribers exactly once (`CMDD-019`). From the start of
+`NotificationVM` or `ConfirmationVM` disposal, every command of the VM reports
+`CanExecute == false` (`NOTIF-018`). The notification render state stops at the
+first terminal step (`NOTIF-019`). Hub dispose sends no final `Pending`
+snapshot and completes `Pending` once (`NOTIF-017`, `DISP-003`), and a
+`Pending` subscription made after dispose receives completion only
+(`NOTIF-020`). `SearchableState` construction starts no term debounce
+(`SRCH-008`). A current `AsyncResourceVM` loader that ends with its own
+cancellation restores the saved stable state, as `Cancel` does (`ARES-012`).
 
 v3.30.0 also corrects spec prose that disagreed with the code and names all
 five flavors where ADR-0121 requires it. It moves the spec release history from
 `spec/README.md` to this file. These changes add no behavior.
 
-The 31 new conformance IDs bring the catalog to 456 library IDs plus 5
+The 70 new conformance IDs bring the catalog to 495 library IDs plus 5
 scenario IDs. Chapter count stays at 24.
 
-v3.30.0 also defines lifecycle calls during the inline dispose cascade, in
-which a view-model disposes its children and members before it publishes
-`Disposed`. A `construct()`, `destruct()`, or `reconstruct()` call that starts
-during the cascade fails with the error of a call on a `Disposed` view-model,
-even where it would be a no-op. It publishes no status, runs no hook, and calls
-no slot factory. Once the cascade has started, no hook is admitted and no
-status other than `Disposed` commits. A transition that started earlier
-publishes nothing more and returns as a call that `Disposed` superseded. The
-member cascade follows the same rules (`LIFE-021`). The catalog now contains
-447 library IDs plus 5 scenario IDs.
-
-See ADR-0175 and chapter 02 §2.4, §7.1, and §7.2.
-v3.30.0 also makes a failing local subscriber leave the hub message intact. A
-hub-publishing collection or container that commits a change sends exactly one
-`CollectionChangedMessage` for it, even when a local subscriber fails. C# and
-Python then rethrow the first failure; TypeScript, Swift, and Rust return
-normally (`COL-066`). The catalog now contains 445 library IDs plus 5 scenario
-IDs.
-
-See ADR-0171, chapter 01 §1.4, and chapter 21 §2.5.
-
-v3.30.0 also states the `ObservableDictionary` key-view order. A mutation
-changes the entries and `Count`, then the key views that change, then raises the
-dictionary events and sends the hub message. The order of the two key-view
-notifications is not specified, so a key-view handler must not rely on the
-other view (`COL-067`). No flavor changes behavior. The catalog now contains
-449 library IDs plus 5 scenario IDs.
-
-See ADR-0177 and chapter 21 §4.2.
-
-v3.30.0 also defines when a `FormVM` update nested in a form callback notifies.
-A `SetModel`, deny, or approve call made from a preparation callback, or from an
-`ErrorsChanged` observer of `SetModel` or deny, does its state work at once. It
-sends no notification before it returns. The outermost update on the thread
-sends the queue before it returns, with no form lock held: error maps first, in
-commit order, then the other notifications. A nested approval's persister
-starts after the queue. A nested call never waits for another thread's
-publication scope. Disposal drops queued notifications, and a `Dispose()`
-before a persister starts prevents the persister call (`FORM-041`,
-`FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
-
-See ADR-0180 and chapter 20 §5.4 and §10.
-
-v3.30.0 also states the outcome of a loader's own cancellation. A current
-`AsyncResourceVM` loader that ends with its flavor's native cancellation signal
-restores the operation's saved stable state, as `Cancel` does, even when the VM
-did not request it. A C# timeout stays a failure, and a superseded loader's
-cancellation is stale (`ARES-012`). The catalog now contains 452 library IDs
-plus 5 scenario IDs.
-
-See ADR-0199 and chapter 23 §5 and §7.
-
-v3.30.0 also gives each lifecycle failure one reporting route. The call that
-runs a cycle-deferred terminal cleanup reports the cleanup's first failure when
-it has no earlier failure. In a shared-scheduler flush, the first failure is
-thrown to the flush's caller, and every other failure goes to the flavor's
-unhandled-error route after the flush returns. A scheduler that cancels its
-queued work on purpose marks itself first, so VMx runs none of that work. No
-conformance ID is added.
-
-See ADR-0200 and chapter 02 §2.4, §6.1, and §7.
-
-v3.30.0 also makes the construct walk of a composite or group count members
-only. The walk checks membership before it starts or joins a child, and again
-after the child settles. A child that a removal or a failed add takes out
-during the walk does not roll the container back. A removal never cancels,
-destructs, or disposes the child. The commit step writes `Constructed` and
-reserves its publication. An add between the two follows the
-add-after-`Constructed` rule. A walk that disposal stopped, or that a raising
-hook abandoned, commits nothing (`COMP-047`, `GRP-015`). The catalog now
-contains 454 library IDs plus 5 scenario IDs.
-
-See ADR-0186 and chapter 06 §5.1, chapter 07 §4, and chapter 02 §2.4.
-
-v3.30.0 also makes a container membership change fail at once while another
-thread holds the container's membership transaction. This covers add, insert,
-index replacement, population, transfer detach, remove, `RemoveAt`, and
-`Clear`. Each change fails before mutation with the error of a re-entrant
-change. Only disposal still waits for the transaction. Rust `clear()` now
-returns `VmxResult<()>` (`COMP-048`, `GRP-016`). The catalog now contains 456
-library IDs plus 5 scenario IDs.
-
-See ADR-0187 and chapter 06 §4.2 and chapter 07 §1.1.
-
-v3.30.0 also makes two composite selection refusals silent. A refused child
-`select()` or `deselect()` changes nothing and raises nothing in every flavor.
-While a composite is `Destructing`, a non-null selection changes nothing and
-raises nothing, so `destruct()` always returns with `Current` null
-(`COMP-051`, `COMP-052`).
-
-See ADR-0188 and chapter 05 §6 and chapter 06 §3.1, §4.3 and §5.
-
-v3.30.0 also covers a child that is disposed while it is still a member.
-Container walks and the child-transition helper skip a `Disposed` child, so
-the container still destructs, constructs and reconstructs (`LIFE-022`). A
-`Disposed` child is not selectable. When the current child publishes
-`Disposed` from its own `dispose()`, the composite clears `Current`, and the
-child reads `IsCurrent == false` (`COMP-050`). The catalog now contains 460
-library IDs plus 5 scenario IDs.
-
-See ADR-0189 and chapter 02 §3, §6 and §6.1 and chapter 06 §4.3.
-
-v3.30.0 also defines structural calls on a disposed `HierarchicalVM` node. From
-the moment a node is `Disposed`, `AddChild`, `RemoveChild`, `ReparentChild`,
-`InvalidateChildren`, `InvalidateSubtree`, and `AttachMany` on it refuse, also
-where the call would do nothing. A transfer out of a disposed parent refuses
-too. `AttachMany` rejects a candidate under a disposed parent, and
-`InvalidateSubtree` skips a disposed descendant (`HIER-041`). A `CompositeVM`
-or `GroupVM` also sends no `CollectionChangedMessage` once its disposal is
-requested or deferred. A local subscriber or `OnCurrentChanged` callback that
-disposes the container therefore suppresses the hub message of that change
-(`COMP-049`).
-
-See ADR-0190, chapter 01 §1.4, chapters 06 and 07, and chapter 18 §7.1.
-
-v3.30.0 also sets three command rules. The fire-and-forget `Execute()` of
-`ConfirmationDecoratorCommand` never invokes the inner command inside its own
-call, also when `confirm()` is already complete (`CMDD-018`). A fire-and-forget
-`AsyncRelayCommand` fault reaches `errors` after the completion
-`CanExecuteChanged` (`CMD-020`). VMx does not marshal the work that follows an
-awaited step, so it runs where that step completes. See ADR-0195, chapter 04
-§8.3.1 and §10.4, and chapter 11 §3.1.
-
-v3.30.0 also defines two command-enablement notifications. A `FormVM` update
-raises `ApproveCommand.CanExecuteChanged` exactly once when it changes
-`IsValid`, or `IsDirty` in strict mode, also during an approval (`FORM-043`).
-From the start of `NotificationVM` or `ConfirmationVM` disposal, every command
-of the VM reports `CanExecute == false` (`NOTIF-018`).
-
-See ADR-0196, chapter 20 §5.2, and chapter 16 §6.2.
-
-v3.30.0 also makes the `ObservableDictionary` key views read-only. `Keys1` and
-`Keys2` return a `ReadOnlyObservableList` facade in C#, Python, TypeScript, and
-Swift (`COL-070`). Dictionary Remove and Replace hub messages now carry the
-entry's position, as the §2.4 tables state (`COL-068`). Python's unkeyed
-`reverse()` sends one Reset. The catalog now contains 458 library IDs plus 5
-scenario IDs.
-
-See ADR-0193 and chapter 21 §2.3.6, §4.2, and §4.7.
-
-v3.30.0 also fixes the sender name of container collection messages. A
-`CollectionChangedMessage` from a `CompositeVM` or `GroupVM` carries the
-container's `Name` in every flavor (`COMP-042`, `GRP-012`).
-
-See ADR-0194, chapter 03 §1, and chapter 21 §2.4.
-
-v3.30.0 also stops the notification render state at the first terminal step. A
-`NotificationVM` or `ConfirmationVM` keeps `RemainingTime` and `Opacity` from
-its first resolution, an observed hub resolution, or its disposal
-(`NOTIF-019`). After auto-dismiss both values are 0 and 0.0. Hub dispose sends
-no final `Pending` snapshot. It completes `Pending` once, after any snapshots
-queued before dispose (`NOTIF-017`, `DISP-003`). A `Pending` subscription made
-after dispose receives completion only, with no value and no error
-(`NOTIF-020`). The catalog now contains 466 library IDs plus 5 scenario IDs.
-
-See ADR-0197 and chapter 16 §2.3, §6, §7, and §9.
-
-v3.30.0 also makes `SearchableState` construction start no term debounce. This
-holds for every debounce length, zero included (`SRCH-008`). The catalog now
-contains 467 library IDs plus 5 scenario IDs.
-
-See ADR-0198 and chapter 06 §8 and §10.
-
-v3.30.0 also defines what a failing subscriber does on a library channel. A
-delivery reaches every attached subscriber once, even when an earlier one
-fails, and no failure detaches a subscriber or the library's own source
-subscription. This covers the hub and its helpers, `DerivedProperty`,
-`SearchableState`, command `CanExecuteChanged` and triggers, and the local
-collection and container channels. A stream-fed failure never reaches the
-upstream publisher and follows the flavor's `HUB-007` route. A call-fed failure
-is rethrown in C# and Python after delivery. A failing `SearchableState`
-predicate keeps the last snapshot (`HUB-007`, `DPROP-013`, `SRCH-009`,
-`CMD-021`, `COL-069`). The subscribers of one `AggregateChangeStream` envelope
-now receive it in subscription order (`AGCH-011`). The catalog now contains 472
-library IDs plus 5 scenario IDs.
-
-See ADR-0191, ADR-0192, chapter 03 §3.4 and §3.6, and chapter 21 §9.5.
-
-v3.30.0 also makes `attachMany` index the materialized subtree of each attached
-item. A later item in the same batch can name any node of that subtree as its
-parent. A descendant key that is in the tree, or that an earlier item claimed,
-rejects the item as a duplicate. A parent key that names the item's own
-descendant is a `Cycle`. Children that `AddChild` materializes from a lazy
-factory join the index in the next batch (`HIER-042`..`HIER-044`). Python tree
-walks stop catching a `TypeError` from `iter(node)`, and `UTIL-004` pins the
-chapter 13 §6.1 walk failure rule. The catalog now contains 476 library IDs
-plus 5 scenario IDs.
-
-See ADR-0212, chapter 13 §6.1, and chapter 18 §6.
-
-v3.30.0 also lets `FormVM` callbacks run with no form lock held. The equality
-comparisons, the validators, the snapshotter, and `resetOnApproved` run with
-no lock, so another thread's reads and calls never wait for them. A
-preparation that another thread's commit overtakes runs again as a new call.
-Another thread's call during the post-persist commit commits at once, and the
-reset overwrites it. A call in its own pre-publication window does not wait.
-A refused `Dispose()` wakes the waiters at once. An update opens a scope only
-when its error map changes. No conformance ID changes.
-
-See ADR-0215 and chapter 20 §5.1, §5.3, §5.4, §5.5, and §10.
-
-v3.30.0 also states what a failed send of a `FormVM` update queue does. The
-outermost update sends no later notification, releases each nested approval
-whose persister has not started, and propagates the failure after its
-replays (`FORM-044`). A Rust validator registration from a form callback is a
-nested call. An update runs its dirty comparisons only in strict mode
-(`FORM-045`). The catalog now contains 478 library IDs plus 5 scenario IDs.
-
-See ADR-0216 and chapter 20 §5.2, §5.4, and §5.5.
-
-v3.30.0 also settles five collection rules. After `dispose()`,
-`PagedComposition` paging calls change no state and emit nothing. A duplicate
-`ObservableDictionary` `Add` fails with the keyed-collection duplicate-key type
-and changes nothing, so Python raises `ValueError` (`COL-071`). Python keyed
-`extend` and `+=` are atomic slice assignments at the end. The aggregate change
-stream calls the source, the selector, and subscriptions with no gate held, so
-a source may raise its structural callback under its own lock (`AGCH-012`). C#
-serviced collections accept a nested mutation from a `CollectionChanged`
-handler. The catalog now contains 480 library IDs plus 5 scenario IDs.
-
-See ADR-0214 and chapter 21 §2.10, §4.1, and §9.4.
-
-v3.30.0 also orders two selection refusals. For a non-null selection, the
-disposal refusal applies before the non-member refusal, so a non-member
-selected while disposal of the composite is pending gets the disposal error
-in every flavor. Swift `FilteredCompositeVM` gains the catchable
-`setCurrentResult(_:)` (chapter 06 §9).
-
-See ADR-0217 and chapter 06 §3, §4.3 and §9.
-
-v3.30.0 also states three notification rules that the flavors already follow.
-A failing subscriber skips no later notification step of a committed
-collection change: `ObservableList` still sends `Count`, a failing key-view
-subscriber skips no dictionary event or hub message, and a throwing C# `Count`
-or `Item[]` handler waits until `CollectionChanged` and the hub send
-(`COL-072`). A forwarding decorator's notification helpers emit through the
-wrapped component, which is the hub message sender (`FWD-006`). Disposing a
-live command wrapper notifies its own `CanExecuteChanged` subscribers exactly
-once (`CMDD-019`).
-
-See ADR-0220, ADR-0221, ADR-0222, chapter 03 §3.6, chapter 04 §8.4, chapter 09
-§1, and chapter 21 §2.5, §3.3 and §4.6.
-
-v3.30.0 also settles seven container walk and rollback rules. A rollback
-error gives access to the original failure and to the first compensation
-failure; Swift adds `ContainerRollbackError` and Rust adds
-`VmxError::ContainerRollback`. `Current(selector)` reads the live membership
-(`COMP-053`). A walk that resumed after a wait continues on its own foreground
-dispatcher. An add ends its start attempt after its membership transaction. A
-container that a foreign `dispose()` superseded calls no children factory. A
-walk or an auto-construct add joins or leaves a child transition that started
-in its check-then-start window. A failed add returns a background child to
-`Destructed` once its construct settles (`COMP-054`, `GRP-017`). The catalog
-now contains 487 library IDs plus 5 scenario IDs.
-
-See ADR-0218 and chapter 02 §2.4 and §6, chapter 06 §3.2, §4.2 and §5.1,
-chapter 07 §1.1 and §4, and chapter 11 §4.
-
-v3.30.0 also defines one clock for delayed work. The scheduler has `now` and a
-cancellable delayed `schedule`, and each flavor names one virtual-time test
-scheduler. Delayed work never goes through `IDispatcher`. Every flavor gains
-`DelayedTask`, which holds at most one pending action (`DLY-001`..`DLY-005`).
-Rust gains a `Scheduler` trait, `SystemScheduler` and `VirtualTimeScheduler`.
-Rust `SearchableState` now debounces its term, and Rust notification VMs take a
-scheduler in place of `advance_by_ms`. The catalog now contains 492 library
-IDs plus 5 scenario IDs.
-
-See ADR-0219, chapter 06 §8, chapter 11 §6, and chapter 16 §6 and §8.1.
-
-v3.30.0 also makes the local-only raise primitive a no-op after disposal, as
-the dual-channel helper already was. A forwarding decorator's primitive
-therefore emits nothing after the wrapped component is disposed. C#
-`RaisePropertyChanged` changes to match Python, TypeScript and Swift
-(`CVM-009`, `FWD-006`).
-
-See ADR-0223, chapter 05 §2.3 and chapter 09 §1.
-
-See ADR-0146 through ADR-0180, ADR-0184, ADR-0185, ADR-0188, ADR-0189,
-ADR-0190, ADR-0199, ADR-0200, ADR-0202, ADR-0204, ADR-0214 through ADR-0223
-and the affected behavior chapters.
+See ADR-0146 through ADR-0180, ADR-0184 through ADR-0225 and the affected
+behavior chapters. No ADR uses the numbers 0181 to 0183.
