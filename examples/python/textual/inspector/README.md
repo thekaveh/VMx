@@ -11,14 +11,15 @@ Architecture diagram:
 
 The inspector renders a live VMx hierarchy and lets you drive lifecycle operations
 from the keyboard. This abbreviated sketch shows the sample tree after a
-reconstruct of the root node. The real message log shows more rows and the
+reconstruct of the root node. Each real tree label ends with the node type and
+status, as the `app` label shows. The real message log shows more rows and the
 full message type names.
 
 ```text
 ┌───────────────────────────────┬──────────────────────────────────────────┐
 │ VM Tree                       │ Node Details                             │
 │                               │                                          │
-│ ▼ app                         │ name:           app                      │
+│ ▼ app (Composite, CONSTRUCTED)│ name:           app                      │
 │     header                    │ type:           Composite                │
 │   ▼ workspace                 │ status:         CONSTRUCTED              │
 │       editor                  │ is_constructed: True                     │

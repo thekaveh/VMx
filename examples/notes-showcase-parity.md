@@ -106,8 +106,8 @@ results that a refresh replaces and results that equality or stale-operation
 handling discards. The Rust TUI counterpart stores cloned `NoteModel` values
 with their search term. Thus it owns no lifecycle-bearing search results.
 
-[^commands]: The workspace, notebook, form, capability, Save, and Delete
-    actions persist data, and each one is awaitable. Repository failures stay
+[^commands]: The persistence-backed workspace, notebook, form, capability,
+    Save, and Delete actions are awaitable. Repository failures stay
     observable. A success notification appears only after the data persists.
 
 [^search]: The notes list and the global search share one search rule. The
@@ -221,10 +221,12 @@ Python and TypeScript view tests also run each theme control.
   mirror the VM API: `tests/viewmodels/` (C#: `NotesShowcase.Tests/ViewModels/`,
   Swift: `Tests/NotesShowcaseTests/`). The C#, Python, and TypeScript
   flagships also ship a headless view smoke test that boots the app and
-  asserts that the main view rendered. Swift has no smoke test of the full
-  app. Its `HostLifecycleTests` hosts a SwiftUI view through the binding
-  bridge in a real AppKit window. The test checks appearance, disappearance,
-  and main-thread delivery of a change made on a worker thread.
+  asserts that the main view rendered.
+
+  Swift has no smoke test of the full app. Its `HostLifecycleTests` hosts a
+  SwiftUI view through the binding bridge in a real AppKit window. The test
+  checks appearance, disappearance, and main-thread delivery of a change made
+  on a worker thread.
 - **View code is declarative.** These checks keep view code free of state, so
   no `Yes` entry depends on incidental view-side state:
   - `tools/check-axaml-codebehind.py` limits each C# view code-behind under

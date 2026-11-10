@@ -81,14 +81,15 @@ A todo app that wires VMx into a WPF view. Demonstrates:
   bound to the ListBox. Its VMx `RelayCommand` (`AddCommand`) runs a task that
   calls the public `AddItem(string)`. The Add button binds
   `Command="{Binding AddCommand}"`.
-- The Python `tk/todo_app` example uses a `CompositeVM<TodoItemVM>` for its
-  collection. Both flavors drive the add through a VMx `RelayCommand`, each
-  in the idiom of its UI toolkit.
 - `MainWindow.xaml` is a pure view. Its XAML data binding uses the
   `INotifyPropertyChanged` surface of `TodoItemVM` and the `ICommand`
   `ToggleDoneCommand`. The outer wrapper forwards the hub-published
   `PropertyChangedMessage("Model")` of the inner `ComponentVM<TodoItem>` to
   standard INPC for `Title` and `Done`.
+
+The Python `tk/todo_app` example holds its items in a
+`CompositeVM<TodoItemVM>` instead. Both flavors drive the add through a VMx
+`RelayCommand`, each in the idiom of its UI toolkit.
 
 Diagram:
 [`csharp-wpf-todo-app.svg`](../../docs/assets/diagrams/csharp-wpf-todo-app.svg)
@@ -103,14 +104,16 @@ dotnet run --project wpf/TodoApp
 
 `wpf/RecipeHostCheck/` is not an app. It runs the XAML adapter from the
 [WPF integration guide](../../docs/content/integration/wpf.md) against real WPF
-bindings on a Dispatcher thread. The Windows CI job runs it with
+bindings on a Dispatcher thread. The Windows CI job runs it. To run it
+locally on Windows, use
 `dotnet run --project wpf/RecipeHostCheck/RecipeHostCheck.csproj`.
 
 `wpf/TodoAppHostCheck/` is not an app either. It compiles this example's own
 window and view-models and opens the window on an STA Dispatcher. It types and
 clicks Add through the real bindings, and then it closes the window. It checks
-that the view-model is disposed and collectable. The same Windows job runs it
-with `dotnet run --project wpf/TodoAppHostCheck/TodoAppHostCheck.csproj`.
+that the view-model is disposed and collectable. The same Windows CI job runs
+it. To run it locally on Windows, use
+`dotnet run --project wpf/TodoAppHostCheck/TodoAppHostCheck.csproj`.
 
 ---
 

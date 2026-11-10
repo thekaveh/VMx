@@ -15,7 +15,7 @@ The package has three targets:
 
 - macOS 13 or later.
 - Command Line Tools are enough for `swift build` and `swift run`. They build
-  all targets, including the `NotesShowcase` SwiftUI app.
+  the `NotesShowcaseCore` library and the `NotesShowcase` SwiftUI app.
 - `swift test` needs a full Xcode installation, because XCTest ships with
   Xcode.
 
@@ -26,9 +26,12 @@ cd examples/swift/notes-showcase
 swift run NotesShowcase
 ```
 
-The app opens one Notes Workspace window. It loads the seed notebooks from the
-in-memory repository and selects the first one. Quit the app to stop the
-process.
+The app opens one window with the VMx Notes Workspace toolbar. It loads the
+seed notebooks from the in-memory repository and selects the first one. Quit
+the app to stop the process.
+
+The window can open behind the terminal. If it does, click the window before
+you use the keyboard shortcuts. Until then, the terminal receives the keys.
 
 ## 3. Build and test
 
