@@ -2533,6 +2533,12 @@ pub(crate) fn begin_ownership_claim(child_id: usize) -> VmxResult<OwnershipClaim
     Ok(OwnershipClaim { child_id })
 }
 
+/// Reports whether an ownership transaction holds `child_id` now. The check
+/// never waits for that transaction.
+pub(crate) fn ownership_claim_active(child_id: usize) -> bool {
+    lock(active_ownership_claims()).contains(&child_id)
+}
+
 pub(crate) fn begin_parent_transfer<T: VmNode>(
     child: &T,
     destination: &ParentHandle,

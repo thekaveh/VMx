@@ -17,6 +17,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 ### Added
 
 - `DelayedTask`: a disposable helper that holds at most one delayed
+
+- Added: `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
+  `Construct()` or `Reconstruct()` disposes the fresh candidate and keeps the
+  owned candidate's status and parent. C# already behaved this way.
+
+- Added: `DelayedTask`: a disposable helper that holds at most one delayed
   action on an injected scheduler. `Schedule` replaces a pending action and
   restarts its delay, `Cancel` stops it, `IsPending` reports it, and disposal
   cancels it (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).

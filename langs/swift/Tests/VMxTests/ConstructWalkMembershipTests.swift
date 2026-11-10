@@ -9,7 +9,7 @@
 // each child has its own `ManualDispatcher`, so the test decides when each
 // background hook runs. A removed child does not change the container.
 //
-// NOTE: `swift test` needs full Xcode (XCTest); CI runs it on macos-latest.
+// NOTE: `swift test` needs full Xcode (XCTest); CI runs it on macos-15.
 //
 import XCTest
 import Foundation
