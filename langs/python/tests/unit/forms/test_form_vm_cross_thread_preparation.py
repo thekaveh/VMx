@@ -19,7 +19,7 @@ from collections.abc import Callable
 from threading import Event, Thread
 from typing import Any
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from tests.unit.forms.test_form_vm_publication_wait_graph import Model as WaitModel
 from tests.unit.forms.test_form_vm_publication_wait_graph import _Scenario
 from tests.wait_graph_seams import wait_until_waiting
@@ -49,7 +49,7 @@ def _run_in_thread(action: Callable[[], object]) -> tuple[bool, list[BaseExcepti
 
     thread = Thread(target=body, daemon=True)
     thread.start()
-    thread.join(HANG_GUARD)
+    join_thread(thread, HANG_GUARD)
     return not thread.is_alive(), failures
 
 
@@ -206,20 +206,20 @@ def _edit_during_the_reset(edit: Callable[[FormVM[Model]], None]) -> FormVM[Mode
 
     def reset(_: Model) -> Model:
         in_reset.set()
-        assert release.wait(HANG_GUARD)
+        assert wait_event(release, HANG_GUARD)
         return Model("reset")
 
     form = FormVM(Model("initial"), _noop, reset_on_approved=reset)
     form.set_model(Model("edited"))
     approver, failures = _approve_on_thread(form)
     try:
-        assert in_reset.wait(HANG_GUARD)
+        assert wait_event(in_reset, HANG_GUARD)
         finished, edit_failures = _run_in_thread(lambda: edit(form))
         assert finished
         assert edit_failures == []
     finally:
         release.set()
-    approver.join(HANG_GUARD * 2)
+    join_thread(approver, HANG_GUARD * 2)
     assert not approver.is_alive()
     assert failures == []
     return form
@@ -262,7 +262,7 @@ def test_another_threads_set_model_during_the_snapshot_advance_stands() -> None:
         if armed[0]:
             armed[0] = False
             in_snapshotter.set()
-            assert release.wait(HANG_GUARD)
+            assert wait_event(release, HANG_GUARD)
         return dataclasses.replace(model)
 
     form = FormVM(Model("initial"), _noop, snapshotter=snapshotter)
@@ -270,14 +270,14 @@ def test_another_threads_set_model_during_the_snapshot_advance_stands() -> None:
     armed[0] = True
     approver, failures = _approve_on_thread(form)
     try:
-        assert in_snapshotter.wait(HANG_GUARD)
+        assert wait_event(in_snapshotter, HANG_GUARD)
         finished, edit_failures = _run_in_thread(lambda: form.set_model(Model("other")))
         assert finished
         assert edit_failures == []
         assert form.model == Model("other")
     finally:
         release.set()
-    approver.join(HANG_GUARD * 2)
+    join_thread(approver, HANG_GUARD * 2)
 
     assert not approver.is_alive()
     assert failures == []
@@ -305,7 +305,7 @@ def _update_in_own_window_while_another_thread_publishes(
     async def persist(_: Model) -> None:
         # Hold the approval until thread B holds its update scope.
         a_persisting.set()
-        assert b_in_sink.wait(HANG_GUARD)
+        assert wait_event(b_in_sink, HANG_GUARD)
 
     def reset(_: Model) -> Model:
         assert form is not None
@@ -325,21 +325,21 @@ def _update_in_own_window_while_another_thread_publishes(
     def sink(errors: dict[str, str]) -> None:
         if errors and not b_in_sink.is_set():
             b_in_sink.set()
-            assert release_b.wait(HANG_GUARD * 2)
+            assert wait_event(release_b, HANG_GUARD * 2)
 
     form.errors_changed.subscribe(sink)
     approver, failures = _approve_on_thread(form)
-    assert a_persisting.wait(HANG_GUARD)
+    assert wait_event(a_persisting, HANG_GUARD)
     target = form
     b = Thread(target=lambda: target.set_model(Model("bad")), daemon=True)
     b.start()
     try:
         # A's call returns while B still holds its update scope.
-        assert a_returned.wait(HANG_GUARD)
+        assert wait_event(a_returned, HANG_GUARD)
     finally:
         release_b.set()
-    approver.join(HANG_GUARD * 3)
-    b.join(HANG_GUARD * 3)
+    join_thread(approver, HANG_GUARD * 3)
+    join_thread(b, HANG_GUARD * 3)
     assert not approver.is_alive()
     assert not b.is_alive()
     assert failures == []
@@ -390,7 +390,7 @@ def test_a_refused_dispose_wakes_a_waiting_call_before_the_publishers_scope_clos
         # Y's wait closes a cycle through X's hub send, so it is refused.
         form.dispose()
         # X's scope stays open until Y returns from its drain.
-        waiter.join(HANG_GUARD)
+        join_thread(waiter, HANG_GUARD)
         waiter_finished.append(not waiter.is_alive())
 
     scenario._y_call = y_call  # type: ignore[method-assign]
