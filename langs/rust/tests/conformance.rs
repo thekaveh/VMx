@@ -43,6 +43,7 @@ mod conformance {
     mod drop_panic_publication;
     mod drop_reentry;
     mod expandable;
+    mod failed_population_cleanup;
     mod filtered_composite;
     mod form_approval_admission;
     mod form_approval_completion;

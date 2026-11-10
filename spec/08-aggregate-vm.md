@@ -79,9 +79,10 @@ holds, and a candidate that is an owner on the aggregate's ancestor chain. It
 disposes each canonical ownership identity once. The cleanup is best-effort:
 a disposal failure does not replace the population's failure, which
 propagates. Swift factories cannot throw, so Swift applies the rule to a
-refused preflight only. Rust does not dispose the fresh lazy-slot candidates of
-a refused preflight yet, and an eager Rust slot keeps its existing value; the
-Rust parity status records the gap.
+refused preflight only. Rust factories return values, so Rust also applies the
+rule to a refused preflight only. In Rust, only a lazy slot builds a fresh
+candidate; an eager slot keeps its existing value and is never disposed by the
+cleanup (ADR-0226).
 
 ## 3. Destruction
 
@@ -151,7 +152,7 @@ prefer `CompositeVM<VM>` or `GroupVM<VM>` with a heterogeneous-base-type
 
 ## 8. Conformance
 
-`AGG-001` through `AGG-007` in `12-conformance.md` cover:
+`AGG-001` through `AGG-008` in `12-conformance.md` cover:
 
 - arity-1 component factory invoked on construct
 - arity-2 both components reach Constructed
@@ -162,6 +163,8 @@ prefer `CompositeVM<VM>` or `GroupVM<VM>` with a heterogeneous-base-type
 - arity-6 construction and destruction ordering
 - transactional reconstruction under preflight failure, cleanup failure, and
   terminal disposal
+- disposal of the unowned candidates of a refused population on construction
+  and reconstruction (`AGG-008`)
 
 `DISP-001` additionally requires repeated aggregate disposal to produce one
 observable terminal transition per slot and for the aggregate itself.
