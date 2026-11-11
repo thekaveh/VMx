@@ -260,7 +260,7 @@ A change that touches a hot path, such as hub delivery, batching, property
 publication, collections, or lifecycle, should include a benchmark comparison.
 Run the flavor's harness on the change and compare it with the committed
 baseline, or with a baseline you record from the base branch on the same
-machine. [Baselines](performance-methodology.md#137-baselines) gives the
+machine. [Baselines](performance-methodology.md#127-baselines) gives the
 commands.
 
 Explain every case the tool marks `SLOWER` and every probe that is not bounded
@@ -277,30 +277,10 @@ value, lookup result, or snapshot can keep a shared item alive after removal.
 Cloning the collection shares its backing store without cloning items. Rust's
 collection-change history has no item payload to retain.
 
-`COL-055` and `COL-062` wrap real `ComponentVm` instances in test-private
-shared wrappers. After each operation, including failed keyed preflight and
-empty operations, they count every known wrapper handle. They also check
-lifecycle hooks and parent state. After returned and snapshot handles are
-released, the caller disposes each VM exactly once and releases its last
-wrapper. The test then checks weak-reference expiration and a separate native
-release counter.
-
-Rust `Drop` is not VM disposal. The exact counts are deterministic because the
-tests control every holder and run mutations synchronously. They do not count
-the VM's internal references.
-
-A retained caller `Arc` always has at least one strong reference. A check of
-`strong_count >= 1` therefore cannot prove that a collection released its item
-handles. A temporary mutation that leaks items inside both `clear`
-implementations fails both tests; the unmodified implementations pass. These
-tests strengthen `COL-055` and `COL-062` and add no catalog IDs.
-
-The C#, Python, TypeScript, and Swift counterparts use direct lifecycle
-observables, with different probe coverage. C# observes disposal. Swift omits
-some lifecycle categories. Python's keyed test does not retain failed-operation
-candidates, and TypeScript's keyed test instruments one item. None asserts
-exactly-once caller cleanup. These are limits of the test evidence, not proof of
-a collection defect.
+Rust `Drop` is not VM disposal. The Rust tests for the serviced-collection
+ownership IDs use test-private wrappers to observe caller ownership. Their
+evidence and its limits are recorded in the
+[Rust ownership-test evidence record](../../docs/maintenance/2026-11-10-rust-ownership-test-evidence.md).
 
 ## 11.4. Spec Discipline
 
@@ -392,65 +372,7 @@ and revision.
 
 ### 11.5.3. Recover React Release Metadata
 
-Use this procedure only when the exact npm version, provenance, and both fresh
-React consumers have passed. A broken published package requires a new patch;
-a missing GitHub Release alone is a metadata-only recovery.
-
-Before recovery, read the old run's evidence and independently confirm the
-immutable remote tag SHA, its ancestry from `main`, the package version at that
-tag, the exact public npm version, its provenance, and the successful fresh
-React 18 and React 19 consumer checks. These checks establish publication
-facts; the extraction commands below do not. npm forbids reusing a published
-package name and version, even after unpublishing; see the
-[npm publish documentation](https://docs.npmjs.com/cli/v11/commands/npm-publish/).
-Do not republish, move or recreate the tag, or reuse a version. Do not rerun
-the historical workflow: a GitHub Actions rerun retains the original SHA and
-ref, so it also retains the old extraction code. See GitHub's
-[rerun documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)
-and [workflow documentation](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows).
-
-From a current, verified `main` checkout that contains the fixed helper, use
-the changelog bytes from the original immutable tag. Substitute the actual
-already-published version; never run this procedure for a package that has not
-passed the checks above.
-
-```bash
-set -euo pipefail
-version=0.1.0 # Replace with the version whose npm upload already succeeded.
-tag="react-v${version}"
-git fetch --no-tags origin "refs/tags/${tag}:refs/tags/${tag}"
-tag_sha="$(git rev-parse "${tag}^{commit}")"
-remote_tag_ref="$(git ls-remote --exit-code origin "refs/tags/${tag}" | awk '{print $1}')"
-test "$remote_tag_ref" = "$(git rev-parse "$tag")"
-git fetch --no-tags origin main:refs/remotes/origin/main
-git merge-base --is-ancestor "$tag_sha" origin/main
-notes="$(mktemp)"
-git show "${tag_sha}:packages/react/CHANGELOG.md" |
-  awk -v v="$version" -f tools/extract-release-notes.awk > "$notes"
-test -s "$notes" && grep -q '[^[:space:]]' "$notes" || {
-  echo "No adapter release notes." >&2
-  exit 1
-}
-cat "$notes"
-```
-
-The fetch and `ls-remote` equality confirm the remote tag ref, and
-`^{commit}` peels an annotated tag to its original commit. Any failed fetch or
-remote query stops this script; do not infer a confirmed tag from a failure.
-Inspect the rendered notes before continuing. Check whether a GitHub Release
-already exists, and distinguish confirmed absence from an authentication or
-network failure. If absent, create only release metadata:
-
-```bash
-gh release create "$tag" --verify-tag --target "$tag_sha" \
-  --title "React adapter v${version} (npm)" --notes-file "$notes"
-```
-
-If it exists, verify its tag and update only its title and notes:
-
-```bash
-gh release edit "$tag" --title "React adapter v${version} (npm)" --notes-file "$notes"
-```
-
-Verify the release URL, tag SHA, and notes; retain the recovery evidence and
-remove the temporary notes file. This changes GitHub Release metadata only.
+A missing GitHub Release for a React adapter version whose npm publication and
+fresh-consumer checks have passed is metadata-only recovery. The complete
+procedure and commands are in
+[`packages/react/RELEASING.md`](../../packages/react/RELEASING.md), section 5.

@@ -17,9 +17,22 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Conformance: behavioral Rust tests cover every library ID. Rust has no UI
   scenario suite for the THEME IDs.
 - Known gaps: the public surface and some behaviors are not fully aligned with
-  the other flavors. The
-  [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-  lists the open items and the recorded differences.
+  the other flavors. The current items are:
+  - Open: a container destruct walk (`CompositeVm`, `GroupVm`, and
+    `AggregateVm1` to `AggregateVm6`) does not join a child whose destruct is
+    already in flight. C#, Python, and Swift join it, so a Rust container
+    destruct can fail where they succeed. The ledger's §12.14 describes the
+    planned fix.
+  - Recorded difference: a container stays transient until its background
+    children settle. A failed background child that rolls the container back
+    is reported on `background_errors()`, a Rust container surface. The other
+    flavors route that failure through their background-hook error path.
+    The ledger's §12.7 has the details.
+  - Retained idioms: message sender identity uses the `sender_id` and
+    `sender_name` fields (ADR-0120), and `HierarchicalVm<M, N>` takes node data
+    in place of a subclass (ADR-0202).
+  - The [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
+    records the evidence and the closed items.
 
 For hub delivery and callback ordering, see
 [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#542-callback-safe-transition-ordering).

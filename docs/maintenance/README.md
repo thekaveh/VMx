@@ -12,8 +12,9 @@ Maintainers keep these files current.
   package, tool, CI, and publication contracts. `tools/check-workflow-pins.py`
   reads its action-pin inventory.
 - [Rust parity status](2026-07-16-rust-capability-parity.md): Rust member
-  evidence, the recorded difference in §12.7 and the open item in §12.14. The documentation site publishes
-  it as chapter 12.
+  evidence, the recorded difference in §12.7 and the open item in §12.14. The
+  Rust flavor page summarizes the current items; the site does not publish this
+  ledger.
 - [Open cross-flavor decisions](2026-10-18-open-cross-flavor-decisions.md):
   known flavor differences and spec gaps that wait for an owner decision.
 - [Dependency lock regeneration](2026-11-09-dependency-lock-regeneration.md):
@@ -36,5 +37,8 @@ can be out of date.
   controlled-interleaving work for issue 348.
 - [Application starters](2026-10-27-application-starters.md): starter
   decision, stop condition and TypeScript pilot for issue 410.
+- [Rust ownership-test evidence](2026-11-10-rust-ownership-test-evidence.md):
+  test-internal evidence and limits for the Rust serviced-collection ownership
+  tests (`COL-055` and `COL-062`).
 - [Form model lens pilot](2026-10-27-form-model-lens-pilot.md): lens
   feasibility for issue 411; recommends no public lens.

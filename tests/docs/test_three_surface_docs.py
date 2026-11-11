@@ -1081,8 +1081,10 @@ def test_build_generates_self_contained_surfaces() -> None:
         ROOT / "generated/site/primitives/viewmodel-families/specialized/modal-vm.md"
     ).read_text(encoding="utf-8")
     modal_wiki = (ROOT / "generated/wiki/ModalVM.md").read_text(encoding="utf-8")
-    assert "](../rust-parity-status.md)" in rust_site
-    assert "[[Rust parity ledger|Rust-Parity-Status]]" in rust_wiki
+    ledger_path = "`docs/maintenance/2026-07-16-rust-capability-parity.md`"
+    assert ledger_path in rust_site
+    assert "[[Rust parity ledger|Rust-Parity-Status]]" not in rust_wiki
+    assert ledger_path in rust_wiki
     assert "CONTRIBUTING.md#" not in releases_site
     assert "ServicedObservableCollection[Note](hub)" in python_site
     assert "ServicedObservableCollection[Note](hub)" in python_wiki
@@ -1428,12 +1430,22 @@ def test_wiki_page_names_omit_numbers_and_spell_out_symbols() -> None:
 
 
 def test_pages_outside_docs_content_publish_at_their_manifest_id() -> None:
-    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    manifest = parse_manifest(
+        textwrap.dedent(
+            """\
+            surfaces: [repo, site, wiki]
+            numbering: baked
+            sections:
+              - id: outside-page
+                number: "1"
+                title: Outside Page
+                source: docs/maintenance/outside.md
+            """
+        )
+    )
     site_map = build_source_map(manifest, "site")
 
-    assert site_map[Path("docs/maintenance/2026-07-16-rust-capability-parity.md")] == Path(
-        "rust-parity-status.md"
-    )
+    assert site_map[Path("docs/maintenance/outside.md")] == Path("outside-page.md")
 
 
 def test_source_map_rejects_duplicate_output_names() -> None:
