@@ -238,7 +238,7 @@ class PanelVM extends ComponentVMBase {
 | Python     | `self._complete_lifecycle_hook_after(self._transition_children(members, construct=…))` | `self._own_member(member)` |
 | TypeScript | `this._transitionChildren(members, construct, after)`                                  | `this.ownMember(member)`   |
 | Swift      | `try _transitionChildren(members, construct: …, after: …)`                             | `ownMember(member)`        |
-| Rust       | `vm.on_construct_children(move \|walk\| walk.transition(&member))`                     | `vm.own_member(&member)`   |
+| Rust       | <code>vm.on_construct_children(move \|walk\| walk.transition(&member))</code>          | `vm.own_member(&member)`   |
 
 Rust has no subclassing. A Rust view-model type wraps a `ComponentVm` and gives
 it walk closures with `on_construct_children` and `on_destruct_children`. Every

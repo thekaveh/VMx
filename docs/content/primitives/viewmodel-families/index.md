@@ -74,26 +74,17 @@ A practical decision path for common cases:
   heterogeneous child roles
 - choose [Hierarchical](hierarchical-family.md) when the VM tree is recursive
 
-The flagship Notes Workspace portfolio exercises most of the family map, but
-the notebooks tree is intentionally flat. The C#, Python, TypeScript, and Swift
-showcases use:
+The flagship Notes Workspace portfolio exercises most of the family map:
 
-- flat `ComponentVM`-based notebooks adapters (`NotebooksRootVM` plus
-  `NotebookVM`) that expose `Roots` / `ChildrenOf` / `Walk` or idiomatic
-  equivalents and publish `TreeStructureChangedMessage`, rather than direct
-  `HierarchicalVM` subclasses
 - `CompositeVM` for the notes list and tab-like current selection
 - `AggregateVM6` for the workspace shell
-- `ComponentVM` leaves for notebooks, notes, status, and capability actions
+- `ComponentVM` leaves for notes, status, and capability actions
 - `FormVM`, `DiscriminatorVM`, and `NotificationVM` in the editor and
   notifications flows
 
-The Rust TUI companion keeps a plain `NotebooksVm` list of notebook models,
-with no tree projection and no `TreeStructureChangedMessage`.
-
-Use `HierarchicalVM` when the recursive VM tree is itself the right model. Use
-the Notes Workspace READMEs and parity tables when you want the current
-flat-adapter example shape.
+The notebooks tree differs by flavor.
+[Hierarchical Family](hierarchical-family.md#6268-example) describes which
+showcases use `HierarchicalVM` nodes and which use flat adapters.
 
 ## 6.2.1.6. Common Pitfalls
 

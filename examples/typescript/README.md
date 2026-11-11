@@ -1,13 +1,16 @@
 # VMx TypeScript examples
 
 Self-contained demos of the [VMx TypeScript package](../../langs/typescript/).
-Generated architecture diagrams for all examples live in
-[`../DIAGRAMS.md`](../DIAGRAMS.md).
+The [Example Diagram Gallery](../../docs/content/examples/example-diagram-gallery.md)
+collects the generated architecture diagrams for all examples.
 
 ## 1. Setup
 
 Examples here use each example's checked-in `package-lock.json` and local npm
 scripts. Run `npm ci` in the example directory before starting it.
+
+Prerequisite: Node.js 20.19+, 22.13+, or 24+. Each example's `engines` field
+sets this range.
 
 ---
 
@@ -55,13 +58,13 @@ Diagram:
 ```bash
 cd examples/typescript/react/notes-showcase
 npm ci
-npm run dev         # builds local VMx, then serves http://localhost:5173
+npm run dev         # builds local VMx and @thekaveh/vmx-react, then serves http://localhost:5173
 ```
 
 **Production build** (from the same directory):
 
 ```bash
-npm run build       # builds local VMx, then writes static bundle to dist/
+npm run build       # builds local VMx and @thekaveh/vmx-react, then writes dist/
 ```
 
 See [`react/notes-showcase/README.md`](react/notes-showcase/README.md) for
@@ -71,7 +74,29 @@ and others). The canonical scenario contract is at
 
 ---
 
-## 4. Project layout
+## 4. Example 3 — `integration-recipes/` (Vue, Svelte, Solid)
+
+This project is not an app. It holds the Vue, Svelte, and Solid recipe files
+that the integration guides embed, and tests them on jsdom. Its `npm test` and
+`npm run typecheck` scripts do not build VMx, so build the local VMx package
+first. Run these commands from the repository root:
+
+```bash
+npm --prefix langs/typescript ci
+npm --prefix langs/typescript run build
+cd examples/typescript/integration-recipes
+npm ci
+npm test            # runs the Vue, Svelte, and Solid recipe tests
+npm run typecheck   # compile-only check, including .vue and .svelte shims
+```
+
+The [Vue](../../docs/content/integration/vue.md),
+[Svelte](../../docs/content/integration/svelte.md), and
+[Solid](../../docs/content/integration/solid.md) guides show these files.
+
+---
+
+## 5. Project layout
 
 ```
 examples/typescript/
@@ -79,7 +104,7 @@ examples/typescript/
 ├── console/
 │   └── hello-vmx/
 │       └── index.ts       # entry point
-├── integration-recipes/   # Vue, Svelte, and Solid recipes checked in CI
+├── integration-recipes/   # Vue, Svelte, and Solid recipes (§4)
 └── react/
     └── notes-showcase/
         ├── package.json, vite.config.ts, tsconfig.json

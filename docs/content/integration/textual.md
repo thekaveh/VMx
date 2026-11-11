@@ -3,7 +3,7 @@
 Wire a `ComponentVMOf[M]` to a [Textual](https://textual.textualize.io/)
 TUI widget through Textual's `reactive` descriptors.
 
-## 9.5.1. Reactivity primitive
+## 9.5.1. Reactivity Primitive
 
 Textual widgets re-render when a `reactive(...)` attribute changes. A VMx VM
 reports its own changes on `property_changed`, an observable of snake_case
@@ -22,7 +22,7 @@ never carries a `PropertyChangedMessage` for `status`.
 | `DataTable` rows       | a projection's items by key, selected by key       |
 | `post_message`         | thread-safe hand-off of a change to the App thread |
 
-## 9.5.3. Adapter skeleton
+## 9.5.3. Adapter Skeleton
 
 The widget below is the exact module that the Textual Notes-Showcase tests run
 on a live App (`examples/python/textual/notes_showcase/tests/views/`), including
@@ -276,7 +276,7 @@ also sends none. The grid subscribes to `on_item_added`, `on_item_removed`,
 `on_item_replaced`, and `on_reset` instead. It also re-clamps the page on these
 four streams.
 
-## 9.5.5. Fuller example
+## 9.5.5. Fuller Example
 
 - [`examples/python/textual/inspector/`](../../../examples/python/textual/inspector/) —
   a Textual viewer for any VMx tree, demonstrating the hub-subscription

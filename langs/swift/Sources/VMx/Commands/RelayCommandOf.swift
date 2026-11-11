@@ -21,7 +21,15 @@ public final class RelayCommandOf<T> {
     private let predicate: ((T) -> Bool)?
     private let canExecuteChangedSubject = PassthroughSubject<Void, Never>()
     private var cancellables: Set<AnyCancellable> = []
+    private let disposalLock = NSLock()
     private var disposed = false
+
+    /// Re-reads disposal under the lock, so a `dispose()` on another thread is seen.
+    private var isDisposed: Bool {
+        disposalLock.lock()
+        defer { disposalLock.unlock() }
+        return disposed
+    }
 
     public init(
         task: ((T) -> Void)?,
@@ -40,9 +48,9 @@ public final class RelayCommandOf<T> {
     }
 
     public func canExecute(_ parameter: T) -> Bool {
-        guard !disposed else { return false }
+        guard !isDisposed else { return false }
         guard let predicate else { return true }
-        return predicate(parameter) && !disposed
+        return predicate(parameter) && !isDisposed
     }
 
     public func execute(_ parameter: T) {
@@ -57,14 +65,17 @@ public final class RelayCommandOf<T> {
     /// Emits one re-evaluation notification without invoking user closures.
     /// Repeated calls are additive; calls after disposal are no-ops.
     public func raiseCanExecuteChanged() {
-        guard !disposed else { return }
+        guard !isDisposed else { return }
         canExecuteChangedSubject.send(())
     }
 
     /// Idempotent. Subsequent calls are a no-op.
     public func dispose() {
-        guard !disposed else { return }
+        disposalLock.lock()
+        let wasDisposed = disposed
         disposed = true
+        disposalLock.unlock()
+        guard !wasDisposed else { return }
         // Terminal "re-evaluate — now disabled" nudge before completion, matching
         // RelayCommand + the C#/Python/TypeScript relay commands (7 of 8 sync relay
         // dispose paths emit this; this variant was the lone omission).

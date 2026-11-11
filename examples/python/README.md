@@ -1,8 +1,8 @@
 # VMx Python Examples
 
 Five demos of the [VMx Python library](../../langs/python/).
-Generated architecture diagrams for all examples live in
-[`../DIAGRAMS.md`](../DIAGRAMS.md).
+The [Example Diagram Gallery](../../docs/content/examples/example-diagram-gallery.md)
+collects the generated architecture diagrams for all examples.
 
 ## 1. Setup
 
@@ -93,8 +93,8 @@ uv run python -c "from todo_app.__main__ import MainWindow; print('OK')"
 ```
 
 **Host check:** runs the window on a real Tk root. It types, adds, toggles and
-removes items through the widgets, then closes the window and checks that every
-subscription is disposed and nothing keeps the view-model alive. CI runs it
+removes items through the widgets, and then it closes the window. It checks that
+every subscription is disposed and nothing keeps the view-model alive. CI runs it
 under Xvfb:
 
 ```bash

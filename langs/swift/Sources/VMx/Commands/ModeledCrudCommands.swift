@@ -30,6 +30,7 @@ public final class ModeledCrudCommands<VM: AnyObject> {
     // Inner RelayCommands hold trigger subscriptions; tracked so dispose() can
     // tear them down (parity with C# ModeledCrudCommands.Dispose).
     private let innerRelays: [RelayCommand]
+    private let disposalLock = NSLock()
     private var disposed = false
 
     public init(
@@ -84,8 +85,11 @@ public final class ModeledCrudCommands<VM: AnyObject> {
     /// When no confirm hook is supplied the public command is the inner relay
     /// itself, already disposed.
     public func dispose() {
-        guard !disposed else { return }
+        disposalLock.lock()
+        let wasDisposed = disposed
         disposed = true
+        disposalLock.unlock()
+        guard !wasDisposed else { return }
         for cmd in innerRelays { cmd.dispose() }
         for cmd in [updateCurrentCommand, deleteCurrentCommand] {
             (cmd as? ConfirmationDecoratorCommand)?.dispose()

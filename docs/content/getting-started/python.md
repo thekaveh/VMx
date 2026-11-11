@@ -16,8 +16,8 @@ ______________________________________________________________________
 
 Add VMx as described in [Installation](../installation.md). PyPI provides
 `vmx` 3.23.0. Examples that need a later source line state their minimum
-version; the Python tab on the installation page installs the source line from
-a checkout.
+version; the Python section of the installation page installs the source line
+from a checkout.
 
 > To start a new console project, use the Python console starter template in
 > [`starters/python-console/`](../../../starters/python-console/). It was
@@ -29,12 +29,12 @@ a checkout.
 
 ______________________________________________________________________
 
-## 3.3.2. Wire up `MessageHub` and `RxDispatcher`
+## 3.3.2. Wire Up `MessageHub` And `RxDispatcher`
 
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your event loop or UI thread.
 
-### 3.3.2.1. Option A — immediate (console / synchronous tests)
+### 3.3.2.1. Option A — Immediate (Console / Synchronous Tests)
 
 ```python
 from vmx.messages import Message
@@ -46,7 +46,7 @@ dispatcher = RxDispatcher.immediate()
 # console scripts and pytest suites where there is no event loop.
 ```
 
-### 3.3.2.2. Option B — asyncio-based UI (Textual, etc.)
+### 3.3.2.2. Option B — asyncio-Based UI (Textual, etc.)
 
 ```python
 import asyncio
@@ -88,7 +88,7 @@ async def main() -> None:
 
 ______________________________________________________________________
 
-## 3.3.3. Build a `ComponentVMOf[UserModel]`
+## 3.3.3. Build A `ComponentVMOf[UserModel]`
 
 `ComponentVMOf[M]` is the primary leaf viewmodel. It holds a typed model,
 fires `PropertyChangedMessage` on the hub when the model changes, and
@@ -172,7 +172,7 @@ print(user_vm.status)        # ConstructionStatus.CONSTRUCTED
 
 ______________________________________________________________________
 
-## 3.3.4. Build a `RelayCommand`
+## 3.3.4. Build A `RelayCommand`
 
 `RelayCommand` wraps an optional callable task, an optional predicate that
 gates execution, and a set of `Observable` triggers that signal `can_execute`
@@ -231,7 +231,7 @@ save_command.dispose()
 
 ______________________________________________________________________
 
-## 3.3.5. Build a `CompositeVM[TabVM]`
+## 3.3.5. Build A `CompositeVM[TabVM]`
 
 `CompositeVM[VM]` owns an ordered child collection and a `current` selection.
 Children are provided by a factory callable that runs lazily on the first
@@ -311,7 +311,7 @@ print(tab2.is_current)                 # False
 
 ______________________________________________________________________
 
-## 3.3.6. Lifecycle and cleanup
+## 3.3.6. Lifecycle And Cleanup
 
 Every VM has five lifecycle states. Four of them form a reversible cycle,
 `DESTRUCTED → CONSTRUCTING → CONSTRUCTED → DESTRUCTING → DESTRUCTED`. The fifth
@@ -346,9 +346,8 @@ completes the underlying Rx subject. The threading examples below still use the
 hub, so the full shutdown sequence appears after them.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
-> full transition table and the
-> lifecycle contract (`LIFE-001..022`), including `StatusTransitionError`
-> rules and admitted-hook/disposal coordination.
+> transition table, the error of a refused operation, and the callback
+> ordering.
 
 ______________________________________________________________________
 
@@ -481,7 +480,7 @@ completed by VMx. Do not close VMx's shared daemon loop. See the
 
 ______________________________________________________________________
 
-## 3.3.8. Where to go next
+## 3.3.8. Where To Go Next
 
 | Resource             | Documentation page                                                                             |
 | -------------------- | ---------------------------------------------------------------------------------------------- |

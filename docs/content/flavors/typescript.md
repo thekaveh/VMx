@@ -37,12 +37,14 @@ notes.replaceAll(serverSnapshot);    // one Reset
 local.unsubscribe();
 ```
 
-`remove` deletes only the first `indexOf` match and returns `false` when absent.
-`removeAt`, `replace`, and `move` require integer positions in range and reject
-invalid positions atomically. Equal-index move, empty clear, and empty-to-empty
-replacement are no-ops. Collection messages carry legacy `index` plus
-`oldIndex` / `newIndex`. Items remain caller-owned. Choose `ObservableList<T>`
-for list-local batching and the `Count` channel.
+`remove` deletes only the first `indexOf` match. `removeAt`, `replace`, and
+`move` require integer positions in range. Collection messages carry legacy
+`index` plus `oldIndex` / `newIndex`. The
+[Serviced Mutation Contract](../primitives/builders-collections-tree-utilities.md#677-serviced-mutation-contract)
+gives the shared rules for bounds, no-op cases, delivery order, and item
+ownership.
+
+Choose `ObservableList<T>` for list-local batching and the `Count` channel.
 
 Use `KeyedServicedObservableCollection<TKey,TItem>` when that ordered list also
 needs captured-key access:
@@ -62,14 +64,10 @@ const removed = notesById.delete(first.id);
 splice projects inserted items and validates the complete candidate atomically
 before commit.
 
-Captured membership keys do not follow mutable item properties;
-use indexed replacement or delete-then-add to rekey explicitly. Upserting the
-same mutated instance can add a second membership under its new projected key.
-Duplicate/projector failure preserves state and emits nothing. Lookup and
-target discovery are expected O(1), append is amortized O(1), and ordered
-middle shifts remain O(n). Local delivery precedes optional hub publication;
-hub transactions defer only the latter. The collection has no batch, VM
-lifecycle interface, or ownership of stored items.
+Mutating `id` does not rekey the membership. The
+[Keyed Serviced Mutation Contract](../primitives/builders-collections-tree-utilities.md#678-keyed-serviced-mutation-contract)
+gives the shared rules for captured keys, atomic failures, costs, and hub
+delivery.
 
 ## 7.4.4. Imperative Engine Bridge
 
@@ -88,10 +86,9 @@ const exposureSubscription = subscribeValue(
 exposureSubscription.unsubscribe();
 ```
 
-The callback receives `(current, previous)`; immediate delivery uses the
-initial value for both. The selector reevaluates after every property message
-from this fixed VM rather than on every render frame. The host adapter owns the
-subscription; VMx does not attach it to the observed VM's lifetime.
+The
+[Imperative Selected-State Bridge](../primitives/services-messages-dispatching.md#666-imperative-selected-state-bridge)
+gives the shared callback, reevaluation, and ownership rules.
 
 ## 7.4.5. Raw Message Predicates
 

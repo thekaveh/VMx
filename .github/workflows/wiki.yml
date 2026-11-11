@@ -26,15 +26,21 @@ concurrency:
   group: wiki
   cancel-in-progress: false
 
+# The build job runs third-party packages and the docs gate with a read-only
+# token. Only the publish job, which runs no installed package, can write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  publish:
+  build:
     timeout-minutes: 30
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
@@ -55,6 +61,32 @@ jobs:
         run: |
           python docs/assets/diagrams/generate_diagrams.py --check
           python -m scripts.docs.validate_diagrams
+      - name: Upload generated wiki
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: generated-wiki
+          path: generated/wiki
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Download generated wiki
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: generated-wiki
+          path: generated/wiki
       - name: Install wiki deploy key when configured
         env:
           WIKI_DEPLOY_KEY_VALUE: ${{ secrets.WIKI_DEPLOY_KEY }}

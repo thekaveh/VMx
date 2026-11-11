@@ -22,8 +22,8 @@ def _section(heading: str) -> str:
 
 def test_swiftui_guide_snippets_are_checked_against_the_compiled_recipe() -> None:
     for heading, region in (
-        ("## 9.12.3. Adapter and view", "swiftui-recipe"),
-        ("## 9.12.4. Lifecycle is throwing", "swiftui-throwing-lifecycle"),
+        ("## 9.12.3. Adapter And View", "swiftui-recipe"),
+        ("## 9.12.4. Lifecycle Is Throwing", "swiftui-throwing-lifecycle"),
     ):
         checked = [
             snippet.source

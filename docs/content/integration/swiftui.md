@@ -5,7 +5,7 @@ that bridges VMx change notifications into SwiftUI's `ObservableObject`
 machinery. The adapter decides who owns the VM's lifetime; appearing and
 disappearing never end it.
 
-## 9.12.1. Reactivity primitive
+## 9.12.1. Reactivity Primitive
 
 SwiftUI re-renders when an `ObservableObject` publishes through its
 `objectWillChange` publisher. VMx VMs publish `PropertyChangedMessage`
@@ -34,7 +34,7 @@ stacks, lazy lists). Choose an ownership policy instead:
   [Notes Workspace](../../../examples/swift/notes-showcase/) keeps its
   `WorkspaceVM` for the window's lifetime. The view only observes it.
 
-## 9.12.3. Adapter and view
+## 9.12.3. Adapter And View
 
 This is the exact code compiled and exercised by
 `langs/swift/Tests/VMxTests/SwiftUIRecipeTests.swift`: appear, disappear, and
@@ -130,7 +130,7 @@ in its parent; it persists nothing.
 Construction errors are not discarded with `try?`: the adapter stores them in
 `lifecycleError` so the host can show them, and later cleanup cannot mask them.
 
-## 9.12.4. Lifecycle is throwing (ADR-0053)
+## 9.12.4. Lifecycle Is Throwing (ADR-0053)
 
 The Swift lifecycle operations `construct()`, `destruct()`, and `reconstruct()`
 are `throws` (ADR-0053, superseding ADR-0037 §2.5). They match the catchable
@@ -156,14 +156,14 @@ A non-child `current` assignment likewise has a throwing companion
 It also throws for a child while disposal of the composite is pending, and for
 any value inside the caller's own uncommitted membership transaction (ADR-0173).
 
-## 9.12.5. Fuller example
+## 9.12.5. Fuller Example
 
 The SwiftUI Notes Workspace flagship lives at
 [`examples/swift/notes-showcase/`](../../../examples/swift/notes-showcase/). Its
 `NotesShowcaseCore` target keeps the pure VM layer separate from SwiftUI, while
 the app target contains the Combine-to-SwiftUI binding bridge.
 
-## 9.12.6. Cross-flavor parity
+## 9.12.6. Cross-Flavor Parity
 
 Each recipe bridges VM change notifications into the host's re-render
 primitive. This adapter forwards the VM-local `propertyChanged` stream into
