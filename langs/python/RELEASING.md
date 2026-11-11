@@ -73,7 +73,7 @@ Until the manifest is reconciled, release through
 [§2.2](#22-manual-tag-release-when-release-please-is-paused).
 
 1. Land Conventional-Commit-style PRs on `develop` (`feat: …`, `fix: …`, `docs: …`, etc.), then promote `develop` to `main` through a separate PR.
-2. `release-please` opens a "chore(main): release python X.Y.Z" PR — review the version bump in `langs/python/src/vmx/__about__.py` and the matching `langs/python/CHANGELOG.md` entry.
+2. `release-please` opens a "chore(main): release python X.Y.Z" PR — review the version bump in `langs/python/src/vmx/__about__.py` and the matching `langs/python/CHANGELOG.md` entry. In the same PR, update the PyPI status in `langs/python/README.md` §2, because that README becomes the PyPI project page.
 3. If `spec/VERSION` changed, update `__min_spec_version__` to equal it in the same PR. release-please does not update it (§6).
 4. Merge the release PR. release-please creates no tag, so push the annotated
    `python-v<X.Y.Z>` tag on the merge commit as in
@@ -117,7 +117,9 @@ Use this path when `__about__.py` already holds the target version, so
 release-please proposes no release PR. First, a release-prep PR replaces
 `unreleased source version` in the `## [X.Y.Z]` CHANGELOG heading with the
 release date and reaches `main`, so the heading date equals the tag date
-(`CONTRIBUTING.md` §4.3). Then push the tag manually:
+(`CONTRIBUTING.md` §4.3). The same PR updates the PyPI status in
+`langs/python/README.md` §2, because that README becomes the PyPI project
+page. Then push the tag manually:
 
 ```bash
 git checkout main

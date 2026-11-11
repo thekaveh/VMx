@@ -61,14 +61,20 @@ fallback after this migration.
 1. Update `version` and, when required, `rust-version` in `Cargo.toml`,
    `MIN_SPEC_VERSION` in `src/lib.rs`, and the compatibility matrix.
 
-1. Correct the files that ship inside the package before the tag.
-   crates.io keeps the README and CHANGELOG of each version, and a published
-   version cannot be replaced. `langs/rust/README.md` is the crates.io page: it
-   must give the crates.io dependency and name the spec version without a tag
-   reference. It states that the crate covers every library conformance ID in
-   `spec/12-conformance.md`, without a number (`CONTRIBUTING.md` §3.2). The
-   `langs/rust/CHANGELOG.md` release section must describe the published
-   package.
+1. In the release-prep PR, correct the files that ship inside the package
+   before the tag. crates.io keeps the README and CHANGELOG of each version and
+   cannot replace them.
+
+   - `langs/rust/README.md` is the crates.io page. Until the first release, it
+     says that the crate is not on crates.io and gives only the git and path
+     dependencies. Remove that status sentence.
+   - Make the crates.io dependency (`vmx-rs = "X.Y.Z"`) the first install form
+     in the README.
+   - Name the spec version in the README without a tag reference.
+   - State in the README that the tests cover every library conformance ID,
+     without a count (`CONTRIBUTING.md` §3.2).
+   - Make the release section of `langs/rust/CHANGELOG.md` describe the
+     published package.
 
 1. In the release-prep PR, immediately before the tag, replace
    `unreleased source version` in the `## [X.Y.Z]` changelog heading with the

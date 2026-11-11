@@ -1,4 +1,4 @@
-# VMx Rust
+# vmx-rs — Rust
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
@@ -7,10 +7,13 @@ Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framewo
 **v0.37.0** implements spec 3.30.0. Behavioral Rust tests cover every
 library conformance ID. Rust has no UI scenario suite for the THEME IDs.
 
+The crate is not yet published to crates.io. Use a git or path dependency, as
+§2 shows.
+
 The public surface and some behaviors are not fully aligned with the other
-flavors. See the
+flavors. The status paragraph at the top of the
 [Rust parity ledger](https://github.com/thekaveh/VMx/blob/main/docs/maintenance/2026-07-16-rust-capability-parity.md)
-(original scope closed; recorded difference in §12.7 and open item in §12.14).
+lists the open items and the recorded difference.
 
 ## 2. Install
 
@@ -20,20 +23,17 @@ flavors. See the
   sub-package of spec/16 (`NotificationHub`, `NullNotificationHub`,
   `NotificationHubApi`, `make_confirm`, `NotificationVm`, `ConfirmationVm`).
   Set `default-features = false` to build the core without it (ADR-0211).
-- Add the crate from crates.io. A git or path dependency also works.
+- Add the crate from the repository by git, or by path from a VMx checkout.
 
 ```toml
 [dependencies]
-vmx-rs = "0.37.0"
-
-# Or, from the repository:
-# vmx-rs = { git = "https://github.com/thekaveh/VMx.git" }
+vmx-rs = { git = "https://github.com/thekaveh/VMx.git" }
 
 # Or, with VMx cloned beside your project:
 # vmx-rs = { path = "../VMx/langs/rust" }
 ```
 
-## 3. Minimal Example
+## 3. Minimal example
 
 ```rust
 use vmx::{ComponentVm, MessageHub, NullDispatcher, VmxResult};
@@ -50,7 +50,7 @@ fn main() -> VmxResult<()> {
 }
 ```
 
-### 3.1. Background Lifecycle
+### 3.1. Background lifecycle
 
 `NullDispatcher` and `ImmediateDispatcher` run both channels inline. Use
 `DefaultDispatcher` for the built-in paired workers, or provide a host
@@ -92,7 +92,7 @@ Without background children, reconstruct remains a synchronous
 destruct/construct operation. A rejected background or foreground scheduling
 restores lifecycle admission (ADR-0130).
 
-## 4. Surface Summary
+## 4. Surface summary
 
 The crate uses idiomatic Rust naming and error handling:
 
@@ -125,9 +125,10 @@ The crate uses idiomatic Rust naming and error handling:
   action for a debounce, a timer or a polling loop. `SearchableState`
   debounces term changes, 1 second by default, and the notification VMs
   expire on their scheduler.
-- `DerivedProperty` recomputes from one through five owned source
-  subscriptions. `AsyncValue<T>` is an executor-neutral `Future` with
-  synchronous `wait()`, `map`, and `and_then`.
+- `DerivedProperty` recomputes from one to five typed sources (`from_one` to
+  `from_five`), or from any number of same-typed sources (`from_sources`). It
+  owns its source subscriptions. `AsyncValue<T>` is an executor-neutral
+  `Future` with synchronous `wait()`, `map`, and `and_then`.
 - `FormVm::builder().reset_on_approved(...)` derives a pristine model after a
   successful persist. `FormVm::set_model(...)` publishes one model message
   after validation and approve-command state settle.
@@ -159,14 +160,14 @@ See the
 [Rust flavor guide](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/rust.md)
 for runtime behavior, threading, and nested command execution.
 
-## 5. Fixed Aggregates
+## 5. Fixed aggregates
 
 `AggregateVm1` through `AggregateVm6` use immutable builders and populate typed
 slots from factories at construct time. Accessors return `None` before
 construction. A failed candidate leaves previous slots intact. See
 [Rust fixed aggregates](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/rust.md#764-fixed-aggregates).
 
-## 6. Serviced Collections
+## 6. Serviced collections
 
 `ServicedObservableCollection<T>` is distinct from `ObservableList<T>`: it owns
 an always-present local stream and can also publish to an external hub.
@@ -175,7 +176,7 @@ an always-present local stream and can also publish to an external hub.
 `Clone`. Neither type batches or owns stored-item lifecycle. See
 [Rust serviced collections](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/rust.md#765-serviced-collections).
 
-## 7. Imperative Engine Bridge
+## 7. Imperative engine bridge
 
 `MessageHub::subscribe_value(...)` pushes a selected value for a fixed
 `sender_id` into an imperative host as `(current, previous)`. It returns a
@@ -183,10 +184,23 @@ host-owned `Subscription`; VMx does not attach it to the observed VM's
 lifetime. See
 [Rust imperative engine bridge](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/rust.md#766-imperative-engine-bridge).
 
-## 8. Development
+## 8. Conformance
+
+Each library conformance ID has a test under `tests/conformance`. The test
+names its ID in a leading doc comment. See
+[`spec/12-conformance.md`](https://github.com/thekaveh/VMx/blob/main/spec/12-conformance.md)
+for the catalog.
+
+## 9. Development
 
 See the Rust section of
 [`CONTRIBUTING.md`](https://github.com/thekaveh/VMx/blob/main/CONTRIBUTING.md)
 for build and test commands, and
 [`RELEASING.md`](https://github.com/thekaveh/VMx/blob/main/langs/rust/RELEASING.md)
 for the release runbook.
+
+## 10. License
+
+Apache-2.0 — see
+[`LICENSE`](https://github.com/thekaveh/VMx/blob/main/LICENSE) and
+[`NOTICE`](https://github.com/thekaveh/VMx/blob/main/NOTICE).
