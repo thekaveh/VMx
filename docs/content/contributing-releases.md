@@ -32,13 +32,9 @@ release procedure for every flavor.
   examples, security, and spec-discipline aggregate checks against the latest
   target branch. Maintainer review is expected when another reviewer is
   available; the single-collaborator repository does not require self-approval.
-- A new push to a PR cancels that PR's older run of each of the nine
-  pull-request CI workflows: `python`, `csharp`, `typescript`, `swift`, `rust`,
-  `conformance`, `spec-discipline`, `security-audit`, and
-  `examples-contract-checks`. Their runs on `develop` and `main`, scheduled
-  runs, and manual runs are never cancelled. The `docs`, `wiki`, `release`,
-  `release-please`, `starters`, and `typescript-windows-watch` workflows keep
-  their own concurrency groups.
+- A new push to a pull request cancels its older CI runs. The workflows, their
+  concurrency groups, and the runs that are never cancelled are listed in
+  [CONTRIBUTING.md §1](../../CONTRIBUTING.md).
 - For behavior changes, start in `spec/` and follow the ADR discipline.
 - Keep all supported flavors visible when a change affects shared behavior.
 
@@ -59,14 +55,14 @@ The main local check families are:
 - Rust: `cargo fmt --check`,
   `cargo clippy --locked --all-targets --all-features -- -D warnings`, and
   `cargo test --locked --all-features`
-- Public API baselines: CI compares each flavor's public API with a recorded
-  baseline. The C#, Python, and TypeScript checks fail on any difference. The
-  Rust and Swift checks fail on a breaking change. Commit the updated baseline
-  in the same pull request as the API change.
+- Public API baselines: each flavor's CI compares its public API with a recorded
+  baseline. The C#, Python, and TypeScript checks fail on any change. The Rust
+  and Swift checks fail on a breaking change. Commit the updated baseline in the
+  same pull request as the API change.
 - Repo-wide coverage and example-contract tools
 
-The repository's `CONTRIBUTING.md` lists the full commands for each flavor. Its
-§2.8 names the baseline file and the check for each flavor.
+The full commands for each flavor, and the baseline file and update command for
+each one, are in [CONTRIBUTING.md §2.8](../../CONTRIBUTING.md).
 
 For reproducible Python checks, set `UV_PYTHON` to a supported version
 (3.10–3.14) before locked sync and every later uv command. Installing Python
@@ -301,6 +297,7 @@ package-specific `csharp-notifications-vX.Y.Z` and
 `csharp-dependency-injection-vX.Y.Z` tags for its companions, so independent
 versions cannot collide. The spec uses `spec-vX.Y.Z`; Swift also pairs its
 operational tag with the semantic `vX.Y.Z` tag required by SwiftPM.
+
 Registry-backed channels are protected by environment approval, OIDC,
 pre-publish checks of the exact locally built artifact, public-artifact checks,
 and fresh-consumer verification. Only the publish job holds `id-token: write`:
