@@ -260,7 +260,9 @@ Python and TypeScript view tests also run each theme control.
 
     All four examples keep the same observable contract. Each one sends a
     `TreeStructureChangedMessage` with the added kind when a notebook is added
-    or the tree is populated. No flagship removes notebooks. Each one also
+    or the tree is populated. No user action removes a notebook. `populate()`
+    replaces the list once at startup, disposing the previous children first.
+    Each one also
     keeps a `current` selection and provides `walk()` and `childrenOf()`
     accessors. Thus capability dispatch and spec-level tree messages behave as
     they do with a canonical `HierarchicalVM`.

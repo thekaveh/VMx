@@ -11,8 +11,9 @@ surface the plan assumed). Instead we own a flat
 ``roots`` / ``children_of`` walks for the view, and publish a
 :class:`vmx.TreeStructureChangedMessage` with the ``ADDED`` kind when a
 notebook is added or the tree is populated, so subscribers observe structural
-changes as they do under the HierarchicalVM contract. The showcase never
-removes a notebook.
+changes as they do under the HierarchicalVM contract. No user action removes a
+notebook. ``populate()`` replaces the list once at startup, disposing the
+previous children first.
 """
 
 from __future__ import annotations
