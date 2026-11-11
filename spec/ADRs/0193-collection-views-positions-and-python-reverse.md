@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-09
-- **Spec version:** 3.30.0 (chapter 21 §2.3.6, §4.1, §4.2, §4.7, §4.8,
+- **Spec version:** 3.30.0 (chapter 21 §2.3.6, §4.1, §4.2, §4.7, §8,
   `COL-068` and `COL-070`)
 - **Related:** [ADR-0009](0009-cross-flavor-divergence-catalogue.md) §2.21 and
   §2.15, [ADR-0025](0025-multi-key-observable-dictionary.md),

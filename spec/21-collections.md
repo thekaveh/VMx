@@ -268,14 +268,20 @@ subscribers cannot fail. A failing hub subscriber follows the hub's own delivery
 rules (chapter 03).
 
 A failing subscriber also does not skip a later notification step of the same
-committed change (ADR-0220). The steps are the granular or `Reset` event, the
+committed change (ADR-0220).
+
+The steps are the granular or `Reset` event, the
 C# `CollectionChanged` event, the `Count` and `Item[]` property notifications,
 the key-view notifications (§4.2), the dictionary's own events and the hub
-message. C# and Python rethrow the first failure after the last step. In C#,
+message. C# and Python rethrow the first failure after the last step.
+
+In C#,
 `ObservableCollection<T>` raises `PropertyChanged("Count")` and
 `PropertyChanged("Item[]")` before `CollectionChanged`. During a mutation, a
 throwing handler of one of these properties therefore waits until
-`CollectionChanged` and the hub send have run. A `PropertyChanged` that is
+`CollectionChanged` and the hub send have run.
+
+A `PropertyChanged` that is
 raised outside a mutation, such as a subclass's own property, runs every
 handler and rethrows the first failure at once (`COL-072`).
 

@@ -4,7 +4,7 @@
  * Items remain caller-owned. Every mutation settles the ordered items,
  * captured keys, and key-to-index map before local and optional hub delivery.
  *
- * See spec/21-collections.md §§2.8–2.15 and ADR-0097.
+ * See spec/21-collections.md §§2.8–2.14 and ADR-0097.
  */
 import { Observable, Subject } from "rxjs";
 import type { Subscription } from "rxjs";

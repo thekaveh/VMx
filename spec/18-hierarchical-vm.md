@@ -134,8 +134,12 @@ Factory hydration is a snapshot/preflight/commit transaction (ADR-0127). The
 complete result is materialized before mutation and MUST contain only distinct,
 detached object identities. A null-like entry, duplicate identity, this node or
 one of its ancestors, or any node with a non-null parent rejects the complete
-snapshot. Rejection installs no cache, changes no parent/path state, publishes
-no message, and a later access retries the factory. A valid snapshot is cached
+snapshot.
+
+Rejection installs no cache, changes no parent/path state, publishes
+no message, and a later access retries the factory.
+
+A valid snapshot is cached
 in factory order and its parent backpointers are assigned silently. Factory
 hydration never transfers a node; use `AddChild` for explicit transfer.
 If the factory re-enters a structural operation on its receiver, including

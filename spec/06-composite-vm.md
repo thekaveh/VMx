@@ -264,11 +264,17 @@ destination performs one transaction:
 The destination and any staged old parent remain under an exclusive membership
 transaction through hooks and commit or rollback. Re-entrant structural
 mutation of either protected container MUST fail before mutation; coherent
-snapshot reads remain legal. Child reservations use a deterministic acquisition
-strategy so two reverse-order bulk populations cannot deadlock. Selection
+snapshot reads remain legal.
+
+Child reservations use a deterministic acquisition
+strategy so two reverse-order bulk populations cannot deadlock.
+
+Selection
 validation and assignment are one membership-gated operation that opens no
 membership transaction, and deferred selection revalidates membership when it
-executes (§4.3). Concurrent flavors use a shared re-entrant coordination lane
+executes (§4.3).
+
+Concurrent flavors use a shared re-entrant coordination lane
 for cross-composite validation and state commit, including the affected child
 current flags, then release it before hub publication and consumer callbacks.
 A flavor MAY retain a logical structural transaction without its mutex during
@@ -588,13 +594,19 @@ With `AutoConstructOnAdd(true)`, the walk ends with a commit step under the
 membership gate. The step joins a late child that an add started after the
 walk's last scan. With none left, it writes `Status = Constructed` and
 reserves the `Constructed` publication in the same gated section (chapter 02
-§2.4). The publication follows when the transition completes. Until then,
+§2.4). The publication follows when the transition completes.
+
+Until then,
 `Status` reads `Constructed`, but the transition is still in flight:
 `construct()`, `destruct()` and `reconstruct()` raise as for an in-flight
-transition (`LIFE-008`), and the `can_*` predicates return `false`. An add in
+transition (`LIFE-008`), and the `can_*` predicates return `false`.
+
+An add in
 this window follows the add-after-`Constructed` rule above, and the walk does
 not join its child. A background child added in the window can therefore
-still be `Constructing` when the composite publishes `Constructed`. A walk
+still be `Constructing` when the composite publishes `Constructed`.
+
+A walk
 that disposal stopped, or that its construct hook abandoned by raising after
 it started the walk, commits nothing. The commit step checks this under the
 same lock as the status write. TypeScript writes and publishes the status

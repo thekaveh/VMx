@@ -186,16 +186,22 @@ action, so disposed parents cannot begin new child work. Factory population is
 such an action. A container whose construct hook a foreign `dispose()`
 superseded does not call its children factory and attaches nothing. Its
 `construct()` returns without an error, as §7.2 says for a superseded call
-(ADR-0218, `LIFE-015`). An `add()` during disposal still fails. If two active hooks
+(ADR-0218, `LIFE-015`). An `add()` during disposal still fails.
+
+If two active hooks
 cross-dispose their peers, the flavor's wait-for graph breaks the cycle by
 deferring one VM's terminal cleanup to its admitted hook's completion; both
 hooks and both teardown paths still run exactly once. TypeScript's
 single-threaded event loop cannot form this foreign-thread wait. Swift keeps its
-documented nonthrowing disposal surface. Throwing/result-based flavors preserve
+documented nonthrowing disposal surface.
+
+Throwing/result-based flavors preserve
 the earliest already-propagating failure when deferred cleanup also fails;
 later cleanup failures never replace it (ADR-0126). When the call that runs the
 deferred cleanup has no earlier failure, it reports the cleanup's first failure
-(ADR-0200). That call is the admitted hook's `construct()`, `destruct()`, or
+(ADR-0200).
+
+That call is the admitted hook's `construct()`, `destruct()`, or
 `reconstruct()`, which `Disposed` has superseded. Its background form reports
 the failure through the flavor's background-failure path. A C# async method
 reports it as it reports a hook failure. The cycle-broken `dispose()` returns
