@@ -1388,7 +1388,14 @@ def test_generated_wiki_adapts_every_tabbed_page() -> None:
     installation = (ROOT / "generated/wiki/Installation.md").read_text(encoding="utf-8")
 
     assert check_docs.check_generated_wiki_tabs(ROOT) == []
-    assert installation.count("<details") == 5
+    # The installation page lists each flavor under its own heading (no tabs),
+    # so the wiki adaptation is covered by a page that still uses content tabs.
+    assert "<details" not in installation
+    assert '=== "' not in installation
+    assert any(
+        "<details" in page.read_text(encoding="utf-8")
+        for page in (ROOT / "generated/wiki").glob("*.md")
+    )
     assert (
         "[[Upgrading TypeScript and React Consumers|Upgrading-TypeScript-and-React-Consumers]]"
         in installation

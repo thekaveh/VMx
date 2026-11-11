@@ -528,7 +528,7 @@ def architecture(output_root: Path) -> None:
             [
                 "spec/ is the source of truth.",
                 "Every catalog-complete flavor tracks every library ID.",
-                "THEME-001..005 live in the flagship examples.",
+                "THEME scenario IDs live in the flagship examples.",
             ],
         ),
         (
@@ -817,8 +817,8 @@ def showcase_hierarchy(output_root: Path) -> None:
             295,
             "NotebooksRootVM",
             (
-                "flat parent-id navigation",
-                "HierarchicalVM-equivalent API",
+                "TS: HierarchicalVM nodes",
+                "C# / Py / Swift: flat parent-id",
                 "recursive notebook relationships",
                 "current notebook selection",
                 "walk / children accessors",
@@ -903,9 +903,9 @@ def showcase_hierarchy(output_root: Path) -> None:
             130,
             "NotificationsVM",
             (
-                "GroupVM notification children",
+                "bounded list of NotificationVM",
                 "INotificationHub subscription",
-                "NotificationVM + ConfirmationVM",
+                "per-notification lifespan timer",
             ),
             "security",
         ),
@@ -1000,8 +1000,8 @@ def showcase_components(output_root: Path) -> None:
             "Navigation Layer",
             (
                 "NotebooksRootVM",
-                "flat parent-id navigation",
-                "HierarchicalVM-equivalent API",
+                "TS: HierarchicalVM nodes",
+                "C# / Py / Swift: flat parent-id",
                 "NotebookVM recursion",
             ),
             "frontend",
@@ -1103,7 +1103,7 @@ def showcase_components(output_root: Path) -> None:
             "Example Contract",
             (
                 f"{NOTES_FEATURE_COUNT} parity rows",
-                "THEME-001..005",
+                "THEME scenario IDs",
                 "layer purity checks",
                 "cross-flavor tests",
             ),

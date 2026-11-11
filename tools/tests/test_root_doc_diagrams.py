@@ -114,6 +114,8 @@ def test_root_diagrams_render_no_adr_or_conformance_id_counts(tmp_path: Path) ->
         r"\d+\s+(?:ADRs|(?:library\s+|THEME\s+scenario\s+)?(?:conformance\s+)?IDs)\b"
         r"|\d+\+\d+ parity|\b\d+ total\b"
         r"|\b(?:\d+|(?i:one|two|three|four|five|six|seven|eight|nine|ten))\s+`?THEME\b"
+        # A THEME ID range such as THEME-001..005 encodes the THEME count too.
+        r"|\bTHEME-\d{3}\s*(?:\.\.|-|\u2013)\s*(?:THEME-)?\d{3}\b"
     )
     assert count.search(output) is None, count.search(output)
 
@@ -129,8 +131,14 @@ def test_showcase_diagrams_describe_conceptual_parity_without_claiming_shared_st
     generator.showcase_components(tmp_path)
 
     output = "\n".join(rendered)
-    assert "flat parent-id navigation" in output
-    assert "HierarchicalVM-equivalent" in output
+    # TypeScript builds real HierarchicalVM nodes; the other flagships keep
+    # flat parent-id adapters. No flagship uses GroupVM or ConfirmationVM in
+    # NotificationsVM.
+    assert "TS: HierarchicalVM nodes" in output
+    assert "C# / Py / Swift: flat parent-id" in output
+    assert "bounded list of NotificationVM" in output
+    assert "ConfirmationVM" not in output
+    assert "GroupVM notification" not in output
     assert "app-owned current selection" in output
     assert "CompositeVM / list / array" in output
     assert "HierarchicalVM<NotebookModel" not in output

@@ -106,7 +106,7 @@ THEME_SCENARIO_ACTIONS = (
 RUST_SCOPE_DOC = Path("docs/content/examples/rust-tui-notes-showcase.md")
 RUST_SCOPE_TERMS = (
     "reduced companion",
-    "THEME-001..005",
+    "THEME scenario IDs",
     "IDialogService",
     "capability action bar",
     "async dispatcher scenario",

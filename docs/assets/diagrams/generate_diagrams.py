@@ -891,7 +891,7 @@ def system_architecture() -> Diagram:
                 "Flagship examples",
                 (
                     "Notes Workspace across four hosts",
-                    f"{facts.notes_feature_count} feature rows + THEME-001..005",
+                    f"{facts.notes_feature_count} feature rows + THEME scenario IDs",
                 ),
                 "generic",
             ),
@@ -5469,7 +5469,7 @@ def swift_notes_showcase() -> Diagram:
         model=("Core package", ("models", "repository", "ThemeChangedMessage")),
         verification=(
             "Swift tests",
-            ("swift build", "swift test with Xcode", "THEME-001..005"),
+            ("swift build", "swift test with Xcode", "THEME scenario IDs"),
         ),
         rule=(
             "Best-fit use",

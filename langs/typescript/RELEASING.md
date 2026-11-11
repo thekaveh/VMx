@@ -19,13 +19,15 @@ Restrict its deployment refs to `typescript-v*` tags.
 
 ### 1.2 npm trusted publishing
 
-No trusted publish has succeeded yet. The one-time `NPM_TOKEN` bootstrap
-published 3.30.0; npm records its publisher as the `thekaveh` account, not
-GitHub Actions. The bootstrap procedure is in git history at [commit `0c88386e`, §1.2 and §1.3](https://github.com/thekaveh/VMx/blob/0c88386eb3fffbe1d0620178bfd391745bd5db4e/langs/typescript/RELEASING.md#L24-L65).
-It records how the bootstrap token was scoped, stored, and revoked. The React adapter's
-first trusted publish failed with `E404`
-([#653](https://github.com/thekaveh/VMx/issues/653)), so confirm the publisher
-on npmjs.com before the next tag.
+A one-time `NPM_TOKEN` bootstrap published the first versions. The bootstrap
+procedure, including how the token was scoped, stored, and revoked, is in git
+history at [commit `0c88386e`, §1.2 and §1.3](https://github.com/thekaveh/VMx/blob/0c88386eb3fffbe1d0620178bfd391745bd5db4e/langs/typescript/RELEASING.md#L24-L65).
+The [compatibility matrix](../../compatibility-matrix.md) records the published
+versions.
+
+Until a trusted publish succeeds, confirm the trusted publisher on npmjs.com
+before each tag. Without a matching publisher, npm rejects the publish with
+`E404` ([#653](https://github.com/thekaveh/VMx/issues/653)).
 
 The publisher uses the shared trusted-publisher fields with provider GitHub
 Actions and environment `npm-typescript`. Its permission must be publish

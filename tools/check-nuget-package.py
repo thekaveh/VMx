@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
-"""Validate VMx NuGet main and symbol packages against an exact contract."""
+"""Validate VMx NuGet main and symbol packages against an exact contract.
+
+Each main package ships the README in ``langs/csharp/packaging/<package>/``.
+The packaged README rules are:
+
+- The README opens with the package's heading.
+- It contains no raw HTML, because NuGet's Markdown renderer does not list HTML
+  support. Code blocks, code spans, and link titles are not scanned.
+- Every link and image is an absolute ``https`` URL. Every image is a PNG,
+  JPEG, or GIF on ``raw.githubusercontent.com``.
+- A ``github.com/thekaveh/VMx`` or ``www.github.com/thekaveh/VMx`` ``blob``,
+  ``tree``, or ``raw`` URL, or a ``raw.githubusercontent.com/thekaveh/VMx``
+  URL, on ``main``, ``HEAD``, or ``refs/heads/main`` names a path in the
+  checked-out tree (``--repo-root``, by default this repository) after ``.``
+  and ``..`` segments resolve. When that root is a Git work tree, the path is
+  also tracked by Git.
+- No such URL names a path above the repository root or a
+  ``thekaveh/VMx.git/...`` path, which GitHub does not serve.
+"""
 
 from __future__ import annotations
 

@@ -63,8 +63,6 @@ repos:
         # blocks, which builds but renders as separate single-tab groups.
         exclude: |
           (?x)^(
-            docs/content/installation\.md|
-            docs/content/getting-started/index\.md|
             docs/content/examples/rust-tui-notes-showcase\.md|
             docs/content/flavors/rust\.md|
             docs/content/primitives/(command-families|services-messages-dispatching)\.md|

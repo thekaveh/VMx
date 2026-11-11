@@ -295,13 +295,18 @@ def test_current_rust_docs_match_cargo_package_version() -> None:
     assert version
 
     for path in (
-        ROOT / "README.md",
         ROOT / "langs/rust/README.md",
         ROOT / "docs/content/getting-started/rust.md",
     ):
         text = path.read_text(encoding="utf-8")
         assert f"v{version.group(1)}" in text
         assert "v0.25.1" not in text
+
+    # The README Availability table writes bare versions, as the site index does.
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    rust_row = re.search(r"^\| Rust +\|.*\| +([^ |]+) +\|$", readme, re.MULTILINE)
+    assert rust_row
+    assert rust_row.group(1) == version.group(1)
 
 
 def test_compatibility_matrix_has_no_history_ledger() -> None:

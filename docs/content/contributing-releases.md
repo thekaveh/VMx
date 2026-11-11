@@ -18,25 +18,20 @@ release procedure for every flavor.
 - Open an issue for non-trivial work.
 - Branch from `develop`, open the feature PR to `develop`, and run the relevant
   flavor checks locally.
-- Promote `develop` to protected `main` only through a separate maintainer PR.
-- `develop` and `main` stay in sync by tree, not by history. `develop` permits
-  squash merges only and `main` permits merge commits only, so `develop` history
-  does not contain the `main` merge commits, and GitHub reports each promotion
-  PR as `BEHIND` `main`. That state is expected. After each promotion,
-  `git diff --quiet <promotion head> <main merge commit>` must exit 0. A change
-  that reaches `main` by another route, such as a merged release-please release
-  PR, returns to `develop` through a squash PR from a branch cut at that `main`
-  commit, before the next promotion. CONTRIBUTING.md §1.1 gives the full policy.
-- Direct pushes to `develop` and `main` are blocked. Both PR stages require the
-  always-present conformance, C#, Python, TypeScript, Swift, Rust, docs,
-  examples, security, and spec-discipline aggregate checks against the latest
-  target branch. Maintainer review is expected when another reviewer is
-  available; the single-collaborator repository does not require self-approval.
-- A new push to a pull request cancels its older CI runs. The workflows, their
-  concurrency groups, and the runs that are never cancelled are listed in
-  [CONTRIBUTING.md §1](../../CONTRIBUTING.md).
+- Every PR must pass the required conformance, flavor, docs, examples,
+  security, and spec-discipline checks. Maintainers promote `develop` to
+  protected `main` through a separate PR.
 - For behavior changes, start in `spec/` and follow the ADR discipline.
 - Keep all supported flavors visible when a change affects shared behavior.
+- Edit the site and wiki pages only in their sources: `docs/content/` and the
+  other files that `docs/manifest.yaml` lists. Run `make docs-check` before the
+  PR. The site and wiki are generated from these
+  sources and publish only from `main`. Do not edit the wiki directly: each
+  publication replaces every wiki page.
+
+The repository's [CONTRIBUTING.md](../../CONTRIBUTING.md) holds the full
+policy: review, branch synchronization between `develop` and `main`, CI run
+cancellation, and documentation publication.
 
 ## 11.3. Validation Entry Points
 
@@ -291,33 +286,17 @@ repository automation.
 
 ## 11.5. Release Shape
 
-Flavor packages version independently and release from verified `main` commits
-through `<lang>-vX.Y.Z` operational tags. C# uses that form for core and
-package-specific `csharp-notifications-vX.Y.Z` and
-`csharp-dependency-injection-vX.Y.Z` tags for its companions, so independent
-versions cannot collide. The spec uses `spec-vX.Y.Z`; Swift also pairs its
-operational tag with the semantic `vX.Y.Z` tag required by SwiftPM.
+Flavor packages version independently. Each release uses an annotated,
+immutable `<lang>-vX.Y.Z` tag on a verified `main` commit. C# companions use
+package-specific tags, the spec uses `spec-vX.Y.Z`, and Swift pairs its
+operational tag with the semantic `vX.Y.Z` tag that SwiftPM requires.
+Registry-backed channels publish through a protected environment and a trusted
+publisher, and only the publish job holds `id-token: write`.
 
-Registry-backed channels are protected by environment approval, OIDC,
-pre-publish checks of the exact locally built artifact, public-artifact checks,
-and fresh-consumer verification. Only the publish job holds `id-token: write`:
-earlier jobs without it install, build, test, and upload the exact artifact,
-and the publish job publishes that artifact (Rust's `cargo publish` still runs
-its verification build there). The Python channel pins its isolated PEP 517
-backend and installs/smokes the wheel from `dist/` before the irreversible PyPI
-action, then repeats the consumer check from the public registry.
-
-Live channels: PyPI for Python, npm for the TypeScript core and the React
-adapter (`typescript-v*` and `react-v*` tags), and repository tags for Swift
-through SwiftPM. A one-time npm bootstrap token published both npm packages.
-No npm trusted publish has succeeded yet. The NuGet (C#) and crates.io (Rust)
-channels are prepared but unpublished.
-
-Each registry channel's protected environment restricts deployments to its tag
-pattern, requires a maintainer reviewer, and disables administrator bypass.
-Self-review stays allowed while one maintainer holds the reviewer role.
-Publication uses a trusted publisher bound to `release.yml` and that
-environment, not a long-lived token.
+The release invariants in [CONTRIBUTING.md](../../CONTRIBUTING.md) §4.3 apply
+to every flavor, and each flavor's `RELEASING.md` runbook adds its own steps.
+The [compatibility matrix](../../compatibility-matrix.md) records which
+versions are published.
 
 ### 11.5.1. Release Checklist
 
@@ -354,18 +333,10 @@ Use this sequence for every flavor:
 
 ### 11.5.2. Validate Python Release Tests
 
-Run `gh workflow run release.yml --ref develop` to validate only the
-five-version Ubuntu Python test matrix. Dispatch has no publication inputs.
-All other release jobs require a tag push, including when dispatch targets an
-existing release tag. This does not exercise the build or protected publish jobs;
-normal Python CI separately checks wheel and extracted-sdist packaging. Real
-tag pushes retain their main-ancestry and publication gates.
-
-Rerun a successful revision to collect warm-cache evidence. The 3.10 cell must
-report `cache-hit=true`, list both managed versions, and log the seeded 3.14
-and selected 3.10 identities. A setup-uv package-cache hit is neither a restored
-virtualenv nor necessarily a cached Python installation. Record the run URL
-and revision.
+Run `gh workflow run release.yml --ref develop` to run only the Python test
+matrix of the release workflow. This dispatch cannot publish a package or
+create a release. [CONTRIBUTING.md](../../CONTRIBUTING.md) §4.4 describes its
+scope and how to collect warm-cache evidence.
 
 ### 11.5.3. Recover React Release Metadata
 

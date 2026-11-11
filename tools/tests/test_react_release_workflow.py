@@ -73,7 +73,7 @@ def _run_documented_notes_guard(tmp_path: Path, changelog: str):
     extractor.parent.mkdir()
     extractor.write_bytes((ROOT / "tools/extract-release-notes.awk").read_bytes())
     runbook = (ROOT / "packages/react/RELEASING.md").read_text()
-    section = runbook.split("## 5. Recover missing GitHub Release metadata", 1)[1]
+    section = runbook.split("## 4. Recover missing GitHub Release metadata", 1)[1]
     script = re.findall(r"```bash\n(.*?)\n```", section, flags=re.DOTALL)[0]
     script = (
         'version="0.2.0"\nnotes="$RUNNER_TEMP/react-recovery-notes.md"'

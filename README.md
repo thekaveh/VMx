@@ -60,10 +60,10 @@
 ## 1. Overview
 
 VMx gives an application a viewmodel layer with an explicit lifecycle. Every
-viewmodel is constructed, destructed, and disposed through one state machine;
-parents own their children; property and lifecycle changes travel over a
-message hub; and commands, collections, forms, and paging helpers build on the
-same contract. The core makes no assumption about the UI: the
+viewmodel moves through one state machine for construction, destruction, and
+disposal, and parents own their children. Property and lifecycle changes travel
+over a message hub. Commands, collections, forms, and paging helpers build on
+the same contract. The core makes no assumption about the UI: the
 [integration recipes](docs/content/integration/index.md) bind it to WPF,
 Avalonia, MAUI, Textual, NiceGUI, Tkinter, React, Vue, Svelte, SolidJS, and
 SwiftUI.
@@ -72,23 +72,24 @@ One language-neutral specification in [`spec/`](spec/README.md) defines the
 behavior. The C#, Python, TypeScript, Swift, and Rust flavors implement it with
 each language's naming and concurrency idioms (ADR-0006), and a shared
 conformance catalog keeps them aligned.
-[Core Concepts](docs/content/core-concepts.md) lists the complete framework
+[Core Concepts](docs/content/core-concepts.md) summarizes the framework
 surface.
 
 ## 2. Availability
 
-Python, Swift, TypeScript, and the React adapter install from public registries.
-C# and Rust are complete in source but not yet published, so a project uses
-them from a VMx checkout until their first registry release.
+Python, TypeScript, and the React adapter install from PyPI and npm. Swift
+resolves through SwiftPM from the repository's Git tags. C# and Rust are
+complete in source but not yet published, so a project uses them from a VMx
+checkout until their first registry release.
 
 | Flavor        | Public package                                                                                  | Source line |
 | ------------- | ----------------------------------------------------------------------------------------------- | ----------- |
-| Python        | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                                    | v3.30.0     |
-| Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM          | v4.0.0      |
-| TypeScript    | [`@thekaveh/vmx` 3.30.0](https://www.npmjs.com/package/@thekaveh/vmx/v/3.30.0) on npm           | v3.31.0     |
-| React adapter | [`@thekaveh/vmx-react` 0.1.1](https://www.npmjs.com/package/@thekaveh/vmx-react/v/0.1.1) on npm | v0.1.3      |
-| C#            | Not yet published to NuGet                                                                      | v3.30.0     |
-| Rust          | Not yet published to crates.io                                                                  | v0.37.0     |
+| Python        | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                                    | 3.30.0      |
+| Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM          | 4.0.0       |
+| TypeScript    | [`@thekaveh/vmx` 3.30.0](https://www.npmjs.com/package/@thekaveh/vmx/v/3.30.0) on npm           | 3.31.0      |
+| React adapter | [`@thekaveh/vmx-react` 0.1.1](https://www.npmjs.com/package/@thekaveh/vmx-react/v/0.1.1) on npm | 0.1.3       |
+| C#            | Not yet published to NuGet                                                                      | 3.30.0      |
+| Rust          | Not yet published to crates.io                                                                  | 0.37.0      |
 
 A source line can be ahead of its public package. The
 [`compatibility-matrix.md`](compatibility-matrix.md) ledger records which
@@ -98,12 +99,7 @@ releases implement which spec version.
 
 ### 3.1 Install
 
-Run these commands from your own project directory. The source-checkout
-commands assume VMx is cloned beside that project:
-
-```bash
-git clone https://github.com/thekaveh/VMx.git ../VMx
-```
+Run these commands from your own project directory.
 
 **Python** (PyPI):
 
@@ -120,13 +116,6 @@ uv add vmx
 .package(url: "https://github.com/thekaveh/VMx.git", from: "3.24.0")
 ```
 
-**C#** (source checkout; `dotnet add package VMx` applies after the first
-NuGet release):
-
-```bash
-dotnet add MyApp.csproj reference ../VMx/langs/csharp/src/VMx/VMx.csproj
-```
-
 **TypeScript** (npm), with the optional official React bindings:
 
 ```bash
@@ -136,6 +125,20 @@ npm install @thekaveh/vmx-react react use-sync-external-store
 
 To try an unreleased TypeScript source line, pack the sources as described in
 [Installation](docs/content/installation.md).
+
+C# and Rust install from a source checkout. Clone VMx beside your project
+first:
+
+```bash
+git clone https://github.com/thekaveh/VMx.git ../VMx
+```
+
+**C#** (source checkout; `dotnet add package VMx` applies after the first
+NuGet release):
+
+```bash
+dotnet add MyApp.csproj reference ../VMx/langs/csharp/src/VMx/VMx.csproj
+```
 
 **Rust** (source checkout; crates.io release pending):
 
@@ -224,16 +227,13 @@ A cluster-level map of the principal library families and their relationships.
 
 ![VMx class diagram](assets/class-diagram.svg)
 
-`ComponentVM`, the container families, and `AsyncResourceVM` participate in
-the lifecycle base contract; Rust expresses relevant relationships through
-component composition. `FormVM`, `DiscriminatorVM`, `NotificationVM`, and
-`ConfirmationVM` are independent coordinators in the object-oriented flavors,
-with Rust's `FormVM` composing a component leaf. The remaining clusters cover
-commands, capabilities, services, messages, builders, collections, paging,
-state helpers, and tree utilities. The exhaustive member contracts live in the
-linked spec chapters and ADRs, and the
-[Architecture Map](docs/content/architecture/index.md) walks the full diagram
-set.
+`ComponentVM`, the container families, and `AsyncResourceVM` share the
+lifecycle base contract; Rust expresses these relationships through component
+composition. In the object-oriented flavors, `FormVM`, `DiscriminatorVM`,
+`NotificationVM`, and `ConfirmationVM` are independent coordinators. Rust's
+`FormVM` composes a component leaf. The spec chapters and ADRs hold the member
+contracts, and the [Architecture Map](docs/content/architecture/index.md)
+walks the full diagram set.
 
 ## 5. Flavors
 
@@ -254,16 +254,16 @@ bindings ship as the `@thekaveh/vmx-react` adapter over the TypeScript flavor.
 
 ### 6.1 SemVer policy
 
-Each language flavor versions independently in SemVer. The spec also versions
-independently in SemVer. Every published package declares the spec version it
-implements (`MinSpecVersion` in C#, `__min_spec_version__` in Python,
-`__minSpecVersion__` in TypeScript, `VMxVersion.minSpecVersion` in Swift,
-`MIN_SPEC_VERSION` in Rust). A
-spec major bump triggers a major bump in every active flavor. A spec minor bump
-only adds or clarifies normative behavior, and each flavor ships it as a minor
-bump. A flavor also takes a major bump for its own source-breaking change, even
-when the spec bump is minor. ADR-0009 records the narrow 3.x exceptions that
-ship a source break in a minor version.
+The spec and each language flavor version independently in SemVer. Every
+flavor package declares the spec version it implements (`MinSpecVersion` in C#,
+`__min_spec_version__` in Python, `__minSpecVersion__` in TypeScript,
+`VMxVersion.minSpecVersion` in Swift, `MIN_SPEC_VERSION` in Rust). A spec major
+bump triggers a major bump in every active flavor. A spec minor bump only adds
+or clarifies normative behavior, and each flavor ships it as a minor bump.
+
+A flavor also takes a major bump for its own source-breaking change, even when
+the spec bump is minor. ADR-0009 records the narrow 3.x exceptions that ship a
+source break in a minor version.
 
 ### 6.2 Spec and flavor compatibility
 
@@ -299,117 +299,67 @@ python3 tools/check-conformance-coverage.py
 ```
 .
 ├── spec/                  language-neutral specification (source of truth)
-│   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
+│   ├── 00-overview.md ... 23-async-resource-vm.md  numbered chapters
 │   ├── ADRs/              architecture decision records (indexed in ADRs/README.md)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
+│   ├── HISTORY.md         spec release history
 │   └── VERSION            spec SemVer
 ├── langs/
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   ├── swift/             VMx Swift package (SwiftPM)
+│   ├── swift/             VMx Swift package sources and tests
 │   └── rust/              vmx-rs crate
+├── Package.swift          public SwiftPM entry point over langs/swift
 ├── packages/
-│   └── react/             @thekaveh/vmx-react React adapter (npm)
+│   ├── react/             @thekaveh/vmx-react React adapter (npm)
+│   └── react-18-deps/     React 18 dependency lock for the adapter checks
 ├── examples/              runnable example apps per flavor
+├── starters/              application starter templates
 ├── benchmarks/            benchmark harnesses and committed baselines
-├── docs/content/getting-started/  per-flavor quickstart tutorials
-├── docs/content/integration/      one-page UI-framework integration recipes
-├── docs/maintenance/      maintenance run ledgers and audit records
-├── tools/                 cross-cutting scripts (conformance coverage)
+├── docs/
+│   ├── content/           guide pages, also published as the site and wiki
+│   ├── maintenance/       maintenance ledgers and audit records
+│   └── audit/             historical documentation audit reports
+├── tools/                 cross-cutting check and generation scripts
 ├── scripts/docs/          documentation build and check scripts
 ├── tests/docs/            documentation contract tests
-├── assets/                architecture + class diagrams, notes-showcase assets
+├── assets/                poster and architecture/class diagrams
 ├── .github/               issue/PR templates + CI workflows
 └── compatibility-matrix.md
 ```
 
 ### 7.1 Documentation map
 
-This README is the entry point; the documents below add focused detail.
+The [documentation landing page](docs/content/index.md) links the installation,
+quickstart, architecture, core-concepts, and integration guides. The other
+guide sections are [framework primitives](docs/content/primitives/index.md),
+[language flavors](docs/content/flavors/index.md),
+[examples](docs/content/examples/index.md), and
+[contributing and releases](docs/content/contributing-releases.md). Each
+package also has its own documents:
 
-- [`docs/content/index.md`](docs/content/index.md) — canonical documentation
-  landing page and overview of the complete VMx documentation set.
-- Major documentation sections: [installation](docs/content/installation.md),
-  [quickstart](docs/content/getting-started/index.md),
-  [core concepts](docs/content/core-concepts.md),
-  [architecture](docs/content/architecture/index.md),
-  [framework primitives](docs/content/primitives/index.md),
-  [language flavors](docs/content/flavors/index.md),
-  [examples](docs/content/examples/index.md),
-  [integration recipes](docs/content/integration/index.md),
-  [specification and conformance](docs/content/specification-conformance.md),
-  and [contributing and releases](docs/content/contributing-releases.md).
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — spec / ADR / conformance workflow,
-  per-flavor build commands, pre-commit setup. Read before opening a PR.
-- [`SECURITY.md`](SECURITY.md) — supported-version table and how to report
-  vulnerabilities.
-- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — Contributor-Covenant
-  community guidelines.
-- [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
-  version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, the ADRs,
-  4 fixtures, and the conformance catalog.
-- [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
-- [`docs/audit/README.md`](docs/audit/README.md) — index of historical
-  documentation audit reports.
-- [`docs/maintenance/`](docs/maintenance/) — maintenance ledgers and their
-  verification evidence.
-- [`docs/assets/diagrams/README.md`](docs/assets/diagrams/README.md) — diagram
-  source, regeneration, and validation contract.
-- [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)
-  — cross-flavor public disposal inventory and post-dispose contract.
-- Per-flavor READMEs (status, install, API surface, dev commands):
-  [`langs/csharp/README.md`](langs/csharp/README.md),
-  [`langs/python/README.md`](langs/python/README.md),
-  [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md),
-  [`langs/rust/README.md`](langs/rust/README.md).
-- React adapter: [`packages/react/README.md`](packages/react/README.md)
-  (usage), [`packages/react/CHANGELOG.md`](packages/react/CHANGELOG.md)
-  (release history), and
-  [`packages/react/RELEASING.md`](packages/react/RELEASING.md) (npm release
-  runbook).
-- [`benchmarks/README.md`](benchmarks/README.md) — benchmark method, commands,
-  and baselines.
-- Per-flavor CHANGELOGs (release history):
-  [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
-  [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),
-  [`langs/typescript/CHANGELOG.md`](langs/typescript/CHANGELOG.md),
-  [`langs/swift/CHANGELOG.md`](langs/swift/CHANGELOG.md),
-  [`langs/rust/CHANGELOG.md`](langs/rust/CHANGELOG.md).
-- Per-flavor release runbooks:
-  [`langs/csharp/RELEASING.md`](langs/csharp/RELEASING.md) (NuGet),
-  [`langs/python/RELEASING.md`](langs/python/RELEASING.md) (PyPI),
-  [`langs/typescript/RELEASING.md`](langs/typescript/RELEASING.md) (npm),
-  [`langs/swift/RELEASING.md`](langs/swift/RELEASING.md) (SwiftPM tags and
-  GitHub Releases), and
-  [`langs/rust/RELEASING.md`](langs/rust/RELEASING.md) (crates.io).
-- Per-flavor examples READMEs (run instructions):
-  [`examples/csharp/README.md`](examples/csharp/README.md),
-  [`examples/python/README.md`](examples/python/README.md),
-  [`examples/typescript/README.md`](examples/typescript/README.md),
-  [`examples/swift/notes-showcase/README.md`](examples/swift/notes-showcase/README.md),
-  [`examples/rust/README.md`](examples/rust/README.md).
-- [`examples/notes-showcase-parity.md`](examples/notes-showcase-parity.md) —
-  cross-flavor parity matrix for all four flagship Notes-Showcase apps
-  (Avalonia / Textual / React / SwiftUI), plus hierarchy and VMx-component
-  diagrams.
-- [`docs/content/integration/index.md`](docs/content/integration/index.md) — one-page
-  integration recipes for 11 UI frameworks (WPF, MAUI, Avalonia, Textual,
-  NiceGUI, Tkinter, React, Vue, Svelte, SolidJS, SwiftUI). Each recipe
-  shows the framework-native binding + lifecycle + dispose pattern.
-- [`tools/README.md`](tools/README.md) — conformance-coverage tool and
-  cross-cutting scripts.
+| Package       | Overview and commands                     | Release history                                 | Release runbook                                 |
+| ------------- | ----------------------------------------- | ----------------------------------------------- | ----------------------------------------------- |
+| C#            | [README](langs/csharp/README.md)          | [CHANGELOG](langs/csharp/CHANGELOG.md)          | [RELEASING](langs/csharp/RELEASING.md)          |
+| Python        | [README](langs/python/README.md)          | [CHANGELOG](langs/python/CHANGELOG.md)          | [RELEASING](langs/python/RELEASING.md)          |
+| TypeScript    | [README](langs/typescript/README.md)      | [CHANGELOG](langs/typescript/CHANGELOG.md)      | [RELEASING](langs/typescript/RELEASING.md)      |
+| Swift         | [README](langs/swift/README.md)           | [CHANGELOG](langs/swift/CHANGELOG.md)           | [RELEASING](langs/swift/RELEASING.md)           |
+| Rust          | [README](langs/rust/README.md)            | [CHANGELOG](langs/rust/CHANGELOG.md)            | [RELEASING](langs/rust/RELEASING.md)            |
+| React adapter | [README](packages/react/README.md)        | [CHANGELOG](packages/react/CHANGELOG.md)        | [RELEASING](packages/react/RELEASING.md)        |
+
+[`SECURITY.md`](SECURITY.md) lists the supported versions and tells you how to
+report a vulnerability. [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) holds the
+community guidelines.
 
 ## 8. Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the spec / ADR / conformance
-workflow and per-flavor build instructions. The repository uses pre-commit
-hooks (ruff, mdformat, dotnet format, eslint); install them with
-`pre-commit install`.
+workflow, per-flavor build instructions, and the documentation and maintainer
+records. The repository uses pre-commit hooks (ruff, mdformat, dotnet format,
+eslint); install them with `pre-commit install`.
 
 ## 9. License
 

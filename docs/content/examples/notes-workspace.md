@@ -13,7 +13,7 @@ primitives.
   [examples/notes-showcase-scenario.json](../../../examples/notes-showcase-scenario.json)
   (workspace lifecycle) and
   [examples/notes-showcase-theme-scenario.json](../../../examples/notes-showcase-theme-scenario.json)
-  (`THEME-001`..`THEME-005`)
+  (the THEME scenario IDs)
 - VM hierarchy diagram source:
   [examples/assets/notes-showcase-vm-hierarchy.svg](../../../examples/assets/notes-showcase-vm-hierarchy.svg)
 - Scenario proposal:
