@@ -79,9 +79,10 @@ holds, and a candidate that is an owner on the aggregate's ancestor chain. It
 disposes each canonical ownership identity once. The cleanup is best-effort:
 a disposal failure does not replace the population's failure, which
 propagates. Swift factories cannot throw, so Swift applies the rule to a
-refused preflight only. Rust does not dispose the fresh lazy-slot candidates of
-a refused preflight yet, and an eager Rust slot keeps its existing value; the
-Rust parity status records the gap.
+refused preflight only. Rust factories return values, so Rust also applies the
+rule to a refused preflight only. In Rust, only a lazy slot builds a fresh
+candidate; an eager slot keeps its existing value and is never disposed by the
+cleanup (ADR-0226).
 
 ## 3. Destruction
 
@@ -155,13 +156,14 @@ Chapter 12 §10 holds the `AGG` IDs, and §30 holds the `DISP` IDs. The table
 maps each ID to the rules of this chapter, and chapter 12 states the behavior
 of each ID.
 
-| IDs                  | Rules                                      |
-| -------------------- | ------------------------------------------ |
-| `AGG-001`..`AGG-004` | §1 members, §2 construction                |
-| `AGG-005`            | §3 destruction                             |
-| `AGG-006`            | §2 construction, §3 destruction (ADR-0034) |
-| `AGG-007`            | §4 reconstruction transactions (ADR-0125)  |
-| `DISP-001`           | §5 repeated aggregate disposal             |
+| IDs                  | Rules                                                                     |
+| -------------------- | ------------------------------------------------------------------------- |
+| `AGG-001`..`AGG-004` | §1 members, §2 construction                                               |
+| `AGG-005`            | §3 destruction                                                            |
+| `AGG-006`            | §2 construction, §3 destruction (ADR-0034)                                |
+| `AGG-007`            | §4 reconstruction transactions (ADR-0125)                                 |
+| `AGG-008`            | §2 construction, §4 reconstruction candidate cleanup (ADR-0224, ADR-0226) |
+| `DISP-001`           | §5 repeated aggregate disposal                                            |
 
 Focused aggregate regression tests in all five flavors cover factory
 preflight rollback, candidate commit, and concurrent terminal abort. Throwing

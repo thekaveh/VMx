@@ -10,7 +10,7 @@
 // Each change must return at once with no change, before A is released. Every
 // wait is bounded, so a regression fails instead of hanging.
 //
-// NOTE: `swift test` needs full Xcode (XCTest); CI runs it on macos-latest.
+// NOTE: `swift test` needs full Xcode (XCTest); CI runs it on macos-15.
 //
 import Combine
 import XCTest

@@ -14,6 +14,9 @@ below for them.
 
 ### Added
 
+- `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
+  `construct()` or `reconstruct()` disposes the fresh candidate and keeps the
+  owned candidate's status and parent. Python already behaved this way.
 - `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
   ADR-0222). They cover the #1367, #1430, #1352 and #1459 changes under
   Changed and Fixed.
@@ -1025,11 +1028,12 @@ below for them.
   the loop remains responsive, then disposes its VMs and subscriptions and
   explicitly shuts down the independent background pool (ADR-0132).
 
-## [3.23.1](https://github.com/thekaveh/VMx/compare/python-v3.23.0...python-v3.23.1) (2026-08-17)
+## [3.23.1] — 2026-08-17
 
-### Documentation
-
-- **python:** reconcile public 3.23.0 release ([#217](https://github.com/thekaveh/VMx/issues/217)) ([#295](https://github.com/thekaveh/VMx/issues/295)) ([b97e424](https://github.com/thekaveh/VMx/commit/b97e424e7c57b345bbc50c9e446360f90236fe0c))
+The `python-v3.23.1` tag and its GitHub Release exist, but this version was
+never published to PyPI. It changed documentation only: it reconciled the
+records of the public 3.23.0 release (#217, #295). The 3.30.0 package includes
+this change.
 
 ## [3.23.0] — 2026-07-25
 
@@ -1524,7 +1528,7 @@ flavors. Implements `spec-v3.0.0`. See ADRs 0047–0058 and
   `is_current` change is a silent no-op; and a throwing `on_construct`/`on_destruct`
   hook rolls `status` back to the prior settled state (LIFE-008, the new LIFE-014).
 
-## [2.6.1](https://github.com/thekaveh/VMx/compare/python-v2.6.0...python-v2.6.1) (2026-06-17)
+## [2.6.1] — 2026-06-17
 
 ### Documentation
 

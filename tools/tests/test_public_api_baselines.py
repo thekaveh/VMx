@@ -312,6 +312,8 @@ def test_rust_check_compares_with_the_recorded_revision() -> None:
     # comparison.
     guard = job.index('run: python3 tools/check-rust-api-baseline.py --base-rev "$BASE_SHA"')
     assert "BASE_SHA: ${{ github.event.pull_request.base.sha }}" in job
+    # A promotion into main does not run the guard: main can declare an older version.
+    assert "github.event.pull_request.base.ref == 'develop'" in job
     assert guard < job.index("cargo semver-checks check-release")
     workflow = (WORKFLOWS / "rust.yml").read_text(encoding="utf-8")
     assert '- "tools/check-rust-api-baseline.py"' in workflow
