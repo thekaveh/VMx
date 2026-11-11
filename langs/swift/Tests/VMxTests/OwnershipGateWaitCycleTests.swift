@@ -220,6 +220,7 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
         signalAcceptedWaits(t2, t2Waiting)
         let hookEntered = DispatchSemaphore(value: 0)
         let releaseHook = DispatchSemaphore(value: 0)
+        let hookReleased = SharedValue(false)
         let firstRun = SharedValue(true)
         let c = try child("c") {
             guard firstRun.value else { return }
@@ -233,13 +234,33 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
         let t1Done = spawn(t1) { t1Result.value = g1.addResult(c) }
         XCTAssertEqual(hookEntered.wait(timeout: .now() + hangGuard), .success)
         let t2Result = SharedValue<AddResult?>(nil)
-        let t2Done = spawn(t2) { t2Result.value = g2.addResult(c) }
+        let t2ReturnedEarly = SharedValue(false)
+        let t2Done = spawn(t2) {
+            // T1 releases the gate of `c` when its transfer commits, before
+            // g1's membership transaction ends. A detach of `c` that meets
+            // that open transaction fails at once (ADR-0187), so T2 retries
+            // the refused transfer until the transaction has ended (#1556).
+            let deadline = DispatchTime.now() + hangGuard
+            while true {
+                let result = g2.addResult(c)
+                if !hookReleased.value { t2ReturnedEarly.value = true }
+                guard case .failure(.attachmentFailed(let inner)) = result,
+                      inner is ContainerMembershipTransactionError,
+                      DispatchTime.now() < deadline else {
+                    t2Result.value = result
+                    return
+                }
+                Thread.sleep(forTimeInterval: 0.001)
+            }
+        }
 
         XCTAssertEqual(t2Waiting.wait(timeout: .now() + hangGuard), .success, "T2 never waited for the gate")
         XCTAssertEqual(t2Done.wait(timeout: .now() + 0.2), .timedOut, "T2 returned while the hook held the gate")
+        hookReleased.value = true
         releaseHook.signal()
         XCTAssertEqual(t1Done.wait(timeout: .now() + hangGuard), .success, "T1 hung")
-        XCTAssertEqual(t2Done.wait(timeout: .now() + hangGuard), .success, "T2 hung")
+        XCTAssertEqual(t2Done.wait(timeout: .now() + hangGuard * 2), .success, "T2 hung")
+        XCTAssertFalse(t2ReturnedEarly.value, "T2's transfer returned while the hook held the gate")
         guard case .success? = t1Result.value else { return XCTFail("T1: \(String(describing: t1Result.value))") }
         guard case .success? = t2Result.value else { return XCTFail("T2: \(String(describing: t2Result.value))") }
         XCTAssertEqual(holders(of: c, in: [g1, g2]).map(\.name), ["g2"])

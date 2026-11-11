@@ -94,17 +94,14 @@ tabs.dispose()                  // dispose() is terminal/idempotent — never th
 hub.dispose()
 ```
 
-The C# / Python / TypeScript flavors mirror this shape — only the
-identifier casing differs (per ADR-0006: Swift uses **camelCase**,
-matching the TypeScript flavor).
-
 See [SwiftUI Integration](../../docs/content/integration/swiftui.md) for
 a one-page SwiftUI integration recipe.
 
 ### 3.1 Cross-language naming
 
-The concepts are identical across the five flavors; identifier casing follows
-each language idiom (ADR-0006). See the
+The concepts and the quick-start shape are identical across the five flavors.
+Identifier casing follows each language idiom (ADR-0006); Swift uses
+camelCase, as TypeScript does. See the
 [cross-language naming table](../../docs/content/flavors/cross-language-naming.md).
 
 ## 4. API surface
@@ -163,7 +160,7 @@ owns; VMx does not attach it to the observed VM's lifetime. See
 ## 5. Conformance
 
 Swift implements every library conformance ID. The
-`examples/swift/notes-showcase/` flagship covers `THEME-001..005` in
+`examples/swift/notes-showcase/` flagship covers the THEME scenario IDs in
 `ThemeVMTests.swift`, validated by the `examples (notes-showcase)` job in
 `.github/workflows/swift.yml`. See
 [`spec/12-conformance.md`](../../spec/12-conformance.md) for the catalog and
@@ -172,39 +169,23 @@ group of IDs.
 
 Known Swift divergences:
 
-- The read-only model setter traps because Swift setters cannot throw
+- A Swift setter cannot throw, so some operations trap on input that the
+  other flavors reject with a catchable error. Most have a catchable form. For
+  example, the `CompositeVM.current` setter traps on a refused selection, and
+  `try setCurrent(_:)` throws `CompositeMembershipError` instead (ADR-0053,
+  ADR-0173).
+  [ADR-0009 §2.34](../../spec/ADRs/0009-cross-flavor-divergence-catalogue.md#234-swift-traps-that-remain-adr-0217)
+  lists each trap and its catchable form.
+- The `ReadonlyComponentVMOf` model setter traps on every external write
   (ADR-0053).
-- The `CompositeVM.current` setter traps where `setCurrent(_:)` throws: on a
-  non-child, on a child while disposal is pending, and inside the caller's own
-  uncommitted membership transaction. Use `try setCurrent(_:)` for a catchable
-  `CompositeMembershipError` (ADR-0053, ADR-0173).
 - Hub handler traps are uncatchable on every path. `subscribe(_:)` isolates
   thrown errors per subscriber; raw `messages` Combine sinks cannot throw
   (ADR-0062 §2.4).
 - `NotificationVM` time values are `TimeInterval` seconds (ADR-0063 §2.4).
 - `VMx.Notification` has the same name as `Foundation.Notification`. In a file
-  that imports both modules, the unqualified name in a type position fails with
-  `'Notification' is ambiguous for type lookup in this context`. Write
-  `VMx.Notification`, or declare a type alias:
-
-  ```swift
-  import Foundation
-  import VMx
-
-  typealias VMxNotification = VMx.Notification
-
-  func messages(of pending: [VMxNotification]) -> [String] {
-      pending.map(\.message)
-  }
-
-  let alert = VMx.Notification(type: .notification, message: "Saved")
-  ```
-
-Run the suite:
-
-```bash
-swift test
-```
+  that imports both modules, write `VMx.Notification` or declare a type alias.
+  [What to reach for](../../docs/content/flavors/swift.md#752-what-to-reach-for)
+  in the Swift flavor guide shows the compiler error and the alias.
 
 ## 6. Development
 
@@ -213,6 +194,10 @@ swift test
 swift build
 swift test
 ```
+
+See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for the contributor workflow,
+including the public API baselines, and [`RELEASING.md`](RELEASING.md) for
+the release runbook.
 
 ## 7. License
 

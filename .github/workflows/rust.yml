@@ -273,7 +273,10 @@ jobs:
         # cargo-semver-checks accepts any break once the Cargo.toml version
         # has moved past the baseline's version, so the baseline must declare
         # the version of the pull request's base (CONTRIBUTING.md §2.8).
-        if: github.event_name == 'pull_request'
+        # Only pull requests into develop maintain the baseline. A promotion
+        # into main carries develop commits that already passed this check,
+        # and its base (main) can declare an older version.
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'develop'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: python3 tools/check-rust-api-baseline.py --base-rev "$BASE_SHA"

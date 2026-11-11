@@ -17,6 +17,9 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
+  `construct()` or `reconstruct()` disposes the fresh candidate and keeps the
+  owned candidate's status and parent. Swift already behaved this way.
 - `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
   ADR-0222). `FWD-006` covers the #1352 fix below. Swift already met `COL-072`
   and `CMDD-019`: list and key-view publishers cannot fail, and a disposed
@@ -218,6 +221,12 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   §6, #1326). Before, later sibling starts, the `Current` change and consumer
   callbacks ran on the dispatcher of the child that settled last. A walk whose
   children settle at once still finishes on the caller.
+
+- A walk that waited now always commits on the container's foreground
+  dispatcher (ADR-0218 rule 3, #1557). Before, a resumed walk could end before
+  `construct()` or `destruct()` registered its commit step. The commit step and
+  the terminal `Constructed` or `Destructed` publication then ran on the
+  caller. C# and Python already schedule this step on the foreground.
 
 - An add now ends its start attempt after it ends its membership transaction
   (ADR-0218, spec/06 §5.1, #1371). A container that a late add resumes

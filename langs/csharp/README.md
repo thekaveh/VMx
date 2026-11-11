@@ -1,4 +1,4 @@
-# vmx — C#
+# VMx — C#
 
 Hierarchical lifecycle-aware MVVM viewmodel framework for .NET,
 spec-compatible with the Python, TypeScript, Swift, and Rust flavors.
@@ -7,12 +7,16 @@ spec-compatible with the Python, TypeScript, Swift, and Rust flavors.
 
 **v3.30.0** — implements spec 3.30.0 end-to-end. Every library conformance ID
 passes. Multi-targets `netstandard2.0` and `net8.0`.
-Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
-(`services.AddVMx(...)`) at `2.1.1` and `VMx.Notifications` (opt-in
-`INotificationHub`) at `1.2.0` (min spec 2.6.0). Each is independently
-versioned per ADR-0009 / ADR-0013 and stays on its own release line
-(the DI companion does not pull the core bump); see
-[`compatibility-matrix.md`](../../compatibility-matrix.md).
+
+Two companion packages have their own version lines (ADR-0009, ADR-0013):
+
+- `VMx.Extensions.DependencyInjection` 2.1.1 adds `services.AddVMx(...)`. Its
+  minimum spec is 2.1.0.
+- `VMx.Notifications` 1.2.0 adds the opt-in `INotificationHub`. Its minimum
+  spec is 2.6.0.
+
+Each companion depends on `VMx` >= 3.30.0. Neither companion is on NuGet yet.
+See [`compatibility-matrix.md`](../../compatibility-matrix.md).
 
 ## 2. Install
 
@@ -87,18 +91,13 @@ public record TabModel(string Title);
 > Production VMs should still call `.Services(hub, dispatcher)` with real
 > services.
 
-The Python and TypeScript flavors mirror this shape: see
-[Python Quick start](../python/README.md#3-quick-start) and
-[TypeScript Quick start](../typescript/README.md#3-quick-start) — only the
-identifier casing differs.
-
 See [Getting Started with VMx — C#](../../docs/content/getting-started/csharp.md)
 for the full walkthrough.
 
 ### 3.1 Cross-language naming
 
-The concepts are identical across the five flavors; identifier casing follows
-each language idiom (ADR-0006). See the
+The concepts and the quick-start shape are identical across the five flavors.
+Identifier casing follows each language idiom (ADR-0006). See the
 [cross-language naming table](../../docs/content/flavors/cross-language-naming.md).
 
 ### 3.2 Subclassing & composition
@@ -257,12 +256,7 @@ See spec chapter 11 §3.1 and ADR-0195.
 
 Implements every library conformance ID; THEME scenario IDs live in the
 example apps. See [`spec/12-conformance.md`](../../spec/12-conformance.md).
-
-Run the suite:
-
-```bash
-dotnet test
-```
+`dotnet test` in §7 runs the conformance suite with the unit tests.
 
 ## 7. Development
 
@@ -281,6 +275,10 @@ metadata) live in [`Directory.Build.props`](Directory.Build.props).
 The `lifecycle-transitions.json` fixture from `spec/fixtures/` is embedded as
 a resource via `<EmbeddedResource>` in `VMx.csproj` and consumed at runtime
 by `LifecycleTransitionValidator`.
+
+See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for the contributor workflow,
+including the public API baselines, and [`RELEASING.md`](RELEASING.md) for the
+NuGet release runbook.
 
 ## 8. License
 
