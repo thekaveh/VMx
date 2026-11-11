@@ -1,6 +1,6 @@
 # ADR 0137 — Deliver Rust command failures as the original `VmxError`
 
-- **Status:** Accepted
+- **Status:** Accepted (clarified by ADR-0138)
 - **Date:** 2026-10-04
 - **Spec version:** 3.25.0 (Rust mapping; no normative change)
 - **Clarifies:** [ADR-0049](0049-v3-command-semantics.md),

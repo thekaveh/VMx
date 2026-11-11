@@ -1,6 +1,6 @@
 # ADR 0107 — Transfer container ownership atomically
 
-**Status:** Accepted (2026-07-14)
+**Status:** Accepted (2026-07-14; clarified by ADR-0118; extended by ADR-0217)
 **Spec version:** introduced in 3.21.0
 
 ## 1. Context

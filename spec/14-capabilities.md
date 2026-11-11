@@ -314,20 +314,24 @@ concrete type.
 
 ## 5. Conformance
 
-`CAP-001` through `CAP-022` in `12-conformance.md` cover the 22 capability
-interfaces. Each test verifies that:
+Chapter 12 §15 holds the `CAP` IDs, and §30 holds the `DISP` IDs. Each `CAP`
+test checks that the interface is in the flavor's public surface and that its
+members have the documented signatures. Where a semantic contract applies, a
+fixture class must satisfy it. The table maps each ID to the rules of this
+chapter, and chapter 12 states the behavior of each ID.
 
-- the interface exists in the flavor's public surface
-- the documented members are present with the documented signatures
-- a fixture class implementing the capability satisfies the per-interface
-  semantic contract (where one applies)
-
-The opt-in rule (Rule 2) is covered by `CAP-020`: a default-built
-`ComponentVM` must NOT satisfy `ISelectable` / `IExpandable` / `IClosable`
-etc.
-
-The composition rule (Rule 3) is covered by `CAP-019`: a fixture class can
-satisfy any combination of capability interfaces simultaneously.
-
-Disposable state helpers that implement capability behavior participate in
-the cross-cutting `DISP-005` at-most-once completion contract (ADR-0084).
+| IDs                             | Rules                                                                      |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| `CAP-001`..`CAP-003`            | §2.1 selection capabilities                                                |
+| `CAP-004`..`CAP-006`            | §2.2 expansion capabilities                                                |
+| `CAP-007`, `CAP-009`, `CAP-010` | §2.4 dialog / form capabilities                                            |
+| `CAP-008`                       | §2.5 search capability                                                     |
+| `CAP-011`, `CAP-013`..`CAP-015` | §2.7 CRUD capabilities                                                     |
+| `CAP-012`                       | §2.9 generic management capability                                         |
+| `CAP-016`, `CAP-017`            | §2.8 container-current capabilities                                        |
+| `CAP-018`                       | §2.3 lifecycle capabilities                                                |
+| `CAP-019`                       | §3 rule 3, capability composition                                          |
+| `CAP-020`                       | §3 rule 2, no implicit implementation                                      |
+| `CAP-021`                       | §2.6 filter capability                                                     |
+| `CAP-022`                       | §2.10 paging capability                                                    |
+| `DISP-005`                      | state helpers that implement capability behavior (chapter 01 §4, ADR-0084) |

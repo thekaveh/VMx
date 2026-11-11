@@ -1,6 +1,6 @@
 # ADR 0088 — Add key-aware hierarchical batch attachment
 
-**Status:** Accepted (2026-07-10)
+**Status:** Accepted (2026-07-10; extended by ADR-0212)
 **Spec version:** introduced in 3.8.0
 
 ## 1. Context

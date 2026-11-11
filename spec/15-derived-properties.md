@@ -162,24 +162,17 @@ specified in [ADR-0011](ADRs/0011-derived-properties.md)).
 
 ## 9. Conformance
 
-`DPROP-001` through `DPROP-013` in `12-conformance.md` cover:
+Chapter 12 §17 holds the `DPROP` IDs, and §30 holds the `DISP` IDs. The table
+maps each ID to the rules of this chapter, and chapter 12 states the behavior
+of each ID.
 
-- Single-source derived value computes on construction
-- Source change triggers recompute
-- Two-source derived value
-- Five-source derived value (the spec's minimum upper bound)
-- Mutation of any source recomputes
-- Default-built derived property is read-only (`CanSet` returns false)
-- Validator + write-back enables `SetValue`
-- Write-back action receives the value
-- `ValueChanged` emits on recompute
-- `ValueChanged` does NOT emit if recomputed value equals previous (the
-  equality operator is per-flavor — see ADR-0009 row
-  "`DerivedProperty` distinct-emit")
-- `Dispose` ends subscriptions and `ValueChanged` completes
-- Fixture-driven scenarios
-- A failing `ValueChanged` subscriber stops neither the property nor the
-  other subscribers (`DPROP-013`, §4.1)
-
-`DISP-005` adds repeated-dispose coverage: completion occurs at most once,
-late sources do not emit, and the documented last value remains readable.
+| IDs                      | Rules                                                                      |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `DPROP-001`              | §2 construction                                                            |
+| `DPROP-002`..`DPROP-005` | §1 shape, §3 source semantics                                              |
+| `DPROP-006`..`DPROP-008` | §5 write-back                                                              |
+| `DPROP-009`, `DPROP-010` | §6 distinct-until-changed (ADR-0009 row "`DerivedProperty` distinct-emit") |
+| `DPROP-011`              | §4 lifecycle                                                               |
+| `DPROP-012`              | §7 fixture                                                                 |
+| `DPROP-013`              | §4.1 failing `ValueChanged` subscribers                                    |
+| `DISP-005`               | §4 repeated disposal                                                       |

@@ -1,6 +1,6 @@
 # ADR 0055 — v3 positional-options construction for the common VMs (additive, alongside the builders)
 
-**Status:** Accepted (2026-06-28)
+**Status:** Accepted (2026-06-28; clarified by ADR-0112)
 **Spec version:** 3.0.0
 
 ## 1. Context

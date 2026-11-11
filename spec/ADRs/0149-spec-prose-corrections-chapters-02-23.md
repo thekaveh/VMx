@@ -1,6 +1,6 @@
 # ADR 0149 — Spec prose corrections for chapters 02 to 23
 
-- **Status:** Accepted
+- **Status:** Accepted (clarified by ADR-0211)
 - **Date:** 2026-10-17
 - **Spec version:** 3.29.0
 - **Related:** [ADR-0009](0009-cross-flavor-divergence-catalogue.md)

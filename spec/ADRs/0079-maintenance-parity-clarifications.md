@@ -1,6 +1,6 @@
 # ADR 0079 — Pin maintenance parity clarifications
 
-**Status:** Accepted (2026-07-01)
+**Status:** Accepted (2026-07-01; clarified by ADR-0112)
 **Spec version:** introduced in 3.1.0
 
 ## 1. Context

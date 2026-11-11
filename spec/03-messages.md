@@ -614,32 +614,18 @@ dynamic membership; see ADR-0095 for the fixed-source bridge.
 
 ## 8. Conformance
 
-`HUB-001` through `HUB-013`, `PROP-001` through `PROP-004`, `SUBV-001` through
-`SUBV-004`, and the null-object IDs `NULL-001` (NullMessageHub is a safe no-op)
-and `NULL-003` (paired null variants exist for the core service contracts) in
-`12-conformance.md` cover:
+Chapter 12 §4 holds the `HUB` IDs, §5 the `PROP` and `SUBV` IDs, and §16 the
+`NULL` IDs. The table maps each ID to the rules of this chapter, and chapter 12
+states the behavior of each ID.
 
-- `Send` delivers to current subscribers synchronously
-- late subscribers do not see prior messages (no replay)
-- single-producer FIFO order
-- subscriber disposing during emit does not crash the hub
-- multiple subscribers each observe every post-subscribe message
-- table-driven scenarios from `fixtures/message-ordering.json`
-- subscriber handler raising does not break the hub, and the raising
-  subscriber stays attached (ADR-0191)
-- nested transaction deferral and lossless FIFO delivery
-- transaction-body errors drain queued messages before rethrowing
-- iterative re-entrant publishing without recursive stack growth
-- subscriber-failure isolation during a transaction drain
-- disposal during a transaction drops the pending queue
-- unchanged synchronous semantics for ordinary non-batch sends
-- `PropertyChangedMessage` emitted on real changes only (not on same-value sets)
-- sender identity / property name / sender name correctness
-- fixed-source selected-state subscription with initial/current/previous values,
-  optional immediate delivery, and default equality
-- custom equality with exactly one selector/equality evaluation per matching
-  property message
-- re-entrant FIFO delivery, batch final-state suppression, and deterministic
-  disposal including disposal during a callback
-- synchronous setup failure propagation and delivery-time subscriber failure
-  isolation with the selected baseline retained
+| IDs                             | Rules                                         |
+| ------------------------------- | --------------------------------------------- |
+| `HUB-001`, `HUB-002`, `HUB-005` | §3.1 hot stream semantics                     |
+| `HUB-003`                       | §3.2 ordering                                 |
+| `HUB-004`, `HUB-007`            | §3.4 subscriber resilience (ADR-0191)         |
+| `HUB-006`                       | §5 fixture (`fixtures/message-ordering.json`) |
+| `HUB-008`..`HUB-013`            | §3.3 hub transactions and re-entrant delivery |
+| `PROP-001`..`PROP-004`          | §2.1 `PropertyChangedMessage<TSender>`        |
+| `SUBV-001`..`SUBV-004`          | §7.4 `subscribeValue`                         |
+| `NULL-001`                      | §6 `NullMessageHub`                           |
+| `NULL-003`                      | §6 and chapter 11 §5 paired null variants     |
