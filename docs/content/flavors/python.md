@@ -9,7 +9,7 @@
 - Reactive primitive: `reactivex`
 - Naming idiom: snake_case
 - Hub delivery: see
-  [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering)
+  [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#542-callback-safe-transition-ordering)
 
 ## 7.3.2. What To Reach For
 
@@ -38,11 +38,11 @@ List-style `remove(value)` removes the first match, returns `None`, and raises
 `ValueError` when missing. `remove_at` and `replace` accept normal negative
 indices, return the removed or old item, and report a resolved nonnegative
 message position. `move` rejects negative and out-of-range positions with
-`IndexError`. Empty Clear and empty-to-empty replacement are no-ops.
+`IndexError`. Messages expose `index`, `old_index`, and `new_index`. The
+[Serviced Mutation Contract](../primitives/builders-collections-tree-utilities.md#677-serviced-mutation-contract)
+gives the shared rules for no-op cases, delivery order, and item ownership.
 
-Messages expose `index`, `old_index`, and `new_index`. The collection does not
-batch, and the caller retains item lifecycle ownership. Use `ObservableList[T]`
-when you need batch scopes and the `Count` channel.
+Use `ObservableList[T]` when you need batch scopes and the `Count` channel.
 
 Use `KeyedServicedObservableCollection[TKey, T]` when the same sequence needs
 captured-key lookup and upsert without snapshot scans:
@@ -62,14 +62,10 @@ removed = notes_by_id.delete(first.id)
 integer and slice surface; slice assignment/deletion and `reverse()` validate
 and commit atomically.
 
-A key is captured per membership, so mutating `id` does
-not silently rekey it; indexed replacement or delete-then-add is explicit.
-Duplicate keys, projector failures, and invalid slice shapes preserve state and
-emit nothing. A same mutated instance can occupy both its old and newly
-projected memberships. Lookup and target discovery are expected O(1), append is
-amortized O(1), and ordered middle shifts remain O(n). Local changes are
-immediate even when an external hub transaction defers hub publication. Items
-remain caller-owned, and the collection has no batch or VM lifecycle role.
+Mutating `id` does not rekey the membership. The
+[Keyed Serviced Mutation Contract](../primitives/builders-collections-tree-utilities.md#678-keyed-serviced-mutation-contract)
+gives the shared rules for captured keys, atomic failures, costs, and hub
+delivery.
 
 ## 7.3.4. Imperative Engine Bridge
 
@@ -97,10 +93,9 @@ exposure_subscription: DisposableBase = subscribe_value(
 exposure_subscription.dispose()
 ```
 
-The callback receives `(current, previous)`; immediate delivery uses the
-initial value for both. The selector reevaluates after every property message
-from this fixed VM rather than on every engine frame. The host adapter owns the
-handle; VMx does not attach it to the observed VM's lifetime.
+The
+[Imperative Selected-State Bridge](../primitives/services-messages-dispatching.md#666-imperative-selected-state-bridge)
+gives the shared callback, reevaluation, and ownership rules.
 
 ## 7.3.5. Async Resource Operation Loops
 

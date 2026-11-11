@@ -16,7 +16,16 @@ from scripts.docs.manifest import Manifest, Section
 
 DIAGRAMS_SOURCE = Path("docs/assets/diagrams")
 DIAGRAMS_OUTPUT = Path("assets/diagrams")
-DIAGRAM_ASSET_SUFFIXES = (".html", ".svg", ".png", ".json")
+DIAGRAM_ASSET_SUFFIXES = (".html", ".svg", ".png")
+# GitHub serves wiki-repository HTML files as text/plain, so a wiki reader would
+# see diagram markup instead of the zoomable diagram. The wiki keeps SVG and PNG.
+WIKI_DIAGRAM_ASSET_SUFFIXES = (".svg", ".png")
+# GitHub resolves a relative raw-HTML URL on a wiki page against /wiki, not
+# against the page, so wiki raw-HTML routes are anchored at the wiki root.
+WIKI_BASE_PATH = "/thekaveh/VMx/wiki/"
+# Wiki page names show as page titles and URLs, so symbols that the slug would
+# drop are spelled out.
+WIKI_NAME_SYMBOLS = (("C#", "CSharp"), (".NET", "DotNET"))
 TAB_RE = re.compile(r'^===\+? "(?P<label>[^"]*)"\s*$')
 FENCE_OPEN_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})")
 
@@ -24,8 +33,19 @@ FENCE_OPEN_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})")
 def wiki_name(section: Section) -> str:
     if section.source and section.source.name == "index.md" and section.number == "1":
         return "Home.md"
-    safe = re.sub(r"[^A-Za-z0-9]+", "-", section.label).strip("-")
+    title = section.title
+    for symbol, spelling in WIKI_NAME_SYMBOLS:
+        title = title.replace(symbol, spelling)
+    safe = re.sub(r"[^A-Za-z0-9]+", "-", title).strip("-")
     return f"{safe}.md"
+
+
+def site_path(section: Section) -> Path:
+    """Return a page's site path: its docs/content path, else its manifest id."""
+    assert section.source is not None
+    if section.source.parts[:2] == ("docs", "content"):
+        return Path(*section.source.parts[2:])
+    return Path(f"{section.id}.md")
 
 
 def _closes_fence(line: str, fence: str) -> bool:
@@ -99,18 +119,48 @@ def build_source_map(manifest: Manifest, surface: str) -> dict[Path, Path]:
     for section in manifest.pages():
         assert section.source is not None
         if surface == "site":
-            source_map[section.source] = Path(*section.source.parts[2:])
+            source_map[section.source] = site_path(section)
         elif surface == "wiki":
             source_map[section.source] = Path(wiki_name(section))
         else:
             raise ValueError(f"unknown surface: {surface}")
+    outputs = [output.as_posix().casefold() for output in source_map.values()]
+    duplicates = sorted({output for output in outputs if outputs.count(output) > 1})
+    if duplicates:
+        raise ValueError(f"duplicate {surface} page names: {', '.join(duplicates)}")
     return source_map
 
 
-def _bare_link(label: str, target: str, *, image: bool) -> str:
+def _repository_path(target: str, *, current_source: Path, repo_root: Path) -> str | None:
+    """Return the repository path that an unpublished link target names, if any."""
+    clean = _strip_url_bits(target)
+    if repo_path := _repo_blob_to_path(clean):
+        return repo_path.as_posix()
+    if not clean or ":" in clean.split("/", 1)[0]:
+        return None
+    canonical = Path(os.path.normpath(current_source.parent / clean))
+    if canonical.is_absolute() or canonical.parts[:1] == ("..",):
+        return None
+    if not (repo_root / canonical).exists():
+        return None
+    directory = clean.endswith("/") or (repo_root / canonical).is_dir()
+    return f"{canonical.as_posix()}/" if directory else canonical.as_posix()
+
+
+def _bare_link(label: str, target: str, *, image: bool, repository_path: str | None) -> str:
+    """Render a link that has no target on this surface as plain text.
+
+    Site and wiki pages do not link to repository files. A link to a repository
+    file that is not a published page keeps its label and names the repository
+    path, so the reader can still find the file.
+    """
     if image:
         return label or Path(target).name
-    return label or target
+    if not label:
+        return f"`{repository_path}`" if repository_path else target
+    if repository_path and repository_path.rstrip("/") not in label:
+        return f"{label} (`{repository_path}`)"
+    return label
 
 
 def _markdown_destination(target: str, *, angled: bool) -> str:
@@ -179,6 +229,12 @@ def _mapped_target(
     if not clean and suffix.startswith("#"):
         return target
     if asset := _projected_asset(clean, current_source=current_source, repo_root=repo_root):
+        if (
+            surface == "wiki"
+            and asset.parent == DIAGRAMS_OUTPUT
+            and asset.suffix not in WIKI_DIAGRAM_ASSET_SUFFIXES
+        ):
+            return None
         rel = os.path.relpath(asset, start=current_output.parent)
         return f"{rel.replace(os.sep, '/')}{suffix}"
     if clean.endswith("/"):
@@ -207,6 +263,29 @@ def _mapped_target(
     return f"{rel.replace(os.sep, '/')}{suffix}"
 
 
+DIAGRAM_HTML_LINK_RE = re.compile(
+    r'^[ \t]*<a href="(?P<target>[^"]+\.html)">[^<\n]*</a>[ \t]*\n(?:[ \t]*&middot;[ \t]*\n)?',
+    re.MULTILINE,
+)
+
+
+def _drop_wiki_diagram_html_links(markdown: str, *, current_source: Path, repo_root: Path) -> str:
+    """Remove standalone diagram HTML links and their separator from a wiki page.
+
+    The wiki does not publish the diagram HTML files (see WIKI_DIAGRAM_ASSET_SUFFIXES).
+    """
+
+    def drop(match: re.Match[str]) -> str:
+        asset = _projected_asset(
+            match.group("target"), current_source=current_source, repo_root=repo_root
+        )
+        if asset is None or asset.parent != DIAGRAMS_OUTPUT:
+            return match.group(0)
+        return ""
+
+    return DIAGRAM_HTML_LINK_RE.sub(drop, markdown)
+
+
 def rewrite_for_surface(
     markdown: str,
     *,
@@ -219,6 +298,9 @@ def rewrite_for_surface(
     selected_root = (repo_root or Path.cwd()).resolve()
     if surface == "wiki":
         markdown = adapt_tabs_for_wiki(markdown)
+        markdown = _drop_wiki_diagram_html_links(
+            markdown, current_source=current_source, repo_root=selected_root
+        )
 
     def markdown_form(link: MarkdownLink, target: str) -> str:
         destination = _markdown_destination(
@@ -244,7 +326,14 @@ def rewrite_for_surface(
                 repo_root=selected_root,
             )
             if not mapped:
-                return _bare_link(link.label, target, image=link.image)
+                return _bare_link(
+                    link.label,
+                    target,
+                    image=link.image,
+                    repository_path=_repository_path(
+                        target, current_source=current_source, repo_root=selected_root
+                    ),
+                )
             if surface == "wiki" and mapped.startswith("wiki:"):
                 if link.title_suffix or not wiki_alias_safe(link):
                     return markdown_form(link, mapped[5:])
@@ -260,7 +349,14 @@ def rewrite_for_surface(
             repo_root=selected_root,
         )
         if mapped is None:
-            return _bare_link(link.label, target, image=link.image)
+            return _bare_link(
+                link.label,
+                target,
+                image=link.image,
+                repository_path=_repository_path(
+                    target, current_source=current_source, repo_root=selected_root
+                ),
+            )
         if mapped.startswith("wiki:"):
             if link.title_suffix or not wiki_alias_safe(link):
                 return markdown_form(link, mapped[5:])
@@ -285,7 +381,15 @@ def rewrite_for_surface(
         if mapped is None:
             return "" if is_forbidden(target, surface) else text[attribute.start : attribute.end]
         if mapped.startswith("wiki:"):
-            mapped = mapped[5:]
+            mapped = f"{WIKI_BASE_PATH}{mapped[5:]}"
+        elif surface == "wiki":
+            if (
+                _projected_asset(
+                    _strip_url_bits(target), current_source=current_source, repo_root=selected_root
+                )
+                is not None
+            ):
+                mapped = f"{WIKI_BASE_PATH}{mapped}"
         else:
             mapped_path, suffix = _split_url_bits(mapped)
             converted_page = False

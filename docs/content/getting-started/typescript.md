@@ -17,8 +17,8 @@ ______________________________________________________________________
 
 ## 3.4.1. Install
 
-Add VMx as described in [Installation](../installation.md). The TypeScript tab
-there covers the npm package and an unreleased source line. `@thekaveh/vmx`
+Add VMx as described in [Installation](../installation.md). The TypeScript
+section of that page covers the npm package and an unreleased source line. `@thekaveh/vmx`
 ships dual ESM and CJS bundles with full TypeScript declarations, so no
 `@types` package is needed.
 
@@ -31,12 +31,12 @@ ships dual ESM and CJS bundles with full TypeScript declarations, so no
 
 ______________________________________________________________________
 
-## 3.4.2. Wire up `MessageHub` and `RxDispatcher`
+## 3.4.2. Wire Up `MessageHub` And `RxDispatcher`
 
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your scheduler pair.
 
-### 3.4.2.1. Option A — immediate (Node scripts / synchronous tests)
+### 3.4.2.1. Option A — Immediate (Node Scripts / Synchronous Tests)
 
 ```ts
 import { MessageHub, RxDispatcher } from "@thekaveh/vmx";
@@ -47,7 +47,7 @@ const dispatcher = RxDispatcher.immediate();
 // Safe for Node scripts and vitest suites with no async event loop.
 ```
 
-### 3.4.2.2. Option B — custom schedulers (browser / async environments)
+### 3.4.2.2. Option B — Custom Schedulers (Browser / Async Environments)
 
 ```ts
 import { asyncScheduler, animationFrameScheduler } from "rxjs";
@@ -62,7 +62,7 @@ const dispatcher = new RxDispatcher(
 
 ______________________________________________________________________
 
-## 3.4.3. Build a `ComponentVMOf<UserModel>`
+## 3.4.3. Build A `ComponentVMOf<UserModel>`
 
 `ComponentVMOf<M>` is the primary leaf viewmodel. It holds a typed model, fires
 `PropertyChangedMessage` on the hub when the model changes, and participates in
@@ -124,7 +124,7 @@ console.log(userVM.isConstructed); // true
 
 ______________________________________________________________________
 
-## 3.4.4. Build a `RelayCommand`
+## 3.4.4. Build A `RelayCommand`
 
 `RelayCommand` wraps an optional `execute` callback, an optional `canExecute`
 predicate, and a set of RxJS `Observable` triggers that signal `canExecute` may
@@ -173,7 +173,7 @@ saveCommand.dispose();
 
 ______________________________________________________________________
 
-## 3.4.5. Build a `CompositeVM<TabVM>`
+## 3.4.5. Build A `CompositeVM<TabVM>`
 
 `CompositeVM<VM>` owns an ordered child collection and a `current` selection
 slot. Children are provided by a factory that runs on the first `construct()`
@@ -243,7 +243,7 @@ console.log(tab2.isCurrent);               // false
 
 ______________________________________________________________________
 
-## 3.4.6. Lifecycle and cleanup
+## 3.4.6. Lifecycle And Cleanup
 
 Every VM has five lifecycle states. Four of them form a reversible cycle,
 `Destructed → Constructing → Constructed → Destructing → Destructed`. The fifth
@@ -278,8 +278,8 @@ completes the underlying Rx subject. The later sections still use the hub, so
 the full shutdown sequence appears at the end of section 3.4.9.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
-> full lifecycle contract (`LIFE-001..022`),
-> including the transition table and admitted-hook/disposal coordination.
+> transition table, the error of a refused operation, and the callback
+> ordering.
 
 ______________________________________________________________________
 
@@ -311,7 +311,7 @@ hub.messages.pipe(
 
 ______________________________________________________________________
 
-## 3.4.8. Test viewmodels without runner-specific fixtures
+## 3.4.8. Test Viewmodels Without Runner-Specific Fixtures
 
 The `@thekaveh/vmx/testing` subpath supplies hermetic services and semantic
 recorders without importing Vitest or Jest:
@@ -342,18 +342,14 @@ testVM.dispose();
 services.dispose();
 ```
 
-Use `ManualDispatcher` when foreground and background work must remain queued
-until the test explicitly flushes it. `CommandDouble`, `CommandDoubleOf<T>`,
-and `AsyncCommandDouble` expose execution records and controlled admission,
-fault, completion, and cancellation. `createFormHarness()` exercises a real
-FormVM through set/approve/deny and validation or persistence failures.
-
-These are supported TypeScript-package APIs, isolated from the root runtime
-entry and governed by its SemVer. They require `@thekaveh/vmx` 3.30.0 or later.
+The subpath requires `@thekaveh/vmx` 3.30.0 or later.
+[Runner-Neutral Testing Support](../flavors/typescript.md#747-runner-neutral-testing-support)
+describes the other helpers, such as `ManualDispatcher`, the command doubles,
+and `createFormHarness()`.
 
 ______________________________________________________________________
 
-## 3.4.9. Observe a hub safely
+## 3.4.9. Observe A Hub Safely
 
 Use the optional DevTools subpath when development diagnostics need a message
 log or an explicit state snapshot:
@@ -385,15 +381,9 @@ devtools.dispose();
 ```
 
 VMx does not serialize the message sender or model graph by default. Add only
-the named snapshots needed for diagnosis, and use `redact` or a snapshot
-`serialize` function before values cross the transport. Sender names and scalar
-metadata can still contain identifiers, so redact actions too when required.
-`allow`, `deny`,
-`sampleEvery`, and `throttleMs` bound high-volume streams. Without an extension,
-`connectReduxDevtools()` returns a no-op without subscribing to the hub.
-
-This is an observability API only. Incoming Redux DevTools commands are ignored,
-and VMx does not promise replay, time travel, or state reconstruction.
+the named snapshots that the diagnosis needs.
+[DevTools Observability](../flavors/typescript.md#748-devtools-observability)
+describes redaction, filters, throttling, and the limits of the bridge.
 
 At shutdown, dispose the viewmodels first and the hub last:
 
@@ -404,7 +394,7 @@ hub.dispose();
 
 ______________________________________________________________________
 
-## 3.4.10. Where to go next
+## 3.4.10. Where To Go Next
 
 | Resource             | Documentation page                                                                             |
 | -------------------- | ---------------------------------------------------------------------------------------------- |

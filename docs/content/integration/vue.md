@@ -3,7 +3,7 @@
 Wire a `ComponentVMOf<M>` to a Vue 3 component through the Composition API
 `shallowRef` and `triggerRef` primitives.
 
-## 9.9.1. Reactivity primitive
+## 9.9.1. Reactivity Primitive
 
 Vue 3 tracks reads of a `shallowRef` value and re-renders the template when
 that value changes. `triggerRef` forces the same re-render when the value keeps
@@ -38,7 +38,7 @@ The composable has three rules:
   other code that reads a VM member through the proxy throws on VMx's
   `#private` fields.
 
-## 9.9.3. Adapter skeleton
+## 9.9.3. Adapter Skeleton
 
 The composable and component below are the exact files run by
 `examples/typescript/integration-recipes` against `vue` 3, the major version of
@@ -144,7 +144,7 @@ const model = useVm(props.vm, props.hub, "model");
 re-create the component with a `:key` that identifies the VM, such as
 `:key="vm.name"` when sibling names are unique.
 
-## 9.9.4. Fuller example
+## 9.9.4. Fuller Example
 
 There is no Vue Notes-Showcase. The runnable reference is
 `examples/typescript/integration-recipes`. For a packaged adapter, see the

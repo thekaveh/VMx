@@ -6,9 +6,7 @@
     "svg": "system-architecture.svg",
     "png": "system-architecture.png",
     "referencedBy": [
-      "docs/content/architecture/system-architecture.md",
-      "docs/content/architecture/diagram-gallery.md",
-      "docs/content/architecture/index.md"
+      "docs/content/architecture/system-architecture.md"
     ]
   },
   {
@@ -18,8 +16,7 @@
     "svg": "class-architecture.svg",
     "png": "class-architecture.png",
     "referencedBy": [
-      "docs/content/architecture/class-architecture.md",
-      "docs/content/architecture/diagram-gallery.md"
+      "docs/content/architecture/class-architecture.md"
     ]
   },
   {
@@ -40,8 +37,7 @@
     "svg": "lifecycle-messaging.svg",
     "png": "lifecycle-messaging.png",
     "referencedBy": [
-      "docs/content/architecture/lifecycle-messaging.md",
-      "docs/content/architecture/diagram-gallery.md"
+      "docs/content/architecture/lifecycle-messaging.md"
     ]
   },
   {
@@ -150,8 +146,7 @@
     "svg": "examples-vm-layer.svg",
     "png": "examples-vm-layer.png",
     "referencedBy": [
-      "docs/content/examples/notes-workspace-vm-layer.md",
-      "docs/content/architecture/diagram-gallery.md"
+      "docs/content/examples/notes-workspace-vm-layer.md"
     ]
   },
   {
@@ -272,7 +267,6 @@
     "png": "rust-tui-notes-showcase.png",
     "referencedBy": [
       "docs/content/examples/rust-tui-notes-showcase.md",
-      "docs/content/architecture/diagram-gallery.md",
       "docs/content/examples/example-diagram-gallery.md"
     ]
   }

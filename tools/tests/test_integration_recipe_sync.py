@@ -17,14 +17,14 @@ FIXTURE = REPO_ROOT / "examples" / "typescript" / "integration-recipes"
 
 # (guide, adapter section heading, fence language, fixture file)
 RECIPES = [
-    ("vue.md", "## 9.9.3. Adapter skeleton", "ts", "src/vue/composables/useVm.ts"),
-    ("vue.md", "## 9.9.3. Adapter skeleton", "vue", "src/vue/NoteView.vue"),
-    ("solid.md", "## 9.11.3. Adapter skeleton", "tsx", "src/solid/NoteView.tsx"),
-    ("svelte.md", "## 9.10.3. Adapter skeleton — store", "ts", "src/svelte/vmStore.ts"),
-    ("svelte.md", "## 9.10.3. Adapter skeleton — store", "svelte", "src/svelte/NoteView.svelte"),
+    ("vue.md", "## 9.9.3. Adapter Skeleton", "ts", "src/vue/composables/useVm.ts"),
+    ("vue.md", "## 9.9.3. Adapter Skeleton", "vue", "src/vue/NoteView.vue"),
+    ("solid.md", "## 9.11.3. Adapter Skeleton", "tsx", "src/solid/NoteView.tsx"),
+    ("svelte.md", "## 9.10.3. Adapter Skeleton — Store", "ts", "src/svelte/vmStore.ts"),
+    ("svelte.md", "## 9.10.3. Adapter Skeleton — Store", "svelte", "src/svelte/NoteView.svelte"),
     (
         "svelte.md",
-        "## 9.10.4. Adapter skeleton — Svelte 5",
+        "## 9.10.4. Adapter Skeleton — Svelte 5",
         "svelte",
         "src/svelte/NoteViewRunes.svelte",
     ),

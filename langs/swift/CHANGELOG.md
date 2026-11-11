@@ -207,6 +207,13 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Fixed
 
+- `RelayCommand`, `RelayCommandOf` and `ModeledCrudCommands` no longer have a data
+  race between `dispose()` and `canExecute()` (#1567). The disposal flag had no
+  lock. Thread Sanitizer reported the race during a `FormVM` teardown, which
+  failed the Swift `thread sanitizer` job on unrelated pull requests. Disposal
+  now uses a lock, as `DecoratorCommand` already did, and `dispose()` is
+  idempotent under concurrent calls.
+
 - A child's parent link no longer has a data race (#1546). A container wrote
   `_parent` and `_ownershipParent` under its own locks, while the child read
   them from `dispose()` under its lifecycle lock and from its selection API

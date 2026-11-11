@@ -1,4 +1,4 @@
-# 13. Performance Methodology
+# 12. Performance Methodology
 
 VMx keeps a small benchmark suite for the TypeScript, Python, and Rust flavors
 under `benchmarks/`, committed baselines under `benchmarks/baselines/`, and a
@@ -12,7 +12,7 @@ Nothing in `benchmarks/` ships in a published package, and the harnesses use
 no benchmark libraries: each one uses its runtime's own timer and allocator
 statistics.
 
-## 13.1. Run The Suite
+## 12.1. Run The Suite
 
 Run each harness from the repository root on a clean checkout. A report records
 whether the working tree was dirty.
@@ -45,7 +45,7 @@ On the recording machine a full run took about 100 seconds for TypeScript, 40
 for Python, and 10 for Rust. Quick runs are for checking that a harness works;
 never compare one with a baseline.
 
-## 13.2. Method
+## 12.2. Method
 
 - **Warm-up.** Each case runs two discarded rounds before nine measured ones,
   so JIT compilation, interpreter caches, and allocator pools settle first.
@@ -68,7 +68,7 @@ never compare one with a baseline.
 - **Seeds.** `property.set` assigns values from a seeded generator, so every
   run assigns the same sequence and every assignment changes the model.
 
-## 13.3. Cases
+## 12.3. Cases
 
 Case ids are the same in every flavor where the workload exists, so a reader can
 line up the same workload across reports without comparing their numbers.
@@ -100,7 +100,7 @@ plain send, close to the pilot's 2.7. A disabled connector runs the same code as
 `plain`. The two cases still measured 8–12% apart, so the comparison tool
 compares each case only with itself.
 
-## 13.4. Memory And Queue Probe
+## 12.4. Memory And Queue Probe
 
 Every full run also runs the `lifecycle.memory` probe. It builds, constructs,
 and disposes a component view-model over six batches on one hub with one
@@ -116,7 +116,7 @@ The probe reports `bounded: true` only when growth stays under its limit and
 the queue depth stays zero. The growth limit is 4 MiB in TypeScript, 2 MiB in
 Python, and 1 MiB in Rust. A harness exits 1 when its probe is not bounded.
 
-## 13.5. Report Format
+## 12.5. Report Format
 
 Every harness writes a `vmx-bench/1` JSON report:
 
@@ -131,7 +131,7 @@ Every harness writes a `vmx-bench/1` JSON report:
 | `cases`           | Per case: id, unit, parameters, operation count, median, MAD, `rel_mad`, min, max, samples. |
 | `probes`          | The `lifecycle.memory` result described above.                                              |
 
-## 13.6. Review Thresholds
+## 12.6. Review Thresholds
 
 `tools/compare-benchmarks.py BASELINE CANDIDATE` compares two reports case by
 case. Each case's band comes from the variance the two runs measured:
@@ -170,7 +170,7 @@ operation of the named case then adds a fixed spin loop, and the report records
 the setting. A harness rejects an id that names no case. Committed baselines
 never carry a slowdown.
 
-## 13.7. Baselines
+## 12.7. Baselines
 
 `benchmarks/baselines/` holds one report per flavor, recorded on a clean
 checkout of the commit named in the report. Before you compare, check the
@@ -193,7 +193,7 @@ change against it. To replace a committed baseline, record a full run on a
 clean checkout, name the file by date and flavor, and explain in the pull
 request why the old one no longer represents the code.
 
-## 13.8. Limits
+## 12.8. Limits
 
 - The committed baselines come from a shared cloud container, not a quiet
   dedicated machine, so their bands are wider than a dedicated machine's would

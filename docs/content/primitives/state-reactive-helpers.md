@@ -29,9 +29,7 @@ through `from_sources` and `from_sources_with_write_back`, which panic on an
 empty list.
 
 Rust's `ExpandableState` supports explicit initial state, the full capability
-triple, and owned disposal. The
-[Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md#1236-expandablestate-construction-and-disposal)
-records the helper evidence.
+triple, and owned disposal.
 
 ## 6.5.3. Async Resource State
 

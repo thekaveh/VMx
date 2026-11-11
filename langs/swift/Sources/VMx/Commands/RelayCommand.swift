@@ -27,7 +27,15 @@ public final class RelayCommand: Command {
     private let finishCanExecuteChanged: () -> Void
     private let canExecuteChangedPublisher: AnyPublisher<Void, Never>
     private var cancellables: Set<AnyCancellable> = []
+    private let disposalLock = NSLock()
     private var disposed = false
+
+    /// Re-reads disposal under the lock, so a `dispose()` on another thread is seen.
+    private var isDisposed: Bool {
+        disposalLock.lock()
+        defer { disposalLock.unlock() }
+        return disposed
+    }
 
     public convenience init(
         task: (() -> Void)?,
@@ -71,12 +79,12 @@ public final class RelayCommand: Command {
     }
 
     public func canExecute() -> Bool {
-        guard !disposed else { return false }
+        guard !isDisposed else { return false }
         guard let predicate else { return true }
         // Swift closures can't "throw and be treated as false" without an
         // explicit `throws` signature; this matches the other flavors'
         // behavior at the level of "predicate returned false".
-        return predicate() && !disposed
+        return predicate() && !isDisposed
     }
 
     public func execute() {
@@ -91,14 +99,17 @@ public final class RelayCommand: Command {
     /// Emits one re-evaluation notification without invoking user closures.
     /// Repeated calls are additive; calls after disposal are no-ops.
     public func raiseCanExecuteChanged() {
-        guard !disposed else { return }
+        guard !isDisposed else { return }
         sendCanExecuteChanged()
     }
 
     /// Idempotent. Subsequent calls are a no-op.
     public func dispose() {
-        guard !disposed else { return }
+        disposalLock.lock()
+        let wasDisposed = disposed
         disposed = true
+        disposalLock.unlock()
+        guard !wasDisposed else { return }
         sendCanExecuteChanged()
         cancellables.removeAll()
         finishCanExecuteChanged()

@@ -18,7 +18,7 @@ it without consumer-side coordination. It is valid from any state and runs a
 synchronous depth-first cascade. The complete per-type behavior
 is in the [Disposal Contract](primitives/disposal-contract.md).
 
-## 4.3. Message Hub and Dispatcher
+## 4.3. Message Hub And Dispatcher
 
 Each VM receives a message hub and dispatcher. The hub carries property,
 lifecycle and collection messages across the tree, while the dispatcher
@@ -42,18 +42,13 @@ atomic move operation changes order without replacing, reconstructing,
 reparenting, or deselecting the child; see the
 [VM Collection Contract](primitives/vm-collection-contract.md).
 
-## 4.6. Idiomatic Naming by Flavor
+## 4.6. Idiomatic Naming By Flavor
 
-| Flavor     | Naming style                              |
-| ---------- | ----------------------------------------- |
-| C#         | PascalCase                                |
-| Python     | snake_case                                |
-| TypeScript | camelCase                                 |
-| Swift      | camelCase                                 |
-| Rust       | snake_case methods, Rust-style type names |
-
-Message payload property names follow the local idiom, with the documented
-`Count` channel exception for collection messages.
+Each flavor names the same concepts in its own language idiom (ADR-0006).
+Message payload property names also follow the local idiom, with the
+documented `Count` channel exception for collection messages.
+[Cross-Language Naming](flavors/cross-language-naming.md) gives the casing and
+the spelling of each concept in each flavor.
 
 ## 4.7. Conformance Catalog
 
@@ -88,6 +83,9 @@ flavor exposes these parts under its own naming idiom:
 - `PagedComposition` and `TokenPagedComposition` for finite and cursor paging.
 - An opt-in notification sub-package (`INotificationHub`), `IDialogService`,
   and an `ILocalizer` hook for i18n.
+- `DelayedTask` for one replaceable delayed action on an injected scheduler
+  (spec 11 §6, ADR-0219), as described in
+  [Delayed Work By Flavor](primitives/state-reactive-helpers.md#6532-delayed-work-by-flavor).
 - Null-object service variants: `NullMessageHub`, `NullDispatcher`,
   `NullNotificationHub`, `NullLocalizer`, and `NullDialogService`.
 
