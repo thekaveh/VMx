@@ -5,7 +5,7 @@
 applications a StrictMode-safe, server-rendering-safe external-store boundary.
 Version 0.1.1 is published on npm.
 
-## 9.8.1. Reactivity primitive
+## 9.8.1. Reactivity Primitive
 
 The adapter uses React's `useSyncExternalStore` contract. A `VmxStore` owns one
 lazy subscription to a VMx hub, exposes stable subscribe and cached monotonic
@@ -25,7 +25,7 @@ default or an explicit equality function such as `shallowEqual`.
 | `useDerivedProperty`                    | first and later derived values; unseeded state                                |
 | `useAsyncResource`                      | discriminated async-resource state                                            |
 
-## 9.8.3. Install and create the shared store
+## 9.8.3. Install And Create The Shared Store
 
 ```bash
 npm install @thekaveh/vmx @thekaveh/vmx-react react rxjs use-sync-external-store
@@ -68,7 +68,7 @@ function Summary() {
 Call `store.dispose()` only when the owning application scope is permanently
 destroyed. React mount cleanup is managed by the hooks.
 
-## 9.8.4. Focused bindings and conditional VMs
+## 9.8.4. Focused Bindings And Conditional VMs
 
 Use the narrowest binding that represents what the component renders:
 
@@ -153,7 +153,7 @@ that republishes its state, as the Notes showcase `NoteFormVM` does, or
 subscribe in an effect to `onApproved`, `approveErrors` (approve failures),
 and `errorsChanged` (validation errors).
 
-## 9.8.5. StrictMode, SSR, hydration, and virtualization
+## 9.8.5. StrictMode, SSR, Hydration, And Virtualization
 
 The store connects on the first listener and disconnects on the last, including
 React StrictMode's development remount. Create a store per server request,
@@ -165,7 +165,7 @@ Virtualized lists should bind once with `useVmCollection` or
 `useObservableList`, use stable model keys, and pass item identities into rows.
 Rows that display mutable VM state may call `useVm` locally.
 
-## 9.8.6. Flagship and release policy
+## 9.8.6. Flagship And Release Policy
 
 [`examples/typescript/react/notes-showcase/`](../../../examples/typescript/react/notes-showcase/)
 is the Notes Workspace React 19 flagship. It consumes the official package

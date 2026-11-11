@@ -370,8 +370,15 @@ def test_project_opening_rejects_reordered_centered_title(tmp_path: Path) -> Non
     assert any("ordered centered hero" in finding.message for finding in findings)
 
 
-@pytest.mark.parametrize("surface", ["site", "wiki"])
-def test_project_poster_path_is_local_to_generated_surface(surface: str) -> None:
+@pytest.mark.parametrize(
+    ("surface", "expected"),
+    [
+        ("site", 'src="assets/vmx-poster.png"'),
+        # GitHub resolves relative raw-HTML URLs on a wiki page against /wiki.
+        ("wiki", 'src="/thekaveh/VMx/wiki/assets/vmx-poster.png"'),
+    ],
+)
+def test_project_poster_path_is_local_to_generated_surface(surface: str, expected: str) -> None:
     manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
     source = Path("docs/content/index.md")
     source_map = build_source_map(manifest, surface)
@@ -385,7 +392,7 @@ def test_project_poster_path_is_local_to_generated_surface(surface: str) -> None
         repo_root=ROOT,
     )
 
-    assert 'src="assets/vmx-poster.png"' in rendered
+    assert expected in rendered
 
 
 def test_project_poster_is_copied_byte_identically_to_generated_surfaces(

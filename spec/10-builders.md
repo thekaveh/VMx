@@ -86,17 +86,17 @@ etc.) but DISTINCT instances. Builders themselves are reusable.
 
 ## 6. Conformance
 
-`BLD-001` through `BLD-006` in `12-conformance.md` cover:
+Chapter 12 §12 holds the `BLD` IDs. The table maps each ID to the rules of this
+chapter, and chapter 12 states the behavior of each ID.
 
-- setter returns a new builder instance
-- required fields validated on `Build()`
-- repeated identical calls produce equivalent VMs
-- field defaults applied when not set
-- additive setters (e.g., `Triggers` on `RelayCommand`) retain prior values across
-  repeated calls (cumulative, not overwriting)
-- common VM options factories (`Create` / `create(options)` / Swift `create(_:)`)
-  match the fluent builder's defaults, field values, and required-field validation
-  (`BLD-006`, ADR-0079)
+| IDs       | Rules                            |
+| --------- | -------------------------------- |
+| `BLD-001` | §1 immutability                  |
+| `BLD-002` | §3 validation                    |
+| `BLD-003` | §5 repeated identical calls      |
+| `BLD-004` | §4 default values                |
+| `BLD-005` | §2 additive setters              |
+| `BLD-006` | §7 positional options (ADR-0079) |
 
 ## 7. Additional construction form — positional options (additive)
 

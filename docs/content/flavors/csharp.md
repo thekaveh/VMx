@@ -11,7 +11,7 @@
 - Reactive primitive: `System.Reactive`
 - Naming idiom: PascalCase
 - Hub delivery: see
-  [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering)
+  [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#542-callback-safe-transition-ordering)
 
 ## 7.2.2. What To Reach For
 
@@ -35,10 +35,11 @@ notes.Move(0, notes.Count - 1);    // one Move locally, then on the hub
 notes.ReplaceAll(serverSnapshot); // one Reset, even for identical non-empty input
 ```
 
-Invalid indices throw before mutation. Equal-index Move, empty Clear, and
-empty-to-empty ReplaceAll are no-ops. Removal targets the first equal value and
-returns `false` when absent. Messages keep `Index` and add `OldIndex` /
-`NewIndex`. The collection never disposes or reparents its items.
+Invalid indices throw before mutation. Messages keep `Index` and add
+`OldIndex` / `NewIndex`. The
+[Serviced Mutation Contract](../primitives/builders-collections-tree-utilities.md#677-serviced-mutation-contract)
+gives the shared rules for no-op cases, value removal, delivery order, and item
+ownership.
 
 Choose `ObservableList<T>` instead for list-local batching and the `Count`
 channel. Choose a Group or Composite child collection for VM lifecycle
@@ -59,13 +60,10 @@ bool removed = notesById.RemoveKey(first.Id);
 
 `ContainsKey` tests membership; an optional comparer follows the hub argument.
 
-The projected key is captured until indexed replacement or delete-then-add, so
-mutating `Id` does not silently rekey the membership. Duplicate projection and
-projector failure occur before mutation. Key lookup and target discovery are
-expected O(1), append is amortized O(1), and ordered middle shifts remain O(n).
-Local delivery is immediate and precedes optional hub publication. An open hub
-transaction defers only the hub message. The keyed type has no batch, `Count`
-notification channel, VM lifecycle interface, or item ownership.
+Mutating `Id` does not rekey the membership. The
+[Keyed Serviced Mutation Contract](../primitives/builders-collections-tree-utilities.md#678-keyed-serviced-mutation-contract)
+gives the shared rules for captured keys, atomic failures, costs, and hub
+delivery.
 
 ## 7.2.4. Imperative Engine Bridge
 
@@ -85,11 +83,9 @@ IDisposable exposureSubscription = cameraVm.SubscribeValue(
 exposureSubscription.Dispose();
 ```
 
-The callback receives `(current, previous)`; immediate delivery uses the
-initial value for both. The selector reevaluates after every property message
-from this fixed VM, not on every render frame. Pass `equalityComparer:` for
-custom equality. The host adapter owns the handle; VMx does not attach it to
-the observed VM's lifetime.
+Pass `equalityComparer:` for custom equality. The
+[Imperative Selected-State Bridge](../primitives/services-messages-dispatching.md#666-imperative-selected-state-bridge)
+gives the shared callback, reevaluation, and ownership rules.
 
 ## 7.2.5. Pointers
 
@@ -110,6 +106,6 @@ the observed VM's lifetime.
 - WPF Todo app: `examples/csharp/wpf/TodoApp/`
 - Avalonia flagship: `examples/csharp/avalonia/NotesShowcase/`
 
-Use the site's [Smaller Examples](../examples/smaller-examples.md) page for the
+Use the [Smaller Examples](../examples/smaller-examples.md) page for the
 short demos and [Integration Recipes](../integration/index.md) for host
 wiring routes.

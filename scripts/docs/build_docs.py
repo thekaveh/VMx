@@ -10,7 +10,12 @@ import yaml
 
 from scripts.docs.manifest import Manifest, Section, load_manifest
 from scripts.docs.opener import load_opener
-from scripts.docs.transforms import DIAGRAM_ASSET_SUFFIXES, build_source_map, rewrite_for_surface
+from scripts.docs.transforms import (
+    DIAGRAM_ASSET_SUFFIXES,
+    WIKI_DIAGRAM_ASSET_SUFFIXES,
+    build_source_map,
+    rewrite_for_surface,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = REPO_ROOT / "docs/manifest.yaml"
@@ -32,7 +37,6 @@ theme:
     code: JetBrains Mono
   features:
     - navigation.sections
-    - navigation.indexes
     - navigation.top
     - navigation.tracking
     - search.suggest
@@ -88,11 +92,15 @@ def clean_dir(path: Path) -> None:
     path.mkdir(parents=True)
 
 
-def copy_diagrams(target: Path, repo_root: Path = REPO_ROOT) -> None:
+def copy_diagrams(
+    target: Path,
+    repo_root: Path = REPO_ROOT,
+    suffixes: tuple[str, ...] = DIAGRAM_ASSET_SUFFIXES,
+) -> None:
     dest = target / "assets/diagrams"
     dest.mkdir(parents=True, exist_ok=True)
     diagrams_dir = repo_root / "docs/assets/diagrams"
-    for suffix in DIAGRAM_ASSET_SUFFIXES:
+    for suffix in suffixes:
         for source in diagrams_dir.glob(f"*{suffix}"):
             shutil.copy2(source, dest / source.name)
 
@@ -177,7 +185,7 @@ def render_wiki(manifest: Manifest, out_dir: Path, repo_root: Path = REPO_ROOT) 
         encoding="utf-8",
     )
     copy_project_poster(out_dir, repo_root)
-    copy_diagrams(out_dir, repo_root)
+    copy_diagrams(out_dir, repo_root, WIKI_DIAGRAM_ASSET_SUFFIXES)
 
 
 def _nav_item(section: Section, source_map: dict[Path, Path]) -> dict[str, object]:

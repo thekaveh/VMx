@@ -15,18 +15,18 @@ ______________________________________________________________________
 ## 3.2.1. Install
 
 Add VMx as described in [Installation](../installation.md). The NuGet package
-is not published, so the C# section there references the VMx project from a
-checkout. This tutorial needs only the core `VMx` project; section 3.2.2.2 adds
+is not published, so the C# section of that page references the VMx project
+from a checkout. This tutorial needs only the core `VMx` project; section 3.2.2.2 adds
 the optional dependency-injection project.
 
 ______________________________________________________________________
 
-## 3.2.2. Wire up `IMessageHub` and `IDispatcher`
+## 3.2.2. Wire Up `IMessageHub` And `IDispatcher`
 
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that knows about your UI thread.
 
-### 3.2.2.1. Option A — manual construction (console / tests)
+### 3.2.2.1. Option A — Manual Construction (Console / Tests)
 
 ```csharp
 using VMx.Services;
@@ -38,7 +38,7 @@ IDispatcher dispatcher = RxDispatcher.Immediate();
 IMessageHub hub = new MessageHub();
 ```
 
-### 3.2.2.2. Option B — dependency injection (`VMx.Extensions.DependencyInjection`)
+### 3.2.2.2. Option B — Dependency Injection (`VMx.Extensions.DependencyInjection`)
 
 Add the optional DI project:
 
@@ -83,7 +83,7 @@ var dispatcher = provider.GetRequiredService<IDispatcher>();
 
 ______________________________________________________________________
 
-## 3.2.3. Build a `ComponentVM<UserModel>`
+## 3.2.3. Build A `ComponentVM<UserModel>`
 
 `ComponentVM<M>` is the primary leaf viewmodel. It holds a typed model,
 fires `IPropertyChangedMessage` on the hub when the model changes, and
@@ -139,7 +139,7 @@ public record UserModel(string Name, string Email);
 
 ______________________________________________________________________
 
-## 3.2.4. Build a `RelayCommand`
+## 3.2.4. Build A `RelayCommand`
 
 `RelayCommand` wraps a nullable `Action`, an optional `Func<bool>` predicate,
 and a set of `IObservable<Unit>` triggers that re-evaluate `CanExecute`.
@@ -188,7 +188,7 @@ Console.WriteLine(saveCommand.CanExecute(null));   // False again
 
 ______________________________________________________________________
 
-## 3.2.5. Build a `CompositeVM<TabVM>`
+## 3.2.5. Build A `CompositeVM<TabVM>`
 
 `CompositeVM<VM>` owns an ordered child collection and a `Current` selection.
 Children are built ahead of time and handed in via a factory; the factory runs
@@ -250,7 +250,7 @@ public record TabModel(string Title);
 
 ______________________________________________________________________
 
-## 3.2.6. Lifecycle and cleanup
+## 3.2.6. Lifecycle And Cleanup
 
 Every VM has five lifecycle states. Four of them form a reversible cycle, `Destructed → Constructing → Constructed → Destructing → Destructed`. The fifth state, `Disposed`, is terminal.
 
@@ -289,9 +289,8 @@ original exception (ADR-0109). If terminal disposal wins the race, the waiter
 completes at `Disposed` and the abandoned transition cannot overwrite it.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
-> transition table and the
-> lifecycle contract (`LIFE-001..022`), including `StatusTransitionException`
-> rules and admitted-hook/disposal coordination.
+> transition table, the error of a refused operation, and the callback
+> ordering.
 
 ______________________________________________________________________
 
@@ -353,7 +352,7 @@ profileVM.Dispose();
 
 ______________________________________________________________________
 
-## 3.2.8. Where to go next
+## 3.2.8. Where To Go Next
 
 | Resource             | Documentation page                                                                             |
 | -------------------- | ---------------------------------------------------------------------------------------------- |

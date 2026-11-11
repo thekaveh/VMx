@@ -219,8 +219,8 @@ const tabs = CompositeVM.builder<ComponentVM>()
         .build()?;
     ```
 
-Rust ships both `CompositeVm` and `ModeledCompositeVm`. The
-[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) records its removal evidence. A Rust `FilteredCompositeVm` takes its cursor
+Rust ships both `CompositeVm` and `ModeledCompositeVm`. A Rust
+`FilteredCompositeVm` takes its cursor
 policy at construction (`with_cursor_policy`, `scored_with_cursor_policy`) and
 publishes `changed()` (ADR-0207).
 

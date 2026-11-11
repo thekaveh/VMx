@@ -227,26 +227,28 @@ and disposal boundary. Modeled composites and `FormVM` do not gain the operation
 
 ## 5. Built-in commands
 
-| Command                 | Predicate                     | Task                                        |
-| ----------------------- | ----------------------------- | ------------------------------------------- |
-| `SelectCommand`         | `can_select()`                | `select()`                                  |
-| `DeselectCommand`       | `can_deselect()`              | `deselect()`                                |
-| `SelectNextCommand`     | parent has a "next" child     | move parent's `Current` to next sibling     |
-| `SelectPreviousCommand` | parent has a "previous" child | move parent's `Current` to previous sibling |
-| `ReconstructCommand`    | `can_reconstruct()`           | `reconstruct()`                             |
+| Command                 | Predicate                  | Task            |
+| ----------------------- | -------------------------- | --------------- |
+| `SelectCommand`         | `can_select()`             | `select()`      |
+| `DeselectCommand`       | `can_deselect()`           | `deselect()`    |
+| `SelectNextCommand`     | always `false` (see below) | no-op           |
+| `SelectPreviousCommand` | always `false` (see below) | no-op           |
+| `ReconstructCommand`    | `can_reconstruct()`        | `reconstruct()` |
 
 All five commands raise `CanExecuteChanged` on every relevant `Status` change of
 the VM (via a trigger derived from `Status`); consumers re-read `CanExecute`
 (chapter 04 §4).
 
-`SelectNextCommand` / `SelectPreviousCommand` are present on the `IComponentVM`
-baseline for a uniform surface, but a leaf VM does not enumerate its parent's
-children. In the reference implementations of all five active flavors their predicate
-therefore **always returns `false`** and their task is a **no-op** (sibling
-navigation, when a host wants it, is driven by the container, not by the leaf). This
-inert behaviour is the normative contract for the base commands and is asserted for
-the group case by `GRP-002`; the table rows above describe the *intended* sibling
-semantics a container MAY implement, not behaviour the base leaf performs.
+`SelectNextCommand` and `SelectPreviousCommand` are on the `IComponentVM`
+baseline for a uniform surface. A leaf VM does not enumerate its parent's
+children, so in all five flavors their predicate always returns `false` and
+their task is a no-op. This inert behavior is the normative contract for the
+base commands, and `GRP-002` asserts it for the group case.
+
+Sibling navigation, when a host wants it, belongs to the container, which MAY
+implement it. A "next" command moves the parent's `Current` to the next
+sibling when one exists. A "previous" command moves it to the previous
+sibling.
 
 ## 6. Selection predicates
 
@@ -398,23 +400,21 @@ The names follow each flavor's idiom (ADR-0006): C# `ExpandCommand`, Python
 
 ## 9. Conformance
 
-`CVM-001` through `CVM-010` and `EXP-001` through `EXP-008` in
-`12-conformance.md` cover:
+Chapter 12 §7 holds the `CVM` IDs, §22 the `EXP` IDs, and §30 the `DISP` IDs.
+The table maps each ID to the rules of this chapter, and chapter 12 states the
+behavior of each ID.
 
-- status emission on construct
-- modeled `Model` setter PropertyChanged behavior
-- readonly variant has no `Model` setter
-- `ModeledHint` recomputation
-- `Name`/`Hint`/`Type` immutability
-- `SelectCommand` predicate behavior
-- dual-channel helper multiplicity and hub-before-local ordering
-- caller-owned equality guards
-- post-dispose helper inertness
-- public read-only hub visibility and non-ownership
-- disposal-lifetime owned-resource behavior (`DISP-007..013`)
-- inert modeled assignment after disposal (`DISP-014`)
-- explicit model republish identity, channel, variant, forwarding, null-hub,
-  re-entrancy, and disposal behavior
-- `ExpandableState` state, verbs, and change stream (`EXP-001..004`)
-- `ExpandableState` command predicates and `CanExecuteChanged`, command
-  execution, and command inertness after helper disposal (`EXP-006..008`)
+| IDs                    | Rules                                                               |
+| ---------------------- | ------------------------------------------------------------------- |
+| `CVM-001`              | §7 construction                                                     |
+| `CVM-002`              | §3 modeled variant                                                  |
+| `CVM-003`              | §4 readonly variant                                                 |
+| `CVM-004`              | §3.1 `ModeledHint`                                                  |
+| `CVM-005`              | §2 members                                                          |
+| `CVM-006`              | §5 built-in commands, §6 selection predicates                       |
+| `CVM-007`..`CVM-009`   | §2.3 dual-channel property notification helper                      |
+| `CVM-010`              | §3.3 explicit model republish                                       |
+| `EXP-001`..`EXP-004`   | §8 `IExpandable` integration                                        |
+| `EXP-006`..`EXP-008`   | §8.1 expansion commands                                             |
+| `DISP-007`..`DISP-013` | §2.2 hub exposure and owned-resource registration (chapter 02 §2.3) |
+| `DISP-014`             | §3 modeled assignment after disposal (chapter 02 §7)                |

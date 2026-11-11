@@ -196,29 +196,17 @@ syntactic sugar for the above and is tested in `DIA-008`.
 
 ## 9. Conformance
 
-`DISP-004` complements `DIA-011` and `DIA-012`: repeated disposal completes an
-interaction owner at most once and never replaces the first modal result.
+Chapter 12 §26 holds the `DIA` IDs, and §30 holds the `DISP` IDs. The table
+maps each ID to the rules of this chapter, and chapter 12 states the behavior
+of each ID.
 
-- `DIA-001` — `PickFileToOpen` contract: accepts optional filter and title; returns
-  a path string or `null` on cancel.
-- `DIA-002` — `PickFileToSave` contract: accepts optional filter, title, and
-  `suggestedName`; returns a path string or `null` on cancel.
-- `DIA-003` — `Confirm` contract: accepts message and optional title; returns `bool`
-  — `false` on cancel.
-- `DIA-004` — `Notify` contract: accepts message, optional title, optional severity
-  (`Info`/`Warning`/`Error`); returns awaitable that completes without error.
-- `DIA-005` — `NullDialogService`: `PickFile*` returns `null`; `Confirm` returns
-  `false`; `Notify` is no-op.
-- `DIA-006` — Reentrancy: both queueing and immediate-rejecting implementations
-  conform to the contract.
-- `DIA-007` — Cancellation: cancelling a pending dialog completes the awaitable
-  with the cancellation result (`null` or `false`) without throwing.
-- `DIA-008` — `ConfirmationDecoratorCommand` with `() => dialogService.Confirm(prompt)`
-  constructs a valid command graph that behaves per ADR-0012.
-- `DIA-009` — VM-backed `Present` returns the modal result chosen by the host.
-- `DIA-010` — Null modal presentation resolves with the modal cancellation result;
-  an already-dismissed modal keeps its earlier result.
-- `DIA-011` — Disposing a modal completes its awaitable with the cancellation result.
-- `DIA-012` — Modal dismissal is idempotent: the first result wins.
-- `DIA-013` — Adding modal presentation does not remove or rename the existing
-  file/confirm/notify methods.
+| IDs                  | Rules                                         |
+| -------------------- | --------------------------------------------- |
+| `DIA-001`..`DIA-004` | §2.1 method semantics                         |
+| `DIA-005`            | §4 `NullDialogService`                        |
+| `DIA-006`            | §6 reentrancy                                 |
+| `DIA-007`            | §7 cancellation                               |
+| `DIA-008`            | §8 `ConfirmationDecoratorCommand` integration |
+| `DIA-009`..`DIA-012` | §3 VM-backed modals                           |
+| `DIA-013`            | §2 contract surface                           |
+| `DISP-004`           | §3 repeated modal disposal                    |

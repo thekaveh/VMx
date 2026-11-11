@@ -750,7 +750,7 @@ def system_architecture() -> Diagram:
                 210,
                 130,
                 "Services",
-                ("MessageHub", "Dispatcher", "IDialogService", "ILocalizer"),
+                ("MessageHub", "Dispatcher, Scheduler", "IDialogService", "ILocalizer"),
                 "security",
             ),
             Box(
@@ -1861,10 +1861,19 @@ def lifecycle_messaging() -> Diagram:
                 label_xy=(776, 202),
             ),
             Polyline(
-                ((980, 217), (1030, 217)),
+                ((890, 264), (890, 336), (200, 336), (200, 264)),
+                color="#fb923c",
+                label="destruct completes",
+                label_xy=(545, 336),
+            ),
+            Polyline(((430, 170), (430, 152)), color="#fb7185", marker=False),
+            Polyline(((660, 170), (660, 152)), color="#fb7185", marker=False),
+            Polyline(((890, 170), (890, 152)), color="#fb7185", marker=False),
+            Polyline(
+                ((200, 170), (200, 152), (1120, 152), (1120, 170)),
                 color="#fb7185",
-                label="dispose()",
-                label_xy=(1006, 202),
+                label="dispose() from any live state",
+                label_xy=(660, 152),
             ),
             Polyline(
                 ((660, 264), (660, 310), (430, 310), (430, 264)),
@@ -1919,7 +1928,7 @@ def lifecycle_messaging() -> Diagram:
                 94,
                 "Key rule",
                 (
-                    "Lifecycle operations raise when called from an illegal state, while selection after Disposed is a silent no-op.",
+                    "Lifecycle operations raise when called from an illegal state. After Disposed, a member selection is inert and a non-member selection is refused.",
                     "Hub transactions defer a lossless FIFO until the outer scope exits; re-entrant sends append to the same iterative drain.",
                 ),
                 "#fb923c",

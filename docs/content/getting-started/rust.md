@@ -19,14 +19,14 @@ ______________________________________________________________________
 ## 3.6.1. Install
 
 Add VMx as described in [Installation](../installation.md). The `vmx-rs` crate
-is not published to crates.io, so the Rust tab there adds it as a path or git
-dependency. Code imports the crate as `vmx`.
+is not published to crates.io, so the Rust section of that page adds it as a
+path or git dependency. Code imports the crate as `vmx`.
 
 The crate declares only `serde` and `thiserror` as runtime dependencies. Its
 reactive primitives are VMx-owned hot-stream facades, so it pulls in no
 third-party reactive runtime.
 
-## 3.6.2. Wire up `MessageHub` and a `Dispatcher`
+## 3.6.2. Wire Up `MessageHub` And A `Dispatcher`
 
 Every viewmodel needs two services: a hub that carries messages between
 viewmodels and a dispatcher that routes scheduled work. `NullDispatcher` runs
@@ -69,7 +69,7 @@ Terminal state and publication are committed on foreground. Subscribe to the
 hot `background_errors()` stream for hook failures after the fire-and-forget
 call returns; the stream completes on disposal.
 
-## 3.6.3. Build a `ComponentVm<Model>`
+## 3.6.3. Build A `ComponentVm<Model>`
 
 `ComponentVm<M>` is the primary leaf viewmodel. It holds a typed model, publishes
 a property message on the hub when the model changes, and participates in the
@@ -110,7 +110,7 @@ fn main() -> VmxResult<()> {
 > See the [component family](../primitives/viewmodel-families/component-family.md)
 > for the full contract.
 
-## 3.6.4. Build a `RelayCommand`
+## 3.6.4. Build A `RelayCommand`
 
 `RelayCommand` wraps an action closure, an optional `can_execute` predicate, and
 zero or more trigger hubs that announce when eligibility may have changed. Use
@@ -171,7 +171,7 @@ fn main() {
 }
 ```
 
-## 3.6.5. Build a `CompositeVm<T>` with selection
+## 3.6.5. Build A `CompositeVm<T>` With Selection
 
 `CompositeVm<T>` owns an ordered child collection and a `current` selection slot.
 Children come from a factory evaluated on the first `construct()`; an optional
@@ -221,7 +221,7 @@ The example also projects a live filtered view with `FilteredCompositeVm`. See
 the [composite family](../primitives/viewmodel-families/composite-family.md) for
 the full contract.
 
-## 3.6.6. Lifecycle and cleanup
+## 3.6.6. Lifecycle And Cleanup
 
 Every viewmodel has five lifecycle states. Four of them form a reversible
 cycle, `Destructed -> Constructing -> Constructed -> Destructing -> Destructed`.
@@ -254,10 +254,10 @@ callers can branch on the result. Builders return `Err` from `build()` when a
 required field is missing.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
-> lifecycle contract (`LIFE-001..022`), including transition and disposal
-> coordination.
+> transition table, the error of a refused operation, and the callback
+> ordering.
 
-## 3.6.7. Where to go next
+## 3.6.7. Where To Go Next
 
 | Resource             | Documentation page                                                       |
 | -------------------- | ------------------------------------------------------------------------ |

@@ -1,6 +1,6 @@
 # ADR 0141 — Retain Rust hub messages only through an opt-in bounded recorder
 
-- **Status:** Accepted
+- **Status:** Accepted (clarified by ADR-0211)
 - **Date:** 2026-10-07
 - **Spec version:** 3.25.0 (Rust mapping; no normative change)
 - **Clarifies:** [ADR-0103](0103-rust-owned-hot-stream-facade.md)

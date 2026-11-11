@@ -56,11 +56,11 @@ Each operation has a paired predicate. Predicates are defined as:
   destructing while already `Destructed` is a no-op.)
 - `can_reconstruct()` returns `true` iff `Status == Constructed`.
 
-Note that `can_construct()` returning `true` from `Constructed`, and `can_destruct()`
-returning `true` from `Destructed`, are intentional: re-invoking those operations in
-the matching state is a no-op (see `## Idempotency` below), not an error, and the
-predicate signals "the operation is safe to call" rather than "the operation will
-produce a state change".
+`can_construct()` returns `true` from `Constructed`, and `can_destruct()`
+returns `true` from `Destructed`, on purpose. A repeated call of those
+operations in the matching state is a no-op (§4), not an error. The predicate
+signals "the operation is safe to call", not "the operation will produce a
+state change".
 
 Calling an operation when its predicate returns `false` MUST raise
 `StatusTransitionError` (Python / TS / Swift) / `StatusTransitionException` (C#).
@@ -186,16 +186,22 @@ action, so disposed parents cannot begin new child work. Factory population is
 such an action. A container whose construct hook a foreign `dispose()`
 superseded does not call its children factory and attaches nothing. Its
 `construct()` returns without an error, as §7.2 says for a superseded call
-(ADR-0218, `LIFE-015`). An `add()` during disposal still fails. If two active hooks
+(ADR-0218, `LIFE-015`). An `add()` during disposal still fails.
+
+If two active hooks
 cross-dispose their peers, the flavor's wait-for graph breaks the cycle by
 deferring one VM's terminal cleanup to its admitted hook's completion; both
 hooks and both teardown paths still run exactly once. TypeScript's
 single-threaded event loop cannot form this foreign-thread wait. Swift keeps its
-documented nonthrowing disposal surface. Throwing/result-based flavors preserve
+documented nonthrowing disposal surface.
+
+Throwing/result-based flavors preserve
 the earliest already-propagating failure when deferred cleanup also fails;
 later cleanup failures never replace it (ADR-0126). When the call that runs the
 deferred cleanup has no earlier failure, it reports the cleanup's first failure
-(ADR-0200). That call is the admitted hook's `construct()`, `destruct()`, or
+(ADR-0200).
+
+That call is the admitted hook's `construct()`, `destruct()`, or
 `reconstruct()`, which `Disposed` has superseded. Its background form reports
 the failure through the flavor's background-failure path. A C# async method
 reports it as it reports a hook failure. The cycle-broken `dispose()` returns
@@ -256,29 +262,39 @@ dispose cascade is verified by `LIFE-021` (§7.2).
 These hold for every VM at every point in its lifetime:
 
 1. `Status` is one of the five `ConstructionStatus` values.
+
 1. `IsConstructed == (Status == Constructed)`.
+
 1. Once `Status` reaches `Disposed`, it never changes again. All lifecycle
    operations from `Disposed` (except `dispose` itself, which is idempotent)
    raise. They also raise once an inline dispose cascade has started, before
-   `Status` reads `Disposed` (§7.2). A **selection** change (`IsCurrent`)
-   requested after `Disposed` is a
-   silent no-op — it does not raise and emits no `PropertyChangedMessage` —
-   distinguishing it from the lifecycle operations, which raise (VMX-006).
+   `Status` reads `Disposed` (§7.2).
+
+   A `select()` or `deselect()` call on the VM itself after `Disposed` is a
+   silent no-op. It does not raise and emits no `PropertyChangedMessage`,
+   unlike the lifecycle operations, which raise (VMX-006). The composite's
+   `Current` setter is a different path: it raises the non-member error for a
+   `Disposed` child (chapter 06 §4.3 rule 2).
+
    One change still applies: when its composite stops making it `Current`, a
    `Disposed` VM's `IsCurrent` becomes `false`. The VM publishes no
    `PropertyChangedMessage` for that change (chapter 06 §4.3, ADR-0189).
+
 1. Every `Status` change publishes exactly one `ConstructionStatusChangedMessage`
    on the VM's message hub before the operation returns (synchronous) or before the
    awaiter resumes (asynchronous). A transactional rollback (§2.5) is itself a
    status change and so publishes its own message.
+
 1. A VM in `Constructing` or `Destructing` MUST NOT have its operation re-invoked
    concurrently. Implementations MUST raise on the second invocation, detected via
    the per-VM guard of §2.4 (not an unsynchronized `Status` read).
+
 1. Each status transition is atomic with respect to other lifecycle operations on
    the same VM (§2.4). A transition racing `dispose()` observes the terminal
    `Disposed` state, or an inline dispose cascade in progress (§7.2), under the
    guard and aborts — it never resurrects the VM nor publishes a post-dispose
    message or a status other than `Disposed` once the cascade has started.
+
 1. If `OnConstruct` / `OnDestruct` raises, `Status` is rolled back to the prior
    settled state (`Destructed` for a failed construct, `Constructed` for a failed
    destruct) before the exception propagates (§2.5); the VM never remains in a
@@ -499,30 +515,39 @@ helper: `OwnMember` in C#, `_own_member` in Python, `ownMember` in TypeScript
 and Swift, and `own_member` in Rust (ADR-0162). Registration returns the member
 in C#, Python, TypeScript and Swift; Rust returns a `VmxResult<()>`.
 
-`dispose()` stops waiting for a pending child walk, then disposes the
-registered members in registration order. Each member disposes its own
-children first, so the cascade stays depth-first (`LIFE-018`). A container
-disposes its children before its members. The members follow the two orders of
-§7 (ADR-0179). For a dispose that is not foreign, every member reaches
-`Disposed` before the parent publishes `Disposed`. For a foreign dispose, the
-parent publishes `Disposed` first, waits for the hook (§2.4, `LIFE-015`), and
-then disposes the members before its subclass dispose hook.
-Member disposal is best-effort, as in §7: every member is attempted, and the
-first failure is reported after the parent's mandatory teardown. Swift
-disposal does not throw, so Swift attempts every member and reports nothing. A
-member registered once the parent's disposal has started, or after it reached
-`Disposed`, is disposed at once. While the member cascade runs, any further
-`dispose()` of the parent returns at once without waiting and does nothing,
-whether it is re-entrant on the same thread or comes from another thread. The
-first call finishes the cascade. For a dispose that is not foreign, it
-publishes `Disposed` only after the members, so a caller that returns early can
-observe the parent before it is `Disposed`. Registering the view-model itself
-is a usage error: `InvalidOperationException` in C#, `RuntimeError` in Python,
-`Error` in TypeScript, a trap in Swift (ADR-0009), and
-`VmxError::OwnershipCycle` in Rust. Member disposal also follows the cascade
-rule of §7.2: a member dispose hook that calls `construct()` or `destruct()` on
-its leaf gets the lifecycle error, and the leaf commits no status other than
-`Disposed` (`LIFE-021`).
+The member-disposal rules are:
+
+1. **Order.** `dispose()` stops waiting for a pending child walk, then
+   disposes the registered members in registration order. Each member disposes
+   its own children first, so the cascade stays depth-first (`LIFE-018`). A
+   container disposes its children before its members. The members follow the
+   two orders of §7 (ADR-0179).
+1. **Publication.** For a dispose that is not foreign, every member reaches
+   `Disposed` before the parent publishes `Disposed`. For a foreign dispose,
+   the parent publishes `Disposed` first, waits for the hook (§2.4,
+   `LIFE-015`), and then disposes the members before its subclass dispose
+   hook.
+1. **Failures.** Member disposal is best-effort, as in §7. Every member is
+   attempted, and the first failure is reported after the parent's mandatory
+   teardown. Swift disposal does not throw, so Swift attempts every member and
+   reports nothing.
+1. **Late registration.** A member registered once the parent's disposal has
+   started, or after it reached `Disposed`, is disposed at once.
+1. **Repeated dispose.** While the member cascade runs, any further
+   `dispose()` of the parent returns at once without waiting and does nothing.
+   This holds for a re-entrant call on the same thread and for a call from
+   another thread. The first call finishes the cascade. For a dispose that is
+   not foreign, the first call publishes `Disposed` only after the members. A
+   caller that returns early can therefore observe the parent before it is
+   `Disposed`.
+1. **Self-registration.** Registering the view-model itself is a usage error:
+   `InvalidOperationException` in C#, `RuntimeError` in Python, `Error` in
+   TypeScript, a trap in Swift (ADR-0009), and `VmxError::OwnershipCycle` in
+   Rust.
+1. **Lifecycle calls.** Member disposal follows the cascade rule of §7.2. A
+   member dispose hook can call `construct()` or `destruct()` on its leaf.
+   That call gets the lifecycle error, and the leaf commits no status other
+   than `Disposed` (`LIFE-021`).
 
 A member is not a container child. It has no parent link and no selection
 state, and registration does not construct it. A leaf that wants reverse
@@ -576,42 +601,26 @@ directly.
 
 ## 9. Conformance
 
-`LIFE-001` through `LIFE-022` in `12-conformance.md` cover:
+Chapter 12 §3 holds the `LIFE` IDs, and §30 holds the `DISP` IDs. The table
+maps each ID to the rules of this chapter, and chapter 12 states the behavior
+of each ID.
 
-- legal state transitions (construct / destruct / reconstruct / dispose)
-- predicates raising `StatusTransitionError` / `StatusTransitionException` (or
-  returning a `VmxError` in Rust) on illegal calls
-- idempotency from `Constructed`/`Destructed`/`Disposed` states
-- the `IsConstructed == Status == Constructed` invariant
-- concurrent re-invocation during `Constructing` / `Destructing` raises (enforced by the
-  §2.4 per-VM guard)
-- the full transition matrix (table-driven from `fixtures/lifecycle-transitions.json`)
-- dispose-from-Disposed emits no message
-- dispose cascade (parent disposes children depth-first and completes all
-  terminal cleanup before propagating the first failure)
-- transactional rollback: a throwing `OnConstruct`/`OnDestruct` hook rolls `Status` back to
-  the prior settled state and leaves the VM recoverable (`LIFE-014`, §2.5)
-- admitted-hook coordination: terminal disposal waits for the active hook,
-  performs terminal cleanup only after hook release, and suppresses post-hook
-  container work after terminal supersession (`LIFE-015`, §2.4)
-- the child-transition helper for leaf view-models: it waits for a background
-  child (`LIFE-016`), rolls the parent back on a child failure (`LIFE-017`),
-  destructs in the order the caller passes (`LIFE-019`) and joins a child in
-  transit (`LIFE-020`) (§6.1)
-- depth-first member disposal before the parent publishes `Disposed`, for a
-  dispose that is not foreign (`LIFE-018`, §7.1)
-- the inline dispose cascade: a lifecycle call that starts during it fails
-  with the `Disposed` error and publishes nothing, and no status other than
-  `Disposed` commits once it has started (`LIFE-021`, §7.2)
-- container walks and the child-transition helper skip a `Disposed` child,
-  so a container that holds one still destructs, constructs and reconstructs
-  (`LIFE-022`, §6)
-
-`DISP-001` adds the cross-cutting at-most-once assertion: invoking a parent
-dispose path more than once produces one observable terminal transition and
-one owned cleanup per node. See `01-concepts.md` §4 and ADR-0084.
-
-`DISP-007` through `DISP-014` cover the owned-resource order, idempotency,
-failure isolation, post-dispose registration, reconstruct lifetime, public hub
-visibility, shared-hub non-ownership contract from §2.3, and inert modeled
-assignment after terminal disposal (§7).
+| IDs                                            | Rules                                                      |
+| ---------------------------------------------- | ---------------------------------------------------------- |
+| `LIFE-001`, `LIFE-002`, `LIFE-004`             | §2 operations                                              |
+| `LIFE-003`                                     | §5 reconstruct                                             |
+| `LIFE-005`..`LIFE-007`                         | §3 invariants                                              |
+| `LIFE-008`                                     | §2.4 concurrency guard                                     |
+| `LIFE-009`, `LIFE-010`, `LIFE-012`             | §4 idempotency                                             |
+| `LIFE-011`                                     | §8 reference table (`fixtures/lifecycle-transitions.json`) |
+| `LIFE-013`                                     | §7 disposal cascade                                        |
+| `LIFE-014`                                     | §2.5 transactional hook failure                            |
+| `LIFE-015`                                     | §2.4 disposal during an admitted hook                      |
+| `LIFE-016`, `LIFE-017`, `LIFE-019`, `LIFE-020` | §6.1 child-transition helper                               |
+| `LIFE-018`                                     | §7.1 depth-first member disposal                           |
+| `LIFE-021`                                     | §7.2 lifecycle calls during the inline cascade             |
+| `LIFE-022`                                     | §6 container walks and a `Disposed` child                  |
+| `DISP-001`                                     | §7 repeated parent disposal (chapter 01 §4, ADR-0084)      |
+| `DISP-007`..`DISP-011`                         | §2.3 owned resources                                       |
+| `DISP-012`, `DISP-013`                         | §2.3 shared hub; chapter 05 §2.2 hub exposure              |
+| `DISP-014`                                     | §7 modeled assignment after disposal                       |

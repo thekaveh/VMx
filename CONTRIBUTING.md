@@ -275,6 +275,14 @@ swift package diagnose-api-breaking-changes \
     --breakage-allowlist-path langs/swift/api/breakage-allowlist.txt
 ```
 
+### 2.9 Documentation links
+
+Site and wiki pages do not link to repository files. When a docs/content page
+links to a repository file that is not a published page, the generator keeps
+the link label and adds the repository path in inline code, for example
+``C# (`langs/csharp/CHANGELOG.md`)``. Do not write prose that only works as a
+link.
+
 ## 3. Spec-driven changes
 
 Behavior changes start in `spec/`. The rules are:

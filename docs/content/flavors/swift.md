@@ -10,7 +10,7 @@
   Python do, so one sink can run on two threads at once.
 - Naming idiom: camelCase
 - Hub delivery and notification replay: see
-  [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering)
+  [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#542-callback-safe-transition-ordering)
 
 ## 7.5.2. What To Reach For
 
@@ -54,13 +54,15 @@ try notes.move(from: 0, to: notes.count - 1)
 notes.replaceAll(serverSnapshot)     // one Reset
 ```
 
-Value removal is available when `T: Equatable`, removes the first match, and
-returns `false` when absent. `removeAt` and `replace` keep Swift's
-array-precondition bounds behavior; `move` instead throws the catchable
-`VMCollectionIndexError`. Equal-index move, empty clear, and empty-to-empty
-replacement are no-ops. Messages expose `index`, `oldIndex`, and `newIndex`.
-The caller owns both the Combine cancellable and every stored item. Use
-`ObservableList<T>` for batching and `Count` notifications.
+Value removal is available when `T: Equatable`. `removeAt` and `replace` keep
+Swift's array-precondition bounds behavior; `move` instead throws the catchable
+`VMCollectionIndexError`. Messages expose `index`, `oldIndex`, and `newIndex`.
+The caller owns the Combine cancellable. The
+[Serviced Mutation Contract](../primitives/builders-collections-tree-utilities.md#677-serviced-mutation-contract)
+gives the shared rules for no-op cases, value removal, delivery order, and item
+ownership.
+
+Use `ObservableList<T>` for batching and `Count` notifications.
 
 Use `KeyedServicedObservableCollection<Key,T>` for captured-key access while
 retaining the same ordered message contract:
@@ -79,14 +81,10 @@ let removed = notesByID.delete(first.id)
 `containsKey` tests membership. The projector is throwing, so append,
 replacement, whole-list replacement, and upsert are throwing and atomic.
 
-Captured membership keys do not follow mutable properties; indexed replacement
-or delete-then-add rekeys explicitly. The same mutated instance can occupy its
-old and newly projected memberships. Duplicate/projector failure preserves
-state and emits nothing. Lookup and target discovery are expected O(1), append
-is amortized O(1), and ordered middle shifts remain O(n). Local Combine
-delivery stays immediate when an external hub transaction defers only hub
-publication. Items remain caller-owned; the keyed type adds no batch or VM
-lifecycle interface.
+Mutating `id` does not rekey the membership. The
+[Keyed Serviced Mutation Contract](../primitives/builders-collections-tree-utilities.md#678-keyed-serviced-mutation-contract)
+gives the shared rules for captured keys, atomic failures, costs, and hub
+delivery.
 
 ## 7.5.4. Imperative Engine Bridge
 
@@ -111,10 +109,9 @@ let exposureSubscription: AnyCancellable = try subscribeValue(
 exposureSubscription.cancel()
 ```
 
-The callback receives `(current, previous)`; immediate delivery uses the
-initial value for both. The selector reevaluates after every property message
-from this fixed VM rather than on every render frame. The host adapter owns the
-cancellable; VMx does not attach it to the observed VM's lifetime.
+The
+[Imperative Selected-State Bridge](../primitives/services-messages-dispatching.md#666-imperative-selected-state-bridge)
+gives the shared callback, reevaluation, and ownership rules.
 
 ## 7.5.5. Pointers
 

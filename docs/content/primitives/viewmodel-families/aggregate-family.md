@@ -79,9 +79,7 @@ The Notes Workspace shell uses this pattern as its six-pane root in the C#,
 Python, TypeScript, and Swift examples. The Rust TUI companion also uses an
 `AggregateVm6` for its workspace.
 
-Rust implements the same aggregate type and builder shape. The
-[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) records its slot-notification and construction-ordering
-evidence.
+Rust implements the same aggregate type and builder shape.
 
 ## 6.2.3.6. Common Pitfalls
 

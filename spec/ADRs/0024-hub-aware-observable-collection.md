@@ -1,7 +1,6 @@
 # ADR 0024 — `ServicedObservableCollection<T>` (hub-aware observable collection)
 
-**Status:** Accepted (2026-05-27; §2 option 2 adopted for `CompositeVM` and
-`GroupVM` by ADR-0142)
+**Status:** Accepted (2026-05-27; §2 option 2 adopted for `CompositeVM` and `GroupVM` by ADR-0142; clarified by ADR-0115)
 **Spec version:** introduced in 2.1.0
 
 ## 1. Context

@@ -351,7 +351,7 @@ per flavor:
 | Python     | `with hub.batch(): ...`              |
 | TypeScript | `hub.batch(() => { ... })`           |
 | Swift      | `try hub.batch { ... }`              |
-| Rust       | `hub.batch(|| { ... })`              |
+| Rust       | <code>hub.batch(&#124;&#124; { ... })</code> |
 
 In C#, `Batch` is on `ITransactionalMessageHub`, which `MessageHub` implements.
 A variable typed as `IMessageHub` must be a `MessageHub` or an
@@ -374,10 +374,12 @@ The only exception is an actual cross-hub thread wait cycle (ADR-0119). C#,
 Python, Swift, and Rust each record hub, lifecycle, and container membership
 waits in one wait-for graph, so the cycle can also run through any of those
 waits (ADR-0172). C#, Python, and Swift record their ownership waits there
-too. Rust claims ownership without waiting, so it has no ownership wait. The send that would close the cycle enqueues and
-returns to the active owner's drain. A disposal in that position records
-terminal intent for the owner to finish. A cyclic batch borrows the target
-until its body exits, so the owner cannot resume draining early.
+too. Rust claims ownership without waiting, so it has no ownership wait.
+
+In such a cycle, the send that would close the cycle enqueues and returns to
+the active owner's drain. A disposal in that position records terminal intent
+for the owner to finish. A cyclic batch borrows the target until its body
+exits, so the owner cannot resume draining early.
 
 A borrowed scope is itself a wait-for owner. Inside it, the borrower's own
 send, batch, and disposal on that hub do not wait. A drainer with an empty
@@ -494,7 +496,7 @@ The Quickstart flow shows the minimal service pair every VM needs:
 From there, higher-level examples add `INotificationHub` and `IDialogService`
 only where the workflow requires them.
 
-## 6.6.9. Python asyncio dispatcher ownership
+## 6.6.9. Python asyncio Dispatcher Ownership
 
 `RxDispatcher.asyncio(loop)` uses RxPY's
 `AsyncIOThreadSafeScheduler(loop)` as its foreground scheduler, so background

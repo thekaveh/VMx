@@ -198,7 +198,7 @@ public class NotificationsConformanceTests
     /// <summary>
     /// NOTIF-017: dispose resolves in-flight waiters with Pending, completes
     /// the Pending observable, refuses new enqueues, and is idempotent.
-    /// See spec/16-notifications.md §9 and ADR-0037 §2.4.
+    /// See spec/16-notifications.md §2.4 and ADR-0037 §2.4.
     /// </summary>
     [Fact]
     [Trait("Conformance", "NOTIF-017")]
@@ -234,7 +234,7 @@ public class NotificationsConformanceTests
 
     /// <summary>
     /// NOTIF-020: a Pending subscription made after dispose receives completion
-    /// only: no value, no error, no throw. See spec/16-notifications.md §9 and
+    /// only: no value, no error, no throw. See spec/16-notifications.md §2.3 and
     /// ADR-0197.
     /// </summary>
     [Fact]

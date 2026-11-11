@@ -913,144 +913,25 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
 
 ## 11. Conformance
 
-- `FORM-001` — Snapshot captured at construct; `Model == Snapshot`; `IsDirty == false` immediately after construction.
-- `FORM-002` — Mutating `Model` reflects in `IsDirty == true`; `Snapshot` is
-  unchanged.
-- `FORM-003` — `IsDirty` uses structural inequality: equal value objects produce
-  `IsDirty == false`; structurally different objects produce `IsDirty == true`.
-- `FORM-004` — `DenyCommand` reverts `Model` to `Snapshot`; `IsDirty == false`
-  after revert.
-- `FORM-005` — `ApproveCommand` invokes the persister delegate; on success `Snapshot`
-  is updated to the current `Model` value.
-- `FORM-006` — `OnApproved` event/observable fires only after a successful persist,
-  carrying the persisted value (the model captured before the persister await,
-  uniform across flavors — §8); it does not fire when the persister throws.
-- `FORM-007` — When the persister throws, no state mutation occurs: `Snapshot` and
-  `Model` remain unchanged, `IsDirty` is still `true`.
-- `FORM-008` — `DenyCommand` publishes exactly one `FormRevertedMessage` followed
-  by exactly one flavor-idiomatic model `PropertyChangedMessage` on the hub.
-- `FORM-009` — Strict mode: `ApproveCommand.CanExecute == false` when
-  `IsDirty == false`; becomes `true` when `IsDirty == true`.
-- `FORM-010` — Integration with `IDialogService.Confirm`: wrapping `DenyCommand`
-  with a confirmation guard prevents revert when the user cancels the prompt.
-- `FORM-011` — `FormVMBuilder<TM>.Build()` validates required `Initial` and
-  `Persister`; missing either raises `BuilderValidationError` /
-  `BuilderValidationException` with a message identifying the missing field
-  (added in v2.3 via ADR-0035).
-- `FORM-012` — `FormVMBuilder<TM>` repeated identical `Build()` calls produce
-  independent instances that share the same configured `Initial` / `Persister`
-  / optional fields, each starting at `IsDirty == false`.
-- `FORM-013` — `FormVMBuilder<TM>` field defaults applied when not set:
-  `Hub` defaults to the flavor's `NullMessageHub` singleton, `Snapshot` to
-  the flavor's default snapshotter output (§3), and `Strict` to `false` (so
-  `ApproveCommand.CanExecute()` returns `true` regardless of `IsDirty`).
-- `FORM-014` — A disposed form is inert: approve does not invoke the
-  persister; deny does not revert the model (§10).
-- `FORM-015` — A persister failure on the fire-and-forget command path is
-  surfaced on `ApproveErrors` rather than swallowed: invoking
-  `ApproveCommand.Execute()` with a rejecting persister emits the persister
-  exception on `ApproveErrors`, no state is mutated (`IsDirty` stays `true`),
-  and `OnApproved` does not fire (§2, §8; added in v3 via ADR-0048).
-- `FORM-016` — A field validator populates `FieldError(field)` and `Errors`.
-- `FORM-017` — A model validator can populate one or more field-name errors.
-- `FORM-018` — `IsValid` is `false` when `Errors` is non-empty and `true`
-  when empty.
-- `FORM-019` — An invalid form disables `ApproveCommand` and `ApproveAsync`
-  does not invoke the persister.
-- `FORM-020` — Validation reruns after `SetModel`.
-- `FORM-021` — `ErrorsChanged` fires only on effective error-map changes.
-- `FORM-022` — `FormVMBuilder<TM>` registers validators immutably.
-- `FORM-023` — Clearing validation errors enables approval when all other
-  gates pass.
-- `FORM-024` — A configured post-approve reset runs after persistence and before
-  `OnApproved`; the callback and event receive the captured persisted model,
-  while the observer sees the pristine reset state (§5.1).
-- `FORM-025` — Reset uses the configured snapshotter twice for independent live
-  and snapshot values, recomputes validation, and leaves strict approval
-  disabled while pristine (§5.1).
-- `FORM-026` — A reset callback failure occurs after successful persistence but
-  commits no reset state, publishes no `OnApproved`, and reaches exactly one
-  failure observer: the awaiter or `ApproveErrors` command channel (§5.1).
-- `FORM-027` — Reset does not run for invalid approval, persister failure or
-  cancellation, or deny/revert (§5.1).
-- `FORM-028` — Disposal during persistence suppresses the reset callback and all
-  post-persist state/notification work (§5.1, §10).
-- `FORM-029` — Reset is authoritative over a racing `SetModel` and remains based
-  on the captured persisted value (§5.1).
-- `FORM-030` — An accepted unequal `SetModel` settles model, validation, and
-  approve-command state before publishing exactly one idiomatic model hub
-  message. Equal/disposed assignments are inert; re-entrant assignments publish
-  once each; null/default hubs are safe; deny stays one ordered pair; approval
-  reset publishes no model property message (§5.2, §8).
-- `FORM-031` — While an approval is in flight, another approve call through
-  either entry point, including one made from the persister or a
-  `CanExecuteChanged` handler, is refused: no persister call, state change,
-  exception, `OnApproved`, or `ApproveErrors`. After settlement the next
-  approval is admitted, so snapshots advance in admission order (§5.3).
-- `FORM-032` — `ApproveCommand.CanExecute` is `false` while an approval is in
-  flight; `CanExecuteChanged` fires once on admission and exactly once on
-  settlement after success, persister failure, and reset failure (§5.3). An
-  update during the approval raises its own event under `FORM-043`.
-- `FORM-033` — Settlement clears the in-flight mark before publishing, so an
-  approval started from an `OnApproved` or `ApproveErrors` observer or after
-  the awaited call completes is admitted and captures the settled model; a
-  failed approval leaves state unchanged and routes its failure to exactly one
-  channel (§5.3).
-- `FORM-034` — `SetModel` and `DenyCommand` proceed during an in-flight
-  approval, which still commits its captured value or authoritative reset;
-  disposal during the approval suppresses every settlement notification and
-  outcome, and later approve calls do nothing (§5.3, §10).
-- `FORM-035` — A field validator that fails during `SetModel`, on its first run
-  or after earlier successful runs, propagates its failure and leaves model,
-  snapshot, errors, dirty and valid state, and approve-command state unchanged,
-  with no notification; a later `SetModel` whose validators succeed settles
-  normally (§5.4).
-- `FORM-036` — A failing model validator, a failing equality comparison where
-  the flavor's equality can fail, and a failing validator during
-  `DenyCommand` are failure-atomic in the same way; deny publishes neither
-  `FormRevertedMessage` nor the model message (§5.4).
-- `FORM-037` — A validator that re-enters `SetModel` with another unequal value
-  during preparation: the nested assignment commits and publishes once, and the
-  interrupted outer call commits and publishes nothing, so the newest committed
-  model stands (§5.4).
-- `FORM-038` — A validator that disposes the form during `SetModel` or deny
-  preparation: the call commits and publishes nothing and the form stays inert
-  (§5.4, §10).
-- `FORM-039` — A `SetModel` or deny made from `resetOnApproved` or from a
-  settlement `ErrorsChanged` or `CanExecuteChanged` observer is queued. It
-  publishes nothing before `OnApproved`, and `OnApproved` observers see the
-  reset or advanced approval state, never a model that the queued call sets or
-  reverts. The queued calls replay in call order after `OnApproved` delivery
-  returns, and each publishes its own notifications (§5.1, §5.3).
-- `FORM-040` — A queued update runs its preparation when it is called: a
-  failing callback propagates to the caller and queues nothing, and a candidate
-  equal to the live model is still queued. A replay failure does not stop the
-  later replays or unsettle the approval. After the last replay, the first
-  replay failure reaches the approval's failure route once, and a failure that
-  an `OnApproved` subscriber propagates wins over it (§5.3, §5.4).
-- `FORM-041` — A `SetModel` or deny nested in a validator, or a `SetModel` from
-  an `ErrorsChanged` observer, returns before its notifications. The outermost
-  update sends them, error maps first, then the rest in commit order, before
-  it returns (§5.4).
-- `FORM-042` — An approve call nested in a validator and followed by
-  `Dispose()` never calls the persister, and the queued notifications of nested
-  calls are dropped after disposal. A `Dispose()` before a scheduled
-  command-path persister starts prevents the call (§5.4, §10).
-- `FORM-043` — An update raises `ApproveCommand.CanExecuteChanged` exactly once
-  when it changes `IsValid`, or `IsDirty` in strict mode, and otherwise not.
-  A strict-mode `SetModel` from a dirty, invalid model to a clean, valid model
-  raises it once, and a `SetModel` that makes the form invalid during an
-  approval raises it once (§5.2, ADR-0196).
-- `FORM-044` — When a send of the outermost update's queue fails, no later
-  notification of that queue is sent. A nested approval whose persister has
-  not started never calls it and is no longer in flight. The failure
-  propagates from the outermost update after its replays (§5.4, ADR-0216).
-- `FORM-045` — A strict `SetModel` runs three equality comparisons and a
-  strict deny two. A non-strict `SetModel` runs one and a non-strict deny
-  none. A non-strict update commits even when the comparison of the
-  candidate with `Snapshot` would fail (§5.2, ADR-0216).
+Chapter 12 §27 holds the `FORM` IDs, and §30 holds the `DISP` IDs. The table
+maps each ID to the rules of this chapter, and chapter 12 states the behavior
+of each ID.
 
-`DISP-004` adds the cross-cutting assertion that repeated disposal completes
-owned form channels and commands at most once while preserving `FORM-014`.
-`DISP-014` covers post-disposal modeled assignment for both forms and modeled
-components.
+| IDs                                                        | Rules                                                            |
+| ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| `FORM-001`, `FORM-002`                                     | §2 shape, §3 snapshot policy                                     |
+| `FORM-003`                                                 | §4 dirty detection                                               |
+| `FORM-004`, `FORM-008`                                     | §2 shape, §8.1 `FormRevertedMessage`                             |
+| `FORM-005`..`FORM-007`, `FORM-015`                         | §2 shape, §8.2 approve signals (ADR-0048)                        |
+| `FORM-009`                                                 | §9 strict mode                                                   |
+| `FORM-010`                                                 | §7 `IDialogService` integration                                  |
+| `FORM-011`..`FORM-013`                                     | §2 shape and chapter 10 builders (ADR-0035)                      |
+| `FORM-014`                                                 | §10 disposal                                                     |
+| `FORM-016`..`FORM-023`                                     | §5 validation                                                    |
+| `FORM-024`..`FORM-029`                                     | §5.1 declarative reset after approval (ADR-0087)                 |
+| `FORM-030`, `FORM-043`, `FORM-045`                         | §5.2 model assignment transaction (ADR-0092, ADR-0196, ADR-0216) |
+| `FORM-031`..`FORM-034`                                     | §5.3 approval admission (ADR-0143)                               |
+| `FORM-035`..`FORM-038`, `FORM-041`, `FORM-042`, `FORM-044` | §5.4 failure-atomic model updates (ADR-0144, ADR-0216)           |
+| `FORM-039`, `FORM-040`                                     | §5.1, §5.3 and §5.4 queued updates                               |
+| `DISP-004`                                                 | §10 repeated disposal                                            |
+| `DISP-014`                                                 | §10 modeled assignment after disposal                            |

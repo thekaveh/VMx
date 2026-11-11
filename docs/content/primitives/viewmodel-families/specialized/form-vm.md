@@ -84,15 +84,19 @@ state are unchanged, and no notification is sent. A failure never becomes a
 validation error.
 
 Validators receive the candidate as their argument; reading the form's model
-from inside a validator returns the previous model. The form holds no lock
-while an equality comparison, a validator, the snapshotter, or
-`resetOnApproved` runs (spec chapter 20 §5.4, ADR-0215). Reads from another
-thread return the committed state at once. An edit or `Dispose()` from another
-thread also does not wait for the callback. Commits stay serialized. When
-another thread commits first, the overtaken update runs again against the new
-state. A `Dispose()` from another thread returns at once, the preparing update
-commits nothing, and the teardown runs when that update returns. If a
-validator itself disposes the form or makes another edit, the interrupted
+from inside a validator returns the previous model.
+
+The form holds no lock while an equality comparison, a validator, the
+snapshotter, or `resetOnApproved` runs (spec chapter 20 §5.4, ADR-0215). Thus
+other threads do not wait for these callbacks:
+
+- A read from another thread returns the committed state at once.
+- Commits stay serialized. When another thread commits first, the overtaken
+  update runs again against the new state.
+- A `Dispose()` from another thread returns at once. The preparing update
+  commits nothing, and the teardown runs when that update returns.
+
+If a validator itself disposes the form or makes another edit, the interrupted
 update commits nothing and the newest edit stands.
 
 `SetModel` / `set_model` that begins after disposal is also a complete no-op.
@@ -105,9 +109,7 @@ be cancelled for resource control; this guard only rejects a late form result.
 Strict mode gates **approve-command eligibility** on `IsValid && IsDirty`.
 The direct awaitable approve path in all five flavors gates on validity,
 disposal, and the one-approval-at-a-time rule below, so a strict, valid, clean
-form may still be persisted explicitly. The
-[Rust parity ledger](../../../../maintenance/2026-07-16-rust-capability-parity.md#1244-formvm-direct-approval) records the focused Rust
-evidence.
+form may still be persisted explicitly.
 
 ### 6.2.8.2.3.1. Settled Model Publication
 
@@ -132,10 +134,11 @@ A call made from a validator, an equality comparison, the deny snapshotter, or
 an `ErrorsChanged` observer of `SetModel` or deny is *nested* (spec chapter 20
 §5.4, ADR-0180). A nested `SetModel` or deny commits at once, but it returns
 before its notifications. The outermost update sends them, error maps first,
-before it returns. An approval started from a validator calls its persister
-only after that, so do not block on it inside the callback. If the callback
-then disposes the form, the queued notifications are dropped and the persister
-is never called.
+before it returns.
+
+An approval started from a validator calls its persister only after that, so do
+not block on it inside the callback. If the callback then disposes the form,
+the queued notifications are dropped and the persister is never called.
 
 If a send of the queued notifications fails, the outermost update sends no
 later notification and its scopes still close (ADR-0216). Each queued approval
@@ -200,13 +203,15 @@ Each approval subscription detaches on its own: dispose the C# `IDisposable`,
 Python disposable, or TypeScript `Subscription`, cancel the Swift
 `AnyCancellable`, or dispose or drop the Rust `ApprovalSubscription`. Form
 disposal releases every remaining subscriber, and a registration made after
-disposal keeps nothing. Every flavor signals form disposal to an approval
-subscriber: C#, Python, TypeScript and Swift complete `OnApproved`, and Rust
-calls the completion callback of `subscribe_approved_with_completion(...)`
-once (ADR-0210). That Rust callback runs at once for a subscription made after
-disposal, and never for a handle detached before it. Rust
-`subscribe_approved` takes no completion callback. Rust's deprecated
-`on_approved` registration lasts until the form is disposed (ADR-0139).
+disposal keeps nothing.
+
+Every flavor signals form disposal to an approval subscriber. C#, Python,
+TypeScript and Swift complete `OnApproved`. Rust calls the completion callback
+of `subscribe_approved_with_completion(...)` once (ADR-0210). That callback
+runs at once for a subscription made after disposal, and never for a handle
+detached before disposal. Rust `subscribe_approved` takes no completion
+callback. Rust's deprecated `on_approved` registration lasts until the form is
+disposed (ADR-0139).
 
 Builder examples use the idiomatic name but the same captured-model contract:
 
@@ -273,6 +278,9 @@ All four compose a strict inner `FormVM` rather than subclassing it, then layer
 editor-specific commands and notifications around that core workflow. The Rust
 TUI companion's `NoteFormVm` also wraps a strict `FormVm`
 ([viewmodels.rs](../../../../../examples/rust/tui/notes-showcase/src/viewmodels.rs)).
+
+The examples below are simplified illustrations of the `FormVM` construction in
+those files. They are not copies, and the source files hold the current code.
 
 === "C#"
 
@@ -362,17 +370,23 @@ them structurally.
 
 `Error` values compare by what `structuredClone` keeps (ADR-0135). Two errors
 are equal when they have the same kind, the same own `message`, and equal own
-`cause` values, compared recursively; a cycle through `cause` terminates. The
-kind is the standard error named by `name` (`Error`, `EvalError`, `RangeError`,
-`ReferenceError`, `SyntaxError`, `TypeError`, or `URIError`); any other name,
-such as a custom subclass or `AggregateError`, clones and compares as a plain
-`Error`. The stack, custom properties such as a `code`, an `AggregateError`'s
-`errors`, and subclass identity are not kept by the clone, so they are not
-compared: a model holding a custom error starts clean, and changing only its
-`code` does not make the form dirty. Inject a matching `snapshotter` and
-`equals` when a domain needs those details. Node 20's `structuredClone` throws
-for an error whose `cause` chain leads back to itself, so on Node 20 a model
-holding one needs an injected `snapshotter`; Node 22 and later clone it.
+`cause` values. The comparison of `cause` is recursive, and a cycle through
+`cause` terminates.
+
+The kind is the standard error named by `name`: `Error`, `EvalError`,
+`RangeError`, `ReferenceError`, `SyntaxError`, `TypeError`, or `URIError`. Any
+other name, such as a custom subclass or `AggregateError`, clones and compares
+as a plain `Error`.
+
+The clone does not keep the stack, custom properties such as a `code`, an
+`AggregateError`'s `errors`, or subclass identity, so VMx does not compare
+them. Thus a model that holds a custom error starts clean, and a change to only
+its `code` does not make the form dirty. Inject a matching `snapshotter` and
+`equals` when a domain needs those details.
+
+Node 20's `structuredClone` throws for an error whose `cause` chain leads back
+to itself. On Node 20, a model that holds such an error needs an injected
+`snapshotter`; Node 22 and later clone it.
 
 A `DOMException` compares by its `name` and `message` (ADR-0152), which its
 clone keeps on Node 22 and later. It never equals another error, and its

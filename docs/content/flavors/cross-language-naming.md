@@ -56,12 +56,9 @@ Construction is `new ...(keySelector, hub?, comparer?)` in C#,
 and Rust does not overload methods. Rust keys need `Eq + Hash + Send`, not
 `Clone`.
 
-In every flavor the projector result is captured per membership. Mutating an
-item does not change that captured key; indexed replacement is an explicit
-rekey at the same position. Upserting the same instance after its projected
-key changes may therefore add a second membership. Duplicate or projector
-failure is atomic. A successful operation commits items, keys, and the index,
-then delivers locally before publishing to the optional external hub.
+The
+[Keyed Serviced Mutation Contract](../primitives/builders-collections-tree-utilities.md#678-keyed-serviced-mutation-contract)
+gives the behavior that these spellings share.
 
 ## 7.7.4. Practical Notes
 
