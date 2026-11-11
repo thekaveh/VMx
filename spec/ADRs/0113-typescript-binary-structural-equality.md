@@ -1,6 +1,6 @@
 # ADR 0113 — Compare TypeScript binary form values by constructor and bytes
 
-**Status:** Accepted (2026-07-15)
+**Status:** Accepted (2026-07-15; clarified by ADR-0135)
 **Spec version:** clarified in 3.22.0
 **Clarifies:** [ADR-0048](0048-v3-form-vm-semantics.md)
 

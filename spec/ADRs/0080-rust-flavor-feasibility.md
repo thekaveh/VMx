@@ -1,6 +1,6 @@
 # ADR 0080 — Adopt Rust as a planned fifth flavor
 
-**Status:** Accepted (2026-07-09)
+**Status:** Accepted (2026-07-09; clarified by ADR-0120)
 **Spec version:** introduced in 3.1.0
 
 ## 1. Context

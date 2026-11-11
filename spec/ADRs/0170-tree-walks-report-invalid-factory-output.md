@@ -1,6 +1,6 @@
 # ADR 0170 — Tree walks report invalid factory output as a recoverable error
 
-- **Status:** Accepted (Amended by ADR-0207)
+- **Status:** Accepted (Amended by ADR-0207; extended by ADR-0212)
 - **Date:** 2026-11-07
 - **Spec version:** 3.30.0 (clarification of chapter 13 §4 and §6, and chapter 18 §4)
 

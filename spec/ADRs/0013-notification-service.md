@@ -1,6 +1,6 @@
 # ADR 0013 — Notification / confirmation sub-package
 
-**Status:** Accepted (2026-05-25)
+**Status:** Accepted (2026-05-25; clarified by ADR-0211)
 **Spec version:** introduced in 2.0.0
 
 ## 1. Context

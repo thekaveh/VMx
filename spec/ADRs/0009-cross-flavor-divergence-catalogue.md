@@ -1,6 +1,6 @@
 # ADR 0009 — Cross-flavor divergence catalogue
 
-**Status:** Accepted (2026-05-23)
+**Status:** Accepted (2026-05-23; clarified by ADR-0120, ADR-0121)
 **Spec version:** introduced in 1.1.0
 
 ## 1. Context

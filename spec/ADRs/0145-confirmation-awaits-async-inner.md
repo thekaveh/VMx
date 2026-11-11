@@ -1,6 +1,6 @@
 # ADR 0145 — Awaited confirmation completes when an asynchronous inner command completes
 
-- **Status:** Accepted
+- **Status:** Accepted (clarified by ADR-0154)
 - **Date:** 2026-10-12
 - **Spec version:** 3.29.0
 - **Related:** [ADR-0049](0049-v3-command-semantics.md) (confirmation `errors`

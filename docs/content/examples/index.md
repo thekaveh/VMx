@@ -38,5 +38,3 @@ Workspace portfolio.
   [TypeScript examples](../../../examples/typescript/README.md),
   [Swift flagship](../../../examples/swift/notes-showcase/README.md),
   [Rust examples](../../../examples/rust/README.md).
-- Use the in-repo generated diagram index when browsing from GitHub:
-  [examples/DIAGRAMS.md](../../../examples/DIAGRAMS.md).

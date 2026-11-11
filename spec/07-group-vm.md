@@ -47,25 +47,33 @@ delivered (ADR-0190, `COMP-049`).
 
 ### 1.1 Atomic child ownership transfer (spec v3.21)
 
-Group membership follows chapter 06 §4.2 exactly. Adding or inserting a child
-owned by another mutable composite or group removes it from the old membership
-before adding it here, without destructing or disposing it. Duplicate identity
-and self/ancestor cycles fail before mutation. Replacement and lazy population
-are transactional under the destination/old-parent isolation rules in chapter
-06 §4.2. Failure restores the old parent, index, selection state (if the old
-parent is a composite), parent link, population retryability, and membership
-event stream. Lifecycle compensation failure is surfaced rather than swallowed,
-as qualified by ADR-0118. The reported failure gives access to the original
-failure and to the first compensation failure, with the error shapes of
-chapter 06 §4.2. A background child that the failed attempt started and that
-is still `Constructing` at the rollback is destructed once its construct
-settles at `Constructed` with no parent (ADR-0218, `GRP-017`). Disposal requested while an old-parent transfer is
-staged follows chapter 06 §4.2 and ADR-0122: commit or rollback reaches a stable
-membership boundary before the old parent snapshots and cascades its children.
-A membership change never waits for another thread's membership transaction
-of the group. `Add`, `Insert`, index replacement, population, transfer detach,
-`Remove`, `RemoveAt` and `Clear` fail before mutation while any thread holds
-it, with the errors that chapter 06 §4.2 lists (ADR-0187, `GRP-016`).
+Group membership follows chapter 06 §4.2 exactly:
+
+1. **Transfer.** An add or insert of a child that another mutable composite
+   or group owns removes the child from the old membership first. The
+   transfer does not destruct or dispose the child. Duplicate identity and
+   self/ancestor cycles fail before mutation.
+1. **Rollback.** Replacement and lazy population are transactional under the
+   destination/old-parent isolation rules in chapter 06 §4.2. Failure restores
+   the old parent, index, selection state (if the old parent is a composite),
+   parent link, population retryability, and membership event stream.
+1. **Compensation failure.** A lifecycle compensation failure is surfaced
+   rather than swallowed, as qualified by ADR-0118. The reported failure gives
+   access to the original failure and to the first compensation failure, with
+   the error shapes of chapter 06 §4.2.
+1. **Background child.** A failed attempt can start a background child that
+   is still `Constructing` at the rollback. That child is destructed once its
+   construct settles at `Constructed` with no parent (ADR-0218, `GRP-017`).
+1. **Disposal during a transfer.** Disposal requested while an old-parent
+   transfer is staged follows chapter 06 §4.2 and ADR-0122. The commit or
+   rollback reaches a stable membership boundary before the old parent
+   snapshots and cascades its children.
+1. **Another thread's transaction.** A membership change never waits for
+   another thread's membership transaction of the group. While any thread
+   holds the transaction, these changes fail before mutation: `Add`,
+   `Insert`, index replacement, population, transfer detach, `Remove`,
+   `RemoveAt` and `Clear`. The errors are those of chapter 06 §4.2 (ADR-0187,
+   `GRP-016`).
 
 ## 2. Children construction orchestration
 
@@ -142,36 +150,21 @@ in the group context; only the conformance IDs differ (`GRP-007..GRP-010`).
 
 ## 7. Conformance
 
-`GRP-001` through `GRP-006`, `GRP-007` through `GRP-010`, `GRP-011`,
-`GRP-012` through `GRP-013`, `GRP-014`, `GRP-015` through `GRP-016`, and
-`GRP-017` in
-`12-conformance.md` cover:
+Chapter 12 §9 and §21 hold the `GRP` IDs, and §20 holds the shared `COMP` IDs.
+The table maps each ID to the rules of this chapter, and chapter 12 states the
+behavior of each ID.
 
-- collection-change events on add/remove
-- absence of `Current`
-- construction waits for all children
-- destruction waits for all children
-- (v1.1) `AutoConstructOnAdd(true)` auto-constructs children added after the group is `Constructed`
-- (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion
-- group children are peers whose inherited select command is disabled
-- (v3.26) each effective collection change publishes one hub
-  `CollectionChangedMessage` sent by the group, and a batch publishes one
-  `Reset` on outermost completion (`GRP-012`, `GRP-013`)
-- (v3.30) `DestructOrder(ChildOrder.Reverse)` destructs and disposes the
-  children last child first, and construct is the same with and without the
-  option (`GRP-014`)
-- (v3.30) the construct walk counts members only, so a removal during the
-  walk does not roll the group back (`GRP-015`)
-- (v3.30) a membership change during another thread's membership transaction
-  fails at once and changes nothing (`GRP-016`)
-- (v3.30) a failed add, insert or replacement that started a background child
-  returns it to `Destructed` with no parent once its construct settles
-  (`GRP-017`)
-- (v3.30) a group whose local subscriber requests its disposal sends no hub
-  message for that change (`COMP-049`)
-- atomic cross-parent transfer, duplicate/cycle rejection, isolated rollback
-  with explicit compensation failure, and old-removal-before-new-add
-  observation order (`COMP-038` through `COMP-041`)
-
-`DISP-001` and `DISP-006` provide the cross-cutting repeated-cascade and
-batch-handle idempotency assertions (ADR-0084).
+| IDs                             | Rules                                                                |
+| ------------------------------- | -------------------------------------------------------------------- |
+| `GRP-001`, `GRP-002`, `GRP-011` | §1 members                                                           |
+| `GRP-003`, `GRP-004`            | §2 children construction orchestration                               |
+| `GRP-005`                       | §4 auto-construct on add                                             |
+| `GRP-006`                       | §5 batch updates                                                     |
+| `GRP-007`..`GRP-010`            | §6 search / filter                                                   |
+| `GRP-012`, `GRP-013`            | §1 and §5 hub publication (ADR-0142)                                 |
+| `GRP-014`                       | §2 `DestructOrder` (ADR-0161)                                        |
+| `GRP-015`                       | §2 and §4 the construct walk counts members only                     |
+| `GRP-016`, `GRP-017`            | §1.1 atomic child ownership transfer (ADR-0187, ADR-0218)            |
+| `COMP-038`..`COMP-041`          | §1.1 transfer, rejection and rollback (chapter 06 §4.2)              |
+| `COMP-049`                      | §1 disposal during publication (ADR-0190)                            |
+| `DISP-001`, `DISP-006`          | chapter 01 §4 repeated cascades and batch-handle disposal (ADR-0084) |

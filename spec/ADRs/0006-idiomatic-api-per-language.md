@@ -1,6 +1,6 @@
 # ADR 0006 — Idiomatic API per language, conceptual parity enforced by spec
 
-**Status:** Accepted (2026-05-19)
+**Status:** Accepted (2026-05-19; clarified by ADR-0121)
 **Spec version:** introduced in 1.0.0
 
 ## 1. Context

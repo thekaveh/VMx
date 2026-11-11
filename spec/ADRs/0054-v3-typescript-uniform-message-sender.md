@@ -1,6 +1,6 @@
 # ADR 0054 — v3 TypeScript uniform message `sender`: remove the untyped `senderObject` field, restore ADR-0006 cross-flavor parity
 
-**Status:** Accepted (2026-06-28)
+**Status:** Accepted (2026-06-28; clarified by ADR-0121)
 **Spec version:** 3.0.0
 
 ## 1. Context

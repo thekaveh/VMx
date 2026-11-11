@@ -54,22 +54,29 @@ before any flavor releases a stable version.
 ### 1.2 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`3.30.0`).
+
 - `HISTORY.md` — the changes of each spec release.
+
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
+
 - `ADRs/` — Architecture Decision Records; see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
+
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.
-- `proposals/` — planning artifacts (accepted proposals that landed in past
-  releases). These are **mostly historical and not part of the published
-  normative spec**, with one documented exception: a proposal MAY carry a
-  **scenario contract** that `12-conformance.md` references normatively. The
-  ThemeVM scenario contract (`proposals/2026-06-02-theme-vm-scenario.md`,
-  ADR-0036 §2.C) is such a case — its `THEME-001..THEME-005` IDs are normative
-  for any flavor or example app that implements the contract (`12-conformance.md`
-  §29). Where `12-conformance.md` cites a proposal, that proposal's referenced
-  scenario contract is normative even though the surrounding proposal prose is
-  not (ADR-0051).
+
+- `proposals/` — planning records. Some record accepted work that landed in
+  past releases, and some are open plans that await owner decisions; each
+  proposal states its own status. Proposals are **not part of the published
+  normative spec**.
+
+  The one documented exception is a **scenario contract** that
+  `12-conformance.md` cites. Where `12-conformance.md` cites a proposal, the
+  referenced scenario contract is normative, but the surrounding proposal
+  prose is not (ADR-0051). The ThemeVM scenario contract
+  (`proposals/2026-06-02-theme-vm-scenario.md`, ADR-0036 §2.C) is such a case.
+  Its `THEME-001..THEME-005` IDs are normative for any flavor or example app
+  that implements the contract (`12-conformance.md` §29).
 
 ## 2. Versioning
 

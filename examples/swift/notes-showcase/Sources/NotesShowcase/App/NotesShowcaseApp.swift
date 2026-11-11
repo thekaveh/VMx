@@ -66,10 +66,29 @@ final class AppState: ObservableObject {
     }
 }
 
+// MARK: - App delegate
+
+/// Makes the app a regular foreground app. `swift run` starts an unbundled
+/// executable, which macOS otherwise treats as a background-only process:
+/// its window stays behind the terminal and cannot take keyboard focus, so
+/// the toolbar shortcuts never reach it.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Foundation.Notification) {
+        NSApp.setActivationPolicy(.regular)
+        if #available(macOS 14, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+}
+
 // MARK: - App
 
 @main
 struct NotesShowcaseApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appState = AppState()
 
     var body: some Scene {

@@ -1,6 +1,6 @@
 """Ordered serviced collection with captured, unique-key lookup.
 
-See spec/21-collections.md sections 2.8-2.15 and ADR-0097.
+See spec/21-collections.md sections 2.8-2.14 and ADR-0097.
 """
 
 from __future__ import annotations

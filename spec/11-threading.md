@@ -126,8 +126,8 @@ so on the foreground (§3).
 ## 4. Background work
 
 VMs MAY perform construction and destruction work on `IDispatcher.Background`. The
-builder option `Background(true)` (see `10-builders.md §Default values` for the full
-builder API) enables this. With background enabled, `construct()` and `destruct()`
+builder option `Background(true)` (see chapter 10 §2–§4 for the builder flow,
+validation and defaults) enables this. With background enabled, `construct()` and `destruct()`
 return immediately and complete asynchronously; status transitions are still observable
 via the hub. Subscribers that need to await completion should subscribe to
 `ConstructionStatusChangedMessage` and filter for the terminal state.
@@ -191,20 +191,25 @@ scheduler closure remain governed by their ecosystem APIs.
 The await primitive for a consumer-defined background wrapper is the
 terminal-status subscription above; the hub does not replay the last status to a
 late subscriber. Every flavor's containers wait at the status level for
-background children to settle (chapter 02 §6). In Rust, a container waits for a
-child node that forwards `VmNode::when_lifecycle_settled`. For a node that does
-not forward it, the container observes its own message hub (ADR-0205). When the
-container starts the node and, by the time the start call returns, the hub
-delivered or queued the node's transient status, the container waits on that
-hub for a status of the node that arrives once the node is no longer in flight,
-and a node that settles anywhere else rolls the container back. In every other case (the node publishes on another hub, or the
-container joins a node already in flight), the container accepts the node while
-it is still in flight rather than wait without limit. C# alone ships
-first-class outcome tasks for awaiting a transition (`ConstructAsync` /
-`DestructAsync`); those
-tasks preserve hook and child-cascade failures per ADR-0109. Equivalent async
-lifecycle entry points remain deliberately absent from the other flavors under
-ADR-0008/ADR-0009 rather than an active parity requirement.
+background children to settle (chapter 02 §6).
+
+In Rust, a container waits for a child node that forwards
+`VmNode::when_lifecycle_settled`. For a node that does not forward it, the
+container observes its own message hub (ADR-0205):
+
+- The container starts the node, and the hub delivered or queued the node's
+  transient status by the time the start call returns. The container then
+  waits on that hub for a status of the node that arrives once the node is no
+  longer in flight. A node that settles anywhere else rolls the container back.
+- In every other case, the container accepts the node while it is still in
+  flight rather than wait without limit. Examples are a node that publishes on
+  another hub and a node already in flight when the container joins it.
+
+C# alone ships first-class outcome tasks for awaiting a transition
+(`ConstructAsync` / `DestructAsync`). Those tasks preserve hook and
+child-cascade failures per ADR-0109. Equivalent async lifecycle entry points
+remain deliberately absent from the other flavors under ADR-0008/ADR-0009
+rather than an active parity requirement.
 
 A child walk that waits on a background child does not keep running on the
 thread that settles the child. When a walk waited, for a child to settle or
@@ -343,20 +348,14 @@ seconds and Rust `Duration`.
 
 ## 7. Conformance
 
-`THR-001` through `THR-004`, plus the null-object IDs `NULL-002`
-(NullDispatcher schedules synchronously) and `NULL-003` (paired null variants
-exist for the core service contracts), in `12-conformance.md` cover:
+Chapter 12 §13 holds the `THR` IDs, §16 the `NULL` IDs, and §33 the `DLY` IDs.
+The table maps each ID to the rules of this chapter, and chapter 12 states the
+behavior of each ID.
 
-- `PropertyChanged` observed on foreground scheduler
-- Background construct dispatches on background scheduler
-- `CollectionChanged` observed on foreground scheduler
-- Subscriber observes on chosen scheduler via `ObserveOn`
-
-`DLY-001` through `DLY-005` cover `DelayedTask` under a virtual-time
-scheduler (§6.3):
-
-- one run at the due time, with `IsPending` false when the action starts
-- a second `schedule` replaces the pending action and restarts the delay
-- `cancel` prevents the pending action
-- disposal cancels the pending action, and later calls have no effect
-- a failing action stays isolated, and the task stays usable
+| IDs                             | Rules                                                      |
+| ------------------------------- | ---------------------------------------------------------- |
+| `THR-001`, `THR-003`, `THR-004` | §3 foreground emissions                                    |
+| `THR-002`                       | §4 background work                                         |
+| `NULL-002`                      | §5 `NullDispatcher`                                        |
+| `NULL-003`                      | §5 and chapter 03 §6 paired null variants                  |
+| `DLY-001`..`DLY-005`            | §6.1 virtual-time scheduler, §6.3 `DelayedTask` (ADR-0219) |

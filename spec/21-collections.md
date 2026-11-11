@@ -268,14 +268,20 @@ subscribers cannot fail. A failing hub subscriber follows the hub's own delivery
 rules (chapter 03).
 
 A failing subscriber also does not skip a later notification step of the same
-committed change (ADR-0220). The steps are the granular or `Reset` event, the
+committed change (ADR-0220).
+
+The steps are the granular or `Reset` event, the
 C# `CollectionChanged` event, the `Count` and `Item[]` property notifications,
 the key-view notifications (§4.2), the dictionary's own events and the hub
-message. C# and Python rethrow the first failure after the last step. In C#,
+message. C# and Python rethrow the first failure after the last step.
+
+In C#,
 `ObservableCollection<T>` raises `PropertyChanged("Count")` and
 `PropertyChanged("Item[]")` before `CollectionChanged`. During a mutation, a
 throwing handler of one of these properties therefore waits until
-`CollectionChanged` and the hub send have run. A `PropertyChanged` that is
+`CollectionChanged` and the hub send have run.
+
+A `PropertyChanged` that is
 raised outside a mutation, such as a subclass's own property, runs every
 handler and rethrows the first failure at once (`COL-072`).
 
@@ -304,23 +310,24 @@ are disposable VMs, the caller remains responsible for their lifecycle.
 Consumers that need lifecycle-cascading VM ownership should use `CompositeVM` /
 `GroupVM` or an explicit owner wrapper.
 
-### 2.7 Conformance
+### 2.7 Keyed variant
 
-`COL-001` through `COL-004`, `COL-048` through `COL-055`, `COL-066`,
-`COL-069`, and `COL-072` in `12-conformance.md`.
+Per ADR-0097, every flavor exposes a distinct, additive keyed serviced type,
+`KeyedServicedObservableCollection<TKey, TItem>`. It is not a mode or
+constructor overload on the unkeyed type. Choosing the keyed type makes the
+stable-key requirement explicit and leaves all existing unkeyed construction
+and generic signatures source-compatible.
+
+The keyed type preserves the complete ordered-list contract of §§2.1–2.6,
+which covers add, value removal, indexed removal, replacement, whole-list replacement,
+move, clear, count, indexed reads, snapshots, insertion-order iteration, local
+change delivery, optional hub publication, and caller-owned items. It adds a
+projector, key lookup and membership, upsert, and keyed deletion. §2.8 to
+§2.14 define these additions.
 
 ### 2.8 `KeyedServicedObservableCollection<TKey, TItem>` shape
 
-Per ADR-0097, every flavor exposes a distinct, additive keyed serviced type.
-It is not a mode or constructor overload on the unkeyed type: choosing the
-keyed type makes the stable-key requirement explicit and leaves all existing
-unkeyed construction and generic signatures source-compatible.
-
-The keyed type preserves the complete ordered-list contract in §§2.1–2.6:
-add, value removal, indexed removal, replacement, whole-list replacement,
-move, clear, count, indexed reads, snapshots, insertion-order iteration, local
-change delivery, optional hub publication, and caller-owned items. It adds a
-projector, key lookup and membership, upsert, and keyed deletion:
+The keyed members of each flavor are:
 
 | Flavor     | Construction / projector                                                                                               | Lookup / membership                                        | Upsert                                         | Keyed deletion                |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------- | ----------------------------- |
@@ -552,14 +559,6 @@ The keyed collection never constructs, disposes, destructs, reparents, or
 otherwise owns an item. Key projection and index maintenance do not change the
 caller-owned lifecycle rule in §2.6.
 
-### 2.15 Keyed conformance
-
-`COL-056` through `COL-064` in `12-conformance.md` cover captured lookup,
-uniqueness and failure atomicity, upsert, keyed deletion, synchronization and
-explicit rekeying, whole-list replacement, move/clear/ownership, delivery and
-hub transactions, and reentrant consistency. `COL-066` and `COL-069` cover a
-failing local subscriber.
-
 ## 3. `ObservableList<T>`
 
 Per ADR-0026.
@@ -697,11 +696,6 @@ snapshot.
 Inside an existing list batch, replacement only marks that batch dirty. It
 emits nothing immediately, and only the outermost batch exit emits the single
 Reset and cardinality-dependent `Count` notification defined in §3.5.
-
-### 3.7 Conformance
-
-`COL-005` through `COL-009`, `COL-023`, `COL-040` through `COL-047`, and
-`COL-072` in `12-conformance.md`.
 
 ## 4. `ObservableDictionary`
 
@@ -878,11 +872,6 @@ positions are equal. The Rust single-key `ObservableDictionary<K, V>` follows
 the same table. It has no local event, so its positions are the commit
 positions.
 
-### 4.8 Conformance
-
-`COL-010` through `COL-015`, `COL-022`, `COL-066`, `COL-067`, `COL-068`,
-`COL-069`, `COL-070`, `COL-071`, and `COL-072` in `12-conformance.md`.
-
 ## 5. Paging: `PagedComposition<TVM>`
 
 Per ADR-0023 (helper portion).
@@ -1021,10 +1010,6 @@ names `page_size`, `is_paging_enabled`, `page_count`, `current_page_index`,
 and `items`, in the Swift order. A call that changes nothing publishes nothing.
 `dispose` stops the source observation and the publication (ADR-0208).
 
-### 5.6 Conformance
-
-`COL-016` through `COL-021` and `COL-031` in `12-conformance.md`.
-
 ## 6. Token paging: `TokenPagedComposition<TVM, TToken>`
 
 Per ADR-0069, ADR-0078, and ADR-0136.
@@ -1128,10 +1113,6 @@ the race while a fetch is in flight, the resumed operation MUST return without
 mutating `Items`, advancing `CurrentToken`, changing `HasMore`, or publishing
 collection/property notifications.
 
-### 6.3 Conformance
-
-`COL-024` through `COL-030` and `COL-065` in `12-conformance.md`.
-
 ## 7. Composition with other helpers
 
 ### 7.1 Filter-then-page ordering
@@ -1178,17 +1159,22 @@ list-compatible keyed-collection mutation before any downstream view logic.
 
 ## 8. Conformance
 
-`COL-001` through `COL-072`, and `AGCH-001` through `AGCH-012`, in
-`12-conformance.md`. Applicable ADRs:
-ADR-0024, ADR-0096, ADR-0097, ADR-0171, ADR-0191, and ADR-0220 (§2), ADR-0026,
-ADR-0089, and ADR-0220 (§3), ADR-0025, ADR-0177, and ADR-0220 (§4), ADR-0023
-(§5), ADR-0069 and ADR-0202 (§6), and ADR-0085 (shared Move semantics),
-ADR-0098 and ADR-0192 (§9), and ADR-0214 (§2.10, §4.1, §9.4).
+Chapter 12 §24 holds the `COL` IDs, §31 the `AGCH` IDs, and §30 the `DISP` IDs.
+The table maps each ID to the rules of this chapter, and chapter 12 states the
+behavior of each ID.
 
-`DISP-006` provides cross-cutting repeated-dispose coverage for the public
-collection, paging, batch, aggregate, and projection helpers that expose
-disposal. It retains the in-flight token-page rule in §6 and the non-ownership
-rule in §2.6.
+| IDs                                                                         | Rules                                                                                            |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `COL-001`..`COL-004`, `COL-048`..`COL-055`                                  | §2.1–§2.6 serviced observable collections (ADR-0024, ADR-0096, ADR-0097)                         |
+| `COL-056`..`COL-064`                                                        | §2.7–§2.14 keyed serviced collection (ADR-0097, ADR-0214)                                        |
+| `COL-005`..`COL-009`, `COL-023`, `COL-040`..`COL-047`                       | §3 `ObservableList<T>` (ADR-0026, ADR-0089)                                                      |
+| `COL-010`..`COL-015`, `COL-022`, `COL-067`, `COL-068`, `COL-070`, `COL-071` | §4 `ObservableDictionary` (ADR-0025, ADR-0177, ADR-0214)                                         |
+| `COL-016`..`COL-021`, `COL-031`                                             | §5 `PagedComposition<TVM>` (ADR-0023)                                                            |
+| `COL-024`..`COL-030`, `COL-065`                                             | §6 `TokenPagedComposition<TVM, TToken>` (ADR-0069, ADR-0202)                                     |
+| `COL-032`..`COL-039`                                                        | chapter 01 §1.4 shared `Move` (ADR-0085)                                                         |
+| `COL-066`, `COL-069`, `COL-072`                                             | §2, §3 and §4 failing subscribers (ADR-0171, ADR-0191, ADR-0220)                                 |
+| `AGCH-001`..`AGCH-012`                                                      | §9 dynamic aggregate change stream (ADR-0098, ADR-0192, ADR-0214)                                |
+| `DISP-006`                                                                  | §2.6 and §6 repeated disposal of the collection, paging, batch, aggregate and projection helpers |
 
 ## 9. Dynamic aggregate change stream
 
@@ -1459,13 +1445,3 @@ releases it when it sees the disposal, and the aggregate ignores its values.
 
 The supported source families expose no common source-completion signal.
 Source lifetime therefore does not replace explicit aggregate disposal.
-
-### 9.8 Conformance
-
-`AGCH-001` through `AGCH-011` in `12-conformance.md` cover atomic
-subscriber-local initial delivery, committed membership resynchronization,
-item provenance, zero-refcount and terminal-epoch silence, Reset, duplicate
-refcounts, nested exceptional batching, empty batches and Move stability,
-reentrant FIFO and stale epochs, transactional failure, disposal, ownership,
-subscriber isolation, and subscriber order. `AGCH-012` covers calls into the
-source, the selector, and subscriptions with no aggregate gate held.

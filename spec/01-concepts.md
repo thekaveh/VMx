@@ -5,10 +5,10 @@ onwards) give precise normative definitions; this document is the orientation.
 
 ## 1. The viewmodel hierarchy
 
-VMx defines the following viewmodel types (five families, plus a pair of
-forwarding decorators that wrap an inner viewmodel). The flat shape — five
-independent families rather than a single inheritance chain — is the
-canonical decision documented in ADR-0018:
+VMx defines the viewmodel types in the table below. They form independent
+families rather than a single inheritance chain, as ADR-0018 records. The
+forwarding decorators wrap an inner viewmodel and are not tree nodes of their
+own.
 
 | Family                                            | Role                                  | Children                        | Typical use                            |
 | ------------------------------------------------- | ------------------------------------- | ------------------------------- | -------------------------------------- |
@@ -18,46 +18,24 @@ canonical decision documented in ADR-0018:
 | `GroupVM`                                         | container without selection           | `IList<VM>`                     | peers shown side-by-side               |
 | `AggregateVM<VM1..VM6>`                           | fixed tuple of heterogeneous children | 1–6 typed slots                 | a screen composed of distinct sub-VMs  |
 | `ForwardingComponentVM` / `ForwardingCompositeVM` | decorator                             | wraps another VM                | proxies, caching, instrumentation      |
-| `HierarchicalVM<TModel, TVM>` (v2.1)              | recursive tree VM                     | lazy/eager `IList<TVM>` subtree | file-system tree, org-chart, menu      |
-| `FormVM<TM>` (v2.1)                               | snapshot/revert edit VM               | none (embeds model snapshot)    | edit forms with approve/deny lifecycle |
+| `HierarchicalVM<TModel, TVM>`                     | recursive tree VM                     | lazy/eager `IList<TVM>` subtree | file-system tree, org-chart, menu      |
+| `FormVM<TM>`                                      | snapshot/revert edit VM               | none (embeds model snapshot)    | edit forms with approve/deny lifecycle |
+| `AsyncResourceVM<T>`                              | leaf, one asynchronous value          | none                            | a panel that loads, retries or cancels |
 
-`HierarchicalVM` is specified in chapter 18; `FormVM` in chapter 20.
+Chapters 05 to 09 specify the first six families. Chapter 18 specifies
+`HierarchicalVM`, chapter 20 `FormVM`, and chapter 23 `AsyncResourceVM`.
 
-### 1.0 Cross-language naming
+Opt-in primitives complement these families:
 
-The five active flavors share the same conceptual contracts and complete
-conformance catalog; accepted language adaptations mean that catalog
-completeness is not a claim of member-for-member API identity. Identifier casing follows the
-per-language idiom defined by ADR-0006. The same logical type appears under the
-following names:
-
-| Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |
-| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- | ----------------------- |
-| Unmodeled VM       | `ComponentVM`             | `ComponentVM`      | `ComponentVM`             | `ComponentVM`             | `ComponentVm`           |
-| Modeled VM         | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
-| Status property    | `Status`                  | `status`           | `status`                  | `status`                  | `status()`              |
-| Builder entrypoint | `Builder()`               | `builder()`        | `builder()`               | `builder()`               | `builder()`             |
-| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
-
-C# uses PascalCase, Python and Rust methods use snake_case, TypeScript and Swift use
-camelCase. C# and Rust retain the same public type name for modeled and
-unmodeled components (`ComponentVM<M>` / `ComponentVm<M>`), while Python,
-TypeScript, and Swift expose a separate
-`ComponentVMOf` type because their generics syntax cannot overload an
-unparameterised name. Throughout this spec, statements about
-`ComponentVM<M>` apply equally to `ComponentVMOf[M]`, `ComponentVMOf<M>`, and
-`ComponentVm<M>` unless explicitly called out. The Swift flavor reached
-full library parity in v3.1.0; see
-[`langs/swift/README.md` §5](../langs/swift/README.md) for the
-conformance summary and documented Swift-specific divergences.
-
-**Rendering VMs** (opt-in sub-package, chapter 16): `NotificationVM` and `ConfirmationVM`
-are render-side VMs with auto-dismiss lifecycle, suitable for toast/banner UI.
-
-**Collection primitives** (opt-in, chapter 21): `ServicedObservableCollection<T>`,
-`ObservableList<T>`, `ObservableDictionary<K1,K2,V>`, and `PagedComposition<TVM>` sit
-above the standard language collection types and integrate with the message hub and
-paging capability.
+- **Rendering VMs** (chapter 16): `NotificationVM` and `ConfirmationVM` are
+  render-side VMs with an auto-dismiss lifecycle, suitable for toast or banner
+  UI.
+- **State coordinator** (chapter 22): `DiscriminatorVM<TKey>` holds one active
+  key, such as the active pane or route, with modal precedence.
+- **Collection primitives** (chapter 21): `ServicedObservableCollection<T>`,
+  `ObservableList<T>`, `ObservableDictionary<K1,K2,V>`, `PagedComposition<TVM>`
+  and related helpers sit above the standard language collection types and
+  integrate with the message hub and the paging capability.
 
 Every VM is also a `ComponentVM` (inheritance / protocol composition per language). A
 composite's children are themselves VMs and may be composites, components, etc.
@@ -187,6 +165,34 @@ completion observer completes at disposal. No subscriber is detached, and C#
 and Python rethrow the first failure only after the hub send (chapter 03 §3.6,
 ADR-0191).
 
+### 1.5 Cross-language naming
+
+The five active flavors share the same conceptual contracts and the complete
+conformance catalog. Accepted language adaptations remain, so catalog
+completeness does not claim member-for-member API identity. Identifier casing
+follows the per-language idiom of ADR-0006. The same logical type appears under
+the following names:
+
+| Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |
+| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- | ----------------------- |
+| Unmodeled VM       | `ComponentVM`             | `ComponentVM`      | `ComponentVM`             | `ComponentVM`             | `ComponentVm`           |
+| Modeled VM         | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
+| Status property    | `Status`                  | `status`           | `status`                  | `status`                  | `status()`              |
+| Builder entrypoint | `Builder()`               | `builder()`        | `builder()`               | `builder()`               | `builder()`             |
+| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
+
+C# uses PascalCase, Python and Rust methods use snake_case, TypeScript and
+Swift use camelCase. C# and Rust keep the same public type name for modeled and
+unmodeled components (`ComponentVM<M>` / `ComponentVm<M>`). Python, TypeScript,
+and Swift expose a separate `ComponentVMOf` type because their generics syntax
+cannot overload an unparameterised name.
+
+Throughout this spec, statements about `ComponentVM<M>` apply equally to
+`ComponentVMOf[M]`, `ComponentVMOf<M>`, and `ComponentVm<M>` unless explicitly
+called out. ADR-0009 catalogs the documented cross-flavor divergences, and
+[`langs/swift/README.md` §5](../langs/swift/README.md) summarizes the Swift
+conformance suite and its divergences.
+
 ## 2. Dependency philosophy
 
 Every VM receives two cross-cutting services:
@@ -262,9 +268,10 @@ ADR-0084 and `DISP-001..006`.
 
 ## 5. Conformance
 
-`DISP-001` through `DISP-006` in `12-conformance.md` top up the existing
-type-specific coverage for VM cascades, commands, hubs, interaction owners,
-reactive helpers, and collection/projection helpers.
+Chapter 12 §30 states the cross-cutting `DISP-001` to `DISP-006` IDs. They
+check the §4 invariant for VM cascades, commands, hubs, interaction owners,
+reactive helpers, and collection and projection helpers. The Conformance
+section of each owning chapter maps them to its rules.
 
 ## 6. What this spec is not
 

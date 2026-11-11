@@ -2,50 +2,57 @@
 
 This document enumerates every stable conformance test identifier in the form
 `XXX-NNN`. Each of the five language flavors MUST implement every library ID
-in `langs/<lang>/tests/conformance/` before it can be marked stable. The
-`THEME-00x` IDs are application-level scenarios implemented by the four
-UI-backed flagship examples. CI verifies library coverage via
-`tools/check-conformance-coverage.py` and the example suites verify THEME.
+in its conformance suite before it can be marked stable. [`README.md`](README.md)
+names the suite directory of each flavor. The `THEME-00x` IDs are
+application-level scenarios implemented by the four UI-backed flagship
+examples.
+
+CI runs two checks on the library IDs. `tools/check-conformance-coverage.py`
+finds a test marker for each ID in each flavor's test sources.
+`tools/check-conformance-execution.py` reads each flavor's test-runner report
+and requires a passing executed test for each ID. The example suites verify
+the THEME IDs.
 
 ## 1. Identifier prefixes
 
-| Prefix      | Area                                                 | File                                          |
-| ----------- | ---------------------------------------------------- | --------------------------------------------- |
-| `LIFE-NNN`  | Lifecycle state machine                              | `02-lifecycle.md`                             |
-| `DISP-NNN`  | Cross-cutting disposal invariant                     | `01-concepts.md` and the owning chapters      |
-| `HUB-NNN`   | Message hub                                          | `03-messages.md`                              |
-| `PROP-NNN`  | Property change notifications                        | `03-messages.md`                              |
-| `SUBV-NNN`  | SubscribeValue selected-state subscription           | `03-messages.md`                              |
-| `CMD-NNN`   | Commands                                             | `04-commands.md`                              |
-| `CVM-NNN`   | ComponentVM (incl. modeled, readonly)                | `05-component-vm.md`                          |
-| `COMP-NNN`  | CompositeVM                                          | `06-composite-vm.md`                          |
-| `GRP-NNN`   | GroupVM                                              | `07-group-vm.md`                              |
-| `AGG-NNN`   | AggregateVM                                          | `08-aggregate-vm.md`                          |
-| `FWD-NNN`   | Forwarding decorators                                | `09-forwarding.md`                            |
-| `BLD-NNN`   | Builders                                             | `10-builders.md`                              |
-| `THR-NNN`   | Threading & schedulers                               | `11-threading.md`                             |
-| `DLY-NNN`   | Delayed work: scheduler and `DelayedTask`            | `11-threading.md`                             |
-| `UTIL-NNN`  | Tree utilities (spec v1.1)                           | `13-tree-utilities.md`                        |
-| `CAP-NNN`   | Capability micro-interfaces                          | `14-capabilities.md`                          |
-| `NULL-NNN`  | Null-object service variants                         | `03-messages.md` + `11-threading.md`          |
-| `DPROP-NNN` | Derived properties                                   | `15-derived-properties.md`                    |
-| `CMDD-NNN`  | Command decorators (spec v2.0)                       | `04-commands.md`                              |
-| `NOTIF-NNN` | Notification sub-package (hub v2.0; render VMs v2.1) | `16-notifications.md`                         |
-| `EXP-NNN`   | Expand / collapse state                              | `05-component-vm.md` + `13-tree-utilities.md` |
-| `LOC-NNN`   | Localization hooks                                   | `17-localization.md`                          |
-| `COL-NNN`   | Collection primitives (spec v2.1)                    | `21-collections.md`                           |
-| `AGCH-NNN`  | Dynamic aggregate change stream (spec v3.18)         | `21-collections.md`                           |
-| `SRCH-NNN`  | SearchableState source reactivity (spec v3.19)       | `06-composite-vm.md`                          |
-| `HIER-NNN`  | HierarchicalVM (recursive tree VM, spec v2.1)        | `18-hierarchical-vm.md`                       |
-| `DIA-NNN`   | IDialogService (host modal interactions, v2.1)       | `19-dialogs.md`                               |
-| `FORM-NNN`  | FormVM (snapshot/revert lifecycle, v2.1)             | `20-form-vm.md`                               |
-| `DISC-NNN`  | DiscriminatorVM (single active-key coordinator)      | `22-discriminator-vm.md`                      |
-| `ARES-NNN`  | AsyncResourceVM (single async value, spec v3.20)     | `23-async-resource-vm.md`                     |
-| `THEME-NNN` | Theme as a VM concern (scenario contract, v2.4)      | `proposals/2026-06-02-theme-vm-scenario.md`   |
+| Prefix      | Area                                                   | File                                          |
+| ----------- | ------------------------------------------------------ | --------------------------------------------- |
+| `LIFE-NNN`  | Lifecycle state machine                                | `02-lifecycle.md`                             |
+| `DISP-NNN`  | Cross-cutting disposal invariant                       | `01-concepts.md` and the owning chapters      |
+| `HUB-NNN`   | Message hub                                            | `03-messages.md`                              |
+| `PROP-NNN`  | Property change notifications                          | `03-messages.md`                              |
+| `SUBV-NNN`  | SubscribeValue selected-state subscription             | `03-messages.md`                              |
+| `CMD-NNN`   | Commands                                               | `04-commands.md`                              |
+| `CVM-NNN`   | ComponentVM (incl. modeled, readonly)                  | `05-component-vm.md`                          |
+| `COMP-NNN`  | CompositeVM                                            | `06-composite-vm.md`                          |
+| `GRP-NNN`   | GroupVM                                                | `07-group-vm.md`                              |
+| `AGG-NNN`   | AggregateVM                                            | `08-aggregate-vm.md`                          |
+| `FWD-NNN`   | Forwarding decorators                                  | `09-forwarding.md`                            |
+| `BLD-NNN`   | Builders                                               | `10-builders.md`                              |
+| `THR-NNN`   | Threading & schedulers                                 | `11-threading.md`                             |
+| `DLY-NNN`   | Delayed work: scheduler and `DelayedTask`              | `11-threading.md`                             |
+| `UTIL-NNN`  | Tree utilities (spec v1.1)                             | `13-tree-utilities.md`                        |
+| `CAP-NNN`   | Capability micro-interfaces                            | `14-capabilities.md`                          |
+| `NULL-NNN`  | Null-object service variants                           | `03-messages.md` + `11-threading.md`          |
+| `DPROP-NNN` | Derived properties                                     | `15-derived-properties.md`                    |
+| `CMDD-NNN`  | Command decorators (spec v2.0)                         | `04-commands.md`                              |
+| `NOTIF-NNN` | Notification sub-package (hub v2.0; render VMs v2.1)   | `16-notifications.md`                         |
+| `EXP-NNN`   | Expand / collapse state                                | `05-component-vm.md` + `13-tree-utilities.md` |
+| `LOC-NNN`   | Localization hooks                                     | `17-localization.md`                          |
+| `COL-NNN`   | Collection primitives (spec v2.1)                      | `21-collections.md`                           |
+| `AGCH-NNN`  | Dynamic aggregate change stream (spec v3.18)           | `21-collections.md`                           |
+| `SRCH-NNN`  | SearchableState source reactivity, timing and failures | `06-composite-vm.md`                          |
+| `HIER-NNN`  | HierarchicalVM (recursive tree VM, spec v2.1)          | `18-hierarchical-vm.md`                       |
+| `DIA-NNN`   | IDialogService (host modal interactions, v2.1)         | `19-dialogs.md`                               |
+| `FORM-NNN`  | FormVM (snapshot/revert lifecycle, v2.1)               | `20-form-vm.md`                               |
+| `DISC-NNN`  | DiscriminatorVM (single active-key coordinator)        | `22-discriminator-vm.md`                      |
+| `ARES-NNN`  | AsyncResourceVM (single async value, spec v3.20)       | `23-async-resource-vm.md`                     |
+| `THEME-NNN` | Theme as a VM concern (scenario contract, v2.4)        | `proposals/2026-06-02-theme-vm-scenario.md`   |
 
-Each source spec file (e.g., `02-lifecycle.md`) carries a `## Conformance` section
-listing its applicable ID range. When adding a new ID, update both the catalog (here)
-and the source spec's `## Conformance` section.
+Each source chapter (e.g., `02-lifecycle.md`) has a Conformance section that
+maps its IDs to the sections that state the rules. The Given/When/Then behavior
+of an ID is stated only in this catalog. When you add an ID, add its entry here
+and add the ID to the source chapter's Conformance section.
 
 ## 2. Reading entries
 
@@ -1673,11 +1680,8 @@ ______________________________________________________________________
 
 ## 18. Command decorators (`CMDD-NNN`) — spec v2.0
 
-Each CMDD-NNN test verifies behaviour of the three decorators added in
-spec/04-commands.md §Decorators (CMDD-010 added in spec v3, ADR-0049;
-CMDD-011..CMDD-013 added in spec v3.24, ADR-0134; CMDD-014..CMDD-017 added in
-spec v3.29, ADR-0145; CMDD-018 added in spec v3.30, ADR-0195; CMDD-019 added
-in spec v3.30, ADR-0222).
+Each CMDD-NNN test verifies the behavior of the three decorators of
+`04-commands.md` §8. Chapter 04 §11 maps each ID to its rule and ADR.
 
 ### CMDD-001 — CompositeCommand.CanExecute is OR over inner commands
 
@@ -2107,16 +2111,13 @@ the clock advances by 6 s more
 
 ______________________________________________________________________
 
-## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..054`)
+## 20. CompositeVM additions and SearchableState (`COMP-NNN`, `SRCH-NNN`)
 
-Search/filter (COMP-014..018, see ADR-0014), modeled CRUD (COMP-019..024,
-see ADR-0016), builder hooks (COMP-025..026, see ADR-0042), the destruct
-order option (COMP-046, see ADR-0161), the construct-walk membership rule
-(COMP-047, see ADR-0186), the cross-thread membership rule (COMP-048, see
-ADR-0187), the `Disposed`-child, `Destructing` and child-`select()` rules
-(COMP-050..052, see ADR-0188 and ADR-0189), and the selector input and
-background-child compensation rules (COMP-053..054, see ADR-0218) additions to
-chapter 06.
+This section holds the `COMP` IDs added after §8 and the `SRCH` IDs. Their
+subjects are search and filtering, modeled CRUD commands, builder hooks,
+filtered views, ownership transfer, and hub publication. Others are construct
+walks, selection during membership changes, and `SearchableState` source
+changes and failures. Chapter 06 §10 maps each ID to its rule.
 
 ### COMP-014 — SearchableState defaults to empty search term
 
@@ -2720,11 +2721,13 @@ structure
 
 ______________________________________________________________________
 
-## 21. GroupVM v2.0 additions (`GRP-007..017`)
+## 21. GroupVM additions (`GRP-NNN`)
 
-Search/filter additions to chapter 07. The helper is the same
-`SearchableState<TItem>` documented for composites (see ADR-0014); group-context
-tests verify the helper behaves identically when items are group children.
+This section holds the `GRP` IDs added after §9. `GRP-007` to `GRP-010` use
+the `SearchableState<TItem>` helper of the composites (ADR-0014) and verify
+that it behaves identically when the items are group children. The later IDs
+cover peer selection, hub publication, destruct order, construct walks and
+membership changes. Chapter 07 §7 maps each ID to its rule.
 
 ### GRP-007 — SearchableState defaults to empty search term (group context)
 
@@ -3707,22 +3710,6 @@ content
 `old_index == Some(2)` and `new_index == Some(2)`, and Remove as
 `old_index == Some(1)` and `new_index == None`
 
-### COL-070 — dictionary key views give callers no mutator
-
-**Given** an `ObservableDictionary` with the entries `("a", 1)` and `("b", 2)`
-**When** a caller reads `Keys1` and `Keys2`
-**Then** each view lists the distinct keys in first-appearance order
-**And** the view's type is `ReadOnlyObservableList<T>`, which has no add,
-insert, remove, replace, clear, or batch member: C# checks the type by
-reflection, TypeScript with `@ts-expect-error` lines, and Python by the absence
-of each attribute; Swift binds each view to the declared type and has no
-runtime check for an absent member
-**And** in C#, the view cannot be cast to `ObservableList<T>`, and its
-`CollectionChanged` sender is the view itself
-**And** Rust binds each view to the declared `ReadOnlyObservableList` type,
-which has no mutator, and checks that an edit to a `to_vec()` snapshot leaves
-`keys1()`, `keys2()`, and `entries()` unchanged
-
 ### COL-069 — a failing local subscriber does not stop the later local subscribers
 
 **Given** a `ServicedObservableCollection<T>`, a keyed serviced collection, or
@@ -3741,6 +3728,22 @@ event
 
 > Spec: `21-collections.md` §2.5, `01-concepts.md` §1.4, `03-messages.md` §3.6,
 > ADR-0191.
+
+### COL-070 — dictionary key views give callers no mutator
+
+**Given** an `ObservableDictionary` with the entries `("a", 1)` and `("b", 2)`
+**When** a caller reads `Keys1` and `Keys2`
+**Then** each view lists the distinct keys in first-appearance order
+**And** the view's type is `ReadOnlyObservableList<T>`, which has no add,
+insert, remove, replace, clear, or batch member: C# checks the type by
+reflection, TypeScript with `@ts-expect-error` lines, and Python by the absence
+of each attribute; Swift binds each view to the declared type and has no
+runtime check for an absent member
+**And** in C#, the view cannot be cast to `ObservableList<T>`, and its
+`CollectionChanged` sender is the view itself
+**And** Rust binds each view to the declared `ReadOnlyObservableList` type,
+which has no mutator, and checks that an edit to a `to_vec()` snapshot leaves
+`keys1()`, `keys2()`, and `entries()` unchanged
 
 ### COL-071 — a duplicate dictionary `Add` fails and changes nothing
 

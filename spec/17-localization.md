@@ -56,8 +56,10 @@ on any platform localizer.
 
 ## 4. Conformance
 
-`LOC-001` through `LOC-003` in `12-conformance.md` cover:
+Chapter 12 §23 holds the `LOC` IDs. The table maps each ID to the rules of this
+chapter, and chapter 12 states the behavior of each ID.
 
-- The `ILocalizer` contract exists and returns a string from a key
-- `NullLocalizer.Localize(key)` returns the key verbatim
-- A custom localizer can be substituted for the null variant
+| IDs                  | Rules              |
+| -------------------- | ------------------ |
+| `LOC-001`, `LOC-003` | §1 contract        |
+| `LOC-002`            | §2 `NullLocalizer` |

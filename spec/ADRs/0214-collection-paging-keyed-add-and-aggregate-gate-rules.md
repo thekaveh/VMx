@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-09
-- **Spec version:** 3.30.0 (chapter 21 §2.10, §4.1, §4.8, §8, §9.4 and §9.8;
+- **Spec version:** 3.30.0 (chapter 21 §2.10, §4.1, §8 and §9.4;
   adds `COL-071` and `AGCH-012`)
 - **Relates to:** [ADR-0023](0023-paging-capability-and-paged-composition.md),
   [ADR-0025](0025-multi-key-observable-dictionary.md),

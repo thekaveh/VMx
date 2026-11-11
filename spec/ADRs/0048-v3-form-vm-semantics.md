@@ -1,6 +1,6 @@
 # ADR 0048 — v3 FormVM semantics: injectable deep-equal `IsDirty`, deep default snapshot, and an approve error channel
 
-**Status:** Accepted (2026-06-28)
+**Status:** Accepted (2026-06-28; clarified by ADR-0113, ADR-0135, ADR-0139)
 **Spec version:** 3.0.0
 
 ## 1. Context

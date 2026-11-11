@@ -4,6 +4,7 @@ VMx flagship example — Notes Workspace, the Python / Textual flavor. This
 TUI is built on Textual ≥ 0.80. It drives a single `WorkspaceVM` that
 exercises 19 VMx features. The
 [parity matrix](../../../notes-showcase-parity.md) has the full feature table.
+
 The [VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)
 and the [VMx component map](../../../assets/notes-showcase-vmx-components.svg)
 show how the VMs compose. The Python host-specific diagram is
@@ -75,7 +76,7 @@ examples/python/textual/notes_showcase/
 │       │   status_bar.py, notifications.py, capability_actions.py,
 │       │   global_search.py, theme_controls.py  ← theme strip (row 16)
 │       └── modals/{confirm_modal,save_file_modal,notify_modal}.py
-└── tests/{models,viewmodels,views}/
+└── tests/{conformance,models,viewmodels,views}/  ← conformance/ holds THEME-001..005
 ```
 
 ## 3. Feature traceability
