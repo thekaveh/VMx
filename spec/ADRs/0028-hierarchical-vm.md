@@ -1,7 +1,6 @@
 # ADR 0028 — `HierarchicalVM<TModel, TVM>` (recursive composite specialization)
 
-**Status:** Accepted (2026-05-28; §3 item 1 `Expand()` materialization
-corrected by ADR-0150; extended by ADR-0127)
+**Status:** Accepted (2026-05-28; §3 item 1 `Expand()` materialization corrected by ADR-0150; extended by ADR-0127)
 **Spec version:** introduced in 2.1.0
 
 ## 1. Context

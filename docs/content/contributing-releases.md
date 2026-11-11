@@ -1,6 +1,6 @@
 # 11. Contributing & Releases
 
-This page is the site's contributor and release guide. It covers the
+This page is the contributor and release guide. It covers the
 contribution flow, local checks, coverage and performance review, and the
 release procedure for every flavor.
 
@@ -18,29 +18,20 @@ release procedure for every flavor.
 - Open an issue for non-trivial work.
 - Branch from `develop`, open the feature PR to `develop`, and run the relevant
   flavor checks locally.
-- Promote `develop` to protected `main` only through a separate maintainer PR.
-- `develop` and `main` stay in sync by tree, not by history. `develop` permits
-  squash merges only and `main` permits merge commits only, so `develop` history
-  does not contain the `main` merge commits, and GitHub reports each promotion
-  PR as `BEHIND` `main`. That state is expected. After each promotion,
-  `git diff --quiet <promotion head> <main merge commit>` must exit 0. A change
-  that reaches `main` by another route, such as a merged release-please release
-  PR, returns to `develop` through a squash PR from a branch cut at that `main`
-  commit, before the next promotion. CONTRIBUTING.md §1.1 gives the full policy.
-- Direct pushes to `develop` and `main` are blocked. Both PR stages require the
-  always-present conformance, C#, Python, TypeScript, Swift, Rust, docs,
-  examples, security, and spec-discipline aggregate checks against the latest
-  target branch. Maintainer review is expected when another reviewer is
-  available; the single-collaborator repository does not require self-approval.
-- A new push to a PR cancels that PR's older run of each of the nine
-  pull-request CI workflows: `python`, `csharp`, `typescript`, `swift`, `rust`,
-  `conformance`, `spec-discipline`, `security-audit`, and
-  `examples-contract-checks`. Their runs on `develop` and `main`, scheduled
-  runs, and manual runs are never cancelled. The `docs`, `wiki`, `release`,
-  `release-please`, `starters`, and `typescript-windows-watch` workflows keep
-  their own concurrency groups.
+- Every PR must pass the required conformance, flavor, docs, examples,
+  security, and spec-discipline checks. Maintainers promote `develop` to
+  protected `main` through a separate PR.
 - For behavior changes, start in `spec/` and follow the ADR discipline.
 - Keep all supported flavors visible when a change affects shared behavior.
+- Edit the site and wiki pages only in their sources: `docs/content/` and the
+  other files that `docs/manifest.yaml` lists. Run `make docs-check` before the
+  PR. The site and wiki are generated from these
+  sources and publish only from `main`. Do not edit the wiki directly: each
+  publication replaces every wiki page.
+
+The repository's [CONTRIBUTING.md](../../CONTRIBUTING.md) holds the full
+policy: review, branch synchronization between `develop` and `main`, CI run
+cancellation, and documentation publication.
 
 ## 11.3. Validation Entry Points
 
@@ -59,9 +50,14 @@ The main local check families are:
 - Rust: `cargo fmt --check`,
   `cargo clippy --locked --all-targets --all-features -- -D warnings`, and
   `cargo test --locked --all-features`
+- Public API baselines: each flavor's CI compares its public API with a recorded
+  baseline. The C#, Python, and TypeScript checks fail on any change. The Rust
+  and Swift checks fail on a breaking change. Commit the updated baseline in the
+  same pull request as the API change.
 - Repo-wide coverage and example-contract tools
 
-The repository's `CONTRIBUTING.md` lists the full commands for each flavor.
+The full commands for each flavor, and the baseline file and update command for
+each one, are in [CONTRIBUTING.md §2.8](../../CONTRIBUTING.md).
 
 For reproducible Python checks, set `UV_PYTHON` to a supported version
 (3.10–3.14) before locked sync and every later uv command. Installing Python
@@ -93,9 +89,7 @@ Negative controls mutate the production boundary that the test exercises. They
 run in a subprocess group with a watchdog and restore the original source bytes
 in `finally`. A valid control reaches the selected assertion or ends as a
 demonstrated deadlock mutant. A compilation failure, zero matched tests, an
-unrelated assertion, a crash, or watchdog expiry is not proof. The Swift lane
-records five normal passes, five failures without admission-cancellation
-forwarding, and a rebuilt restored pass.
+unrelated assertion, a crash, or watchdog expiry is not proof.
 
 Order test infrastructure like runtime participants. A build that rewrites
 imported fixtures or schemas must finish before workers read them; TypeScript
@@ -257,7 +251,7 @@ A change that touches a hot path, such as hub delivery, batching, property
 publication, collections, or lifecycle, should include a benchmark comparison.
 Run the flavor's harness on the change and compare it with the committed
 baseline, or with a baseline you record from the base branch on the same
-machine. [Baselines](performance-methodology.md#137-baselines) gives the
+machine. [Baselines](performance-methodology.md#127-baselines) gives the
 commands.
 
 Explain every case the tool marks `SLOWER` and every probe that is not bounded
@@ -274,30 +268,10 @@ value, lookup result, or snapshot can keep a shared item alive after removal.
 Cloning the collection shares its backing store without cloning items. Rust's
 collection-change history has no item payload to retain.
 
-`COL-055` and `COL-062` wrap real `ComponentVm` instances in test-private
-shared wrappers. After each operation, including failed keyed preflight and
-empty operations, they count every known wrapper handle. They also check
-lifecycle hooks and parent state. After returned and snapshot handles are
-released, the caller disposes each VM exactly once and releases its last
-wrapper. The test then checks weak-reference expiration and a separate native
-release counter.
-
-Rust `Drop` is not VM disposal. The exact counts are deterministic because the
-tests control every holder and run mutations synchronously. They do not count
-the VM's internal references.
-
-A retained caller `Arc` always has at least one strong reference. A check of
-`strong_count >= 1` therefore cannot prove that a collection released its item
-handles. A temporary mutation that leaks items inside both `clear`
-implementations fails both tests; the unmodified implementations pass. These
-tests strengthen `COL-055` and `COL-062` and add no catalog IDs.
-
-The C#, Python, TypeScript, and Swift counterparts use direct lifecycle
-observables, with different probe coverage. C# observes disposal. Swift omits
-some lifecycle categories. Python's keyed test does not retain failed-operation
-candidates, and TypeScript's keyed test instruments one item. None asserts
-exactly-once caller cleanup. These are limits of the test evidence, not proof of
-a collection defect.
+Rust `Drop` is not VM disposal. The Rust tests for the serviced-collection
+ownership IDs use test-private wrappers to observe caller ownership. Their
+evidence and its limits are recorded in the
+[Rust ownership-test evidence record](../../docs/maintenance/2026-11-10-rust-ownership-test-evidence.md).
 
 ## 11.4. Spec Discipline
 
@@ -312,32 +286,17 @@ repository automation.
 
 ## 11.5. Release Shape
 
-Flavor packages version independently and release from verified `main` commits
-through `<lang>-vX.Y.Z` operational tags. C# uses that form for core and
-package-specific `csharp-notifications-vX.Y.Z` and
-`csharp-dependency-injection-vX.Y.Z` tags for its companions, so independent
-versions cannot collide. The spec uses `spec-vX.Y.Z`; Swift also pairs its
-operational tag with the semantic `vX.Y.Z` tag required by SwiftPM.
-Registry-backed channels are protected by environment approval, OIDC,
-pre-publish checks of the exact locally built artifact, public-artifact checks,
-and fresh-consumer verification. Only the publish job holds `id-token: write`:
-earlier jobs without it install, build, test, and upload the exact artifact,
-and the publish job publishes that artifact (Rust's `cargo publish` still runs
-its verification build there). The Python channel pins its isolated PEP 517
-backend and installs/smokes the wheel from `dist/` before the irreversible PyPI
-action, then repeats the consumer check from the public registry.
+Flavor packages version independently. Each release uses an annotated,
+immutable `<lang>-vX.Y.Z` tag on a verified `main` commit. C# companions use
+package-specific tags, the spec uses `spec-vX.Y.Z`, and Swift pairs its
+operational tag with the semantic `vX.Y.Z` tag that SwiftPM requires.
+Registry-backed channels publish through a protected environment and a trusted
+publisher, and only the publish job holds `id-token: write`.
 
-Live channels: PyPI for Python, npm for the TypeScript core and the React
-adapter (`typescript-v*` and `react-v*` tags), and repository tags for Swift
-through SwiftPM. A one-time npm bootstrap token published both npm packages.
-No npm trusted publish has succeeded yet. The NuGet (C#) and crates.io (Rust)
-channels are prepared but unpublished.
-
-Each registry channel's protected environment restricts deployments to its tag
-pattern, requires a maintainer reviewer, and disables administrator bypass.
-Self-review stays allowed while one maintainer holds the reviewer role.
-Publication uses a trusted publisher bound to `release.yml` and that
-environment, not a long-lived token.
+The release invariants in [CONTRIBUTING.md](../../CONTRIBUTING.md) §4.3 apply
+to every flavor, and each flavor's `RELEASING.md` runbook adds its own steps.
+The [compatibility matrix](../../compatibility-matrix.md) records which
+versions are published.
 
 ### 11.5.1. Release Checklist
 
@@ -374,80 +333,14 @@ Use this sequence for every flavor:
 
 ### 11.5.2. Validate Python Release Tests
 
-Run `gh workflow run release.yml --ref develop` to validate only the
-five-version Ubuntu Python test matrix. Dispatch has no publication inputs.
-All other release jobs require a tag push, including when dispatch targets an
-existing release tag. This does not exercise the build or protected publish jobs;
-normal Python CI separately checks wheel and extracted-sdist packaging. Real
-tag pushes retain their main-ancestry and publication gates.
-
-Rerun a successful revision to collect warm-cache evidence. The 3.10 cell must
-report `cache-hit=true`, list both managed versions, and log the seeded 3.14
-and selected 3.10 identities. A setup-uv package-cache hit is neither a restored
-virtualenv nor necessarily a cached Python installation. Record the run URL
-and revision.
+Run `gh workflow run release.yml --ref develop` to run only the Python test
+matrix of the release workflow. This dispatch cannot publish a package or
+create a release. [CONTRIBUTING.md](../../CONTRIBUTING.md) §4.4 describes its
+scope and how to collect warm-cache evidence.
 
 ### 11.5.3. Recover React Release Metadata
 
-Use this procedure only when the exact npm version, provenance, and both fresh
-React consumers have passed. A broken published package requires a new patch;
-a missing GitHub Release alone is a metadata-only recovery.
-
-Before recovery, read the old run's evidence and independently confirm the
-immutable remote tag SHA, its ancestry from `main`, the package version at that
-tag, the exact public npm version, its provenance, and the successful fresh
-React 18 and React 19 consumer checks. These checks establish publication
-facts; the extraction commands below do not. npm forbids reusing a published
-package name and version, even after unpublishing; see the
-[npm publish documentation](https://docs.npmjs.com/cli/v11/commands/npm-publish/).
-Do not republish, move or recreate the tag, or reuse a version. Do not rerun
-the historical workflow: a GitHub Actions rerun retains the original SHA and
-ref, so it also retains the old extraction code. See GitHub's
-[rerun documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)
-and [workflow documentation](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows).
-
-From a current, verified `main` checkout that contains the fixed helper, use
-the changelog bytes from the original immutable tag. Substitute the actual
-already-published version; never run this procedure for a package that has not
-passed the checks above.
-
-```bash
-set -euo pipefail
-version=0.1.0 # Replace with the version whose npm upload already succeeded.
-tag="react-v${version}"
-git fetch --no-tags origin "refs/tags/${tag}:refs/tags/${tag}"
-tag_sha="$(git rev-parse "${tag}^{commit}")"
-remote_tag_ref="$(git ls-remote --exit-code origin "refs/tags/${tag}" | awk '{print $1}')"
-test "$remote_tag_ref" = "$(git rev-parse "$tag")"
-git fetch --no-tags origin main:refs/remotes/origin/main
-git merge-base --is-ancestor "$tag_sha" origin/main
-notes="$(mktemp)"
-git show "${tag_sha}:packages/react/CHANGELOG.md" |
-  awk -v v="$version" -f tools/extract-release-notes.awk > "$notes"
-test -s "$notes" && grep -q '[^[:space:]]' "$notes" || {
-  echo "No adapter release notes." >&2
-  exit 1
-}
-cat "$notes"
-```
-
-The fetch and `ls-remote` equality confirm the remote tag ref, and
-`^{commit}` peels an annotated tag to its original commit. Any failed fetch or
-remote query stops this script; do not infer a confirmed tag from a failure.
-Inspect the rendered notes before continuing. Check whether a GitHub Release
-already exists, and distinguish confirmed absence from an authentication or
-network failure. If absent, create only release metadata:
-
-```bash
-gh release create "$tag" --verify-tag --target "$tag_sha" \
-  --title "React adapter v${version} (npm)" --notes-file "$notes"
-```
-
-If it exists, verify its tag and update only its title and notes:
-
-```bash
-gh release edit "$tag" --title "React adapter v${version} (npm)" --notes-file "$notes"
-```
-
-Verify the release URL, tag SHA, and notes; retain the recovery evidence and
-remove the temporary notes file. This changes GitHub Release metadata only.
+A missing GitHub Release for a React adapter version whose npm publication and
+fresh-consumer checks have passed is metadata-only recovery. The complete
+procedure and commands are in
+[`packages/react/RELEASING.md`](../../packages/react/RELEASING.md), section 5.

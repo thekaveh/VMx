@@ -5,7 +5,7 @@ Wire a `ComponentVM<M>` to a WPF view through `INotifyPropertyChanged` and
 Avalonia and MAUI recipes also use. WPF is Windows-only; for
 cross-platform XAML, see [avalonia.md](avalonia.md).
 
-## 9.3.1. Reactivity primitive
+## 9.3.1. Reactivity Primitive
 
 WPF, Avalonia, and MAUI bindings observe `INotifyPropertyChanged.PropertyChanged`
 and `ICommand`. `ComponentVMBase` implements `INotifyPropertyChanged`. A setter
@@ -27,7 +27,7 @@ only their host-specific rows.
 | `INotifyCollectionChanged` | `CollectionChangedMessage` on the hub                               |
 | WPF `Dispatcher` thread    | `SynchronizationContextScheduler` created on the UI thread (`host`) |
 
-## 9.3.3. XAML adapter
+## 9.3.3. XAML Adapter
 
 WPF, Avalonia, and MAUI use this adapter unchanged. The adapter is
 `langs/csharp/tests/VMx.Tests/Integration/BindableVm.cs`. `XamlRecipeTests.cs`
@@ -126,7 +126,7 @@ The four adapter rules apply on every XAML host:
 - **Borrowed lifetime.** `Dispose()` detaches the adapter and nothing else. The
   code that created the VM constructs and disposes it.
 
-## 9.3.4. Fuller example
+## 9.3.4. Fuller Example
 
 [`examples/csharp/wpf/TodoApp/`](../../../examples/csharp/wpf/TodoApp/) — a
 working WPF Todo app demonstrating `RelayCommand` + `IMessageHub` with

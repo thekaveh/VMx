@@ -81,8 +81,7 @@ Representative build shape:
 - `Swift`: `try GroupVM<ComponentVMBase>.builder().name("actions").services(hub: hub, dispatcher: dispatcher).children { [save, delete] }.build()`
 - `Rust`: `GroupVm::<ComponentVm<_>>::builder().name("actions").services(hub, dispatcher).children(move || vec![save.clone(), delete.clone()]).build()?`
 
-Rust ships the same peer-container and builder concepts. The
-[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) records its non-member removal evidence.
+Rust ships the same peer-container and builder concepts.
 
 ## 6.2.4.6. Common Pitfalls
 

@@ -6,7 +6,8 @@ body:
     id: title
     attributes:
       label: Proposed ADR title
-      placeholder: e.g., 0008 — Use source-generated AggregateVM for arities 3–5
+      description: Leave out the ADR number. A maintainer assigns it from spec/ADRs/README.md.
+      placeholder: e.g., Inject a scheduler for delayed work
     validations:
       required: true
   - type: textarea

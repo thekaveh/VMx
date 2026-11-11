@@ -189,15 +189,17 @@ raises the usage error. To destruct in reverse, pass the reversed list.
 
 Register each member with the member-disposal helper. `dispose()` then
 disposes the members in registration order before the parent publishes
-`Disposed`, so the cascade stays depth-first (spec 02 §7.1). While a construct
-or destruct hook of the parent runs on another thread, the dispose is foreign
-and the parent publishes `Disposed` first. It disposes the members after that
-hook returns, before its subclass dispose hook (spec 02 §7). While the
-members are disposed inline, a construct, destruct, or reconstruct of the parent
-fails with the lifecycle error for `Disposed` (spec 02 §7.2). One failing member
-does not stop the others, and the first failure is reported after the parent's
-teardown. Swift `dispose()` does not throw, so in Swift every member is still
-attempted but a failing member is not reported.
+`Disposed`, so the cascade stays depth-first (spec 02 §7.1).
+
+While a construct or destruct hook of the parent runs on another thread, the
+dispose is foreign and the parent publishes `Disposed` first. It disposes the
+members after that hook returns, before its subclass dispose hook (spec 02 §7).
+While the members are disposed inline, a construct, destruct, or reconstruct of
+the parent fails with the lifecycle error for `Disposed` (spec 02 §7.2).
+
+One failing member does not stop the others, and the first failure is reported
+after the parent's teardown. Swift `dispose()` does not throw, so in Swift every
+member is still attempted but a failing member is not reported.
 
 <!-- checked-snippet: langs/typescript/tests/unit/leafMemberChildrenRecipe.test.ts#leaf-member-children -->
 
@@ -238,7 +240,7 @@ class PanelVM extends ComponentVMBase {
 | Python     | `self._complete_lifecycle_hook_after(self._transition_children(members, construct=…))` | `self._own_member(member)` |
 | TypeScript | `this._transitionChildren(members, construct, after)`                                  | `this.ownMember(member)`   |
 | Swift      | `try _transitionChildren(members, construct: …, after: …)`                             | `ownMember(member)`        |
-| Rust       | `vm.on_construct_children(move \|walk\| walk.transition(&member))`                     | `vm.own_member(&member)`   |
+| Rust       | <code>vm.on_construct_children(move \|walk\| walk.transition(&member))</code>          | `vm.own_member(&member)`   |
 
 Rust has no subclassing. A Rust view-model type wraps a `ComponentVm` and gives
 it walk closures with `on_construct_children` and `on_destruct_children`. Every

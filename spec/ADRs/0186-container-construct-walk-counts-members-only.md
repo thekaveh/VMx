@@ -1,6 +1,6 @@
 # ADR 0186 — The container construct walk counts members only
 
-- **Status:** Accepted
+- **Status:** Accepted (extended by ADR-0218)
 - **Date:** 2026-11-09
 - **Spec version:** 3.30.0 (chapter 02 §2.4 and §6; chapter 06 §5.1; chapter
   07 §4)

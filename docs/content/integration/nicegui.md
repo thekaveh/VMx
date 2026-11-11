@@ -9,7 +9,7 @@ small in-example adapter. The python `examples (nicegui)` job runs its tests in
 NiceGUI's user simulation, and every fence on this page is a region of that
 example that `make docs-check` compares with the source.
 
-## 9.6.1. Reactivity primitive
+## 9.6.1. Reactivity Primitive
 
 NiceGUI elements have bindable properties. `bind_text_from` and its siblings
 follow a `BindableProperty` or `bindable_dataclass` attribute directly and fall
@@ -33,7 +33,7 @@ only source of the value. The hub never carries lifecycle `status` as a
 | `client.on_delete`                            | release the page's bindings                                                                                                                             |
 | `app.on_shutdown` (awaited)                   | release pages, dispose the VMs, shut down the dispatcher pool                                                                                           |
 
-## 9.6.3. Adapter skeleton
+## 9.6.3. Adapter Skeleton
 
 A VMx view-model publishes a change on the thread that made it. A NiceGUI
 element must be touched on the server's event loop, inside the client (browser
@@ -120,7 +120,7 @@ def release_on_delete(*disposables: DisposableBase) -> DisposableBase:
     return page
 ```
 
-## 9.6.4. Host lifetime
+## 9.6.4. Host Lifetime
 
 NiceGUI owns the event loop, so the composition root captures it in
 `app.on_startup` instead of creating one. NiceGUI starts an async startup
@@ -238,7 +238,7 @@ async def build_page(host: NotesHost) -> None:
     host.adopt(release_on_delete(*bindings))
 ```
 
-## 9.6.6. Fuller example
+## 9.6.6. Fuller Example
 
 [`examples/python/nicegui/notes_showcase/`](../../../examples/python/nicegui/notes_showcase/)
 is its own uv project, pinned to NiceGUI 3.x, so NiceGUI and its web stack stay

@@ -11,15 +11,17 @@ and documentation updates. This runbook adds only the adapter steps.
 
 ## 1. Environment and trusted publisher
 
-The protected `npm-react` environment is restricted to `react-v*` tags. The npm
-trusted publisher is pending until a trusted publish succeeds. Register it with
-the shared fields, environment `npm-react`, and "Allow npm publish" ticked. The
-bootstrap procedure is in git history at [commit `0c88386e`, §1](https://github.com/thekaveh/VMx/blob/0c88386eb3fffbe1d0620178bfd391745bd5db4e/packages/react/RELEASING.md#L7-L27).
+The protected `npm-react` environment is restricted to `react-v*` tags.
+Register the npm trusted publisher with the shared fields, environment
+`npm-react`, and "Allow npm publish" ticked. The bootstrap procedure is in git
+history at [commit `0c88386e`, §1](https://github.com/thekaveh/VMx/blob/0c88386eb3fffbe1d0620178bfd391745bd5db4e/packages/react/RELEASING.md#L7-L27).
 
-The first trusted publish, tag `react-v0.1.2`, failed with `E404`. That error
-means npm found no matching trusted publisher
-([#653](https://github.com/thekaveh/VMx/issues/653)). Nothing was published
-under 0.1.2.
+Until a trusted publish succeeds, confirm the trusted publisher on npmjs.com
+before each tag. Without a matching publisher, npm rejects the publish with
+`E404` ([#653](https://github.com/thekaveh/VMx/issues/653)), and nothing is
+published under that tag. The
+[compatibility matrix](../../compatibility-matrix.md) records the published
+adapter versions.
 
 ## 2. Release gates
 
@@ -50,7 +52,9 @@ the tarball's name and version against the tag, and publishes that tarball.
    `packages/react/README.md` §1, because that README becomes the npm page.
 2. Run the package, React 18/19, packed-consumer, showcase, security, and docs
    gates from a clean checkout.
-3. Confirm `react-v<X.Y.Z>` and the npm version do not exist.
+3. Confirm `react-v<X.Y.Z>` and the npm version do not exist. On the verified
+   main commit, run
+   `python3 tools/check-version-consistency.py --release-tag react-v<X.Y.Z>`.
 4. Create the annotated `react-v<X.Y.Z>` tag on the verified main commit and
    push it.
 5. Approve the protected environment and monitor publication, provenance,
@@ -59,25 +63,19 @@ the tarball's name and version against the tag, and publishes that tarball.
 If npm accepts a broken version, fix forward with a patch; never move or reuse
 the tag/version.
 
-## 4. Release 0.1.3 after the failed 0.1.2
+If a release fails before npm accepts the package, keep the tag where it is.
+A rerun uses the `release.yml` of the tag commit, so it cannot pick up a fix.
+If the failure needs a code or workflow fix, ship the fix as the next patch
+version with a new tag. Rerun the failed job only for a transient failure or a
+corrected external setting, such as the trusted publisher.
 
-The `react-v0.1.2` tag is immutable, so the fixes it carried ship as 0.1.3. A
-rerun of the failed 0.1.2 job cannot publish: it uses the tag's own
-`release.yml`, whose full `npm audit` now fails on dev-only advisories. Leave
-`react-v0.1.2` where it is, and do not rerun its workflow.
+The `react-v0.1.2` release failed with `E404`. Its `release.yml` runs a full
+`npm audit`, which now fails on dev-only advisories, so a rerun cannot publish
+0.1.2. Its fixes ship as 0.1.3.
+[#1039](https://github.com/thekaveh/VMx/issues/1039) tracks the documentation
+update after npm serves the adapter.
 
-1. On npmjs.com, register the trusted publisher for `@thekaveh/vmx-react` as
-   section 1 describes.
-2. Promote `develop` to `main` with the 0.1.3 version and changelog section,
-   after a release-prep PR dates the 0.1.3 heading as section 3 step 1
-   describes.
-3. On that main commit, run
-   `python3 tools/check-version-consistency.py --release-tag react-v0.1.3`.
-4. Follow section 3 from step 3 with tag `react-v0.1.3`.
-5. After npm serves 0.1.3, record it in the compatibility matrix and docs
-   ([#1039](https://github.com/thekaveh/VMx/issues/1039)).
-
-## 5. Recover missing GitHub Release metadata
+## 4. Recover missing GitHub Release metadata
 
 The release notes are the changelog body between the exact `## [X.Y.Z]`
 heading and the next level-two heading. The helper
@@ -96,6 +94,63 @@ immutable tag, public package, provenance, and fresh React 18/19 consumers.
 Then extract and inspect the tagged changelog with the current helper. Confirm
 whether a GitHub Release is absent rather than blocked by authentication or the
 network; create or edit only its metadata, then verify its notes and tag and
-remove the temporary notes file. The canonical [React metadata recovery
-procedure](../../docs/content/contributing-releases.md#1153-recover-react-release-metadata)
-contains the complete commands.
+remove the temporary notes file.
+
+Before recovery, read the old run's evidence and independently confirm the
+immutable remote tag SHA, its ancestry from `main`, the package version at that
+tag, the exact public npm version, its provenance, and the successful fresh
+React 18 and React 19 consumer checks. These checks establish publication
+facts; the extraction commands below do not. npm forbids reusing a published
+package name and version, even after unpublishing; see the
+[npm publish documentation](https://docs.npmjs.com/cli/v11/commands/npm-publish/).
+Do not republish, move or recreate the tag, or reuse a version. Do not rerun
+the historical workflow: a GitHub Actions rerun retains the original SHA and
+ref, so it also retains the old extraction code. See GitHub's
+[rerun documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)
+and [workflow documentation](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows).
+
+From a current, verified `main` checkout that contains the fixed helper, use
+the changelog bytes from the original immutable tag. Substitute the actual
+already-published version; never run this procedure for a package that has not
+passed the checks above.
+
+```bash
+set -euo pipefail
+version=0.1.0 # Replace with the version whose npm upload already succeeded.
+tag="react-v${version}"
+git fetch --no-tags origin "refs/tags/${tag}:refs/tags/${tag}"
+tag_sha="$(git rev-parse "${tag}^{commit}")"
+remote_tag_ref="$(git ls-remote --exit-code origin "refs/tags/${tag}" | awk '{print $1}')"
+test "$remote_tag_ref" = "$(git rev-parse "$tag")"
+git fetch --no-tags origin main:refs/remotes/origin/main
+git merge-base --is-ancestor "$tag_sha" origin/main
+notes="$(mktemp)"
+git show "${tag_sha}:packages/react/CHANGELOG.md" |
+  awk -v v="$version" -f tools/extract-release-notes.awk > "$notes"
+test -s "$notes" && grep -q '[^[:space:]]' "$notes" || {
+  echo "No adapter release notes." >&2
+  exit 1
+}
+cat "$notes"
+```
+
+The fetch and `ls-remote` equality confirm the remote tag ref, and
+`^{commit}` peels an annotated tag to its original commit. Any failed fetch or
+remote query stops this script; do not infer a confirmed tag from a failure.
+Inspect the rendered notes before continuing. Check whether a GitHub Release
+already exists, and distinguish confirmed absence from an authentication or
+network failure. If absent, create only release metadata:
+
+```bash
+gh release create "$tag" --verify-tag --target "$tag_sha" \
+  --title "React adapter v${version} (npm)" --notes-file "$notes"
+```
+
+If it exists, verify its tag and update only its title and notes:
+
+```bash
+gh release edit "$tag" --title "React adapter v${version} (npm)" --notes-file "$notes"
+```
+
+Verify the release URL, tag SHA, and notes; retain the recovery evidence and
+remove the temporary notes file. This changes GitHub Release metadata only.

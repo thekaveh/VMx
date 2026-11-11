@@ -4,6 +4,7 @@ VMx flagship example — Notes Workspace, the TypeScript / React flavor. This
 single-page web app is built on React 19 + Vite. It drives a single
 `WorkspaceVM` that exercises 19 VMx features. The
 [parity matrix](../../../notes-showcase-parity.md) has the full feature table.
+
 The [VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)
 and the [VMx component map](../../../assets/notes-showcase-vmx-components.svg)
 show how the VMs compose. The TypeScript host-specific diagram is
@@ -24,23 +25,26 @@ ESLint's `no-restricted-imports` rule enforces that under
 
 ## 1. Run
 
+Prerequisite: Node.js 20.19+, 22.13+, or 24+ (the `engines` range in
+`package.json`).
+
 ```bash
 cd examples/typescript/react/notes-showcase
 npm ci
-npm run dev         # builds local VMx, then serves http://localhost:5173
+npm run dev         # builds local VMx and @thekaveh/vmx-react, then serves http://localhost:5173
 ```
 
 Production build:
 
 ```bash
-npm run build       # builds local VMx, then writes static bundle to dist/
+npm run build       # builds local VMx and @thekaveh/vmx-react, then writes dist/
 ```
 
 Tests (vitest + jsdom + @testing-library/react):
 
 ```bash
-npm test            # builds local VMx first
-npm run typecheck   # builds local VMx first
+npm test            # builds local VMx and @thekaveh/vmx-react first
+npm run typecheck   # builds local VMx and @thekaveh/vmx-react first
 ```
 
 ## 2. Project layout
@@ -122,10 +126,10 @@ orphans an earlier one.
 | `Mod+E`       | Export the workspace snapshot    |
 | `Mod+S`       | Save the current note            |
 
-`Mod` is `Cmd` on macOS, `Ctrl` elsewhere. Bindings are registered via
-`useHotkeys` in `src/views/components/Layout.tsx`; each map entry calls a VM
-command's `execute()` once the matching `canExecute` predicate is truthy,
-keeping the Pure-VM contract intact.
+`Mod` is `Cmd` on macOS, `Ctrl` elsewhere. `useHotkeys` in
+`src/views/components/Layout.tsx` registers the bindings. Each map entry calls
+a VM command's `execute()` when the matching `canExecute` predicate is truthy.
+Thus the bindings keep the Pure-VM contract.
 
 ## 5. References
 

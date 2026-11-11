@@ -303,9 +303,14 @@ flavor unless the exceptions below say otherwise.
 
 ### 6.8.5.5. Rust
 
-- `PagedComposition` and `ModeledCrudCommands` have no public disposal member.
-  VMx does not treat them as disposable. Adding one is a separate API decision
-  with its own inventory row and conformance coverage.
+- `PagedComposition::dispose` drops the composite-source subscription and
+  stops all publication (ADR-0208). Page reads remain. Unlike the inventory
+  row, later paging calls still change the pager's state, but they publish
+  nothing.
+- `ModeledCrudCommands::dispose` detaches the `current_changed` trigger and
+  disposes the confirmation decorators, which completes their error streams. It
+  also disposes the create, update and delete relays that it built, which makes
+  them inert (ADR-0210).
 - `NotificationVm` and `ConfirmationVm` have no property-change stream.
   `dispose()` disposes their stable dismiss, approve and reject commands, so a
   kept command clone no longer resolves the hub. It stops the lifespan clock

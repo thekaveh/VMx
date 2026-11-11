@@ -3,7 +3,7 @@
 Wire a `ComponentVMOf<M>` to a Solid component through `createSignal` and
 `onCleanup`, Solid's fine-grained reactivity primitives.
 
-## 9.11.1. Reactivity primitive
+## 9.11.1. Reactivity Primitive
 
 - `createSignal(initial)` returns a `[get, set]` pair. Reads are tracked
   inside JSX and reactive scopes; writes trigger re-renders for any
@@ -24,7 +24,7 @@ and a signal with the default `===` equality skips it. The hook creates the
 signal with `equals: false`. Messages for another VM or another property are
 filtered out.
 
-## 9.11.3. Adapter skeleton
+## 9.11.3. Adapter Skeleton
 
 This is the exact file run by `examples/typescript/integration-recipes` against
 `solid-js` 1, the major version of the exact pin in the fixture's
@@ -88,7 +88,7 @@ export function NoteView(props: {
 lifetime. To show a different VM, remount the component, for example inside a
 keyed `<Show>`.
 
-## 9.11.4. Fuller example
+## 9.11.4. Fuller Example
 
 There is no Solid Notes-Showcase. The runnable reference is
 `examples/typescript/integration-recipes`. For a packaged adapter, see the

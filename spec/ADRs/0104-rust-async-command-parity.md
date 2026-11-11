@@ -1,6 +1,6 @@
 # ADR 0104 — Complete Rust async-command parity
 
-**Status:** Accepted (2026-07-13)
+**Status:** Accepted (2026-07-13; clarified by ADR-0140)
 **Spec version:** 3.20.0 (implementation parity correction; no new normative behavior)
 **Related:** ADR-0006, ADR-0056, ADR-0076, ADR-0080, ADR-0081, ADR-0100
 

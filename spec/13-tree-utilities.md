@@ -127,7 +127,7 @@ Rust composes the state with `HierarchicalVm::compose_expansion`, and
 
 See [chapter 18](18-hierarchical-vm.md) for HierarchicalVM details.
 
-### 6.1. Invalid factory output
+### 6.1 Invalid factory output
 
 A walk can reach a node whose lazy children factory returns invalid output
 (chapter 18 §4). Then `walk`, `walk_expanded`, and `find` report the
@@ -157,18 +157,14 @@ TypeScript, and a node whose `iter()` fails is never walked through its
 
 ## 7. Conformance
 
-`UTIL-001` through `UTIL-004` and `EXP-001` through `EXP-005` in
-`12-conformance.md` cover:
+Chapter 12 §14 holds the `UTIL` IDs, and §22 holds the `EXP` IDs. The table
+maps each ID to the rules of this chapter, and chapter 12 states the behavior
+of each ID.
 
-- `walk` yields root, then every descendant, in DFS pre-order
-- `walk` skips empty aggregate slots
-- `find` returns the first matching node and short-circuits
-- `walk`, `walk_expanded` and `find` report invalid factory output as a
-  recoverable error, assign no parent, retry the factory on the next walk, and
-  `find` returns a match that it reaches before the failing node (§6.1)
-- `walk_expanded` walks the tree but stops descent at every node whose
-  `IExpandable.IsExpanded` is `false` (collapsed nodes contribute themselves
-  but none of their descendants)
-- `ExpandableState` provides default values, `Expand`/`Collapse`/`Toggle`
-  operations, and an `IsExpandedChanged` observable, idempotent under repeat
-  Expand/Collapse
+| IDs                    | Rules                                              |
+| ---------------------- | -------------------------------------------------- |
+| `UTIL-001`, `UTIL-002` | §2 `walk`                                          |
+| `UTIL-003`             | §3 `find`                                          |
+| `UTIL-004`             | §6.1 invalid factory output                        |
+| `EXP-005`              | §5 expand-aware traversal                          |
+| `EXP-001`..`EXP-004`   | chapter 05 §8 `ExpandableState`, which §5 composes |

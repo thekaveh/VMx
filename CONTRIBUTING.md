@@ -1,6 +1,7 @@
 # Contributing to VMx
 
-Thanks for your interest in contributing!
+This guide covers the contribution workflow, local checks, spec discipline,
+releases, and documentation.
 
 ## 1. Workflow
 
@@ -11,16 +12,11 @@ Thanks for your interest in contributing!
 4. Open a PR to `develop`. Direct pushes are blocked. The protected-branch
    ruleset requires the always-present conformance, five-flavor, docs, examples,
    security, and spec-discipline aggregate checks to pass against the latest
-   target branch. Obtain maintainer review when another reviewer is available.
-   The repository has one direct collaborator, so the ruleset does not require
-   self-approval. A new push to a PR cancels that PR's older run of each of the
-   nine pull-request CI workflows: `python`, `csharp`, `typescript`, `swift`,
-   `rust`, `conformance`, `spec-discipline`, `security-audit`, and
-   `examples-contract-checks`. Their runs on `develop` and `main`, scheduled
-   runs, and manual runs are never cancelled. The `docs`, `wiki`, `release`,
-   `release-please`, `starters`, and `typescript-windows-watch` workflows keep
-   their own concurrency groups.
-5. Maintainers promote `develop` to protected `main` through a separate PR.
+   target branch.
+5. Obtain maintainer review when another reviewer is available. The repository
+   has one direct collaborator, so the ruleset does not require self-approval.
+6. Maintainers promote `develop` to protected `main` through a separate PR.
+   The `main` ruleset requires the same checks.
 
 ### 1.1 Branch sync policy
 
@@ -46,6 +42,15 @@ never 0, and it grows by one with each promotion.
   the next promotion, open a squash PR to `develop` from a branch cut at that
   `main` commit. After it merges, `git diff --quiet origin/main origin/develop`
   exits 0 when no other change has landed on `develop` since.
+
+### 1.2 CI run cancellation
+
+A new push to a PR cancels that PR's older run of each pull-request CI
+workflow: `python`, `csharp`, `typescript`, `swift`, `rust`, `conformance`,
+`spec-discipline`, `security-audit`, and `examples-contract-checks`. Their
+runs on `develop` and `main`, scheduled runs, and manual runs are never
+cancelled. The `docs`, `wiki`, `release`, `release-please`, `starters`, and
+`typescript-windows-watch` workflows keep their own concurrency groups.
 
 ## 2. Per-language setup
 
@@ -76,8 +81,9 @@ uv run mypy --strict src/vmx
 Each new git worktree has its own `langs/python/.venv`, so run
 `uv sync --locked --all-extras` once in every new worktree before the first
 test. `pytest` is only in the `test` extra, and the `tools/tests` parser pin
-`markdown-it-py` is only in the `tools` extra. Always run
-`uv run python -m pytest`, never a bare `pytest` command through `uv run`.
+`markdown-it-py` is only in the `tools` extra.
+
+Always run `uv run python -m pytest`, never a bare `pytest` command through `uv run`.
 Before the sync, a bare `pytest` command falls back to the next `pytest` on
 `PATH`, and that `pytest` can import `vmx` from another checkout.
 `python -m pytest` stops with `No module named pytest` instead.
@@ -126,14 +132,14 @@ Do not chain a member access onto a dictionary lookup, as in
 `dict[key]?.field`. Apple Swift 6.4 (swiftlang-6.4.0.34.1) at `-Onone` can
 return a non-nil value from that expression when the key is missing; `-O`
 builds return `nil`. `swift test`, and `swift build` without `-c release`,
-use the debug configuration, which compiles at `-Onone`. Bind the lookup
-first, with `if let value = dict[key] { ... }` or
+use the debug configuration, which compiles at `-Onone`.
+
+Bind the lookup first, with `if let value = dict[key] { ... }` or
 `guard let value = dict[key] else { ... }`, and then read the field. The
-`swift` workflow runs `python3 tools/check-swift-subscript-chains.py`, which
-fails on any `]?.`, also one split over two lines, in the root
+`swift` workflow runs `python3 tools/check-swift-subscript-chains.py` (#1462).
+It fails on any `]?.`, also one split over two lines, in the root
 `Package.swift` and in the Swift files under `langs/swift`, `examples/swift`
-and `starters/swift-package` (#1462). An upstream Swift report is not filed
-yet.
+and `starters/swift-package`.
 
 ### 2.5 Rust
 
@@ -169,7 +175,7 @@ each flavor workflow. Run them locally before pushing:
 
 ```bash
 # Cross-language library conformance coverage (all five flavors).
-# Mirrors .github/workflows/conformance.yml. THEME-001..005 live in
+# Mirrors .github/workflows/conformance.yml. The THEME scenario IDs live in
 # example apps, not language libraries, so they're intentionally excluded.
 uv run --project langs/python python tools/check-conformance-coverage.py \
     --require csharp --require python --require typescript --require swift \
@@ -230,12 +236,15 @@ break that the flavor's `CHANGELOG.md` records under an unreleased version is
 accepted by moving the baseline revision forward: set
 `langs/rust/api/baseline-revision` or `langs/swift/api/baseline-revision` to
 the `develop` commit that merged the break, and empty the Swift allowlist.
-Do this in the next pull request when the check cannot accept the break in
-its own pull request. Two cases need it: the `vmx-rs` version is already
-bumped past the last release, so a further break cannot bump it again; or
-`diagnose-api-breaking-changes` reports a break that the allowlist does not
-suppress, such as a generic-signature change. Move every stale Rust or Swift
-baseline in the same pull request.
+
+Do this in the next pull request when the check cannot accept the break in its
+own pull request. Move every stale Rust or Swift baseline in that pull request.
+Two cases need it:
+
+- The `vmx-rs` version is already bumped past the last release, so a further
+  break cannot bump it again.
+- `diagnose-api-breaking-changes` reports a break that the allowlist does not
+  suppress, such as a generic-signature change.
 
 Commit the updated baseline in the same PR as the API change, so that the
 review shows it. A removed or changed public member is a breaking change: it
@@ -265,6 +274,14 @@ swift package diagnose-api-breaking-changes \
     "$(tr -d '[:space:]' < langs/swift/api/baseline-revision)" --products VMx \
     --breakage-allowlist-path langs/swift/api/breakage-allowlist.txt
 ```
+
+### 2.9 Documentation links
+
+Site and wiki pages do not link to repository files. When a docs/content page
+links to a repository file that is not a published page, the generator keeps
+the link label and adds the repository path in inline code, for example
+``C# (`langs/csharp/CHANGELOG.md`)``. Do not write prose that only works as a
+link.
 
 ## 3. Spec-driven changes
 
@@ -383,8 +400,9 @@ job has that permission and the protected environment. Earlier jobs without it
 install dependencies, build, lint, test, audit, run the consumer smoke checks,
 and upload the exact artifact: the NuGet packages, the Python `dist/` files, or
 the npm tarball. The publish job downloads that artifact and publishes it. Apart
-from the pinned npm CLI, it installs, builds, and tests nothing. Rust is the one
-exception: `cargo publish` cannot publish a prepared `.crate`, so its
+from the pinned npm CLI, it installs, builds, and tests nothing.
+
+Rust is the one exception: `cargo publish` cannot publish a prepared `.crate`, so its
 verification build still compiles the crate's dependencies in the publish job.
 The `rust-test` job runs the packaged-consumer check without `id-token: write`.
 `tools/tests/test_ci_workflow_contracts.py` enforces this split. It does not
@@ -431,14 +449,17 @@ entries already recorded stay where they are. The release-prep PR replaces
 `unreleased source version` with the release date immediately before the tag,
 so the heading date equals the tag date. After a release and before the next
 bump, new entries go under `[Unreleased]`, and the bump PR moves them into the
-new section. In C#, each of `VMx`, `VMx.Notifications` and
+new section.
+
+In C#, each of `VMx`, `VMx.Notifications` and
 `VMx.Extensions.DependencyInjection` applies this rule to its own sections:
 `## [X.Y.Z]` for `VMx` and `## [<package> X.Y.Z]` for a companion. `[Unreleased]`
 keeps one `### <package>` subsection for each package, and a subsection stays
 empty while its package's current section is an unreleased source version.
 `tools/check-version-consistency.py` rejects `[Unreleased]` notes for a package
-whose current section is an unreleased source version. The React adapter
-changelog, `packages/react/CHANGELOG.md`, follows the same rule; its headings
+whose current section is an unreleased source version.
+
+The React adapter changelog, `packages/react/CHANGELOG.md`, follows the same rule; its headings
 use ` - ` as the separator, for example
 `## [X.Y.Z] - unreleased source version`.
 
@@ -466,6 +487,53 @@ revision and inspect the 3.10 cell for `cache-hit=true`, both managed Python
 versions, the seeded 3.14 identity, and the repaired 3.10 identity. A cache miss
 does not establish warm-cache coverage. Record the run URL and exact revision.
 
-## 5. Code of conduct
+## 5. Documentation
+
+### 5.1 Sources and publication
+
+The pages in `docs/content/` are the source for three surfaces: this
+repository, the documentation site on GitHub Pages, and the GitHub wiki.
+`docs/manifest.yaml` lists these pages and also publishes the Rust parity
+ledger from `docs/maintenance/`. The build writes the site and wiki pages to
+the untracked `generated/` directory, so edit only the sources.
+
+`docs/opener.yaml` holds the shared opener: the tagline, the summary, and the
+poster. `README.md` and `docs/content/index.md` each keep a copy, and
+`make docs-check` fails when a copy differs from `docs/opener.yaml`. To change
+the opener, edit `docs/opener.yaml` and both copies in the same PR.
+
+Run these checks before you open a documentation PR. Use a Python with
+`docs/requirements.txt` installed:
+
+```bash
+make docs-check PYTHON=python3   # lint, links, snippets, diagrams, tests, strict site build
+make docs-wiki PYTHON=python3    # generate the wiki and dry-run its sync
+make docs-serve PYTHON=python3   # optional: serve the site locally
+```
+
+The `docs` workflow runs `make docs-check` on every PR, and on each push to
+`develop` and `main` that changes documentation paths. It deploys the site only from `main`. The `wiki` workflow
+publishes the wiki only from pushes to `main`.
+
+Do not edit the wiki directly. Each wiki sync deletes every wiki page and
+writes the generated pages again, so a direct edit is lost at the next
+publication.
+
+### 5.2 Maintainer records
+
+These records support maintenance. They are not product documentation:
+
+- [`docs/maintenance/README.md`](docs/maintenance/README.md): maintenance
+  ledgers and their verification evidence.
+- [`docs/audit/README.md`](docs/audit/README.md): historical documentation
+  audit reports.
+- [`docs/assets/diagrams/README.md`](docs/assets/diagrams/README.md): diagram
+  sources, regeneration, and validation.
+- [`tools/README.md`](tools/README.md): the conformance-coverage tool and other
+  cross-cutting scripts.
+- [`benchmarks/README.md`](benchmarks/README.md): benchmark method, commands,
+  and baselines.
+
+## 6. Code of conduct
 
 This project follows the Contributor Covenant v2.1 — see [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).

@@ -109,7 +109,9 @@ its own convention as long as the override surface is documented; Rust's
 - `DoGetEnumerator()` → override to alter iteration order.
 
 Subclasses MUST forward `dispose()` to the wrapped instance unless they explicitly
-own the wrapped's lifetime.
+own the wrapped's lifetime. Repeated wrapper disposal can reach the wrapped
+instance more than once at the call boundary. The wrapped VM still performs
+its terminal work at most once observably (chapter 01 §4, `DISP-001`).
 
 A forwarding composite used as a child of another container follows the §1
 ownership rules: one ownership identity with the wrapped composite, and
@@ -121,18 +123,13 @@ child (ADR-0205).
 
 ## 3. Conformance
 
-`FWD-001` through `FWD-006` in `12-conformance.md` cover:
+Chapter 12 §11 holds the `FWD` IDs. The table maps each ID to the rules of this
+chapter, and chapter 12 states the behavior of each ID.
 
-- default delegation of every member to the wrapped VM
-- transparent use as a composite or group child, including selection commands
-- selective override replaces a single behavior
-- ForwardingCompositeVM forwards iteration
-- pre-owned and multiply decorated components retain one transferable owner
-- resources registered through a decorator belong to the wrapped component
-- a decorator's property notification helpers emit through the wrapped
-  component, with the wrapped component as the hub message sender, and emit
-  nothing after the wrapped component is disposed
-
-Forwarded disposal inherits `DISP-001`: repeated wrapper disposal may reach the
-wrapped instance repeatedly at the call boundary, but the wrapped VM performs
-terminal work at most once observably.
+| IDs                  | Rules                                                 |
+| -------------------- | ----------------------------------------------------- |
+| `FWD-001`, `FWD-002` | §1 `ForwardingComponentVM<M>` delegation and override |
+| `FWD-003`            | §2 `ForwardingCompositeVM<VM>`                        |
+| `FWD-004`, `FWD-005` | §1 ownership identity and owned resources             |
+| `FWD-006`            | §1 notification helpers (ADR-0221, ADR-0223)          |
+| `DISP-001`           | §2 forwarded disposal (chapter 01 §4)                 |

@@ -447,5 +447,6 @@ child walk already joins through `transition_or_join_child`. Only the
 aggregate construct join is closed (§12.7).
 
 The fix moves the container destruct walks to a join that also covers a
-destruct started between the status read and the call. #1375 stays the
-evidence for this item.
+destruct started between the status read and the call. #1569 tracks this
+item. The C# sibling, #1375, closed on 2026-11-09 and is cited only as
+history.

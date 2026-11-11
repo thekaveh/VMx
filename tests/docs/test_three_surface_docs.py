@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
 import textwrap
@@ -17,13 +18,15 @@ from scripts.docs.check_docs import (
     check_canonical_links,
     check_generated_html_links,
     check_generated_wiki_links,
+    check_heading_case,
     check_historical_audits,
     check_professional_markdown,
     check_raw_html_headings,
     check_self_containment,
+    check_table_code_pipes,
 )
 from scripts.docs.links import find_html_link_attributes, find_links, is_forbidden
-from scripts.docs.manifest import load_manifest
+from scripts.docs.manifest import load_manifest, parse_manifest
 from scripts.docs.transforms import build_source_map, rewrite_for_surface
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -358,7 +361,7 @@ def test_wiki_rewrite_maps_relative_html_routes_to_manifest_pages() -> None:
         source_map=source_map,
     )
 
-    assert 'href="3-1-Quickstart"' in rewritten
+    assert 'href="/thekaveh/VMx/wiki/Quickstart"' in rewritten
 
 
 @pytest.mark.parametrize(
@@ -433,7 +436,7 @@ def test_site_rewrite_maps_same_directory_html_markdown_link_to_sibling_route() 
     )
 
     assert site == '<a href="../notes-workspace-vm-layer/">VM layer</a>'
-    assert wiki == '<a href="8-4-VM-Layer-Map">VM layer</a>'
+    assert wiki == '<a href="/thekaveh/VMx/wiki/VM-Layer-Map">VM layer</a>'
 
 
 def test_html_rewrite_accepts_case_and_quote_variants() -> None:
@@ -509,8 +512,8 @@ def test_markdown_rewrite_preserves_links_and_generic_calls_inside_commonmark_co
     assert "ServicedObservableCollection[Note](hub)" in rewritten
     assert 'ModalVM[str]("cancel")' in rewritten
     assert 'title="[Attribute](../installation.md)"' in rewritten
-    assert 'href="3-1-Quickstart"' in rewritten
-    assert "[[Quickstart|3-1-Quickstart]]" in rewritten
+    assert 'href="/thekaveh/VMx/wiki/Quickstart"' in rewritten
+    assert "[[Quickstart|Quickstart]]" in rewritten
 
 
 @pytest.mark.parametrize(
@@ -855,7 +858,7 @@ def test_wiki_markdown_rewrite_preserves_link_titles(quote: str) -> None:
         repo_root=ROOT,
     )
 
-    assert rewritten == f"[Quickstart](3-1-Quickstart {quote}details{quote})"
+    assert rewritten == f"[Quickstart](Quickstart {quote}details{quote})"
 
 
 def test_wiki_markdown_rewrite_uses_markdown_for_nested_labels() -> None:
@@ -872,7 +875,7 @@ def test_wiki_markdown_rewrite_uses_markdown_for_nested_labels() -> None:
         repo_root=ROOT,
     )
 
-    assert rewritten == "[VM [layer]](8-4-VM-Layer-Map)"
+    assert rewritten == "[VM [layer]](VM-Layer-Map)"
 
 
 def test_surface_rewrite_preserves_inline_code_link_labels() -> None:
@@ -1050,42 +1053,38 @@ def test_wiki_rewrite_preserves_link_after_unmatched_bracket() -> None:
         "[Composite Family](viewmodel-families/composite-family.md)\n",
         surface="wiki",
         current_source=Path("docs/content/primitives/builders-collections-tree-utilities.md"),
-        current_output=Path("6-7-Builders-Collections-Tree-Utilities.md"),
+        current_output=Path("Builders-Collections-Tree-Utilities.md"),
         source_map=source_map,
     )
 
     assert "The interval is [0, count)" in rewritten
-    assert "[[Composite Family|6-2-5-Composite-Family]]" in rewritten
+    assert "[[Composite Family|Composite-Family]]" in rewritten
 
 
 def test_build_generates_self_contained_surfaces() -> None:
     build_docs.build(site=True, wiki=True, check=True, repo_root=ROOT)
 
     site_page = ROOT / "generated/site/flavors/csharp.md"
-    wiki_page = ROOT / "generated/wiki/7-2-C.md"
+    wiki_page = ROOT / "generated/wiki/CSharp.md"
     assert site_page.exists()
     assert wiki_page.exists()
     assert "github.com/thekaveh/VMx/blob/main" not in site_page.read_text(encoding="utf-8")
     assert "thekaveh.github.io/VMx" not in wiki_page.read_text(encoding="utf-8")
     assert (ROOT / "mkdocs.yml").read_text(encoding="utf-8").find("repo_url") == -1
     assert "generator: false" in (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
-    state_site = (ROOT / "generated/site/primitives/state-reactive-helpers.md").read_text(
-        encoding="utf-8"
-    )
-    state_wiki = (ROOT / "generated/wiki/6-5-State-Reactive-Helpers.md").read_text(encoding="utf-8")
-    form_site = (
-        ROOT / "generated/site/primitives/viewmodel-families/specialized/form-vm.md"
-    ).read_text(encoding="utf-8")
+    rust_site = (ROOT / "generated/site/flavors/rust.md").read_text(encoding="utf-8")
+    rust_wiki = (ROOT / "generated/wiki/Rust.md").read_text(encoding="utf-8")
     releases_site = (ROOT / "generated/site/contributing-releases.md").read_text(encoding="utf-8")
     python_site = (ROOT / "generated/site/flavors/python.md").read_text(encoding="utf-8")
-    python_wiki = (ROOT / "generated/wiki/7-3-Python.md").read_text(encoding="utf-8")
+    python_wiki = (ROOT / "generated/wiki/Python.md").read_text(encoding="utf-8")
     modal_site = (
         ROOT / "generated/site/primitives/viewmodel-families/specialized/modal-vm.md"
     ).read_text(encoding="utf-8")
-    modal_wiki = (ROOT / "generated/wiki/6-2-8-6-ModalVM.md").read_text(encoding="utf-8")
-    assert "#1236-expandablestate-construction-and-disposal" in state_site
-    assert "#1236-expandablestate-construction-and-disposal" in state_wiki
-    assert "#1244-formvm-direct-approval" in form_site
+    modal_wiki = (ROOT / "generated/wiki/ModalVM.md").read_text(encoding="utf-8")
+    ledger_path = "`docs/maintenance/2026-07-16-rust-capability-parity.md`"
+    assert ledger_path in rust_site
+    assert "[[Rust parity ledger|Rust-Parity-Status]]" not in rust_wiki
+    assert ledger_path in rust_wiki
     assert "CONTRIBUTING.md#" not in releases_site
     assert "ServicedObservableCollection[Note](hub)" in python_site
     assert "ServicedObservableCollection[Note](hub)" in python_wiki
@@ -1148,7 +1147,7 @@ def test_build_repo_root_is_fully_isolated(tmp_path: Path, monkeypatch) -> None:
     assert (selected / "generated/site/assets/vmx-poster.png").read_bytes() == b"SELECTED"
     assert (selected / "generated/wiki/assets/vmx-poster.png").read_bytes() == b"SELECTED"
     assert "details.md" in (selected / "generated/site/index.md").read_text(encoding="utf-8")
-    assert "[[Details|2-Details]]" in (selected / "generated/wiki/Home.md").read_text(
+    assert "[[Details|Details]]" in (selected / "generated/wiki/Home.md").read_text(
         encoding="utf-8"
     )
 
@@ -1167,7 +1166,7 @@ def test_generated_wiki_has_sidebar_footer_and_diagram_assets() -> None:
     assert footer == f"VMx · Specification {version} · Apache-2.0 · thekaveh/VMx\n"
     assert (ROOT / "generated/wiki/assets/diagrams/system-architecture.png").exists()
     sidebar = (ROOT / "generated/wiki/_Sidebar.md").read_text(encoding="utf-8")
-    assert re.search(r"\[\[5\.2\. System Architecture\|5-2-System-Architecture\]\]", sidebar)
+    assert re.search(r"\[\[5\.2\. System Architecture\|System-Architecture\]\]", sidebar)
 
 
 FLAGGED_DIAGRAM_PAGES = (
@@ -1208,7 +1207,7 @@ def test_flagged_diagram_references_resolve_in_repository_rendering() -> None:
         if "assets/diagrams/" in attribute.target
     ]
 
-    assert len(references) == 11
+    assert len(references) == 8
     for page, target in references:
         resolved = Path(os.path.normpath(page.parent / target))
         assert resolved.parent == diagrams, target
@@ -1247,13 +1246,13 @@ def test_flagged_diagram_references_resolve_in_repository_rendering() -> None:
             "wiki",
             "docs/content/architecture/index.md",
             '<img src="../../assets/diagrams/system-architecture.svg">',
-            '<img src="assets/diagrams/system-architecture.svg">',
+            '<img src="/thekaveh/VMx/wiki/assets/diagrams/system-architecture.svg">',
         ),
         (
             "wiki",
             "docs/content/primitives/viewmodel-families/specialized/index.md",
-            '<a href="../../../../assets/diagrams/specialized-vm-family.html">HTML</a>',
-            '<a href="assets/diagrams/specialized-vm-family.html">HTML</a>',
+            '<a href="../../../../assets/diagrams/specialized-vm-family.png">PNG</a>',
+            '<a href="/thekaveh/VMx/wiki/assets/diagrams/specialized-vm-family.png">PNG</a>',
         ),
     ],
 )
@@ -1342,7 +1341,7 @@ def main():
 
 ```
 
-Read [[Upgrading|3-7-Upgrading-TypeScript-and-React-Consumers]].
+Read [[Upgrading|Upgrading-TypeScript-and-React-Consumers]].
 
 </details>
 
@@ -1386,12 +1385,19 @@ def test_generated_wiki_tab_check_rejects_leaked_tab_declarations(tmp_path: Path
 
 def test_generated_wiki_adapts_every_tabbed_page() -> None:
     build_docs.build(site=False, wiki=True, check=False, repo_root=ROOT)
-    installation = (ROOT / "generated/wiki/2-Installation.md").read_text(encoding="utf-8")
+    installation = (ROOT / "generated/wiki/Installation.md").read_text(encoding="utf-8")
 
     assert check_docs.check_generated_wiki_tabs(ROOT) == []
-    assert installation.count("<details") == 5
+    # The installation page lists each flavor under its own heading (no tabs),
+    # so the wiki adaptation is covered by a page that still uses content tabs.
+    assert "<details" not in installation
+    assert '=== "' not in installation
+    assert any(
+        "<details" in page.read_text(encoding="utf-8")
+        for page in (ROOT / "generated/wiki").glob("*.md")
+    )
     assert (
-        "[[Upgrading TypeScript and React Consumers|3-7-Upgrading-TypeScript-and-React-Consumers]]"
+        "[[Upgrading TypeScript and React Consumers|Upgrading-TypeScript-and-React-Consumers]]"
         in installation
     )
     assert re.search(r"^ {4}```", installation, re.MULTILINE) is None
@@ -1400,3 +1406,181 @@ def test_generated_wiki_adapts_every_tabbed_page() -> None:
     assert sum(token.type == "fence" for token in tokens) >= 5
     inline = "".join(token.content for token in tokens if token.type == "inline")
     assert "[[Upgrading TypeScript and React Consumers|" in inline
+
+
+@pytest.mark.parametrize("surface", ["site", "wiki"])
+def test_surface_rewrite_names_the_repository_path_of_an_unpublished_link(surface: str) -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, surface)
+    source = Path("docs/content/getting-started/upgrading-typescript.md")
+
+    rewritten = rewrite_for_surface(
+        "[C#](../../../langs/csharp/CHANGELOG.md#unreleased) and "
+        "[examples](../../../examples/csharp/)",
+        surface=surface,
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert rewritten == "C# (`langs/csharp/CHANGELOG.md`) and examples (`examples/csharp/`)"
+
+
+def test_wiki_page_names_omit_numbers_and_spell_out_symbols() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    wiki_map = build_source_map(manifest, "wiki")
+
+    assert wiki_map[Path("docs/content/flavors/csharp.md")] == Path("CSharp.md")
+    assert wiki_map[Path("docs/content/integration/maui.md")] == Path("DotNET-MAUI-Integration.md")
+    assert wiki_map[Path("docs/content/getting-started/index.md")] == Path("Quickstart.md")
+
+
+def test_pages_outside_docs_content_publish_at_their_manifest_id() -> None:
+    manifest = parse_manifest(
+        textwrap.dedent(
+            """\
+            surfaces: [repo, site, wiki]
+            numbering: baked
+            sections:
+              - id: outside-page
+                number: "1"
+                title: Outside Page
+                source: docs/maintenance/outside.md
+            """
+        )
+    )
+    site_map = build_source_map(manifest, "site")
+
+    assert site_map[Path("docs/maintenance/outside.md")] == Path("outside-page.md")
+
+
+def test_source_map_rejects_duplicate_output_names() -> None:
+    manifest = parse_manifest(
+        textwrap.dedent(
+            """\
+            surfaces: [repo, site, wiki]
+            numbering: baked
+            sections:
+              - id: one
+                number: "1"
+                title: Overview
+                source: docs/content/one.md
+              - id: two
+                number: "2"
+                title: Overview
+                source: docs/content/two.md
+            """
+        )
+    )
+
+    with pytest.raises(ValueError, match="duplicate wiki page names"):
+        build_source_map(manifest, "wiki")
+
+
+def test_wiki_rewrite_drops_standalone_diagram_html_links() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "wiki")
+    source = Path("docs/content/primitives/command-families.md")
+    markdown = (
+        "<p>\n"
+        '  <a href="../../assets/diagrams/commands-capabilities.html">HTML</a>\n'
+        "  &middot;\n"
+        '  <a href="../../assets/diagrams/commands-capabilities.svg">SVG</a>\n'
+        "</p>\n"
+    )
+
+    rewritten = rewrite_for_surface(
+        markdown,
+        surface="wiki",
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert rewritten == (
+        "<p>\n"
+        '  <a href="/thekaveh/VMx/wiki/assets/diagrams/commands-capabilities.svg">SVG</a>\n'
+        "</p>\n"
+    )
+
+
+def test_generated_surfaces_publish_only_referenced_diagram_formats() -> None:
+    build_docs.build(site=True, wiki=True, check=True, repo_root=ROOT)
+    wiki_suffixes = {path.suffix for path in (ROOT / "generated/wiki/assets/diagrams").iterdir()}
+    site_suffixes = {path.suffix for path in (ROOT / "generated/site/assets/diagrams").iterdir()}
+
+    assert wiki_suffixes == {".svg", ".png"}
+    assert site_suffixes == {".html", ".svg", ".png"}
+
+
+def _lifecycle_cell(row: dict[str, object]) -> str:
+    if not row["legal"]:
+        return "Refused"
+    if row["via"] == "reconstruct":
+        return "Destructing → Destructed → Constructing → Constructed"
+    if row["to_intermediate"]:
+        return f"{row['to_intermediate']} → {row['to_final']}"
+    if row["to_final"] == row["from"]:
+        return "No-op"
+    return str(row["to_final"])
+
+
+def test_lifecycle_transition_table_matches_the_fixture() -> None:
+    fixture = json.loads(
+        (ROOT / "spec/fixtures/lifecycle-transitions.json").read_text(encoding="utf-8")
+    )
+    expected = {(row["from"], row["via"]): _lifecycle_cell(row) for row in fixture["transitions"]}
+    page = (ROOT / "docs/content/architecture/lifecycle-messaging.md").read_text(encoding="utf-8")
+    lines = page.split("## 5.4.1. Transition Table", 1)[1].splitlines()
+    rows = [line for line in lines if line.startswith("| `")]
+    header = next(line for line in lines if line.startswith("| From state"))
+    operations = [cell.strip(" `") for cell in header.strip("|").split("|")[1:]]
+    documented = {}
+    for row in rows:
+        cells = [cell.strip() for cell in row.strip("|").split("|")]
+        state = cells[0].strip("`")
+        for operation, cell in zip(operations, cells[1:], strict=True):
+            documented[(state, operation)] = cell
+
+    assert documented == expected
+
+
+def test_heading_case_check_requires_title_case(tmp_path: Path) -> None:
+    content = tmp_path / "docs/content"
+    content.mkdir(parents=True)
+    (content / "page.md").write_text(
+        "# 1. Page\n\n"
+        "## 1.1. Wire Up `hub.send` And Python asyncio\n\n"
+        "## 1.2. Where to go next\n\n"
+        "```text\n## not a heading\n```\n",
+        encoding="utf-8",
+    )
+
+    findings = check_heading_case(tmp_path)
+
+    assert [finding.message for finding in findings] == [
+        "docs/content/page.md:5: heading is not in Title Case: to, go, next"
+    ]
+
+
+def test_table_code_pipe_check_rejects_pipes_in_code_spans(tmp_path: Path) -> None:
+    content = tmp_path / "docs/content"
+    content.mkdir(parents=True)
+    (content / "page.md").write_text(
+        "| Flavor | Call |\n"
+        "| --- | --- |\n"
+        "| Rust | `hub.batch(|| { ... })` |\n"
+        "| Rust | `move \\|walk\\| walk` |\n"
+        "| Rust | <code>hub.batch(&#124;&#124; { ... })</code> |\n"
+        "`a | b` outside a table\n",
+        encoding="utf-8",
+    )
+
+    findings = check_table_code_pipes(tmp_path)
+
+    assert [finding.message.split(": ", 1)[0] for finding in findings] == [
+        "docs/content/page.md:3",
+        "docs/content/page.md:4",
+    ]

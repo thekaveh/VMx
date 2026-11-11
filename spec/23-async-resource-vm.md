@@ -210,15 +210,15 @@ mapping adds no general VM/observer thread-safety or UI scheduling guarantee.
 
 ## 11. Conformance
 
-- `ARES-001` — initial state and command eligibility.
-- `ARES-002` — successful load and ordinary state notification.
-- `ARES-003` — loader failure becomes error state without command error duplication.
-- `ARES-004` — retry replaces error with ready.
-- `ARES-005` — initial cancellation restores idle without error.
-- `ARES-006` — retained reload exposes and restores the previous value.
-- `ARES-007` — discard policy releases the previous value at reload start.
-- `ARES-008` — overlapping starts are latest-start-wins.
-- `ARES-009` — stale success is cleaned once without state notification.
-- `ARES-010` — replacement and disposal clean each ownership unit once.
-- `ARES-011` — disposal cancels work and makes late completion/intents inert.
-- `ARES-012` — a loader's own cancellation restores the saved stable state.
+Chapter 12 §32 holds the `ARES` IDs. The table maps each ID to the rules of
+this chapter, and chapter 12 states the behavior of each ID.
+
+| IDs                                | Rules                                              |
+| ---------------------------------- | -------------------------------------------------- |
+| `ARES-001`                         | §2 state, §3 construction, §4 intents and commands |
+| `ARES-002`                         | §5 transitions                                     |
+| `ARES-003`..`ARES-005`, `ARES-012` | §7 failure, retry, and cancellation                |
+| `ARES-006`, `ARES-007`             | §8 previous-value policy                           |
+| `ARES-008`, `ARES-009`             | §6 latest-start-wins                               |
+| `ARES-010`                         | §9 optional value ownership                        |
+| `ARES-011`                         | §10 disposal and scheduling                        |

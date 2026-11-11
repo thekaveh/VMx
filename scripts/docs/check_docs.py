@@ -24,6 +24,7 @@ from scripts.docs.links import (
 from scripts.docs.manifest import load_manifest
 from scripts.docs.opener import load_opener
 from scripts.docs.snippets import checked_snippet_pages, checked_snippets
+from scripts.docs.transforms import WIKI_BASE_PATH
 
 PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
 # CommonMark backslash-escapes any ASCII punctuation; mdformat forces `C#` at the
@@ -40,6 +41,11 @@ HTML_ID_RE = re.compile(r'<(?:a|h[1-6])\b[^>]*\bid=["\']([^"\']+)["\']', re.IGNO
 WIKI_TAB_RE = re.compile(r'^\s*===\+?\s+"')
 WIKI_LINK_RE = re.compile(r"\[\[(?P<label>[^\]\r\n]+)\|(?P<target>[^\]\r\n]+)\]\]")
 DECORATIVE_STATUS_ICON_RE = re.compile(r"[✓✔✅❌✗✘]")
+# Section headings use Title Case: every word starts with a capital letter.
+# Code spans and these lowercase proper names are exempt.
+LOWERCASE_HEADING_WORDS = frozenset({"asyncio", "tkinter", "hello_vmx", "hello", "vmx", "etc."})
+CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
+HEADING_WORD_RE = re.compile(r"`[^`]*`|[^\s`-]+")
 HISTORICAL_AUDIT_NOTICE = (
     "> Historical audit record. This document captures a point-in-time review and may "
     "contain superseded paths, versions, findings, or conclusions. For current behavior, "
@@ -50,7 +56,6 @@ OPENER_END = "<!-- vmx-opener:end -->"
 
 STANDALONE_NUMBERED_DOCS = (
     Path("langs/rust/README.md"),
-    Path("examples/DIAGRAMS.md"),
     Path("langs/csharp/packaging/VMx/README.md"),
     Path("langs/csharp/packaging/VMx.Notifications/README.md"),
     Path("langs/csharp/packaging/VMx.Extensions.DependencyInjection/README.md"),
@@ -469,11 +474,15 @@ def _generated_wiki_target(source: Path, root: Path, target: str) -> Path | None
     clean = target.split("#", 1)[0].split("?", 1)[0].rstrip("/")
     if not clean:
         return source
-    if Path(clean).is_absolute():
+    base = source.parent
+    if clean.startswith(WIKI_BASE_PATH):
+        clean = clean.removeprefix(WIKI_BASE_PATH)
+        base = root
+    if not clean or Path(clean).is_absolute():
         return None
     resolved_root = root.resolve()
     try:
-        candidate = (source.parent / clean).resolve()
+        candidate = (base / clean).resolve()
         candidate.relative_to(resolved_root)
     except (OSError, ValueError):
         return None
@@ -608,6 +617,57 @@ def check_completeness(repo_root: Path) -> list[Finding]:
         Finding("error", f"{path}: content file is not listed in docs/manifest.yaml")
         for path in missing
     ]
+
+
+def check_table_code_pipes(repo_root: Path) -> list[Finding]:
+    """Reject a pipe inside a table-cell code span.
+
+    GitHub splits the cell at an unescaped pipe, and the site renderer shows the
+    backslash of an escaped one. Write such a cell as ``<code>`` with ``&#124;``.
+    """
+    findings: list[Finding] = []
+    for path in _scan_markdown(repo_root / "docs/content"):
+        text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if not line.lstrip().startswith("|"):
+                continue
+            if any("|" in span for span in CODE_SPAN_RE.findall(line)):
+                findings.append(
+                    Finding(
+                        "error",
+                        f"{path.relative_to(repo_root)}:{line_number}: table code span "
+                        "contains a pipe; use <code> with &#124;",
+                    )
+                )
+    return findings
+
+
+def check_heading_case(repo_root: Path) -> list[Finding]:
+    """Keep docs/content section headings in Title Case."""
+    findings: list[Finding] = []
+    for path in _scan_markdown(repo_root / "docs/content"):
+        text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            match = ATX_HEADING_RE.match(line)
+            if match is None:
+                continue
+            title = NUMBER_PREFIX_RE.sub("", match.group(2))
+            lowercase = [
+                word
+                for word in HEADING_WORD_RE.findall(title)
+                if not word.startswith("`")
+                and word.lower().strip("()") not in LOWERCASE_HEADING_WORDS
+                and word.lstrip("(")[:1].islower()
+            ]
+            if lowercase:
+                findings.append(
+                    Finding(
+                        "error",
+                        f"{path.relative_to(repo_root)}:{line_number}: heading is not in "
+                        f"Title Case: {', '.join(lowercase)}",
+                    )
+                )
+    return findings
 
 
 def check_heading_numbers(repo_root: Path) -> list[Finding]:
@@ -787,6 +847,8 @@ def check(repo_root: Path) -> list[Finding]:
     findings.extend(check_historical_audits(repo_root))
     findings.extend(check_completeness(repo_root))
     findings.extend(check_heading_numbers(repo_root))
+    findings.extend(check_heading_case(repo_root))
+    findings.extend(check_table_code_pipes(repo_root))
     findings.extend(check_placeholders(repo_root))
     findings.extend(check_checked_snippets(repo_root))
     return findings

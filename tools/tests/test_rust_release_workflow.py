@@ -145,10 +145,8 @@ def test_contributing_rust_commands_match_release_baseline() -> None:
 
 
 def test_local_rust_gates_run_the_package_check_after_packaging() -> None:
-    sections = {
-        "AGENTS.md": ("### 3.5 Rust", "### 3.6 "),
-        "CONTRIBUTING.md": ("### 2.5 Rust", "### 2.6 Cross-cutting"),
-    }
+    # AGENTS.md links CONTRIBUTING.md §2 for the commands instead of copying them.
+    sections = {"CONTRIBUTING.md": ("### 2.5 Rust", "### 2.6 Cross-cutting")}
     for name, (start, end) in sections.items():
         text = (REPO_ROOT / name).read_text(encoding="utf-8")
         block = text.split(start, maxsplit=1)[1].split(end, maxsplit=1)[0]

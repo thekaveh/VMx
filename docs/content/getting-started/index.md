@@ -13,185 +13,185 @@ table names the published starters for TypeScript Node, React and Vite, the
 Python console and Swift packages. The [TypeScript](typescript.md),
 [Python](python.md) and [Swift](swift.md) pages also name their starters.
 
-=== "C#"
+## 3.1.1. C\#
 
-    ```csharp
-    using VMx.Components;
-    using VMx.Composites;
-    using VMx.Services;
+```csharp
+using VMx.Components;
+using VMx.Composites;
+using VMx.Services;
 
-    IMessageHub hub = new MessageHub();
-    IDispatcher dispatcher = RxDispatcher.Immediate();
+IMessageHub hub = new MessageHub();
+IDispatcher dispatcher = RxDispatcher.Immediate();
 
-    var homeTab = ComponentVM<TabModel>.Builder()
-        .Name("home-tab")
-        .Model(new TabModel("Home"))
-        .Services(hub, dispatcher)
-        .Build();
+var homeTab = ComponentVM<TabModel>.Builder()
+    .Name("home-tab")
+    .Model(new TabModel("Home"))
+    .Services(hub, dispatcher)
+    .Build();
 
-    var settingsTab = ComponentVM<TabModel>.Builder()
-        .Name("settings-tab")
-        .Model(new TabModel("Settings"))
-        .Services(hub, dispatcher)
-        .Build();
+var settingsTab = ComponentVM<TabModel>.Builder()
+    .Name("settings-tab")
+    .Model(new TabModel("Settings"))
+    .Services(hub, dispatcher)
+    .Build();
 
-    var tabs = CompositeVM<ComponentVM<TabModel>>.Builder()
-        .Name("tab-bar")
-        .Services(hub, dispatcher)
-        .Children(() => [homeTab, settingsTab])
-        .Build();
+var tabs = CompositeVM<ComponentVM<TabModel>>.Builder()
+    .Name("tab-bar")
+    .Services(hub, dispatcher)
+    .Children(() => [homeTab, settingsTab])
+    .Build();
 
-    tabs.Construct();
-    tabs.Current = settingsTab;
+tabs.Construct();
+tabs.Current = settingsTab;
 
-    public record TabModel(string Title);
-    ```
+public record TabModel(string Title);
+```
 
-=== "Python"
+## 3.1.2. Python
 
-    ```python
-    from dataclasses import dataclass
+```python
+from dataclasses import dataclass
 
-    from vmx.components import ComponentVMOf
-    from vmx.composites import CompositeVM
-    from vmx.messages import Message
-    from vmx.services import MessageHub, RxDispatcher
+from vmx.components import ComponentVMOf
+from vmx.composites import CompositeVM
+from vmx.messages import Message
+from vmx.services import MessageHub, RxDispatcher
 
-    @dataclass(frozen=True)
-    class TabModel:
-        title: str
+@dataclass(frozen=True)
+class TabModel:
+    title: str
 
-    hub: MessageHub[Message] = MessageHub()
-    dispatcher = RxDispatcher.immediate()
+hub: MessageHub[Message] = MessageHub()
+dispatcher = RxDispatcher.immediate()
 
-    home_tab = (
-        ComponentVMOf[TabModel].builder()
-        .name("home-tab")
-        .model(TabModel("Home"))
-        .services(hub, dispatcher)
-        .build()
-    )
+home_tab = (
+    ComponentVMOf[TabModel].builder()
+    .name("home-tab")
+    .model(TabModel("Home"))
+    .services(hub, dispatcher)
+    .build()
+)
 
-    settings_tab = (
-        ComponentVMOf[TabModel].builder()
-        .name("settings-tab")
-        .model(TabModel("Settings"))
-        .services(hub, dispatcher)
-        .build()
-    )
+settings_tab = (
+    ComponentVMOf[TabModel].builder()
+    .name("settings-tab")
+    .model(TabModel("Settings"))
+    .services(hub, dispatcher)
+    .build()
+)
 
-    tabs = (
-        CompositeVM[ComponentVMOf[TabModel]].builder()
-        .name("tab-bar")
-        .services(hub, dispatcher)
-        .children(lambda: [home_tab, settings_tab])
-        .build()
-    )
+tabs = (
+    CompositeVM[ComponentVMOf[TabModel]].builder()
+    .name("tab-bar")
+    .services(hub, dispatcher)
+    .children(lambda: [home_tab, settings_tab])
+    .build()
+)
 
-    tabs.construct()
-    tabs.current = settings_tab
-    ```
+tabs.construct()
+tabs.current = settings_tab
+```
 
-=== "TypeScript"
+## 3.1.3. TypeScript
 
-    ```ts
-    import { ComponentVMOf, CompositeVM, MessageHub, RxDispatcher } from "@thekaveh/vmx";
+```ts
+import { ComponentVMOf, CompositeVM, MessageHub, RxDispatcher } from "@thekaveh/vmx";
 
-    interface TabModel {
-      title: string;
-    }
+interface TabModel {
+  title: string;
+}
 
-    const hub = new MessageHub();
-    const dispatcher = RxDispatcher.immediate();
+const hub = new MessageHub();
+const dispatcher = RxDispatcher.immediate();
 
-    const homeTab = ComponentVMOf.builder<TabModel>()
-      .name("home-tab")
-      .model({ title: "Home" })
-      .services(hub, dispatcher)
-      .build();
+const homeTab = ComponentVMOf.builder<TabModel>()
+  .name("home-tab")
+  .model({ title: "Home" })
+  .services(hub, dispatcher)
+  .build();
 
-    const settingsTab = ComponentVMOf.builder<TabModel>()
-      .name("settings-tab")
-      .model({ title: "Settings" })
-      .services(hub, dispatcher)
-      .build();
+const settingsTab = ComponentVMOf.builder<TabModel>()
+  .name("settings-tab")
+  .model({ title: "Settings" })
+  .services(hub, dispatcher)
+  .build();
 
-    const tabs = CompositeVM.builder<ComponentVMOf<TabModel>>()
-      .name("tab-bar")
-      .services(hub, dispatcher)
-      .children(() => [homeTab, settingsTab])
-      .build();
+const tabs = CompositeVM.builder<ComponentVMOf<TabModel>>()
+  .name("tab-bar")
+  .services(hub, dispatcher)
+  .children(() => [homeTab, settingsTab])
+  .build();
 
-    tabs.construct();
-    tabs.current = settingsTab;
-    ```
+tabs.construct();
+tabs.current = settingsTab;
+```
 
-=== "Swift"
+## 3.1.4. Swift
 
-    ```swift
-    import VMx
+```swift
+import VMx
 
-    struct TabModel: Equatable {
-        let title: String
-    }
+struct TabModel: Equatable {
+    let title: String
+}
 
-    let hub = MessageHub()
-    let dispatcher = ImmediateDispatcher.INSTANCE
+let hub = MessageHub()
+let dispatcher = ImmediateDispatcher.INSTANCE
 
-    let homeTab = try ComponentVMOf<TabModel>.builder()
-        .name("home-tab")
-        .model(TabModel(title: "Home"))
-        .services(hub: hub, dispatcher: dispatcher)
-        .build()
+let homeTab = try ComponentVMOf<TabModel>.builder()
+    .name("home-tab")
+    .model(TabModel(title: "Home"))
+    .services(hub: hub, dispatcher: dispatcher)
+    .build()
 
-    let settingsTab = try ComponentVMOf<TabModel>.builder()
-        .name("settings-tab")
-        .model(TabModel(title: "Settings"))
-        .services(hub: hub, dispatcher: dispatcher)
-        .build()
+let settingsTab = try ComponentVMOf<TabModel>.builder()
+    .name("settings-tab")
+    .model(TabModel(title: "Settings"))
+    .services(hub: hub, dispatcher: dispatcher)
+    .build()
 
-    let tabs = try CompositeVM<ComponentVMOf<TabModel>>.builder()
-        .name("tab-bar")
-        .services(hub: hub, dispatcher: dispatcher)
-        .children { [homeTab, settingsTab] }
-        .build()
+let tabs = try CompositeVM<ComponentVMOf<TabModel>>.builder()
+    .name("tab-bar")
+    .services(hub: hub, dispatcher: dispatcher)
+    .children { [homeTab, settingsTab] }
+    .build()
 
-    try tabs.construct()
-    tabs.current = settingsTab
-    ```
+try tabs.construct()
+tabs.current = settingsTab
+```
 
-=== "Rust"
+## 3.1.5. Rust
 
-    ```rust
-    use vmx::{ComponentVm, CompositeVm, MessageHub, NullDispatcher, VmxResult};
+```rust
+use vmx::{ComponentVm, CompositeVm, MessageHub, NullDispatcher, VmxResult};
 
-    #[derive(Clone, PartialEq)]
-    struct TabModel {
-        title: String,
-    }
+#[derive(Clone, PartialEq)]
+struct TabModel {
+    title: String,
+}
 
-    fn main() -> VmxResult<()> {
-        let hub = MessageHub::new();
-        let dispatcher = NullDispatcher::new();
+fn main() -> VmxResult<()> {
+    let hub = MessageHub::new();
+    let dispatcher = NullDispatcher::new();
 
-        let home_tab = ComponentVm::with_model(
-            "home-tab",
-            TabModel { title: "Home".to_string() },
-            hub.clone(),
-            dispatcher,
-        );
-        let settings_tab = ComponentVm::with_model(
-            "settings-tab",
-            TabModel { title: "Settings".to_string() },
-            hub.clone(),
-            dispatcher,
-        );
+    let home_tab = ComponentVm::with_model(
+        "home-tab",
+        TabModel { title: "Home".to_string() },
+        hub.clone(),
+        dispatcher,
+    );
+    let settings_tab = ComponentVm::with_model(
+        "settings-tab",
+        TabModel { title: "Settings".to_string() },
+        hub.clone(),
+        dispatcher,
+    );
 
-        let tabs = CompositeVm::with_services("tab-bar", hub, dispatcher);
-        tabs.add(home_tab.clone())?;
-        tabs.add(settings_tab.clone())?;
+    let tabs = CompositeVm::with_services("tab-bar", hub, dispatcher);
+    tabs.add(home_tab.clone())?;
+    tabs.add(settings_tab.clone())?;
 
-        tabs.construct()?;
-        tabs.select_component(&settings_tab)
-    }
-    ```
+    tabs.construct()?;
+    tabs.select_component(&settings_tab)
+}
+```

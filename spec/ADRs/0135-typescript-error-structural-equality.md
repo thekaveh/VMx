@@ -1,6 +1,6 @@
 # ADR 0135 — Compare TypeScript `Error` form values by what structured cloning keeps
 
-- **Status:** Accepted
+- **Status:** Accepted (clarified by ADR-0152)
 - **Date:** 2026-10-01
 - **Spec version:** 3.24.0 (clarification)
 - **Clarifies:** [ADR-0048](0048-v3-form-vm-semantics.md),

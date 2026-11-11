@@ -4,6 +4,7 @@ VMx flagship example — Notes Workspace, the C# / Avalonia flavor. This
 cross-platform XAML app is built on Avalonia 12 + .NET 8. It drives a single
 `WorkspaceVM` that exercises 19 VMx features. The
 [parity matrix](../../../notes-showcase-parity.md) has the full feature table.
+
 The [VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)
 and the [VMx component map](../../../assets/notes-showcase-vmx-components.svg)
 show how the VMs compose. The C# host-specific diagram is
@@ -27,11 +28,19 @@ XAML loader call (`AvaloniaXamlLoader.Load(this)`), enforced by
 dotnet run --project examples/csharp/avalonia/NotesShowcase
 ```
 
-The app boots, awaits the simulated ~300 ms repository load, populates five
-seed notebooks (four root + one nested), and selects the first one. Headless
-smoke tests live under
-[`examples/csharp/avalonia/NotesShowcase.Tests/`](../NotesShowcase.Tests/)
-and run via `dotnet test`.
+The app needs the .NET 8 runtime. With only a newer runtime, set
+`DOTNET_ROLL_FORWARD=Major`. The app boots, awaits the simulated ~300 ms
+repository load, populates five seed notebooks (four root + one nested), and
+selects the first one.
+
+The model, VM, shared-scenario, and headless view tests live under
+[`examples/csharp/avalonia/NotesShowcase.Tests/`](../NotesShowcase.Tests/).
+The test project targets `net9.0`, so it needs a .NET 9 or later SDK and the
+.NET 9 runtime. Run the tests from the repository root:
+
+```bash
+dotnet test examples/csharp/avalonia/NotesShowcase.Tests
+```
 
 ## 2. Project layout
 
@@ -44,6 +53,7 @@ examples/csharp/avalonia/NotesShowcase/
 ├── Models/
 │   ├── NotebookModel.cs, NoteModel.cs
 │   ├── INoteRepository.cs, InMemoryNoteRepository.cs
+│   ├── NoteSearch.cs              ← shared note search rule (row 7)
 │   ├── SeedData.cs
 │   └── ThemeModel.cs              ← ThemeVM model (row 16)
 ├── ViewModels/

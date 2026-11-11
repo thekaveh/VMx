@@ -1,6 +1,6 @@
 # ADR 0023 — Paging (`IPageable` capability + `PagedComposition` helper)
 
-**Status:** Accepted (2026-05-27)
+**Status:** Accepted (2026-05-27; clarified by ADR-0114)
 **Spec version:** introduced in 2.1.0
 
 ## 1. Context

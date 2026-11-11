@@ -13,13 +13,28 @@ primitives.
   [examples/notes-showcase-scenario.json](../../../examples/notes-showcase-scenario.json)
   (workspace lifecycle) and
   [examples/notes-showcase-theme-scenario.json](../../../examples/notes-showcase-theme-scenario.json)
-  (`THEME-001`..`THEME-005`)
+  (the THEME scenario IDs)
 - VM hierarchy diagram source:
   [examples/assets/notes-showcase-vm-hierarchy.svg](../../../examples/assets/notes-showcase-vm-hierarchy.svg)
 - Scenario proposal:
   [spec/proposals/2026-05-29-notes-showcase-scenario.md](../../../spec/proposals/2026-05-29-notes-showcase-scenario.md)
 
 ## 8.3.2. Flavor Hosts
+
+Start these commands from the repository root:
+
+| Host               | Command                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| C# / Avalonia      | `dotnet run --project examples/csharp/avalonia/NotesShowcase`                      |
+| Python / Textual   | `uv run --project examples/python/textual/notes_showcase python -m notes_showcase` |
+| TypeScript / React | `cd examples/typescript/react/notes-showcase && npm ci && npm run dev`             |
+| Swift / SwiftUI    | `cd examples/swift/notes-showcase && swift build && swift test`                    |
+
+The React command builds the local VMx package and then serves the app at
+`http://localhost:5173`. The Swift command builds and tests the package on
+macOS. `swift test` and the SwiftUI app target need a full Xcode installation.
+
+Each host README gives the project layout, the tests, and the other commands:
 
 - C# / Avalonia:
   [examples/csharp/avalonia/NotesShowcase/README.md](../../../examples/csharp/avalonia/NotesShowcase/README.md)
@@ -34,7 +49,7 @@ primitives.
 
 The portfolio is the working example for the four UI-backed flagship hosts:
 
-- notebook tree projection representing the `HierarchicalVM` capability
+- a notebook tree with the `HierarchicalVM` tree contract
 - selectable notes list through an app-owned `current` slot
 - strict `FormVM` editing and validation
 - `DerivedProperty` status and enablement
@@ -44,12 +59,12 @@ The portfolio is the working example for the four UI-backed flagship hosts:
 
 ## 8.3.4. Important Modeling Note
 
-The flagship notebooks tree does not subclass `HierarchicalVM`. All four
-UI-backed examples use flat `ComponentVM`-based adapters. These adapters
-represent the `HierarchicalVM` capability and keep its tree messaging contract.
+The TypeScript host builds the notebooks tree from `HierarchicalVM` nodes, with
+a `TreeSelection` for the current notebook. The C#, Python, and Swift hosts use
+flat `ComponentVM`-based parent-id adapters instead. These adapters keep the
+same observable tree contract, including `TreeStructureChangedMessage`.
 
-Use the parity matrix for row-by-row feature coverage. Use each flavor README
-for project layout and run commands.
+Use the parity matrix for row-by-row feature coverage.
 
 ## 8.3.5. Swift Foreground Contract
 

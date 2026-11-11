@@ -113,12 +113,24 @@ returns an empty list; a caller subscribes to `pending_stream()` instead
 - Implementations MAY emit an immutable copy of the list, or a stable
   reference; consumers MUST NOT mutate the emitted list.
 - Dispose sends no snapshot of its own. Snapshots queued before dispose are
-  delivered in order, and then `Pending` completes once (§9).
+  delivered in order, and then `Pending` completes once (§2.4).
 - A subscription made after `dispose` returns receives completion only. It
   receives no snapshot and no error, and the subscribe call does not raise. A
   subscription that races a dispose on another thread MAY first receive the
   current snapshot (ADR-0197). Rust applies both rules to `pending_stream()`.
   Rust dispose also sends no `pending` message on `pending_changed()`.
+
+### 2.4 Hub disposal
+
+Every flavor follows these rules (ADR-0037, ADR-0197):
+
+- Disposing the hub resolves every in-flight `Post` awaitable with
+  `NotificationReaction.Pending`.
+- Disposal completes the `Pending` observable once, with no final snapshot
+  (§2.3).
+- After disposal, a `Post` call returns an immediately-`Pending` result and
+  enqueues nothing, and a `Resolve` call is a no-op.
+- A second dispose has no effect.
 
 ## 3. Null variant — `NullNotificationHub`
 
@@ -139,7 +151,7 @@ because they read its record of each resolution and reaction (ADR-0211).
 
 The notifications package SHOULD also expose a small helper that adapts an
 `INotificationHub` confirmation flow to the `ConfirmDelegate` shape used by
-`ConfirmationDecoratorCommand` (see spec/04-commands.md §Decorators):
+`ConfirmationDecoratorCommand` (see chapter 04 §8.3):
 
 ```
 make_confirm(hub: INotificationHub, prompt: string) -> Func<Task<bool>>
@@ -194,8 +206,10 @@ system scheduler; tests pass a `TestScheduler` / fake clock for deterministic
 time advancement. Chapter 11 §6.1 lists the scheduler and the virtual-time test
 scheduler of each flavor. The VM reads the elapsed time from the scheduler's
 `now` and arms its lifespan timer on that scheduler. Rust takes the scheduler
-in `with_scheduler`, and its `new` and `with_hub` conveniences use
-`SystemScheduler`. A Rust test advances a `VirtualTimeScheduler` (ADR-0219).
+in `with_scheduler(notification, hub, scheduler, lifespan_ms)`. Its
+`with_hub(notification, hub, lifespan_ms)` and `new(notification)`
+conveniences use `SystemScheduler`. A Rust test advances a
+`VirtualTimeScheduler` (ADR-0219).
 
 Swift takes any `NotificationScheduler`, a Combine `Scheduler` that also
 converts the interval between two of its instants to seconds. VMx conforms
@@ -321,9 +335,9 @@ resolves its notification through it. A view binds to `vms`; a component VM
 that owns the list can expose it as a property.
 
 Rust exposes the stream as `pending_stream()` and the current list as
-`pending()`; the other flavors expose `Pending` as an observable. Rust builds a
-`NotificationVm` with `with_scheduler(notification, hub, scheduler, lifespan_ms)`, or with `with_hub(notification, hub, lifespan_ms)`, which uses
-`SystemScheduler` (chapter 11 §6.1).
+`pending()`; the other flavors expose `Pending` as an observable. Rust builds
+each `NotificationVm` with the constructors that §6 names.
+
 Rust `NotificationVm` and `ConfirmationVm` have `dispose()`, as in the other
 flavors (ADR-0178). Call it when the entry leaves the list. Dropping the entry
 does not make a kept command inert: a kept command still resolves the hub until
@@ -335,28 +349,22 @@ no new spec primitive is introduced.
 
 ## 9. Conformance
 
-`NOTIF-001` through `NOTIF-010` in `12-conformance.md` cover the
-`INotificationHub` contract, the null variant, the type/reaction enums, and
-the command-decorator bridge.
+Chapter 12 §19 holds the `NOTIF` IDs, and §30 holds the `DISP` IDs. The table
+maps each ID to the rules of this chapter, and chapter 12 states the behavior
+of each ID.
 
-`NOTIF-011` through `NOTIF-016` cover the rendering VMs (`NotificationVM` and
-`ConfirmationVM`) introduced in spec v2.1 (ADR-0031).
-
-`NOTIF-017` (added in v2.5.0 via ADR-0037) covers hub disposal: disposing the
-hub resolves every in-flight `Post` awaitable with
-`NotificationReaction.Pending`, completes the `Pending` observable with no
-final snapshot (ADR-0197), turns subsequent `Post` calls into
-immediately-`Pending` results that do not enqueue, makes subsequent `Resolve`
-calls no-ops, and is idempotent. These were previously C#-only shutdown
-semantics; all flavors now share them.
-
-`NOTIF-019` covers the render state after resolution or disposal (§6), and
-`NOTIF-020` covers a `Pending` subscription made after dispose (§2.3). Both
-were added in v3.30.0 via ADR-0197.
-
-`NOTIF-018` (added in v3.30.0 via ADR-0196) covers the commands of a rendering
-VM during its disposal (§6.2).
-
-`DISP-003` adds concurrent/re-entrant at-most-once teardown for the hub, while
-`DISP-004` covers repeated rendering-VM/interaction-owner disposal. Both retain
-the existing first-resolution and post-dispose rules (ADR-0084).
+| IDs                                                | Rules                                                   |
+| -------------------------------------------------- | ------------------------------------------------------- |
+| `NOTIF-001`..`NOTIF-003`                           | §2.1 `Post`, §2.2 `Resolve`, §2.3 `Pending`             |
+| `NOTIF-004`, `NOTIF-005`                           | §1 primitives                                           |
+| `NOTIF-006`..`NOTIF-008`                           | §2.2 `Resolve` semantics                                |
+| `NOTIF-009`                                        | §3 `NullNotificationHub`                                |
+| `NOTIF-010`                                        | §4 bridging command decorators                          |
+| `NOTIF-011`, `NOTIF-012`, `NOTIF-014`..`NOTIF-016` | §6 `NotificationVM`, §6.1 lifespan timeline (ADR-0031)  |
+| `NOTIF-013`                                        | §7 `ConfirmationVM` (ADR-0031)                          |
+| `NOTIF-017`                                        | §2.4 hub disposal (ADR-0037, ADR-0197)                  |
+| `NOTIF-018`                                        | §6.2 commands during disposal (ADR-0196)                |
+| `NOTIF-019`                                        | §6 render state after resolution or disposal (ADR-0197) |
+| `NOTIF-020`                                        | §2.3 a `Pending` subscription after dispose (ADR-0197)  |
+| `DISP-003`                                         | §2.4 hub disposal                                       |
+| `DISP-004`                                         | §6 and §7 repeated rendering-VM disposal                |

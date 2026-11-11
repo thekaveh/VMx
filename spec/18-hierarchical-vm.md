@@ -77,6 +77,24 @@ graph TD
     B --> BA
 ```
 
+### 2.1 `HierarchicalVMBuilder<M, VM>`
+
+`HierarchicalVMBuilder<M, VM>` follows the builder rules of chapter 10
+(ADR-0035). `Build()` requires `Model`, `ChildrenFactory`, and
+`Services(hub, dispatcher)`. C#, TypeScript, and Swift also require the VM
+factory (`VmFactory` / `vmFactory`). Python's `vm_factory` is optional and
+defaults to `HierarchicalVM`, and Rust has no VM factory.
+
+A missing required field raises `BuilderValidationException` (C#),
+`BuilderValidationError` (Python, TypeScript, Swift), or
+`VmxError::BuilderValidation` (Rust). The message names the missing field.
+
+The optional fields default to `Hint == ""`, `Name == typeof(TVM).Name` (or
+the flavor-idiomatic equivalent), and `EagerChildren == false`. The root's
+children therefore materialize lazily on first access (§4). Repeated identical `Build()`
+calls produce independent root nodes that share the configured `Model`,
+`Hint`, and eager or lazy children policy.
+
 ## 3. Construction order
 
 **Depth-first.** A parent's `Status` transitions to `Constructed` only after
@@ -116,8 +134,12 @@ Factory hydration is a snapshot/preflight/commit transaction (ADR-0127). The
 complete result is materialized before mutation and MUST contain only distinct,
 detached object identities. A null-like entry, duplicate identity, this node or
 one of its ancestors, or any node with a non-null parent rejects the complete
-snapshot. Rejection installs no cache, changes no parent/path state, publishes
-no message, and a later access retries the factory. A valid snapshot is cached
+snapshot.
+
+Rejection installs no cache, changes no parent/path state, publishes
+no message, and a later access retries the factory.
+
+A valid snapshot is cached
 in factory order and its parent backpointers are assigned silently. Factory
 hydration never transfers a node; use `AddChild` for explicit transfer.
 If the factory re-enters a structural operation on its receiver, including
@@ -466,108 +488,19 @@ hub message. A host maps `Current` to a route or a detail view.
 
 ## 11. Conformance
 
-- `HIER-001` — Recursive generic constraint compiles per flavor with the bound
-  type parameter. Rust builds a three-level tree of a consumer node-data type
-  and reads it from `children()`, `parent()` and `path()` (ADR-0202).
-- `HIER-002` — `Parent` is null for the root and a `TVM` reference for every
-  non-root node.
-- `HIER-003` — `Depth` derivation: root is 0; child is parent + 1.
-- `HIER-004` — `Path` materialization: returns a read-only sequence
-  `root, …, self`; identity-equal to a fresh recompute when nothing changed.
-- `HIER-005` — `IsLeaf` and `IsRoot` derivation match `Parent`/`Children`
-  state.
-- `HIER-006` — `IsFirst` and `IsLast` position predicates.
-- `HIER-007` — Default lazy child loading: `Children` is not materialized until
-  first access.
-- `HIER-008` — Eager child loading: `eagerChildren=true` (C# / TS) /
-  `eager_children=True` (Python) / `eagerChildren: true` (Swift) constructor
-  option, or the Rust builder method `eager_children(true)`, materializes and
-  constructs this node's children at construct. Construction continues deeper
-  only through children that are eager themselves.
-- `HIER-009` — Depth-first construction: a parent reports `Constructed` only
-  after every (eager) descendant.
-- `HIER-010` — `PropertyChangedMessage` on `Parent` change.
-- `HIER-011` — `TreeStructureChangedMessage` on add / remove / reparent.
-- `HIER-012` — `walk_expanded` honors lazy boundaries when an `ExpandableState`
-  gate is composed.
-- `HIER-013` — Composition with `SearchableState` filters the materialized
-  portion.
-- `HIER-014` — Composition with `ModeledCrudCommands` mutates the tree.
-- `HIER-015` — `HierarchicalVMBuilder<M, VM>.Build()` validates the required
-  fields `Model`, `ChildrenFactory`, and `Services(hub, dispatcher)`. C#,
-  TypeScript, and Swift also require the VM factory (`VmFactory` /
-  `vmFactory`); Python's `vm_factory` is optional and defaults to
-  `HierarchicalVM`, and Rust has no VM factory. A missing field raises
-  `BuilderValidationException` (C#) / `BuilderValidationError` (Python,
-  TypeScript, Swift) / `VmxError::BuilderValidation` (Rust) with a message
-  identifying the missing field (added in v2.3 via ADR-0035).
-- `HIER-016` — `HierarchicalVMBuilder<M, VM>` repeated identical `Build()`
-  calls produce independent root nodes that share the same configured
-  `Model`, `Hint`, and eager / lazy children policy.
-- `HIER-017` — `HierarchicalVMBuilder<M, VM>` field defaults applied when
-  not set: `Hint == ""`, `Name == typeof(TVM).Name` (or the flavor-idiomatic
-  equivalent), and `EagerChildren == false` (so the root's children
-  materialize lazily on first access).
-- `HIER-018` — `ReparentChild` and `AddChild` reject self- and
-  ancestor-reparenting without mutation or messages (Swift
-  `HierarchyError.invalidReparent`, Rust `VmxError::InvalidArgument`); `AddChild` performs an
-  atomic identity-based transfer when the child already has another parent
-  (extended in v3.20.1 via ADR-0105).
-- `HIER-019` — `InvalidateChildren` drops the cached child list; the next
-  `Children` access invokes the factory again.
-- `HIER-020` — `InvalidateChildren` on an unmaterialized node is a no-op and
-  does not invoke the factory.
-- `HIER-021` — `InvalidateSubtree` invalidates this node and all materialized
-  descendants.
-- `HIER-022` — Child-cache invalidation publishes a `PropertyChangedMessage`
-  for the children property.
-- `HIER-023` — Child-before-parent chains resolve to a fixpoint with stable
-  sibling input order and ordinary structural invariants.
-- `HIER-024` — Multiple root-sentinel items attach directly beneath the
-  structural root in input order.
-- `HIER-025` — Duplicate keys within a batch, against the materialized tree,
-  and across repeated batches never throw or replace the authoritative node.
-- `HIER-026` — `park` retains a missing-parent item and a later batch resolves
-  it when the parent arrives.
-- `HIER-027` — `reject` returns a missing-parent orphan without retaining it.
-- `HIER-028` — Parent-key cycles are terminal typed rejections and are not
-  parked as orphans.
-- `HIER-029` — Every non-added item has a typed rejection; selector/attachment
-  failures are contained and parent links remain atomic.
-- `HIER-030` — Disposing the structural root clears its parked batch state.
-- `HIER-031` — Factory hydration preflights the complete ordered snapshot and
-  either attaches distinct detached nodes silently or rejects atomically with
-  no cache, parent/path, or message mutation; rejection remains retryable.
-- `HIER-032` — A factory that re-enters a structural operation on its receiver
-  rejects the complete hydration attempt without mutation or messages; a later
-  access retries normally.
-- `HIER-033` — `TreeSelection` selects a member, ignores a repeated select or
-  clear, and publishes each effective change once, in order, also when a
-  subscriber selects again (§10, ADR-0164).
-- `HIER-034` — `TreeSelection` rejects a detached node, a node of another tree
-  and a disposed member without changing `Current` or invoking a factory.
-- `HIER-035` — Removing the current node or an ancestor clears the selection.
-- `HIER-036` — Transferring an ancestor out of the tree clears the selection,
-  also across hubs; a move inside the tree keeps it.
-- `HIER-037` — Invalidating an ancestor's child cache clears the selection.
-- `HIER-038` — Disposing the current node or an ancestor clears the selection.
-- `HIER-039` — Selection does not materialize, construct, move or mark a node
-  and publishes no hub message.
-- `HIER-040` — A disposed `TreeSelection` completes its stream, reads null and
-  ignores later calls and tree changes.
-- `HIER-041` — A disposed node refuses every structural call, also a call that
-  would do nothing, without mutation or messages. A transfer from a disposed
-  parent refuses. `AttachMany` rejects a candidate under a disposed parent, and
-  `InvalidateSubtree` skips a disposed descendant (§7.1, ADR-0190).
-- `HIER-042` — An attached candidate's materialized subtree joins the batch
-  index, so a later candidate can attach below any node of it; a parent key
-  that names the candidate's own descendant is a `Cycle` (ADR-0212).
-- `HIER-043` — A descendant key of a candidate that equals a key in the index
-  or an earlier claim in the batch rejects the candidate as
-  `DuplicateExistingKey` or `DuplicateBatchKey` without attaching it; a
-  descendant `keyOf` failure is `SelectorFailed` and keeps a parked candidate
-  parked; a node of an earlier candidate's subtree is `AlreadyAttached` in
-  either batch order.
-- `HIER-044` — Children that `AddChild` materializes from a lazy factory do not
-  join the index during that batch; the next batch resolves a candidate aimed
-  at one of them.
+Chapter 12 §25 holds the `HIER` IDs. The table maps each ID to the rules of
+this chapter, and chapter 12 states the behavior of each ID.
+
+| IDs                                            | Rules                                                      |
+| ---------------------------------------------- | ---------------------------------------------------------- |
+| `HIER-001`..`HIER-006`                         | §2 shape                                                   |
+| `HIER-007`, `HIER-008`, `HIER-031`, `HIER-032` | §4 lazy vs eager children and factory hydration (ADR-0127) |
+| `HIER-009`                                     | §3 construction order                                      |
+| `HIER-010`, `HIER-011`                         | §7 hub messages, §8 `TreeStructureChangedMessage`          |
+| `HIER-012`..`HIER-014`                         | §9 integration                                             |
+| `HIER-015`..`HIER-017`                         | §2.1 `HierarchicalVMBuilder<M, VM>` (ADR-0035)             |
+| `HIER-018`                                     | §7 structural mutators (ADR-0037, ADR-0105)                |
+| `HIER-019`..`HIER-022`                         | §5 child-cache invalidation                                |
+| `HIER-023`..`HIER-030`, `HIER-042`..`HIER-044` | §6 key-aware batch attachment (ADR-0212)                   |
+| `HIER-033`..`HIER-040`                         | §10 tree selection (ADR-0164)                              |
+| `HIER-041`                                     | §7.1 disposed nodes (ADR-0190)                             |
