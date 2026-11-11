@@ -160,6 +160,8 @@ properties on `ComponentVMBase`, so the nearest overridable analog is
 - `FWD-004` — bare and multiply decorated aliases retain one transferable owner
 - `FWD-005` — resources registered through a decorator belong to the wrapped
   component
+- `FWD-006` — decorator notification helpers emit through the wrapped
+  component
 
 ## 6.2.7.8. Related Primitives
 

@@ -208,10 +208,8 @@ Canonical relay-command shape, closing the current tab of a composite:
     ```
 
 The same normative command structure appears in all five flavors, with casing
-and trait-import changes. The
-[Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-records Rust command-disposal and thread-free confirmation evidence. The Notes Workspace editor and
-delete flows are concrete examples.
+and trait-import changes. The Notes Workspace editor and delete flows are
+concrete examples.
 
 To bind a form's approval, bind `form.approveCommand` directly. Its
 `CanExecute` turns false while a save is in flight (ADR-0143).

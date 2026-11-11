@@ -4,7 +4,7 @@ Wire a `ComponentVMOf<M>` to a Svelte component through a custom store or
 through Svelte 5 runes (`$props`, `$derived`, `$effect`). The store uses only
 the `svelte/store` contract shared with Svelte 4; it is tested on Svelte 5.
 
-## 9.10.1. Reactivity primitive
+## 9.10.1. Reactivity Primitive
 
 - **Store:** any object with a `subscribe(run)` method that returns an
   unsubscribe function is a store, and `$store` in a component subscribes to
@@ -33,7 +33,7 @@ A [`republishModel()` announcement keeps the same reference](index.md#914-republ
 A store's `set` always notifies for objects, and the runes component wraps
 each value in a new object, so both render the mutation.
 
-## 9.10.3. Adapter skeleton — store
+## 9.10.3. Adapter Skeleton — Store
 
 The store and component below are the exact files run by
 `examples/typescript/integration-recipes` against `svelte` 5, the major version
@@ -107,7 +107,7 @@ with the first value. All subscribers share the one hub subscription; the last
 unsubscribe releases it. Because Svelte keeps the old value while nobody is
 subscribed, the next subscriber gets a fresh read instead of that stale value.
 
-## 9.10.4. Adapter skeleton — Svelte 5 runes
+## 9.10.4. Adapter Skeleton — Svelte 5 Runes
 
 This recipe needs Svelte 5.25 or later: its effect assigns to a `$derived`
 value, and Svelte 5.25 made derived values writable. Earlier Svelte 5 releases
@@ -170,7 +170,7 @@ new VM or hub runs the cleanup, which unsubscribes from the old hub, and then
 subscribes to the new one. Its catch-up assignment covers changes made between
 the render and the subscription.
 
-## 9.10.5. Failures and disposed sources
+## 9.10.5. Failures And Disposed Sources
 
 - **Setup failure:** if the hub stream cannot be subscribed, or the store's
   catch-up read throws, the error propagates out of `subscribe` (the store) or
@@ -188,7 +188,7 @@ the render and the subscription.
   view keeps showing the retained model, and a reconnecting store reads that
   model. Destroying the component still releases the subscription.
 
-## 9.10.6. Fuller example
+## 9.10.6. Fuller Example
 
 There is no Svelte Notes-Showcase. The runnable reference is
 `examples/typescript/integration-recipes`. For a packaged adapter, see the

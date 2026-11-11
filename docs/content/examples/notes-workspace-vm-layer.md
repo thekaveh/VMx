@@ -28,9 +28,10 @@ Rust-specific adapter rather than one of the four UI-backed flagship hosts:
 
 - `WorkspaceVM` is the composition root. It wraps an `AggregateVM6` over the
   six primary children.
-- `NotebooksRootVM` and `NotebookVM` project the notebook tree through flat
-  `ComponentVM`-based adapters that preserve `TreeStructureChangedMessage`
-  behavior.
+- `NotebooksRootVM` and `NotebookVM` project the notebook tree. TypeScript
+  uses `HierarchicalVM` nodes and a `TreeSelection`. C#, Python, and Swift use
+  flat `ComponentVM`-based adapters that keep the
+  `TreeStructureChangedMessage` behavior.
 - `NotesViewVM` owns selection, filtering, and paging over notes.
 - `NoteFormVM` owns edit/revert, validation, tag suggestions, and
   edit-versus-preview mode.
@@ -41,8 +42,6 @@ Rust-specific adapter rather than one of the four UI-backed flagship hosts:
 
 - Parity matrix:
   [examples/notes-showcase-parity.md](../../../examples/notes-showcase-parity.md)
-- Architecture gallery version of this diagram:
-  [Diagram Gallery](../architecture/diagram-gallery.md)
 - Flavor READMEs:
   [C#](../../../examples/csharp/avalonia/NotesShowcase/README.md),
   [Python](../../../examples/python/textual/notes_showcase/README.md),

@@ -23,7 +23,7 @@ Install the targets from npm as the [installation page](../installation.md)
 shows. To consume an unreleased source line, use packed tarballs (section
 3.7.6). Each recipe states the versions it applies to.
 
-## 3.7.2. Remove redundant `hub` members
+## 3.7.2. Remove Redundant `hub` Members
 
 **From** core before 3.10.0 **to** core 3.30.0.
 
@@ -66,7 +66,7 @@ class RunVM extends ComponentVMOf<Run> {
 Keep an `override get hub()` only when it adds behavior; a getter that merely
 returns the injected hub is redundant.
 
-## 3.7.3. Replace property-list hooks with selector projections
+## 3.7.3. Replace Property-List Hooks With Selector Projections
 
 **From** consumer-local binding hooks **to** `@thekaveh/vmx-react` 0.1.1 over
 core 3.24.1 or later.
@@ -104,7 +104,7 @@ For several VMs on one hub, select from a shared `createVmxStore(hub)` with
 `useVmx(store, selector, shallowEqual)`, as the
 [React integration guide](../integration/react.md) shows.
 
-## 3.7.4. Treat list snapshots as read-only
+## 3.7.4. Treat List Snapshots As Read-Only
 
 **From** consumer-local list hooks **to** `@thekaveh/vmx-react` 0.1.1.
 
@@ -129,7 +129,7 @@ const items = useObservableList(list);
 const sorted = [...items].sort((left, right) => left - right);
 ```
 
-## 3.7.5. Keep consumer-specific wrappers local
+## 3.7.5. Keep Consumer-Specific Wrappers Local
 
 Some wrappers encode product rules, so VMx does not ship them. Keep them in
 the consumer:
@@ -159,7 +159,7 @@ The fixture checks that two components using this cache share one hub
 subscription and release it when they unmount, and that a focused `useVm`
 binding releases its subscription on unmount.
 
-## 3.7.6. Install packed tarballs, not a live directory link
+## 3.7.6. Install Packed Tarballs, Not A Live Directory Link
 
 **From** a directory link to a VMx checkout **to** packed tarballs of core
 and adapter, when consuming an unreleased source line.
@@ -169,7 +169,7 @@ dependency beside the application's React. In a React 18 application, this
 fails with an invalid hook call. A packed tarball has the same shape npm
 publishes and carries no development dependencies.
 
-The TypeScript tab of the [installation page](../installation.md) gives the
+The TypeScript section of the [installation page](../installation.md) gives the
 complete build, pack, and install sequence, including the peer packages. For
 published versions, use plain `npm install`.
 
@@ -179,7 +179,7 @@ No codemod ships. A codemod needs defined syntax boundaries, idempotent output,
 a dry-run review mode, and at least two validated consumer migrations. The
 recipes above are the supported migration path.
 
-## 3.7.8. Other flavors
+## 3.7.8. Other Flavors
 
 These recipes cover TypeScript and React only. Other flavors do not
 necessarily break in the same way. Each flavor records its own migration notes
