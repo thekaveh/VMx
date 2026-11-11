@@ -15,7 +15,7 @@ ______________________________________________________________________
 ## 3.2.1. Install
 
 Add VMx as described in [Installation](../installation.md). The NuGet package
-is not published, so the C# tab there references the VMx project from a
+is not published, so the C# section there references the VMx project from a
 checkout. This tutorial needs only the core `VMx` project; section 3.2.2.2 adds
 the optional dependency-injection project.
 
