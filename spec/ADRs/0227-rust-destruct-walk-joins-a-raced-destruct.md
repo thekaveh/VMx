@@ -78,13 +78,13 @@ join. The rule follows ADR-0218 rule 6.
    action in that gap published `Destructed` over a `Constructed` child, and
    the check's failure was dropped. The settle path is shared by every walk
    that waits on a child, so the window is not specific to the join. The join's
-   failing case reaches it. With the walk paused as the regression tests pause
-   it, the develop body of `child_settled` failed 7 times in 300 runs of
-   `destruct_start_race`, and the body in this ADR failed 0 times in 300. The
-   deterministic test `leaf_walk_action_ending_during_a_failed_settle_check_rolls_back`
-   (§4) holds the failed check on the other thread and ends the leaf's action
-   during it. With the develop body it fails 100 of 100 runs, and with this body
-   it passes 300 of 300.
+   failing case reaches it. The window is timing-dependent, and the join tests
+   reproduced it only intermittently in stress runs. The deterministic test
+   `leaf_walk_action_ending_during_a_failed_settle_check_rolls_back` (§4) holds
+   the failed check on the other thread and ends the leaf's action during it,
+   so it does not depend on timing. On 2026-11-12 it failed 300 of 300 runs
+   with the develop body of `child_settled`, and it failed 0 of 300 runs with
+   the body in this ADR.
 
 This amends ADR-0218 §2.3, which deferred the Rust destruct-walk join, and §3,
 which said the Rust destruct walks keep their missing join. ADR-0218 rule 6
@@ -110,9 +110,10 @@ stays as written.
 - The channel depends on whether the walk learns of the failure before its
   call returns. A failure that lands between the join's status read and its
   registration is seen by the walk at once, and the call returns the settle
-  message as an `Err`. When the join is registered first, the call returns
-  `Ok`, and the failure is reported as above. The rollback to `Constructed`
-  is the same in both cases.
+  message as an `Err` (`walk_joins_a_destruct_that_fails_before_its_wait_registers`,
+  §4). When the join is registered first, the call returns `Ok`, and the failure
+  is reported as above (`walk_joins_a_destruct_that_fails_and_reports_it_in_background`).
+  The rollback to `Constructed` is the same in both cases.
 - A destruct refused from `Destructing` whose child fails before the check is
   not joined, because the check sees `Constructed`. The walk keeps the refusal,
   `InvalidLifecycleTransition { from: Destructing }`, and the call fails with
@@ -145,51 +146,80 @@ caller-visible outcome. Three further reasons apply to this change:
 
 The regression tests in `langs/rust/tests/conformance/destruct_start_race.rs`
 cover the join for `CompositeVm`, `GroupVm`, `AggregateVm1` to `AggregateVm6`,
-and the `ComponentVm` leaf walk (`ChildTransitions`). Each container has three
+and the `ComponentVm` leaf walk (`Leaf` in the file). Each container has three
 cases. In the first, the other destruct is still in flight when the walk
 checks. In the second, the other destruct finishes before the walk checks. In
-the third, the other destruct fails, so the outcome in §3 applies. The harness
-pauses the walk at three points. It pauses before the walk's call (`Entry`),
-at the refused call (`Refusal`), and after the walk registers its join
-(`Settle`). The in-flight and failing cases release the other destruct only
-after the walk has registered its join, so the join is in flight when the
-other destruct ends. The composite and group cascade tests cover item 3 of §2,
-the refusal from the inline dispose cascade. ADR-0218 §2.3 used regression
-tests for rules 3 to 6 in the same way.
+the third, the other destruct fails after the walk has registered its wait, so
+the background outcome in §3 applies. Four of them (`CompositeVm`, `GroupVm`,
+`AggregateVm1` and the leaf walk) have a fourth case: the other destruct fails
+before the walk registers its wait. The walk then learns of the failure at
+once, and its call returns the settle error as `Err`, the other outcome in §3.
+The harness pauses the walk at `Entry` (before the call), `Refusal` (after the
+refused call), `Register` (before its wait is registered) and `Settle` (after
+it is registered). The join cases use `Entry`, `Refusal` and `Register` or
+`Settle`. The in-flight and failing cases release the other destruct only after
+the walk has registered its wait, so the join is in flight when the other
+destruct ends. The composite and group cascade tests cover item 3 of §2, the
+refusal from the inline dispose cascade. ADR-0218 §2.3 used regression tests
+for rules 3 to 6 in the same way.
 
 Two more tests pin the rest of this change. The leaf walk
 `leaf_walk_action_ending_during_a_failed_settle_check_rolls_back` holds its
 action after the join is registered. It then holds the failed settle check on
-the other thread, ends the action during the check, and so pins §2.8 without
-stress. The `composite_dispose_during_a_joined_destruct_ends_disposed`, group and
-aggregate1 tests dispose the container while a joined destruct is in flight. The
-dispose is held at the child's dispose, after the container has abandoned its
-wait. The container ends `Disposed`, and no rollback is reported.
+the other thread (`Check`), ends the action during the check, and so pins §2.8
+without stress. The `composite_dispose_during_a_joined_destruct_ends_disposed`,
+group and aggregate1 tests dispose the container while a joined destruct is in
+flight. The dispose is held at the child's dispose (`Dispose`), after the
+container has abandoned its wait. The container ends `Disposed`, and no rollback
+is reported.
+
+The checks in a scratch worktree on 2026-11-12 show what each test pins. With
+only the §2.8 change reverted, the settle test fails 300 of 300 runs, and every
+other test in the file passes, the dispose tests included, because they never
+reach the settle window. On develop's runtime, which has no join, 35 of the 37
+tests fail. The two that pass are the cascade refusal tests, which pin the
+refusal develop already has. The dispose tests fail there at their join pause,
+because develop never registers the join. So the dispose tests pin the join,
+and the settle test pins §2.8.
 
 ## 5. Known divergence
 
-Python's `_destruct_future` in `langs/python/src/vmx/components/base.py`
-re-raises a refused destruct when the destruct finished between the refusal and
-the join check. C# and Swift accept that case, and so does Rust under this ADR.
-A probe on 2026-11-12 confirmed the Python behavior. The root's `destruct()`
-raised `StatusTransitionError` and rolled back to `Constructed`. The Python
-race test in `langs/python/tests/unit/composites/test_construct_start_race.py`
-covers only the in-flight join. Python keeps its behavior in this change.
-Closing the gap is a Python change, and it needs its own test. CLAUDE.md §1
-requires this divergence to be recorded. The parity ledger (§12.14) cites this
-section.
+Python's deferred join failure differs from C# in what the caller sees. A probe
+on 2026-11-12 held a child's destruct in flight, joined it from a composite's
+`destruct()`, and then failed the child's destruct. The composite's `destruct()`
+returned normally, and the composite rolled back to `Constructed`. The child's
+error reached neither the caller nor `background_errors()`. The walk's future
+fails inside `_transition_children`, and `_complete_deferred_lifecycle` consumes
+that failure as a rollback only. spec/02 §2.5 already records that non-C# flavors
+expose no async lifecycle waiter for a deferred hook failure. This ADR does not
+change Python.
 
-Swift's deferred join failure differs in one more way. Its walker resolves a
-child failure that arrives after the walk's call returned to a rollback, with no
-error at the call. Its comment says it has no caller to rethrow to
-(`ChildTransitionWalker.continueWalk()`). C# delivers the same failure through the
-walk's returned task. Python fails the walk's future. This ADR does not change
-Swift.
+Swift's deferred join failure gives the same result. Its walker resolves a child
+failure that arrives after the walk's call returned to a rollback, with no error
+at the call. Its comment says it has no caller to rethrow to
+(`ChildTransitionWalker.continueWalk()`). This ADR does not change Swift.
+
+C# delivers the same failure through the walk's returned task. Rust reports it
+on `background_errors()`, or returns the settle error when the walk learns of it
+before the call returns (§3). The rollback to `Constructed` is the same in every
+flavor. The caller-visible channel is not, and spec/02 §6 says so.
+
+Python also re-raises a refused destruct when the destruct finished between the
+refusal and the join check. `_destruct_future` calls `_join_raced_transition`,
+which returns `None` once the destruct has finished, and then the refusal is
+re-raised. A probe on 2026-11-12 confirmed it: the root's `destruct()` raised
+`StatusTransitionError` and rolled back to `Constructed`. C# and Swift accept
+that case, and so does Rust under this ADR. The Python race test in
+`langs/python/tests/unit/composites/test_construct_start_race.py` covers only the
+in-flight join. Python keeps its behavior in this change. CLAUDE.md §1 requires
+these divergences to be recorded. The parity ledger (§12.14) cites this section.
 
 Follow-ups, not in this change:
 
 - Python joins a destruct that finished between its refusal and its join check,
   as C# and Swift do (§5).
+- Python reports a joined destruct's failure to the caller or on a background
+  channel, as C# does (§5). Both Python gaps need their own test.
 - Swift reports a deferred join failure as a rollback only (§5).
 - The construct window in the leaf helper has the same refused-start gap, by
   code reading only.
@@ -232,10 +262,11 @@ Follow-ups, not in this change:
 
 - **Block the caller until a joined destruct settles, so the call can return
   the failure.** A Rust walk does not block its caller. A walk that waits
-  returns, and it resumes on the owner's foreground dispatcher (ADR-0218 rule 3,
-  ADR-0187). A joined destruct can need the blocked thread. A destruct hook can
-  call the container's `destruct()` from inside the child's own destruct. The
-  joined destruct then runs on the caller's stack, and blocking deadlocks. C#
-  and Python deliver a deferred failure through the walk's returned task or
-  future. Swift resolves it to a rollback, as §5 records. So the in-flight
-  failure is reported on `background_errors()`, and the call returns `Ok`.
+  returns, and it resumes on the owner's foreground dispatcher (ADR-0218 rule 3).
+  A joined destruct can need the blocked thread. A destruct hook can call the
+  container's `destruct()` from inside the child's own destruct. The joined
+  destruct then runs on the caller's stack, and blocking deadlocks. C# delivers
+  a deferred failure through the walk's returned task. Python fails the walk's
+  future, which its container consumes as a rollback with no report. Swift
+  resolves it to a rollback. §5 records both. So the Rust in-flight failure is
+  reported on `background_errors()`, and the call returns `Ok`.
