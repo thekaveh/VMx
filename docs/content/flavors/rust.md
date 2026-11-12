@@ -92,6 +92,13 @@ settle. Thus a container `construct`, `destruct`, or `reconstruct` call can
 return `Ok` while the container is still transient. A child failure rolls the
 container back and arrives on the container's `background_errors()` stream.
 
+A container destruct that joins a child destruct another thread started
+(ADR-0227) returns `Ok` when that destruct is still in flight at the join. If
+that destruct then fails, the container rolls back to `Constructed`, and
+`background_errors()` reports the child's settle. A failure the walk learns of
+before its call returns is returned from the call instead. A refusal from the
+inline dispose cascade (spec/02 §7.2) is not joined, and it keeps its error.
+
 Wrapper nodes should forward `VmNode::when_lifecycle_settled`. If a node does
 not forward it, the container watches its own message hub instead (ADR-0205):
 
