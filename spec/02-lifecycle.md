@@ -348,7 +348,7 @@ respect to other lifecycle operations on the same VM.
   transition of the child in flight in the walk's own direction joins it: a
   construct for a construct walk, a destruct for a destruct walk. This
   includes one that another thread started after the walk read the status
-  (ADR-0228). A child whose `reconstruct()` is in its destruct phase settles
+  (ADR-0227). A child whose `reconstruct()` is in its destruct phase settles
   at `Constructed`, so a container `destruct()` that joins it fails and rolls
   back.
 - A walk that waited, for a child to settle or for an add's start attempt,

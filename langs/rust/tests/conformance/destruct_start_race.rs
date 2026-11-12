@@ -1,10 +1,13 @@
-//! One starter for each child destruct (spec/02 §6, ADR-0218 rule 6, ADR-0228).
+//! One starter for each child destruct (spec/02 §6, ADR-0218 rule 6, ADR-0227).
 //! A container destruct walk reads a child as `Constructed` and then starts
 //! the child's destruct. Another thread can start that destruct between the
 //! read and the walk's call. The call then fails as an invalid transition from
 //! `Destructing`. The walk joins the destruct instead of failing, so the
 //! container destruct succeeds. A destruct that finishes before the walk checks
-//! the refusal is joined too.
+//! the refusal is joined too. A joined destruct that fails returns `Ok` from the
+//! walk, rolls the container back to `Constructed` and reports the failure on
+//! `background_errors()` (ADR-0227 §3). The `ComponentVm` leaf walk follows the
+//! same rules.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -15,7 +18,7 @@ use std::time::Duration;
 use vmx::{
     AggregateVm1, AggregateVm2, AggregateVm3, AggregateVm4, AggregateVm5, AggregateVm6,
     ComponentVm, CompositeVm, ConstructionStatus, GroupVm, LifecycleSettleCallback, MessageHub,
-    NullDispatcher, ParentHandle, VmNode, VmxResult,
+    NullDispatcher, ParentHandle, VmNode, VmxError, VmxResult,
 };
 
 const BOUND: Duration = Duration::from_secs(5);
@@ -46,6 +49,15 @@ impl Gated {
     /// A child whose first destruct reports entry and waits for the returned
     /// release. Its destruct stays in flight meanwhile.
     fn new() -> (Self, Receiver<()>, Sender<()>) {
+        Self::holding(false)
+    }
+
+    /// As [`Gated::new`], but the held destruct fails once it is released.
+    fn failing() -> (Self, Receiver<()>, Sender<()>) {
+        Self::holding(true)
+    }
+
+    fn holding(fails: bool) -> (Self, Receiver<()>, Sender<()>) {
         let vm = ComponentVm::with_model("child", 1, MessageHub::new(), NullDispatcher::new());
         let destructs = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&destructs);
@@ -55,6 +67,9 @@ impl Gated {
             if counter.fetch_add(1, Ordering::SeqCst) == 0 {
                 let _ = entered_tx.send(());
                 let _ = release_rx.recv_timeout(BOUND);
+                if fails {
+                    return Err(VmxError::Other("destruct hook failed".to_string()));
+                }
             }
             Ok(())
         });
@@ -148,6 +163,7 @@ trait Container: Clone + Send + Sync + 'static {
     fn construct(&self) -> VmxResult<()>;
     fn destruct(&self) -> VmxResult<()>;
     fn status(&self) -> ConstructionStatus;
+    fn background_errors(&self) -> vmx::LifecycleErrorStream;
 }
 
 impl Container for CompositeVm<Gated> {
@@ -164,6 +180,9 @@ impl Container for CompositeVm<Gated> {
     }
     fn status(&self) -> ConstructionStatus {
         CompositeVm::status(self)
+    }
+    fn background_errors(&self) -> vmx::LifecycleErrorStream {
+        CompositeVm::background_errors(self)
     }
 }
 
@@ -182,6 +201,9 @@ impl Container for GroupVm<Gated> {
     fn status(&self) -> ConstructionStatus {
         GroupVm::status(self)
     }
+    fn background_errors(&self) -> vmx::LifecycleErrorStream {
+        GroupVm::background_errors(self)
+    }
 }
 
 impl Container for AggregateVm1<Gated> {
@@ -196,6 +218,9 @@ impl Container for AggregateVm1<Gated> {
     }
     fn status(&self) -> ConstructionStatus {
         AggregateVm1::status(self)
+    }
+    fn background_errors(&self) -> vmx::LifecycleErrorStream {
+        AggregateVm1::background_errors(self)
     }
 }
 
@@ -216,6 +241,9 @@ macro_rules! aggregate_container {
             fn status(&self) -> ConstructionStatus {
                 $ty::status(self)
             }
+            fn background_errors(&self) -> vmx::LifecycleErrorStream {
+                $ty::background_errors(self)
+            }
         }
     };
     (@ty $_extra:ident) => { Gated };
@@ -227,6 +255,38 @@ aggregate_container!(AggregateVm3, second, third);
 aggregate_container!(AggregateVm4, second, third, fourth);
 aggregate_container!(AggregateVm5, second, third, fourth, fifth);
 aggregate_container!(AggregateVm6, second, third, fourth, fifth, sixth);
+
+/// A `ComponentVm` leaf that walks its one child through `ChildTransitions` in
+/// its construct and destruct hooks. The leaf walk is the consumer surface of
+/// the shared helper (ADR-0227 §2).
+#[derive(Clone)]
+struct Leaf {
+    vm: ComponentVm<()>,
+    child: Gated,
+}
+
+impl Container for Leaf {
+    fn holding(child: Gated) -> Self {
+        let vm = ComponentVm::with_model("leaf", (), MessageHub::new(), NullDispatcher::new());
+        Self { vm, child }
+    }
+    fn construct(&self) -> VmxResult<()> {
+        let child = self.child.clone();
+        self.vm
+            .construct_with_children(move |walk| walk.transition(&child))
+    }
+    fn destruct(&self) -> VmxResult<()> {
+        let child = self.child.clone();
+        self.vm
+            .destruct_with_children(move |walk| walk.transition(&child))
+    }
+    fn status(&self) -> ConstructionStatus {
+        self.vm.status()
+    }
+    fn background_errors(&self) -> vmx::LifecycleErrorStream {
+        self.vm.background_errors()
+    }
+}
 
 fn recv(receiver: &Receiver<()>, what: &str) {
     receiver
@@ -346,6 +406,75 @@ fn walk_joins_a_destruct_that_finished_after_its_refusal<C: Container>() {
     ends_destructed(&container, &child);
 }
 
+/// Collects the errors one container reports on `background_errors()`.
+fn collect_errors(
+    stream: vmx::LifecycleErrorStream,
+) -> (mpsc::Receiver<VmxError>, vmx::ValueSubscription) {
+    let (send, receive) = mpsc::channel();
+    let subscription = stream.subscribe(move |error| {
+        let _ = send.send(error);
+    });
+    (receive, subscription)
+}
+
+/// The walk reads the child `Constructed` and pauses before its call. Another
+/// thread starts the child's destruct, and that destruct fails once released.
+/// The walk joins it. The walk returns `Ok` and the container rolls back to
+/// `Constructed`. The failure reaches `background_errors()`, as a background
+/// child's failure does (ADR-0227 §3). The walk did not start the failing
+/// destruct, so its call has no synchronous error to return.
+fn walk_joins_a_destruct_that_fails_and_reports_it_in_background<C: Container>() {
+    let (child, other_entered, release_other) = Gated::failing();
+    let container = built::<C>(&child);
+    let (errors, _subscription) = collect_errors(container.background_errors());
+
+    let (armed_tx, armed) = mpsc::channel();
+    let (walk_tx, walk) = mpsc::channel();
+    {
+        let (container, child) = (container.clone(), child.clone());
+        thread::spawn(move || {
+            let _ = armed_tx.send(child.arm(Point::Entry));
+            let _ = walk_tx.send(container.destruct());
+        });
+    }
+    let (walk_reached, release_walk) = armed.recv_timeout(BOUND).expect("the walk arms");
+    recv(&walk_reached, "the walk pauses before its destruct call");
+
+    let other = start_other_destruct(&child);
+    recv(&other_entered, "the other starter's destruct is in flight");
+    let _ = release_walk.send(());
+    // This pause lets the walk reach its join while the other destruct is held.
+    thread::sleep(Duration::from_millis(50));
+    let _ = release_other.send(());
+
+    assert_eq!(
+        other
+            .recv_timeout(BOUND)
+            .expect("the other destruct returns"),
+        Err(VmxError::Other("destruct hook failed".to_string())),
+        "the other starter's destruct fails"
+    );
+    assert_eq!(
+        walk.recv_timeout(BOUND)
+            .expect("the container destruct returns"),
+        Ok(()),
+        "the walk joins the failed destruct and returns Ok"
+    );
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    assert_eq!(container.status(), ConstructionStatus::Constructed);
+    // The container reports the child's settle, not the hook's own error.
+    match errors
+        .recv_timeout(BOUND)
+        .expect("the failure is reported on background_errors()")
+    {
+        VmxError::Other(message) => assert!(
+            message.ends_with("settled at Constructed instead of Destructed"),
+            "the container reports the child's settle: {message}"
+        ),
+        other => panic!("unexpected background error: {other:?}"),
+    }
+}
+
 #[test]
 fn composite_walk_joins_a_destruct_in_flight_after_its_read() {
     walk_joins_a_destruct_in_flight_after_its_read::<CompositeVm<Gated>>();
@@ -432,4 +561,113 @@ fn aggregate6_walk_joins_a_destruct_that_finished_after_its_refusal() {
     walk_joins_a_destruct_that_finished_after_its_refusal::<
         AggregateVm6<Gated, Gated, Gated, Gated, Gated, Gated>,
     >();
+}
+
+#[test]
+fn composite_walk_joins_a_destruct_that_fails_and_reports_it_in_background() {
+    walk_joins_a_destruct_that_fails_and_reports_it_in_background::<CompositeVm<Gated>>();
+}
+
+#[test]
+fn group_walk_joins_a_destruct_that_fails_and_reports_it_in_background() {
+    walk_joins_a_destruct_that_fails_and_reports_it_in_background::<GroupVm<Gated>>();
+}
+
+#[test]
+fn aggregate1_walk_joins_a_destruct_that_fails_and_reports_it_in_background() {
+    walk_joins_a_destruct_that_fails_and_reports_it_in_background::<AggregateVm1<Gated>>();
+}
+
+#[test]
+fn aggregate2_walk_joins_a_destruct_that_fails_and_reports_it_in_background() {
+    walk_joins_a_destruct_that_fails_and_reports_it_in_background::<AggregateVm2<Gated, Gated>>();
+}
+
+#[test]
+fn aggregate3_walk_joins_a_destruct_that_fails_and_reports_it_in_background() {
+    walk_joins_a_destruct_that_fails_and_reports_it_in_background::<
+        AggregateVm3<Gated, Gated, Gated>,
+    >();
+}
+
+#[test]
+fn aggregate4_walk_joins_a_destruct_that_fails_and_reports_it_in_background() {
+    walk_joins_a_destruct_that_fails_and_reports_it_in_background::<
+        AggregateVm4<Gated, Gated, Gated, Gated>,
+    >();
+}
+
+#[test]
+fn aggregate5_walk_joins_a_destruct_that_fails_and_reports_it_in_background() {
+    walk_joins_a_destruct_that_fails_and_reports_it_in_background::<
+        AggregateVm5<Gated, Gated, Gated, Gated, Gated>,
+    >();
+}
+
+#[test]
+fn aggregate6_walk_joins_a_destruct_that_fails_and_reports_it_in_background() {
+    walk_joins_a_destruct_that_fails_and_reports_it_in_background::<
+        AggregateVm6<Gated, Gated, Gated, Gated, Gated, Gated>,
+    >();
+}
+
+#[test]
+fn leaf_walk_joins_a_destruct_in_flight_after_its_read() {
+    walk_joins_a_destruct_in_flight_after_its_read::<Leaf>();
+}
+
+/// The leaf walk checks the child's status before it calls `destruct()`, so
+/// it reaches a refused call only after reading the child `Constructed`. The
+/// walk pauses before that call, and another thread starts the child's
+/// destruct. The walk's call is refused. The other destruct then finishes
+/// before the walk checks the refusal, and the walk joins the finished destruct.
+#[test]
+fn leaf_walk_joins_a_destruct_that_finished_after_its_refusal() {
+    let (child, other_entered, release_other) = Gated::new();
+    let leaf = Leaf::holding(child.clone());
+    leaf.construct().expect("the leaf constructs");
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+
+    let (armed_tx, armed) = mpsc::channel();
+    let (walk_tx, walk) = mpsc::channel();
+    {
+        let (leaf, child) = (leaf.clone(), child.clone());
+        thread::spawn(move || {
+            let entry = child.arm(Point::Entry);
+            let refusal = child.arm(Point::Refusal);
+            let _ = armed_tx.send((entry, refusal));
+            let _ = walk_tx.send(leaf.destruct());
+        });
+    }
+    let ((entry_reached, release_entry), (refusal_reached, release_refusal)) =
+        armed.recv_timeout(BOUND).expect("the walk arms");
+    recv(&entry_reached, "the walk pauses before its destruct call");
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+
+    let other = start_other_destruct(&child);
+    recv(&other_entered, "the other starter's destruct is in flight");
+    let _ = release_entry.send(());
+    recv(&refusal_reached, "the walk's call is refused");
+
+    let _ = release_other.send(());
+    assert_eq!(
+        other
+            .recv_timeout(BOUND)
+            .expect("the other destruct returns"),
+        Ok(())
+    );
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+    let _ = release_refusal.send(());
+
+    assert_eq!(
+        walk.recv_timeout(BOUND).expect("the leaf destruct returns"),
+        Ok(()),
+        "the walk joins the finished destruct instead of failing"
+    );
+    ends_destructed(&leaf, &child);
+}
+
+#[test]
+fn leaf_walk_joins_a_destruct_that_fails_and_reports_it_in_background() {
+    walk_joins_a_destruct_that_fails_and_reports_it_in_background::<Leaf>();
 }

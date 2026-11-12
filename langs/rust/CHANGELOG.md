@@ -56,8 +56,10 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `AggregateVm6`) joins a child destruct that another thread started after the
   walk read the status, instead of failing and rolling back to `Constructed`.
   The shared child-transition helper, which the `ComponentVm` leaf walk also
-  uses, joins it the same way (ADR-0228, ADR-0218 rule 6, spec/02 §6, #1569).
-  The regression tests are `destruct_start_race.rs`.
+  uses, joins it the same way (ADR-0227, ADR-0218 rule 6, spec/02 §6, #1569).
+  When the joined destruct fails, the call returns `Ok`, the container rolls
+  back to `Constructed`, and `background_errors()` reports the failure. The
+  regression tests are `destruct_start_race.rs`.
 
 ## [0.36.0] — unreleased source version
 

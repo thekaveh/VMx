@@ -3003,7 +3003,7 @@ fn start_unless_started<N: VmNode>(child: &N) -> VmxResult<()> {
 }
 
 /// Whether a destruct of `child` is in flight or done: it is Destructing or
-/// Destructed (ADR-0228). A destruct refused while the child is in either
+/// Destructed (ADR-0227). A destruct refused while the child is in either
 /// state was started by another thread.
 fn destruct_started<N: VmNode>(child: &N) -> bool {
     matches!(
@@ -5158,7 +5158,7 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// Runs one child's transition. A walk skips a child that is `Disposed`
     /// when it reaches it and calls no lifecycle operation on it (spec/02
     /// §6, ADR-0189). A destruct refused because another thread started one
-    /// after the walk read the status is joined (ADR-0218 rule 6, ADR-0228).
+    /// after the walk read the status is joined (ADR-0218 rule 6, ADR-0227).
     fn run_child_transition<N: VmNode>(
         &self,
         child: &N,
@@ -5192,7 +5192,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 if operation == LifecycleOperation::Destruct && destruct_started(child) =>
             {
                 // Another starter began the destruct after the walk read the
-                // status: the walk joins it (ADR-0218 rule 6, ADR-0228).
+                // status: the walk joins it (ADR-0218 rule 6, ADR-0227).
                 drop(observer);
                 self.await_child(child, expected, None)
             }
