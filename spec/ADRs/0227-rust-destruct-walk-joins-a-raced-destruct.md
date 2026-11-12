@@ -31,8 +31,9 @@ finished first. TypeScript has one thread.
 Swapping the walk's call to `transition_or_join_child` does not close the race.
 That helper checks the status and then calls `run_child_transition`. The check
 and the call are not atomic, so a destruct that starts between them still fails
-the walk. A probe of that swap failed the same way for `CompositeVm` and
-`GroupVm`.
+the walk. A probe of that swap on develop's runtime fails the in-flight tests of
+`CompositeVm` and `GroupVm`. It also breaks the LIFE-021 cascade guard, §6 gives
+that second reason.
 
 ## 2. Decision
 
@@ -79,7 +80,11 @@ join. The rule follows ADR-0218 rule 6.
    that waits on a child, so the window is not specific to the join. The join's
    failing case reaches it. With the walk paused as the regression tests pause
    it, the develop body of `child_settled` failed 7 times in 300 runs of
-   `destruct_start_race`, and the body in this ADR failed 0 times in 300.
+   `destruct_start_race`, and the body in this ADR failed 0 times in 300. The
+   deterministic test `leaf_walk_action_ending_during_a_failed_settle_check_rolls_back`
+   (§4) holds the failed check on the other thread and ends the leaf's action
+   during it. With the develop body it fails 100 of 100 runs, and with this body
+   it passes 300 of 300.
 
 This amends ADR-0218 §2.3, which deferred the Rust destruct-walk join, and §3,
 which said the Rust destruct walks keep their missing join. ADR-0218 rule 6
@@ -126,7 +131,9 @@ stays as written.
 
 ## 4. Conformance
 
-This ADR adds no conformance ID. Three reasons apply to this change:
+This ADR adds no conformance ID. The rollback to `Constructed` is the same in
+every flavor, but the call's result is not (§3, §5), so no ID can pin the
+caller-visible outcome. Three further reasons apply to this change:
 
 - ADR-0218 rule 6 and chapter 02 §6 already require the join. The join is not a
   new normative rule.
@@ -150,6 +157,15 @@ other destruct ends. The composite and group cascade tests cover item 3 of §2,
 the refusal from the inline dispose cascade. ADR-0218 §2.3 used regression
 tests for rules 3 to 6 in the same way.
 
+Two more tests pin the rest of this change. The leaf walk
+`leaf_walk_action_ending_during_a_failed_settle_check_rolls_back` holds its
+action after the join is registered. It then holds the failed settle check on
+the other thread, ends the action during the check, and so pins §2.8 without
+stress. The `composite_dispose_during_a_joined_destruct_ends_disposed`, group and
+aggregate1 tests dispose the container while a joined destruct is in flight. The
+dispose is held at the child's dispose, after the container has abandoned its
+wait. The container ends `Disposed`, and no rollback is reported.
+
 ## 5. Known divergence
 
 Python's `_destruct_future` in `langs/python/src/vmx/components/base.py`
@@ -166,7 +182,7 @@ section.
 Swift's deferred join failure differs in one more way. Its walker resolves a
 child failure that arrives after the walk's call returned to a rollback, with no
 error at the call. Its comment says it has no caller to rethrow to
-(`ChildTransitionWalker.childSettled`). C# delivers the same failure through the
+(`ChildTransitionWalker.continueWalk()`). C# delivers the same failure through the
 walk's returned task. Python fails the walk's future. This ADR does not change
 Swift.
 
@@ -182,23 +198,38 @@ Follow-ups, not in this change:
 ## 6. Rejected alternatives
 
 - **Swap the walk's call to `transition_or_join_child`** (the issue's proposal).
-  The status check and the call are not atomic, so the race remains. The race
-  test reproduced the failure.
+  A probe on develop's runtime rejects it for two reasons.
+
+  - The status check and the call are not atomic, so the race remains. The
+    composite and group in-flight tests still fail, because the refused call
+    still fails the walk.
+  - The swap breaks the LIFE-021 cascade guard. The helper reads a child that is
+    `Destructed` during its inline dispose cascade (§2 item 3) and treats it as
+    already at the target. It then returns `Ok(())` in place of the refusal, and
+    the composite and group cascade tests fail.
+
+  **Decision:** the join stays refusal-triggered, in the shared helper (§2). The
+  swap is not taken.
+
 - **Join on any refusal.** A refusal from `Constructing` or `Disposed` is not a
   destruct in flight. Joining it would wait on the wrong transition. A refusal
   from `Disposed` is the inline dispose cascade, and that case must keep its
   error (LIFE-021).
+
 - **Count the construct publication-pending flag as a destruct in flight.** The
   flag marks a sealed construct, so the join would wait for a destruct that no
   starter began.
+
 - **Bump the spec to 3.31.0.** A spec minor bump moves `MIN_SPEC_VERSION` and
   the version of every flavor (README §6.1, `tools/check-version-consistency.py`).
   The behavior is already normative, and the same in-development line carried
   ADR-0218 and ADR-0226. A release owner can decide the spec version at release
   prep.
+
 - **Refuse a join that is still in flight.** That reproduces the reported
   failure for the in-flight case. The race tests require that case to succeed
   when the other destruct succeeds.
+
 - **Block the caller until a joined destruct settles, so the call can return
   the failure.** A Rust walk does not block its caller. A walk that waits
   returns, and it resumes on the owner's foreground dispatcher (ADR-0218 rule 3,
