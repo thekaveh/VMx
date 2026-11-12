@@ -10,7 +10,9 @@
 //! `background_errors()` (ADR-0227 §3). A failure the walk learns of before its
 //! call returns is returned from the call as the settle error. A refusal from
 //! `Disposed`, the inline dispose cascade, is not joined (LIFE-021). The
-//! `ComponentVm` leaf walk follows the same rules.
+//! `ComponentVm` leaf walk follows the same rules. A failed settle check that
+//! the walk's action outlives, and a dispose during a joined destruct, have
+//! tests of their own (ADR-0227 §2.8, §4).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -36,6 +38,15 @@ enum Point {
     /// After the walk registers to wait on the child's settle. The walk is
     /// then parked on a join that is still in flight.
     Settle,
+    /// In the leaf walk's action, after its step registered the join and
+    /// before the action ends, so the action is still running.
+    Hold,
+    /// In the settle check of a destruct another thread started, after its
+    /// child settled. The check reads the child's status at this point.
+    Check,
+    /// On a disposing thread, before it disposes the child whose destruct is
+    /// in flight.
+    Dispose,
 }
 
 /// The point, the entry report and the release of one armed pause.
@@ -140,9 +151,11 @@ impl VmNode for Gated {
         result
     }
     fn dispose(&self) -> VmxResult<()> {
+        self.pause(Point::Dispose);
         VmNode::dispose(&self.vm)
     }
     fn status(&self) -> ConstructionStatus {
+        self.pause(Point::Check);
         VmNode::status(&self.vm)
     }
     fn set_parent_id(&self, parent_id: Option<usize>) {
@@ -170,6 +183,7 @@ trait Container: Clone + Send + Sync + 'static {
     fn holding(child: Gated) -> Self;
     fn construct(&self) -> VmxResult<()>;
     fn destruct(&self) -> VmxResult<()>;
+    fn dispose(&self) -> VmxResult<()>;
     fn status(&self) -> ConstructionStatus;
     fn background_errors(&self) -> vmx::LifecycleErrorStream;
 }
@@ -185,6 +199,9 @@ impl Container for CompositeVm<Gated> {
     }
     fn destruct(&self) -> VmxResult<()> {
         CompositeVm::destruct(self)
+    }
+    fn dispose(&self) -> VmxResult<()> {
+        CompositeVm::dispose(self)
     }
     fn status(&self) -> ConstructionStatus {
         CompositeVm::status(self)
@@ -206,6 +223,9 @@ impl Container for GroupVm<Gated> {
     fn destruct(&self) -> VmxResult<()> {
         GroupVm::destruct(self)
     }
+    fn dispose(&self) -> VmxResult<()> {
+        GroupVm::dispose(self)
+    }
     fn status(&self) -> ConstructionStatus {
         GroupVm::status(self)
     }
@@ -223,6 +243,9 @@ impl Container for AggregateVm1<Gated> {
     }
     fn destruct(&self) -> VmxResult<()> {
         AggregateVm1::destruct(self)
+    }
+    fn dispose(&self) -> VmxResult<()> {
+        AggregateVm1::dispose(self)
     }
     fn status(&self) -> ConstructionStatus {
         AggregateVm1::status(self)
@@ -245,6 +268,9 @@ macro_rules! aggregate_container {
             }
             fn destruct(&self) -> VmxResult<()> {
                 $ty::destruct(self)
+            }
+            fn dispose(&self) -> VmxResult<()> {
+                $ty::dispose(self)
             }
             fn status(&self) -> ConstructionStatus {
                 $ty::status(self)
@@ -285,8 +311,16 @@ impl Container for Leaf {
     }
     fn destruct(&self) -> VmxResult<()> {
         let child = self.child.clone();
-        self.vm
-            .destruct_with_children(move |walk| walk.transition(&child))
+        self.vm.destruct_with_children(move |walk| {
+            walk.transition(&child)?;
+            // Still inside the walk's action. A pause here, once the step
+            // has registered its join, keeps the action running (Hold).
+            child.pause(Point::Hold);
+            Ok(())
+        })
+    }
+    fn dispose(&self) -> VmxResult<()> {
+        self.vm.dispose()
     }
     fn status(&self) -> ConstructionStatus {
         self.vm.status()
@@ -318,6 +352,23 @@ fn start_other_destruct(child: &Gated) -> Receiver<VmxResult<()>> {
         let _ = done_tx.send(VmNode::destruct(&other));
     });
     done
+}
+
+/// As [`start_other_destruct`], and the other starter's thread is armed to
+/// pause at the child's status read in the settle check of its own destruct.
+/// Returns the destruct's result, the pause report and the release of the pause.
+fn start_other_destruct_held_in_check(
+    child: &Gated,
+) -> (Receiver<VmxResult<()>>, Receiver<()>, Sender<()>) {
+    let (done_tx, done) = mpsc::channel();
+    let (armed_tx, armed) = mpsc::channel();
+    let other = child.clone();
+    thread::spawn(move || {
+        let _ = armed_tx.send(other.arm(Point::Check));
+        let _ = done_tx.send(VmNode::destruct(&other));
+    });
+    let (reached, release) = armed.recv_timeout(BOUND).expect("the other starter arms");
+    (done, reached, release)
 }
 
 fn ends_destructed<C: Container>(container: &C, child: &Gated) {
@@ -705,6 +756,187 @@ fn leaf_walk_joins_a_destruct_that_finished_after_its_refusal() {
 #[test]
 fn leaf_walk_joins_a_destruct_that_fails_and_reports_it_in_background() {
     walk_joins_a_destruct_that_fails_and_reports_it_in_background::<Leaf>();
+}
+
+/// The leaf walk joins a destruct another thread started, and that destruct
+/// fails. The walk's action is held after its step registers the join, so the
+/// action is still running when the failure settles the child. The settle
+/// check runs on the other thread and is held at its child status read, with
+/// the wait still marked. The action then ends during the check. The wait
+/// keeps the walk from publishing `Destructed` over the `Constructed` child.
+/// The check's failure rolls the leaf back and is reported on
+/// `background_errors()` (ADR-0227 §2.8, §3). Without the §2.8 fix the leaf
+/// publishes `Destructed` and the failure is lost.
+#[test]
+fn leaf_walk_action_ending_during_a_failed_settle_check_rolls_back() {
+    let (child, other_entered, release_other) = Gated::failing();
+    let leaf = built::<Leaf>(&child);
+    let (errors, _subscription) = collect_errors(leaf.background_errors());
+
+    let (armed_tx, armed) = mpsc::channel();
+    let (walk_tx, walk) = mpsc::channel();
+    {
+        let (leaf, child) = (leaf.clone(), child.clone());
+        thread::spawn(move || {
+            let _ = armed_tx.send((
+                child.arm(Point::Entry),
+                child.arm(Point::Refusal),
+                child.arm(Point::Hold),
+            ));
+            let _ = walk_tx.send(leaf.destruct());
+        });
+    }
+    let ((read, release_read), (refused, release_refused), (held, release_held)) =
+        armed.recv_timeout(BOUND).expect("the walk arms");
+    recv(&read, "the walk pauses before its destruct call");
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+
+    let (other, check_held, release_check) = start_other_destruct_held_in_check(&child);
+    recv(&other_entered, "the other starter's destruct is in flight");
+    let _ = release_read.send(());
+    recv(&refused, "the walk's call is refused");
+    let _ = release_refused.send(());
+    recv(&held, "the walk joins the destruct, and its action holds");
+    // The failed destruct settles while the walk's action still runs, so the
+    // settle check starts on the other thread and is held there.
+    let _ = release_other.send(());
+    recv(&check_held, "the failed destruct's settle check is held");
+
+    // The walk's action ends while the check is held.
+    let _ = release_held.send(());
+    assert_eq!(
+        walk.recv_timeout(BOUND).expect("the leaf destruct returns"),
+        Ok(()),
+        "the walk joins the destruct and returns Ok"
+    );
+    assert_eq!(
+        leaf.status(),
+        ConstructionStatus::Destructing,
+        "the leaf waits for the check, so it does not publish Destructed"
+    );
+
+    let _ = release_check.send(());
+    assert_eq!(
+        other
+            .recv_timeout(BOUND)
+            .expect("the other destruct returns"),
+        Err(VmxError::Other("destruct hook failed".to_string())),
+        "the other starter's destruct fails"
+    );
+    match errors
+        .recv_timeout(BOUND)
+        .expect("the failed check is reported on background_errors()")
+    {
+        VmxError::Other(message) => assert!(
+            message.ends_with("settled at Constructed instead of Destructed"),
+            "the leaf reports the child's settle: {message}"
+        ),
+        other => panic!("unexpected background error: {other:?}"),
+    }
+    assert_eq!(leaf.status(), ConstructionStatus::Constructed);
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+}
+
+/// Disposes `container` while a destruct it joined is in flight. The walk
+/// joins the destruct and returns `Ok`. A thread then disposes the container,
+/// and its dispose is held at the child's dispose, after the container has
+/// abandoned its settle wait. The in-flight destruct then completes. The
+/// container ends `Disposed`, the child ends `Disposed`, and no rollback is
+/// reported, so the abandoned join does not publish a terminal status.
+fn dispose_during_a_joined_destruct<C: Container>() {
+    let (child, other_entered, release_other) = Gated::new();
+    let container = built::<C>(&child);
+    let (errors, _subscription) = collect_errors(container.background_errors());
+
+    let (armed_tx, armed) = mpsc::channel();
+    let (walk_tx, walk) = mpsc::channel();
+    {
+        let (container, child) = (container.clone(), child.clone());
+        thread::spawn(move || {
+            let _ = armed_tx.send((
+                child.arm(Point::Entry),
+                child.arm(Point::Refusal),
+                child.arm(Point::Settle),
+            ));
+            let _ = walk_tx.send(container.destruct());
+        });
+    }
+    let ((read, release_read), (refused, release_refused), (joined, release_joined)) =
+        armed.recv_timeout(BOUND).expect("the walk arms");
+    recv(&read, "the walk pauses before its destruct call");
+
+    let other = start_other_destruct(&child);
+    recv(&other_entered, "the other starter's destruct is in flight");
+    let _ = release_read.send(());
+    recv(&refused, "the walk's call is refused");
+    let _ = release_refused.send(());
+    recv(&joined, "the walk joins the destruct in flight");
+    let _ = release_joined.send(());
+    assert_eq!(
+        walk.recv_timeout(BOUND)
+            .expect("the container destruct returns"),
+        Ok(()),
+        "the walk joins the destruct in flight instead of failing"
+    );
+
+    // The dispose thread pauses before it disposes the child, which is still
+    // Destructing. The container has abandoned its wait by then.
+    let (disposed_tx, disposed) = mpsc::channel();
+    let (armed_tx, armed) = mpsc::channel();
+    {
+        let (container, child) = (container.clone(), child.clone());
+        thread::spawn(move || {
+            let _ = armed_tx.send(child.arm(Point::Dispose));
+            let _ = disposed_tx.send(container.dispose());
+        });
+    }
+    let (dispose_reached, release_dispose) = armed.recv_timeout(BOUND).expect("the dispose arms");
+    recv(
+        &dispose_reached,
+        "the dispose reaches the child while its destruct is in flight",
+    );
+    assert_eq!(child.status(), ConstructionStatus::Destructing);
+    let _ = release_dispose.send(());
+    let _ = release_other.send(());
+
+    assert_eq!(
+        other
+            .recv_timeout(BOUND)
+            .expect("the other destruct returns"),
+        Ok(())
+    );
+    assert_eq!(
+        disposed
+            .recv_timeout(BOUND)
+            .expect("the container dispose returns"),
+        Ok(())
+    );
+    assert_eq!(container.status(), ConstructionStatus::Disposed);
+    assert_eq!(child.status(), ConstructionStatus::Disposed);
+    assert_eq!(
+        child.destructs.load(Ordering::SeqCst),
+        1,
+        "the child destructs once"
+    );
+    assert!(
+        errors.try_recv().is_err(),
+        "the abandoned join reports no rollback after the container is disposed"
+    );
+}
+
+#[test]
+fn composite_dispose_during_a_joined_destruct_ends_disposed() {
+    dispose_during_a_joined_destruct::<CompositeVm<Gated>>();
+}
+
+#[test]
+fn group_dispose_during_a_joined_destruct_ends_disposed() {
+    dispose_during_a_joined_destruct::<GroupVm<Gated>>();
+}
+
+#[test]
+fn aggregate1_dispose_during_a_joined_destruct_ends_disposed() {
+    dispose_during_a_joined_destruct::<AggregateVm1<Gated>>();
 }
 
 /// A child composite that holds one grandchild. The grandchild's dispose hook
