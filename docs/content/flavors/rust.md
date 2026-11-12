@@ -18,11 +18,6 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
   scenario suite for the THEME IDs.
 - Known gaps: the public surface and some behaviors are not fully aligned with
   the other flavors. The current items are:
-  - Open: a container destruct walk (`CompositeVm`, `GroupVm`, and
-    `AggregateVm1` to `AggregateVm6`) does not join a child whose destruct is
-    already in flight. C#, Python, and Swift join it, so a Rust container
-    destruct can fail where they succeed. The ledger's §12.14 describes the
-    planned fix.
   - Recorded difference: a container stays transient until its background
     children settle. A failed background child that rolls the container back
     is reported on `background_errors()`, a Rust container surface. The other
@@ -96,6 +91,13 @@ Containers stay Constructing or Destructing until their background children
 settle. Thus a container `construct`, `destruct`, or `reconstruct` call can
 return `Ok` while the container is still transient. A child failure rolls the
 container back and arrives on the container's `background_errors()` stream.
+
+A container destruct that joins a child destruct another thread started
+(ADR-0227) returns `Ok` when that destruct is still in flight at the join. If
+that destruct then fails, the container rolls back to `Constructed`, and
+`background_errors()` reports the child's settle. A failure the walk learns of
+before its call returns is returned from the call instead. A refusal from the
+inline dispose cascade (spec/02 §7.2) is not joined, and it keeps its error.
 
 Wrapper nodes should forward `VmNode::when_lifecycle_settled`. If a node does
 not forward it, the container watches its own message hub instead (ADR-0205):

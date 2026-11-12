@@ -50,6 +50,22 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 - `NotificationVm::advance_by_ms` and `ConfirmationVm::advance_by_ms`. Advance
   a `VirtualTimeScheduler` instead (ADR-0219, #1265).
 
+### Fixed
+
+- A container destruct (`CompositeVm`, `GroupVm`, and `AggregateVm1` to
+  `AggregateVm6`) joins a child destruct that another thread started after the
+  walk read the status, instead of failing and rolling back to `Constructed`.
+  The shared child-transition helper, which the `ComponentVm` leaf walk also
+  uses, joins it the same way (ADR-0227, ADR-0218 rule 6, spec/02 §6, #1569).
+  When the joined destruct is still running when the walk registers its join,
+  and then fails, the call returns `Ok`, the container rolls back to
+  `Constructed`, and `background_errors()` reports the failure. When the walk
+  learns of a failure before its call returns, the call returns the settle
+  error. A refusal from the inline dispose cascade is not joined and keeps its
+  error. A walk that waits on a child no longer loses the child's failure when
+  the walk ends during the check (ADR-0227 §2.8). The regression tests are
+  `destruct_start_race.rs`.
+
 ## [0.36.0] — unreleased source version
 
 0.36.0 implements spec 3.30.0.
@@ -683,7 +699,7 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   spec/02 §6, spec/06 §5.1, #1370). The walk joins that transition, and the
   add leaves it to the walk. This covers construct only. The container
   destruct walks still join no in-flight destruct (Rust parity ledger
-  §12.14).
+  §12.14, closed in 0.37.0 by ADR-0227).
 
 - A failed add, insert, replacement or population that started a background
   child now returns that child to `Destructed` once its construct settles

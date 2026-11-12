@@ -5,7 +5,7 @@ after closure: §12.7 to §12.14, plus the "Still open" notes in §12.4.7.
 §12.8, §12.10, §12.11 and §12.12 are now closed (ADR-0205, ADR-0197, ADR-0208
 and ADR-0207, in that order). §12.9, §12.13 and the §12.4.7 notes are resolved
 (ADR-0210, ADR-0226, and ADR-0207 with ADR-0210). §12.7 is a recorded
-difference. §12.14 is open.
+difference. §12.14 is closed (ADR-0227).
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -341,7 +341,7 @@ parameter in §12.2.2 are the intentional flavor-specific shapes in this
 ledger. The §12.5 editorial note applies to all five flavors and is not a
 parity backlog. §12.7 to §12.14 record the items and differences found
 after closure; §12.8 to §12.13 are now closed or resolved, §12.7 is a
-recorded difference, and §12.14 is open. Future differences still require
+recorded difference, and §12.14 is closed (ADR-0227). Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
 
@@ -431,22 +431,29 @@ candidate, a failed candidate disposal and a candidate that another
 transaction holds. The existing cycle-preflight tests show that the aggregate
 and its ancestors are not disposed.
 
-## 12.14. Open Item: Container Destruct Walk Join
+## 12.14. Closed: Container Destruct Walk Join
 
 Chapter 02 §6 says that a destruct walk joins a child whose destruct is in
 flight, also one that another thread started after the walk read the status
-(ADR-0218, #754, #1375). C#, Python and Swift join it. TypeScript has one
-thread, so the case does not arise.
+(ADR-0218, #754, #1375). C# and Swift join it, including a destruct that
+finished before the join check. Python joins a destruct still in flight, but it
+re-raises the refusal when the destruct finished first. That is a known
+divergence (ADR-0227 §5). TypeScript has one thread, so the case does not
+arise.
 
-Rust containers do not join it. The `CompositeVm`, `GroupVm` and
+Rust containers did not join it. The `CompositeVm`, `GroupVm` and
 `AggregateVm1` to `AggregateVm6` destruct walks call `transition_child` for
-each child, and that call runs `destruct()` with no join. `destruct()` returns
+each child, and that call ran `destruct()` with no join. `destruct()` returned
 `VmxError::InvalidLifecycleTransition` from `Destructing` while the child's
-transition is in flight, so the container destruct fails. The `ComponentVm`
-child walk already joins through `transition_or_join_child`. Only the
-aggregate construct join is closed (§12.7).
+transition was in flight, so the container destruct failed. The `ComponentVm`
+leaf walk used the same helper and had the same window. Only the aggregate
+construct join was closed (§12.7).
 
-The fix moves the container destruct walks to a join that also covers a
-destruct started between the status read and the call. #1569 tracks this
+ADR-0227 closes the Rust item. The shared child-transition helper joins a
+destruct that the child refuses because another starter began it. A joined
+destruct that fails after the walk registers its join returns `Ok` and reports
+on `background_errors()`. A failure the walk learns of before its call returns
+is returned from the call (ADR-0227 §3). The regression tests are
+`langs/rust/tests/conformance/destruct_start_race.rs`. #1569 tracks the
 item. The C# sibling, #1375, closed on 2026-11-09 and is cited only as
 history.

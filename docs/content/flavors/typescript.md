@@ -233,6 +233,19 @@ reconnecting creates a fresh sequence. `{ extension: null }`, or a missing
 Redux DevTools extension, returns a frozen no-op before any hub subscription,
 snapshot, or timer exists.
 
+Measured on Node 26.12.1 on an Apple M2 Ultra at commit 43b69fa6, a
+`hub.send` without the bridge ran at 2,090,470 messages per second (478.4 ns per
+message). Disconnected use, with no extension present, ran at 2,098,541
+messages per second (476.5 ns), within run-to-run noise. Connected use, with a
+recording extension and no snapshots, ran at 707,273 messages per second
+(1,413.9 ns), about 0.94 microseconds more per message, including the
+extension's retention and garbage collection. With no extension, the bridge
+returns a frozen no-op before any hub subscription, so it adds no measurable
+cost. The method timed 200,000 `hub.send` calls per run, with 3 warm-up and 15
+measured runs in each of 3 processes, interleaved configurations, and medians
+across processes. Browsers, the Node 20 and 22 floors, and a real Redux DevTools
+transport were not measured.
+
 The bridge ignores incoming DevTools dispatches. Hub messages do not encode
 complete or inverse mutations, so replay, time travel, inverse mutation, and
 state reconstruction are out of scope. See the

@@ -32,6 +32,7 @@ mod conformance {
     mod current_selector_live_membership;
     mod delayed_task;
     mod derived_properties;
+    mod destruct_start_race;
     mod dialogs;
     mod dictionary_duplicate_add;
     mod dictionary_hash_lookup;
