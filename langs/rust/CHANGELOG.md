@@ -699,7 +699,7 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   spec/02 §6, spec/06 §5.1, #1370). The walk joins that transition, and the
   add leaves it to the walk. This covers construct only. The container
   destruct walks still join no in-flight destruct (Rust parity ledger
-  §12.14).
+  §12.14, closed in 0.37.0 by ADR-0227).
 
 - A failed add, insert, replacement or population that started a background
   child now returns that child to `Destructed` once its construct settles
