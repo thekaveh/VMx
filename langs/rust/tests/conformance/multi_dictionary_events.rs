@@ -219,7 +219,7 @@ fn panicking_comparison_after_a_nested_mutation_keeps_the_views_in_step() {
     let (seen, _local) = changes(&dictionary.collection_changed());
     let writer = dictionary.clone();
     let doomed = key(2);
-    *hook.lock().unwrap() = Some(Box::new(move || {
+    *hook.lock().unwrap() = Some(Box::new(move || -> () {
         writer.remove(&doomed, &2);
         panic!("comparison failed");
     }) as Box<dyn FnMut() + Send>);
