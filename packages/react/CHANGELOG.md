@@ -48,7 +48,7 @@ this package also contains the changes in the 0.1.2 section of
   channel, so a rejected fire-and-forget task was lost (#1394).
 - `createVmxStore` delivers no further notification after `dispose()`, even
   inside a flush already in progress. Before, a listener that disposed the
-  store let the listeners copied for that flush run after it.
+  store let the listeners copied for that flush run after it (#1572).
 
 ## [0.1.2] - 2026-10-21
 
