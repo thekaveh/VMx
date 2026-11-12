@@ -35,6 +35,10 @@ enum Point {
     Entry,
     /// After a refused call, before its error returns to the walk.
     Refusal,
+    /// Before the walk registers to wait on the child's settle. The walk has
+    /// read the child in flight, so the child can settle before the wait is
+    /// registered.
+    Register,
     /// After the walk registers to wait on the child's settle. The walk is
     /// then parked on a join that is still in flight.
     Settle,
@@ -171,6 +175,7 @@ impl VmNode for Gated {
         self.vm.parent_handle()
     }
     fn when_lifecycle_settled(&self, callback: LifecycleSettleCallback) -> bool {
+        self.pause(Point::Register);
         let registered = self.vm.when_lifecycle_settled(callback);
         self.pause(Point::Settle);
         registered
@@ -561,6 +566,67 @@ fn walk_joins_a_destruct_that_fails_and_reports_it_in_background<C: Container>()
     assert_eq!(container.status(), ConstructionStatus::Constructed);
 }
 
+/// The walk reads the child `Constructed` and pauses before its call. Another
+/// thread starts the child's destruct, and that destruct is held in flight
+/// when the walk's call is refused. The walk joins it, then pauses before it
+/// registers its wait. The destruct fails and the child settles `Constructed`
+/// before the registration. The walk learns of the failure at once, so the
+/// call returns the settle error as `Err` (ADR-0227 §3).
+fn walk_joins_a_destruct_that_fails_before_its_wait_registers<C: Container>() {
+    let (child, other_entered, release_other) = Gated::failing();
+    let container = built::<C>(&child);
+
+    let (armed_tx, armed) = mpsc::channel();
+    let (walk_tx, walk) = mpsc::channel();
+    {
+        let (container, child) = (container.clone(), child.clone());
+        thread::spawn(move || {
+            let _ = armed_tx.send((
+                child.arm(Point::Entry),
+                child.arm(Point::Refusal),
+                child.arm(Point::Register),
+            ));
+            let _ = walk_tx.send(container.destruct());
+        });
+    }
+    let ((read, release_read), (refused, release_refused), (registering, release_registering)) =
+        armed.recv_timeout(BOUND).expect("the walk arms");
+    recv(&read, "the walk pauses before its destruct call");
+
+    let other = start_other_destruct(&child);
+    recv(&other_entered, "the other starter's destruct is in flight");
+    let _ = release_read.send(());
+    recv(&refused, "the walk's call is refused");
+    let _ = release_refused.send(());
+    recv(
+        &registering,
+        "the walk joins the destruct and pauses before its wait registers",
+    );
+    let _ = release_other.send(());
+    assert_eq!(
+        other
+            .recv_timeout(BOUND)
+            .expect("the other destruct returns"),
+        Err(VmxError::Other("destruct hook failed".to_string())),
+        "the other starter's destruct fails"
+    );
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    let _ = release_registering.send(());
+
+    match walk
+        .recv_timeout(BOUND)
+        .expect("the container destruct returns")
+    {
+        Err(VmxError::Other(message)) => assert!(
+            message.ends_with("settled at Constructed instead of Destructed"),
+            "the call returns the child's settle error: {message}"
+        ),
+        other => panic!("the call returns the settle error, not {other:?}"),
+    }
+    assert_eq!(container.status(), ConstructionStatus::Constructed);
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+}
+
 #[test]
 fn composite_walk_joins_a_destruct_in_flight_after_its_read() {
     walk_joins_a_destruct_in_flight_after_its_read::<CompositeVm<Gated>>();
@@ -695,6 +761,26 @@ fn aggregate6_walk_joins_a_destruct_that_fails_and_reports_it_in_background() {
     walk_joins_a_destruct_that_fails_and_reports_it_in_background::<
         AggregateVm6<Gated, Gated, Gated, Gated, Gated, Gated>,
     >();
+}
+
+#[test]
+fn composite_walk_joins_a_destruct_that_fails_before_its_wait_registers() {
+    walk_joins_a_destruct_that_fails_before_its_wait_registers::<CompositeVm<Gated>>();
+}
+
+#[test]
+fn group_walk_joins_a_destruct_that_fails_before_its_wait_registers() {
+    walk_joins_a_destruct_that_fails_before_its_wait_registers::<GroupVm<Gated>>();
+}
+
+#[test]
+fn aggregate1_walk_joins_a_destruct_that_fails_before_its_wait_registers() {
+    walk_joins_a_destruct_that_fails_before_its_wait_registers::<AggregateVm1<Gated>>();
+}
+
+#[test]
+fn leaf_walk_joins_a_destruct_that_fails_before_its_wait_registers() {
+    walk_joins_a_destruct_that_fails_before_its_wait_registers::<Leaf>();
 }
 
 #[test]
