@@ -350,11 +350,12 @@ respect to other lifecycle operations on the same VM.
   includes one that another thread started after the walk read the status
   (ADR-0227). A child whose `reconstruct()` is in its destruct phase settles
   at `Constructed`, so a container `destruct()` that joins it rolls back to
-  `Constructed`. When a joined destruct fails, the container rolls back to
-  `Constructed`. Flavors differ in how that failure reaches the caller. Some
-  fail the walk's call or its returned task with the child's error. Others
-  report it on a background channel, or do not report it. ADR-0227 §3 and §5
-  record each flavor's channel.
+  `Constructed`. A joined destruct that fails rolls the container back to
+  `Constructed` in every flavor. How the caller learns of that failure is
+  flavor-specific: a flavor may return a failure from the walk's call or its
+  returned task, report it on a background error channel, or report nothing
+  to the caller. ADR-0227 §3 and §5 record each flavor's channel. No
+  conformance ID pins that channel.
 - A walk that waited, for a child to settle or for an add's start attempt,
   and did not continue at once, continues on the walking VM's own foreground
   dispatcher. This covers the rest of the walk, its `after` step, its commit
