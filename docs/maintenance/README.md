@@ -12,7 +12,7 @@ Maintainers keep these files current.
   package, tool, CI, and publication contracts. `tools/check-workflow-pins.py`
   reads its action-pin inventory.
 - [Rust parity status](2026-07-16-rust-capability-parity.md): Rust member
-  evidence, the recorded difference in §12.7 and the open item in §12.14. The
+  evidence, the recorded difference in §12.7 and the closed item in §12.14. The
   Rust flavor page summarizes the current items; the site does not publish this
   ledger.
 - [Open cross-flavor decisions](2026-10-18-open-cross-flavor-decisions.md):

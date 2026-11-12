@@ -1,6 +1,6 @@
 # ADR 0218 — Container rollback errors, walk resumption and single-start children
 
-- **Status:** Accepted
+- **Status:** Accepted (§2.3 and the Rust note in §3 amended by ADR-0228)
 - **Date:** 2026-11-09
 - **Spec version:** 3.30.0 (chapter 02 §2.4 and §6; chapter 06 §3.2, §4.2
   and §5.1; chapter 07 §1.1 and §4; chapter 11 §4)

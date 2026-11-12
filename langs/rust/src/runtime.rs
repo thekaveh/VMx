@@ -3002,6 +3002,16 @@ fn start_unless_started<N: VmNode>(child: &N) -> VmxResult<()> {
     }
 }
 
+/// Whether a destruct of `child` is in flight or done: it is Destructing or
+/// Destructed (ADR-0228). A destruct refused while the child is in either
+/// state was started by another thread.
+fn destruct_started<N: VmNode>(child: &N) -> bool {
+    matches!(
+        child.status(),
+        ConstructionStatus::Destructing | ConstructionStatus::Destructed
+    )
+}
+
 /// Whether a construct of `child` is in flight or done: it is Constructing,
 /// publishing a sealed construct, or Constructed.
 fn construct_started<N: VmNode>(child: &N) -> bool {
@@ -5147,7 +5157,8 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     /// Runs one child's transition. A walk skips a child that is `Disposed`
     /// when it reaches it and calls no lifecycle operation on it (spec/02
-    /// §6, ADR-0189).
+    /// §6, ADR-0189). A destruct refused because another thread started one
+    /// after the walk read the status is joined (ADR-0218 rule 6, ADR-0228).
     fn run_child_transition<N: VmNode>(
         &self,
         child: &N,
@@ -5172,12 +5183,25 @@ impl<D: Dispatcher> ComponentCore<D> {
         // Subscribed before the start call, so it sees the child's transient
         // status when the child publishes on this container's hub.
         let observer = ChildObserver::start(self.hub(), child, transient);
-        match operation {
-            LifecycleOperation::Construct => child.construct()?,
-            _ => child.destruct()?,
+        let started = match operation {
+            LifecycleOperation::Construct => child.construct(),
+            _ => child.destruct(),
+        };
+        match started {
+            Err(VmxError::InvalidLifecycleTransition { .. })
+                if operation == LifecycleOperation::Destruct && destruct_started(child) =>
+            {
+                // Another starter began the destruct after the walk read the
+                // status: the walk joins it (ADR-0218 rule 6, ADR-0228).
+                drop(observer);
+                self.await_child(child, expected, None)
+            }
+            result => {
+                result?;
+                observer.note_queued_transient();
+                self.await_child_observed(child, expected, None, Some(observer))
+            }
         }
-        observer.note_queued_transient();
-        self.await_child_observed(child, expected, None, Some(observer))
     }
 
     /// Holds the container transition until `child`, already started, settles

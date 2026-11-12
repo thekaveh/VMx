@@ -50,6 +50,15 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 - `NotificationVm::advance_by_ms` and `ConfirmationVm::advance_by_ms`. Advance
   a `VirtualTimeScheduler` instead (ADR-0219, #1265).
 
+### Fixed
+
+- A container destruct (`CompositeVm`, `GroupVm`, and `AggregateVm1` to
+  `AggregateVm6`) joins a child destruct that another thread started after the
+  walk read the status, instead of failing and rolling back to `Constructed`.
+  The shared child-transition helper, which the `ComponentVm` leaf walk also
+  uses, joins it the same way (ADR-0228, ADR-0218 rule 6, spec/02 §6, #1569).
+  The regression tests are `destruct_start_race.rs`.
+
 ## [0.36.0] — unreleased source version
 
 0.36.0 implements spec 3.30.0.

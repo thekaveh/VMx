@@ -347,11 +347,10 @@ respect to other lifecycle operations on the same VM.
   checks this together with its start call (ADR-0218). A walk that finds a
   transition of the child in flight in the walk's own direction joins it: a
   construct for a construct walk, a destruct for a destruct walk. This
-  includes one that another thread started after the walk read the status. A child whose
-  `reconstruct()` is in its destruct phase settles at `Constructed`, so a
-  container `destruct()` that joins it fails and rolls back. Rust container
-  destruct walks do not join an in-flight destruct yet; the Rust parity
-  status records the gap.
+  includes one that another thread started after the walk read the status
+  (ADR-0228). A child whose `reconstruct()` is in its destruct phase settles
+  at `Constructed`, so a container `destruct()` that joins it fails and rolls
+  back.
 - A walk that waited, for a child to settle or for an add's start attempt,
   and did not continue at once, continues on the walking VM's own foreground
   dispatcher. This covers the rest of the walk, its `after` step, its commit

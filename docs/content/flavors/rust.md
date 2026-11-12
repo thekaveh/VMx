@@ -18,11 +18,6 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
   scenario suite for the THEME IDs.
 - Known gaps: the public surface and some behaviors are not fully aligned with
   the other flavors. The current items are:
-  - Open: a container destruct walk (`CompositeVm`, `GroupVm`, and
-    `AggregateVm1` to `AggregateVm6`) does not join a child whose destruct is
-    already in flight. C#, Python, and Swift join it, so a Rust container
-    destruct can fail where they succeed. The ledger's §12.14 describes the
-    planned fix.
   - Recorded difference: a container stays transient until its background
     children settle. A failed background child that rolls the container back
     is reported on `background_errors()`, a Rust container surface. The other
