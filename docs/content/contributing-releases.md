@@ -21,6 +21,10 @@ release procedure for every flavor.
 - Every PR must pass the required conformance, flavor, docs, examples,
   security, and spec-discipline checks. Maintainers promote `develop` to
   protected `main` through a separate PR.
+- `develop` and `main` stay in sync by tree, not by history. `develop` history
+  does not contain the `main` merge commits. After each promotion, check the
+  tree: `git diff --quiet <promotion head> <main merge commit>` must exit 0.
+  The full policy is in CONTRIBUTING.md §1.1.
 - For behavior changes, start in `spec/` and follow the ADR discipline.
 - Keep all supported flavors visible when a change affects shared behavior.
 - Edit the site and wiki pages only in their sources: `docs/content/` and the
