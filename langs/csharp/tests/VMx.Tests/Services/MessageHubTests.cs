@@ -202,9 +202,8 @@ public class MessageHubTests
         var disposeReturnedBeforeRelease = false;
         try
         {
-            disposeReturnedBeforeRelease = await Task.WhenAny(
-                dispose,
-                Task.Delay(TimeSpan.FromMilliseconds(50))) == dispose;
+            await Task.Delay(TimeSpan.FromMilliseconds(50));
+            disposeReturnedBeforeRelease = dispose.IsCompleted;
         }
         finally
         {
@@ -292,8 +291,15 @@ public class MessageHubTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default));
 
-        var completed = await Task.WhenAny(sends, Task.Delay(HangGuard));
-        completed.Should().BeSameAs(sends, "nested cross-hub sends must not form a wait cycle");
+        try
+        {
+            await sends.WaitAsync(HangGuard);
+        }
+        catch (TimeoutException)
+        {
+            Assert.Fail("nested cross-hub sends must not form a wait cycle");
+        }
+
         await sends;
         innerDeliveries.Should().Be(2);
     }
