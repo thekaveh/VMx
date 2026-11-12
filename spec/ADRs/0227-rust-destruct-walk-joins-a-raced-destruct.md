@@ -102,16 +102,18 @@ stays as written.
   the background-child tests cover (`background_child_failure_rolls_parent_back`).
   A walk that starts a failing destruct itself still returns that error, as
   before.
-- A joined destruct that has already settled at the join check returns the same
-  settle message from the call, as an `Err`. The walk learns the outcome in
-  time to return it. So the same failing destruct returns `Err` when it
-  finishes before the check, and `Ok` when it finishes after. The rollback to
-  `Constructed` is the same in both cases.
+- The channel depends on whether the walk learns of the failure before its
+  call returns. A failure that lands between the join's status read and its
+  registration is seen by the walk at once, and the call returns the settle
+  message as an `Err`. When the join is registered first, the call returns
+  `Ok`, and the failure is reported as above. The rollback to `Constructed`
+  is the same in both cases.
 - A destruct refused from `Destructing` whose child fails before the check is
   not joined, because the check sees `Constructed`. The walk keeps the refusal,
   `InvalidLifecycleTransition { from: Destructing }`, and the call fails with
-  the container rolled back. The error names the refusal, not the settle. This
-  is the same window that §5 records for Python.
+  the container rolled back. The error names the refusal, not the settle.
+  Python re-raises the refusal in the analogous case where the destruct
+  finished first (§5).
 - A refused destruct at any other status still fails the walk, as before. A
   refusal from `Disposed` (the inline dispose cascade) keeps its error.
 - The Rust parity ledger closes §12.14.

@@ -1,14 +1,14 @@
 //! One starter for each child destruct (spec/02 §6, ADR-0218 rule 6, ADR-0227).
-//! A container destruct walk reads a child as `Constructed` and then starts
-//! the child's destruct. Another thread can start that destruct between the
-//! read and the walk's call. The call then fails as an invalid transition from
+//! A container destruct walk reads a child as `Constructed` and then starts the
+//! child's destruct. Another thread can start that destruct between the read
+//! and the walk's call. The call then fails as an invalid transition from
 //! `Destructing`. The walk joins the destruct instead of failing, so the
 //! container destruct succeeds. A destruct that finishes before the walk checks
 //! the refusal is joined too. A joined destruct that is still in flight when
-//! the walk checks, and then fails, returns `Ok` from the call. The walk
-//! rolls the container back to `Constructed` and reports the failure on
-//! `background_errors()` (ADR-0227 §3). A joined destruct that has already
-//! failed at the check returns the settle error from the call. A refusal from
+//! the walk registers its join, and then fails, returns `Ok` from the call. The
+//! walk rolls the container back to `Constructed` and reports the failure on
+//! `background_errors()` (ADR-0227 §3). A failure the walk learns of before its
+//! call returns is returned from the call as the settle error. A refusal from
 //! `Disposed`, the inline dispose cascade, is not joined (LIFE-021). The
 //! `ComponentVm` leaf walk follows the same rules.
 
