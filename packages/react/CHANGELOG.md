@@ -46,6 +46,9 @@ this package also contains the changes in the 0.1.2 section of
 - A failed `AsyncRelayCommand` bound with `useCommand` no longer has to fail
   silently. Before, the hook had no way to observe the command's `errors`
   channel, so a rejected fire-and-forget task was lost (#1394).
+- `createVmxStore` delivers no further notification after `dispose()`, even
+  inside a flush already in progress. Before, a listener that disposed the
+  store let the listeners copied for that flush run after it.
 
 ## [0.1.2] - 2026-10-21
 

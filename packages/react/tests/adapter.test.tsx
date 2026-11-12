@@ -134,6 +134,17 @@ describe("createVmxStore and useVmx", () => {
     store.subscribe(() => {})();
   });
 
+  it("stops the rest of a pending flush once a listener disposes the store", async () => {
+    const hub = new MessageHub();
+    const store = createVmxStore(hub);
+    const later = vi.fn();
+    store.subscribe(() => store.dispose());
+    store.subscribe(later);
+    hub.send(PropertyChangedMessage.create({}, "test", "value"));
+    await Promise.resolve();
+    expect(later).not.toHaveBeenCalled();
+  });
+
   it("catches a VM mutation between render and subscription installation", () => {
     const hub = new MessageHub();
     const vm = modeled(hub);

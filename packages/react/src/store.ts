@@ -25,8 +25,12 @@ export function createVmxStore(hub: IMessageHub): VmxStore {
 
   const flush = (): void => {
     invalidationPending = false;
-    if (disposed) return;
-    for (const listener of [...listeners]) listener();
+    for (const listener of [...listeners]) {
+      // A listener may dispose the store mid-flush; the copied set must not
+      // deliver the rest of this notification after that.
+      if (disposed) return;
+      listener();
+    }
   };
 
   const scheduleInvalidation = (): void => {
