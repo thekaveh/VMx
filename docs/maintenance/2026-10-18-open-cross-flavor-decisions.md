@@ -168,7 +168,8 @@ None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
 ## 5. Related records
 
 - Rust parity backlog: [Rust parity status](2026-07-16-rust-capability-parity.md),
-  §12.7 and §12.14.
+  §12.7 (a recorded difference). §12.14 is closed by ADR-0227, and ADR-0227 §5
+  records the Python and Swift join-failure divergences.
 - ADR-0201 decides the Notes Showcase selection, unsaved-edit, Save and theme
   policies (#1331).
 
