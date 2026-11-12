@@ -134,6 +134,20 @@ describe("createVmxStore and useVmx", () => {
     store.subscribe(() => {})();
   });
 
+  it("stops the rest of a pending flush once a listener disposes the store", async () => {
+    const hub = new MessageHub();
+    const store = createVmxStore(hub);
+    const disposer = vi.fn(() => store.dispose());
+    const later = vi.fn();
+    store.subscribe(disposer);
+    store.subscribe(later);
+    hub.send(PropertyChangedMessage.create({}, "test", "value"));
+    await Promise.resolve();
+    // The disposer must run, so a flush that never happens cannot pass.
+    expect(disposer).toHaveBeenCalledTimes(1);
+    expect(later).not.toHaveBeenCalled();
+  });
+
   it("catches a VM mutation between render and subscription installation", () => {
     const hub = new MessageHub();
     const vm = modeled(hub);
