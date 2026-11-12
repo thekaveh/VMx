@@ -3002,6 +3002,17 @@ fn start_unless_started<N: VmNode>(child: &N) -> VmxResult<()> {
     }
 }
 
+/// Whether a destruct of `child` is in flight or done: it is Destructing or
+/// Destructed (ADR-0227). Call it only for a destruct refused from
+/// Destructing, which another thread started; the status now tells whether
+/// that destruct is still running or has finished.
+fn destruct_started<N: VmNode>(child: &N) -> bool {
+    matches!(
+        child.status(),
+        ConstructionStatus::Destructing | ConstructionStatus::Destructed
+    )
+}
+
 /// Whether a construct of `child` is in flight or done: it is Constructing,
 /// publishing a sealed construct, or Constructed.
 fn construct_started<N: VmNode>(child: &N) -> bool {
@@ -5147,7 +5158,8 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     /// Runs one child's transition. A walk skips a child that is `Disposed`
     /// when it reaches it and calls no lifecycle operation on it (spec/02
-    /// §6, ADR-0189).
+    /// §6, ADR-0189). A destruct refused because another thread started one
+    /// after the walk read the status is joined (ADR-0218 rule 6, ADR-0227).
     fn run_child_transition<N: VmNode>(
         &self,
         child: &N,
@@ -5172,12 +5184,30 @@ impl<D: Dispatcher> ComponentCore<D> {
         // Subscribed before the start call, so it sees the child's transient
         // status when the child publishes on this container's hub.
         let observer = ChildObserver::start(self.hub(), child, transient);
-        match operation {
-            LifecycleOperation::Construct => child.construct()?,
-            _ => child.destruct()?,
+        let started = match operation {
+            LifecycleOperation::Construct => child.construct(),
+            _ => child.destruct(),
+        };
+        match started {
+            // A refusal from Destructing is a destruct in flight. A refusal
+            // from Disposed is the inline dispose cascade (spec/02 §7.2,
+            // LIFE-021): the child reads Destructed during it, and the walk
+            // keeps that error.
+            Err(VmxError::InvalidLifecycleTransition {
+                from: ConstructionStatus::Destructing,
+                ..
+            }) if operation == LifecycleOperation::Destruct && destruct_started(child) => {
+                // Another starter began the destruct after the walk read the
+                // status: the walk joins it (ADR-0218 rule 6, ADR-0227).
+                drop(observer);
+                self.await_child(child, expected, None)
+            }
+            result => {
+                result?;
+                observer.note_queued_transient();
+                self.await_child_observed(child, expected, None, Some(observer))
+            }
         }
-        observer.note_queued_transient();
-        self.await_child_observed(child, expected, None, Some(observer))
     }
 
     /// Holds the container transition until `child`, already started, settles
@@ -5413,11 +5443,25 @@ impl<D: Dispatcher> ComponentCore<D> {
             let Some(settle) = inner.child_settle.as_mut() else {
                 return;
             };
-            settle.waiting = false;
             settle.awaited.take()
         };
-        // The check consumes the awaited child, outside the core guard.
+        // The check consumes the awaited child, outside the core guard. The
+        // wait stays marked while it runs, so a walk that ends its own action
+        // meanwhile defers to this settle. Clearing the wait first let that
+        // walk publish success and drop a failure found by the check
+        // (ADR-0227 §2.8).
         let result = awaited.map_or(Ok(()), |awaited| awaited());
+        if result.is_ok() {
+            let mut inner = lock(&self.inner);
+            if let Some(settle) = inner
+                .child_settle
+                .as_mut()
+                .filter(|settle| settle.generation == generation)
+            {
+                settle.waiting = false;
+            }
+        }
+        // A failure is recorded by `fail_children`, which also clears the wait.
         self.after_child_settled(generation, result);
     }
 
