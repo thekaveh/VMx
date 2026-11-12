@@ -3003,8 +3003,9 @@ fn start_unless_started<N: VmNode>(child: &N) -> VmxResult<()> {
 }
 
 /// Whether a destruct of `child` is in flight or done: it is Destructing or
-/// Destructed (ADR-0227). A destruct refused while the child is in either
-/// state was started by another thread.
+/// Destructed (ADR-0227). Call it only for a destruct refused from
+/// Destructing, which another thread started; the status now tells whether
+/// that destruct is still running or has finished.
 fn destruct_started<N: VmNode>(child: &N) -> bool {
     matches!(
         child.status(),
@@ -5188,9 +5189,14 @@ impl<D: Dispatcher> ComponentCore<D> {
             _ => child.destruct(),
         };
         match started {
-            Err(VmxError::InvalidLifecycleTransition { .. })
-                if operation == LifecycleOperation::Destruct && destruct_started(child) =>
-            {
+            // A refusal from Destructing is a destruct in flight. A refusal
+            // from Disposed is the inline dispose cascade (spec/02 §7.2,
+            // LIFE-021): the child reads Destructed during it, and the walk
+            // keeps that error.
+            Err(VmxError::InvalidLifecycleTransition {
+                from: ConstructionStatus::Destructing,
+                ..
+            }) if operation == LifecycleOperation::Destruct && destruct_started(child) => {
                 // Another starter began the destruct after the walk read the
                 // status: the walk joins it (ADR-0218 rule 6, ADR-0227).
                 drop(observer);
@@ -5437,11 +5443,25 @@ impl<D: Dispatcher> ComponentCore<D> {
             let Some(settle) = inner.child_settle.as_mut() else {
                 return;
             };
-            settle.waiting = false;
             settle.awaited.take()
         };
-        // The check consumes the awaited child, outside the core guard.
+        // The check consumes the awaited child, outside the core guard. The
+        // wait stays marked while it runs, so a walk that ends its own action
+        // meanwhile defers to this settle. Clearing the wait first let that
+        // walk publish success and drop a failure found by the check
+        // (ADR-0227 §2.8).
         let result = awaited.map_or(Ok(()), |awaited| awaited());
+        if result.is_ok() {
+            let mut inner = lock(&self.inner);
+            if let Some(settle) = inner
+                .child_settle
+                .as_mut()
+                .filter(|settle| settle.generation == generation)
+            {
+                settle.waiting = false;
+            }
+        }
+        // A failure is recorded by `fail_children`, which also clears the wait.
         self.after_child_settled(generation, result);
     }
 

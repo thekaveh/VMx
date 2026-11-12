@@ -4,17 +4,20 @@
 //! read and the walk's call. The call then fails as an invalid transition from
 //! `Destructing`. The walk joins the destruct instead of failing, so the
 //! container destruct succeeds. A destruct that finishes before the walk checks
-//! the refusal is joined too. A joined destruct that fails returns `Ok` from the
-//! walk, rolls the container back to `Constructed` and reports the failure on
-//! `background_errors()` (ADR-0227 §3). The `ComponentVm` leaf walk follows the
-//! same rules.
+//! the refusal is joined too. A joined destruct that is still in flight when
+//! the walk checks, and then fails, returns `Ok` from the call. The walk
+//! rolls the container back to `Constructed` and reports the failure on
+//! `background_errors()` (ADR-0227 §3). A joined destruct that has already
+//! failed at the check returns the settle error from the call. A refusal from
+//! `Disposed`, the inline dispose cascade, is not joined (LIFE-021). The
+//! `ComponentVm` leaf walk follows the same rules.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, ThreadId};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use vmx::{
     AggregateVm1, AggregateVm2, AggregateVm3, AggregateVm4, AggregateVm5, AggregateVm6,
     ComponentVm, CompositeVm, ConstructionStatus, GroupVm, LifecycleSettleCallback, MessageHub,
@@ -30,6 +33,9 @@ enum Point {
     Entry,
     /// After a refused call, before its error returns to the walk.
     Refusal,
+    /// After the walk registers to wait on the child's settle. The walk is
+    /// then parked on a join that is still in flight.
+    Settle,
 }
 
 /// The point, the entry report and the release of one armed pause.
@@ -152,7 +158,9 @@ impl VmNode for Gated {
         self.vm.parent_handle()
     }
     fn when_lifecycle_settled(&self, callback: LifecycleSettleCallback) -> bool {
-        self.vm.when_lifecycle_settled(callback)
+        let registered = self.vm.when_lifecycle_settled(callback);
+        self.pause(Point::Settle);
+        registered
     }
 }
 
@@ -313,6 +321,12 @@ fn start_other_destruct(child: &Gated) -> Receiver<VmxResult<()>> {
 }
 
 fn ends_destructed<C: Container>(container: &C, child: &Gated) {
+    // A joined walk can finish on its own dispatcher after the other destruct
+    // returns, so the container is awaited, up to the bound.
+    let deadline = Instant::now() + BOUND;
+    while container.status() != ConstructionStatus::Destructed && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(1));
+    }
     assert_eq!(container.status(), ConstructionStatus::Destructed);
     assert_eq!(child.status(), ConstructionStatus::Destructed);
     assert_eq!(
@@ -334,20 +348,29 @@ fn walk_joins_a_destruct_in_flight_after_its_read<C: Container>() {
     {
         let (container, child) = (container.clone(), child.clone());
         thread::spawn(move || {
-            let _ = armed_tx.send(child.arm(Point::Entry));
+            let _ = armed_tx.send((
+                child.arm(Point::Entry),
+                child.arm(Point::Refusal),
+                child.arm(Point::Settle),
+            ));
             let _ = walk_tx.send(container.destruct());
         });
     }
-    let (walk_reached, release_walk) = armed.recv_timeout(BOUND).expect("the walk arms");
-    recv(&walk_reached, "the walk pauses before its destruct call");
+    let ((read, release_read), (refused, release_refused), (joined, release_joined)) =
+        armed.recv_timeout(BOUND).expect("the walk arms");
+    recv(&read, "the walk pauses before its destruct call");
     assert_eq!(child.status(), ConstructionStatus::Constructed);
 
     let other = start_other_destruct(&child);
     recv(&other_entered, "the other starter's destruct is in flight");
-    let _ = release_walk.send(());
-    // The walk's call is refused while the other destruct is held. This pause
-    // lets the walk reach its join. The result is the same if it has not.
-    thread::sleep(Duration::from_millis(50));
+    let _ = release_read.send(());
+    // The walk's call is refused while the other destruct is held.
+    recv(&refused, "the walk's call is refused");
+    let _ = release_refused.send(());
+    // The walk has checked the status and registered its join while the
+    // other destruct is still held, so the join is in flight.
+    recv(&joined, "the walk joins the destruct in flight");
+    let _ = release_joined.send(());
     let _ = release_other.send(());
 
     assert_eq!(
@@ -433,18 +456,27 @@ fn walk_joins_a_destruct_that_fails_and_reports_it_in_background<C: Container>()
     {
         let (container, child) = (container.clone(), child.clone());
         thread::spawn(move || {
-            let _ = armed_tx.send(child.arm(Point::Entry));
+            let _ = armed_tx.send((
+                child.arm(Point::Entry),
+                child.arm(Point::Refusal),
+                child.arm(Point::Settle),
+            ));
             let _ = walk_tx.send(container.destruct());
         });
     }
-    let (walk_reached, release_walk) = armed.recv_timeout(BOUND).expect("the walk arms");
-    recv(&walk_reached, "the walk pauses before its destruct call");
+    let ((read, release_read), (refused, release_refused), (joined, release_joined)) =
+        armed.recv_timeout(BOUND).expect("the walk arms");
+    recv(&read, "the walk pauses before its destruct call");
 
     let other = start_other_destruct(&child);
     recv(&other_entered, "the other starter's destruct is in flight");
-    let _ = release_walk.send(());
-    // This pause lets the walk reach its join while the other destruct is held.
-    thread::sleep(Duration::from_millis(50));
+    let _ = release_read.send(());
+    recv(&refused, "the walk's call is refused");
+    let _ = release_refused.send(());
+    // The walk has registered its join while the other destruct is held, so
+    // the join is in flight when the destruct fails.
+    recv(&joined, "the walk joins the destruct in flight");
+    let _ = release_joined.send(());
     let _ = release_other.send(());
 
     assert_eq!(
@@ -460,9 +492,10 @@ fn walk_joins_a_destruct_that_fails_and_reports_it_in_background<C: Container>()
         Ok(()),
         "the walk joins the failed destruct and returns Ok"
     );
-    assert_eq!(child.status(), ConstructionStatus::Constructed);
-    assert_eq!(container.status(), ConstructionStatus::Constructed);
-    // The container reports the child's settle, not the hook's own error.
+    // The rollback is published before its report, and a leaf walk resumes on
+    // its own dispatcher. So the report is the sync point: the container is
+    // Constructed once it arrives. The report names the child's settle, not
+    // the hook's own error.
     match errors
         .recv_timeout(BOUND)
         .expect("the failure is reported on background_errors()")
@@ -473,6 +506,8 @@ fn walk_joins_a_destruct_that_fails_and_reports_it_in_background<C: Container>()
         ),
         other => panic!("unexpected background error: {other:?}"),
     }
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    assert_eq!(container.status(), ConstructionStatus::Constructed);
 }
 
 #[test]
@@ -670,4 +705,80 @@ fn leaf_walk_joins_a_destruct_that_finished_after_its_refusal() {
 #[test]
 fn leaf_walk_joins_a_destruct_that_fails_and_reports_it_in_background() {
     walk_joins_a_destruct_that_fails_and_reports_it_in_background::<Leaf>();
+}
+
+/// A child composite that holds one grandchild. The grandchild's dispose hook
+/// runs the walk under test, so the walk reaches the child while the child is
+/// in its inline dispose cascade (spec/02 §7.2).
+fn cascade_child() -> (CompositeVm<ComponentVm<i32>>, ComponentVm<i32>) {
+    let grandchild: ComponentVm<i32> =
+        ComponentVm::with_model("grandchild", 1, MessageHub::new(), NullDispatcher::new());
+    let child = CompositeVm::new("child");
+    child
+        .add(grandchild.clone())
+        .expect("the grandchild is added");
+    (child, grandchild)
+}
+
+/// Disposes `child` and runs `walk` from the grandchild's dispose hook, so
+/// `walk` runs during the child's cascade. Returns what `walk` returned. The
+/// child reads `Destructed` during the cascade and refuses a destruct from
+/// `Disposed`, a refusal the walk must not join (LIFE-021).
+fn walk_during_cascade(
+    child: &CompositeVm<ComponentVm<i32>>,
+    grandchild: &ComponentVm<i32>,
+    walk: impl Fn() -> VmxResult<()> + Send + 'static,
+) -> VmxResult<()> {
+    child.destruct().expect("the child destructs first");
+    let (result_tx, result) = mpsc::channel();
+    grandchild.on_dispose(move || {
+        let _ = result_tx.send(walk());
+        Ok(())
+    });
+    child.dispose().expect("the child disposes");
+    result
+        .recv_timeout(BOUND)
+        .expect("the grandchild's dispose ran the walk")
+}
+
+#[test]
+fn composite_destruct_refuses_a_child_in_its_inline_dispose_cascade() {
+    let (child, grandchild) = cascade_child();
+    let outer = CompositeVm::new("outer");
+    outer.add(child.clone()).expect("the child is added");
+    outer.construct().expect("the outer constructs");
+
+    let walked = outer.clone();
+    let walk = walk_during_cascade(&child, &grandchild, move || walked.destruct());
+    assert_eq!(
+        walk,
+        Err(VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Disposed,
+            operation: "destruct",
+        }),
+        "the cascade refusal stays an error and is not joined"
+    );
+    assert_eq!(outer.status(), ConstructionStatus::Constructed);
+    assert_eq!(child.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn group_destruct_refuses_a_child_in_its_inline_dispose_cascade() {
+    let (child, grandchild) = cascade_child();
+    let outer = GroupVm::new("outer");
+    outer.add(child.clone()).expect("the child is added");
+    outer.construct().expect("the outer constructs");
+
+    let walked = outer.clone();
+    let walk = walk_during_cascade(&child, &grandchild, move || walked.destruct());
+    assert_eq!(
+        walk,
+        Err(VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Disposed,
+            operation: "destruct",
+        }),
+        "the cascade refusal stays an error and is not joined"
+    );
+    assert_eq!(outer.status(), ConstructionStatus::Constructed);
+    assert_eq!(child.status(), ConstructionStatus::Disposed);
 }

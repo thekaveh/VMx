@@ -450,9 +450,10 @@ leaf walk used the same helper and had the same window. Only the aggregate
 construct join was closed (§12.7).
 
 ADR-0227 closes the Rust item. The shared child-transition helper joins a
-destruct that the child refuses because another starter began it, and a joined
-destruct that fails returns `Ok` and reports on `background_errors()`
-(ADR-0227 §3). The regression tests are
+destruct that the child refuses because another starter began it. A joined
+destruct still running at the join check that then fails returns `Ok` and
+reports on `background_errors()`. One that failed before the check returns the
+settle error (ADR-0227 §3). The regression tests are
 `langs/rust/tests/conformance/destruct_start_race.rs`. #1569 tracks the
 item. The C# sibling, #1375, closed on 2026-11-09 and is cited only as
 history.

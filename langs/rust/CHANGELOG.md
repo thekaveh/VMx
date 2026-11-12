@@ -57,9 +57,13 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   walk read the status, instead of failing and rolling back to `Constructed`.
   The shared child-transition helper, which the `ComponentVm` leaf walk also
   uses, joins it the same way (ADR-0227, ADR-0218 rule 6, spec/02 §6, #1569).
-  When the joined destruct fails, the call returns `Ok`, the container rolls
-  back to `Constructed`, and `background_errors()` reports the failure. The
-  regression tests are `destruct_start_race.rs`.
+  When the joined destruct is still running at the join check and then fails,
+  the call returns `Ok`, the container rolls back to `Constructed`, and
+  `background_errors()` reports the failure. When it has already failed at the
+  check, the call returns the settle error. A refusal from the inline dispose
+  cascade is not joined and keeps its error. A walk that waits on a child no
+  longer loses the child's failure when the walk ends during the check
+  (ADR-0227 §2.8). The regression tests are `destruct_start_race.rs`.
 
 ## [0.36.0] — unreleased source version
 
