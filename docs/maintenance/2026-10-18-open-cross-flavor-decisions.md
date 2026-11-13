@@ -163,6 +163,7 @@ None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
 
 | Item  | Title                                                                                         | Closed by | Pull request                                       |
 | ----- | --------------------------------------------------------------------------------------------- | --------- | -------------------------------------------------- |
+| §1.1  | Async resource: cancelling a discard-mode retry from `Error`                                  | ADR-0228  | [#1980](https://github.com/thekaveh/VMx/pull/1980) |
 | §1.4  | Notifications of an update nested in a form callback                                          | ADR-0180  | [#1239](https://github.com/thekaveh/VMx/pull/1239) |
 | §2.3  | Duplicate dictionary key error                                                                | ADR-0214  | [#1522](https://github.com/thekaveh/VMx/pull/1522) |
 | §2.6  | `SetModel` while approval publishes                                                           | ADR-0174  | [#1211](https://github.com/thekaveh/VMx/pull/1211) |
