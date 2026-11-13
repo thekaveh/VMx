@@ -274,11 +274,12 @@ jobs:
         run: dotnet build examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj --no-restore
 
       - name: Test NotesShowcase (includes the executed Avalonia recipe)
-        # The test host targets net9.0 but loads .NET 10 assemblies. On the current
-        # runner image the .NET 9 runtime alone cannot load them (System.Runtime 10.0.0.0
-        # not found), so the host rolls forward to the installed .NET 10 runtime.
+        # The test host targets net9.0 but loads .NET 10 assemblies. Major rolls forward
+        # only when the .NET 9 runtime is missing, and the current runner images ship it,
+        # so the host would stay on .NET 9 (System.Runtime 10.0.0.0 not found). LatestMajor
+        # picks the highest installed runtime, which is .NET 10.
         env:
-          DOTNET_ROLL_FORWARD: Major
+          DOTNET_ROLL_FORWARD: LatestMajor
         run: dotnet test examples/csharp/avalonia/NotesShowcase.Tests/NotesShowcase.Tests.csproj --no-restore --logger "console;verbosity=normal"
 
       - name: Run console example
