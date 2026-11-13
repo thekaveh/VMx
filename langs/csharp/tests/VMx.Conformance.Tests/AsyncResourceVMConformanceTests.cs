@@ -934,4 +934,28 @@ public sealed class AsyncResourceVMConformanceTests
             await Task.Delay(1);
         predicate().Should().BeTrue("the asynchronous condition should settle");
     }
+
+    [Fact, Trait("Conformance", "ARES-013")]
+    public async Task ARES_013_Cancelled_Discard_Retry_From_Error_Restores_Error()
+    {
+        using var hub = new MessageHub();
+        var second = NewSource<int>();
+        var cleaned = new List<int>();
+        var attempt = 0;
+        var vm = Create(hub, _ => ++attempt switch
+        {
+            1 => Task.FromException<int>(new InvalidOperationException("offline")),
+            _ => second.Task,
+        }, cleanup: cleaned.Add);
+
+        await vm.LoadAsync();
+        vm.State.Status.Should().Be(AsyncResourceStatus.Error);
+        var reload = vm.ReloadAsync();
+        vm.State.Status.Should().Be(AsyncResourceStatus.Loading);
+        vm.Cancel();
+        await reload;
+        vm.State.Status.Should().Be(AsyncResourceStatus.Error);
+        vm.State.HasValue.Should().BeFalse();
+        cleaned.Should().BeEmpty();
+    }
 }

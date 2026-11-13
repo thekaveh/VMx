@@ -1087,3 +1087,35 @@ fn dropping_async_resource_releases_command_captures() {
         "cached commands must not strongly retain their owner"
     );
 }
+
+/// ARES-013 — A discard retry cancelled from a value-less Error restores Error
+#[test]
+fn async_resource_discard_retry_cancel_from_error_restores_error() {
+    let (send1, receive1) = channel();
+    let (_send2, receive2) = channel();
+    let cleaned = Arc::new(Mutex::new(Vec::new()));
+    let (vm, starts) = controlled_vm(
+        vec![receive1, receive2],
+        AsyncResourceRetention::DiscardPrevious,
+        Some(cleaned.clone()),
+    );
+    let first = vm.load_async();
+    wait_until(|| starts.load(Ordering::SeqCst) == 1);
+    send1.send(Err(VmxError::Other("offline".into()))).unwrap();
+    first.join().unwrap().unwrap();
+    assert!(matches!(
+        vm.state(),
+        AsyncResourceState::Error { previous: None, .. }
+    ));
+    let reload = vm.reload_async();
+    wait_until(|| starts.load(Ordering::SeqCst) == 2);
+    assert_eq!(vm.state(), AsyncResourceState::Loading { previous: None });
+    vm.cancel();
+    reload.join().unwrap().unwrap();
+    assert!(matches!(
+        vm.state(),
+        AsyncResourceState::Error { previous: None, .. }
+    ));
+    assert_eq!(vm.value(), None);
+    assert!(cleaned.lock().unwrap().is_empty());
+}

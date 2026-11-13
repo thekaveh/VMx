@@ -270,7 +270,9 @@ public final class AsyncResourceVM<Value>: ComponentVMBase {
         var discarded: Value?
         if retention == .discardPrevious {
             discarded = stableState.value
-            stableState = .idle
+            if discarded != nil {
+                stableState = .idle
+            }
         }
         let previous = retention == .retainPrevious ? stableState.value : nil
         currentState = .loading(previous: previous)

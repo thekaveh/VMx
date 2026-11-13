@@ -898,4 +898,33 @@ describe("AsyncResourceVM conformance", () => {
       expect(shared).toEqual([]);
     },
   );
+
+  describe("ARES-013", () => {
+    it("restores Error when a discard retry from a value-less Error is cancelled", async () => {
+      const second = deferred<number>();
+      let attempt = 0;
+      const cleaned: number[] = [];
+      const vm = new AsyncResourceVM<number>({
+        name: "resource",
+        hub: new MessageHub(),
+        dispatcher: NullDispatcher.INSTANCE,
+        cleanupValue: (value) => cleaned.push(value),
+        loader: async () => {
+          attempt += 1;
+          if (attempt === 1) throw new Error("offline");
+          return second.promise;
+        },
+      });
+
+      await vm.load();
+      expect(vm.state.status).toBe(AsyncResourceStatus.Error);
+      const reload = vm.reload();
+      expect(vm.state).toEqual({ status: AsyncResourceStatus.Loading });
+      vm.cancel();
+      await reload;
+      expect(vm.state.status).toBe(AsyncResourceStatus.Error);
+      expect(hasValue(vm.state)).toBe(false);
+      expect(cleaned).toEqual([]);
+    });
+  });
 });
