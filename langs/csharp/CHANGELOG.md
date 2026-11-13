@@ -16,6 +16,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Added
 
+- `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
+  cancelled from a value-less `Error` restores that `Error`.
+
 - `DelayedTask`: a disposable helper that holds at most one delayed
 
 - Added: `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused

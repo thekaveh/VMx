@@ -1,4 +1,4 @@
-"""ARES-001..012 — AsyncResourceVM conformance (spec chapter 23)."""
+"""ARES-001..013 — AsyncResourceVM conformance (spec chapter 23)."""
 
 from __future__ import annotations
 
@@ -995,6 +995,32 @@ async def test_loader_cancellation_on_retained_reload_restores_prior_value(sourc
     _assert_commands(vm, load=False, reload=True)
     vm.dispose()
     assert cleaned == [1]
+
+
+@pytest.mark.conformance("ARES-013")
+async def test_ares_013_cancelled_discard_retry_from_error_restores_error() -> None:
+    second: asyncio.Future[int] = asyncio.get_running_loop().create_future()
+    attempts = 0
+    cleaned: list[int] = []
+
+    async def loader() -> int:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("offline")
+        return await asyncio.shield(second)
+
+    vm = _vm(loader, cleanup=cleaned.append)
+    await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
+    assert vm.state.status is AsyncResourceStatus.ERROR
+    reload_task = asyncio.create_task(vm.reload())
+    await _wait_until(lambda: attempts == 2)
+    assert vm.state.status is AsyncResourceStatus.LOADING
+    vm.cancel()
+    await asyncio.wait_for(reload_task, timeout=HANG_GUARD)
+    assert vm.state.status is AsyncResourceStatus.ERROR
+    assert not hasattr(vm.state, "value")
+    assert cleaned == []
 
 
 @pytest.mark.conformance("ARES-012")

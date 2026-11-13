@@ -768,6 +768,12 @@ snapshot and completes `Pending` once (`NOTIF-017`, `DISP-003`), and a
 (`SRCH-008`). A current `AsyncResourceVM` loader that ends with its own
 cancellation restores the saved stable state, as `Cancel` does (`ARES-012`).
 
+v3.30.0 also states the cancellation baseline of a discard reload. A
+`DiscardPrevious` reload that starts from a value-less `Error` relinquishes no
+value, so a cancel returns to that `Error`. The baseline is `Idle` only after a
+value was relinquished. Swift now matches the other flavors (`ARES-013`). See
+ADR-0228 and chapter 23 §7 and §8.
+
 v3.30.0 also corrects spec prose that disagreed with the code and names all
 five flavors where ADR-0121 requires it. It moves the spec release history from
 `spec/README.md` to this file. These changes add no behavior.

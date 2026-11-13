@@ -17,20 +17,6 @@ recording date.
 
 ## 1. Spec text needs a decision
 
-### 1.1. Async resource: cancelling a discard-mode retry from `Error`
-
-`spec/23-async-resource-vm.md` §8 says `DiscardPrevious` uses `Idle` as the
-cancellation baseline. §5 and §7 say cancellation restores the saved stable
-state.
-
-- Swift resets the baseline to `Idle` on every discard-mode start
-  (`langs/swift/Sources/VMx/State/AsyncResourceVM.swift:271-273`). A cancelled
-  retry from `Error` returns to `Idle`.
-- C#, Python, TypeScript and Rust reset the baseline only when the stable state
-  holds a value (for example `langs/python/src/vmx/state/async_resource_vm.py:249-252`).
-  A cancelled retry from a value-less `Error` returns to that `Error`.
-- No ARES test covers this case.
-
 ### 1.2. Failures inside derived streams
 
 **Consumer cases decided by
@@ -177,6 +163,7 @@ None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
 
 | Item  | Title                                                                                         | Closed by | Pull request                                       |
 | ----- | --------------------------------------------------------------------------------------------- | --------- | -------------------------------------------------- |
+| §1.1  | Async resource: cancelling a discard-mode retry from `Error`                                  | ADR-0228  | [#1980](https://github.com/thekaveh/VMx/pull/1980) |
 | §1.4  | Notifications of an update nested in a form callback                                          | ADR-0180  | [#1239](https://github.com/thekaveh/VMx/pull/1239) |
 | §2.3  | Duplicate dictionary key error                                                                | ADR-0214  | [#1522](https://github.com/thekaveh/VMx/pull/1522) |
 | §2.6  | `SetModel` while approval publishes                                                           | ADR-0174  | [#1211](https://github.com/thekaveh/VMx/pull/1211) |
