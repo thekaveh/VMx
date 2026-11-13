@@ -26,10 +26,12 @@ import {
   ObservableList,
   PropertyChangedMessage,
   RelayCommand,
+  RelayCommandOf,
   RxDispatcher,
   ViewModelType,
   type HierarchicalVMConstructionContext,
   type IMessage,
+  type ICommandOf,
   type IMessageHub,
 } from "@thekaveh/vmx";
 
@@ -40,7 +42,9 @@ import {
   useCommand,
   useDerivedProperty,
   useObservableList,
+  useParameterizedCommand,
   useVm,
+  useVmChildren,
   useVmCollection,
   useVmx,
 } from "../src/index.js";
@@ -788,6 +792,201 @@ describe("command and collection hooks", () => {
     }
     render(<><Probe /><InterleavedMutation /></>);
     expect(screen.getByTestId("collection-gap").textContent).toBe("1");
+  });
+});
+
+describe("parameterized command and tree children hooks", () => {
+  interface Note {
+    readonly id: string;
+    readonly enabled: boolean;
+  }
+
+  it("passes an object-typed parameter to execute", () => {
+    const task = vi.fn();
+    const command = RelayCommandOf.builder<Note>().task(task).build();
+    const note: Note = { id: "n1", enabled: true };
+    function Probe(): JSX.Element {
+      const binding = useParameterizedCommand(command, note);
+      return <button disabled={!binding.canExecute} onClick={binding.execute}>run</button>;
+    }
+    render(<Probe />);
+    act(() => screen.getByRole("button").click());
+
+    expect(task).toHaveBeenCalledTimes(1);
+    expect(task.mock.calls[0]?.[0]).toBe(note);
+  });
+
+  it("calls onError with each failure on the command's errors channel", () => {
+    // There is no parameterized AsyncRelayCommand in core, so this command
+    // exposes the same `errors` channel that AsyncRelayCommand uses.
+    const failures = new Subject<unknown>();
+    const command: ICommandOf<Note> & { readonly errors: Observable<unknown> } = {
+      canExecute: () => true,
+      execute: () => undefined,
+      canExecuteChanged: new Subject<void>().asObservable(),
+      errors: failures.asObservable(),
+    };
+    const note: Note = { id: "n1", enabled: true };
+    const onError = vi.fn();
+    function Probe(): JSX.Element {
+      useParameterizedCommand(command, note, { onError });
+      return <span>bound</span>;
+    }
+    render(<Probe />);
+    const error = new Error("disk full");
+    act(() => failures.next(error));
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(error);
+  });
+
+  it("re-evaluates canExecute on canExecuteChanged", () => {
+    let allowed = false;
+    const command = RelayCommandOf.builder<Note>().predicate(() => allowed).task(() => undefined).build();
+    const note: Note = { id: "n1", enabled: true };
+    function Probe(): JSX.Element {
+      const binding = useParameterizedCommand(command, note);
+      return <button disabled={!binding.canExecute}>run</button>;
+    }
+    render(<Probe />);
+    const button = screen.getByRole("button") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+
+    allowed = true;
+    act(() => command.raiseCanExecuteChanged());
+
+    expect(button.disabled).toBe(false);
+  });
+
+  it("re-evaluates canExecute and execute with the new parameter", () => {
+    const task = vi.fn();
+    const command = RelayCommandOf.builder<Note>().predicate((note) => note.enabled).task(task).build();
+    const disabled: Note = { id: "n1", enabled: false };
+    const enabled: Note = { id: "n2", enabled: true };
+    function Probe({ note }: { readonly note: Note }): JSX.Element {
+      const binding = useParameterizedCommand(command, note);
+      return <button disabled={!binding.canExecute} onClick={binding.execute}>run</button>;
+    }
+    const view = render(<Probe note={disabled} />);
+    const button = screen.getByRole("button") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+
+    view.rerender(<Probe note={enabled} />);
+    expect(button.disabled).toBe(false);
+    act(() => button.click());
+
+    expect(task).toHaveBeenCalledTimes(1);
+    expect(task.mock.calls[0]?.[0]).toBe(enabled);
+  });
+});
+
+describe("tree children hook", () => {
+  class TreeNode extends HierarchicalVM<string, TreeNode> {
+    constructor(context: HierarchicalVMConstructionContext<string, TreeNode>) {
+      super(context);
+    }
+
+    override get type(): ViewModelType {
+      return ViewModelType.Component;
+    }
+  }
+
+  function treeNode(
+    hub: IMessageHub,
+    model: string,
+    children: () => readonly TreeNode[] = () => [],
+  ): TreeNode {
+    return new HierarchicalVMBuilder<string, TreeNode>()
+      .model(model)
+      .childrenFactory(children)
+      .services(hub, RxDispatcher.immediate())
+      .vmFactory((context) => new TreeNode(context))
+      .build();
+  }
+
+  function ChildLabels({ node }: { readonly node: TreeNode }): JSX.Element {
+    const children = useVmChildren(node);
+    return <output data-testid="children">{children.map((child) => child.model).join(",")}</output>;
+  }
+
+  const labels = (): string | null => screen.getByTestId("children").textContent;
+
+  it("refreshes on add", () => {
+    const hub = new MessageHub();
+    const root = treeNode(hub, "root");
+    render(<ChildLabels node={root} />);
+    expect(labels()).toBe("");
+
+    act(() => root.addChild(treeNode(hub, "a")));
+
+    expect(labels()).toBe("a");
+  });
+
+  it("refreshes on remove", () => {
+    const hub = new MessageHub();
+    const root = treeNode(hub, "root");
+    const a = treeNode(hub, "a");
+    root.addChild(a);
+    render(<ChildLabels node={root} />);
+    expect(labels()).toBe("a");
+
+    act(() => root.removeChild(a));
+
+    expect(labels()).toBe("");
+  });
+
+  it("refreshes the old parent on reparent-away", () => {
+    const hub = new MessageHub();
+    const oldParent = treeNode(hub, "old");
+    const newParent = treeNode(hub, "new");
+    const child = treeNode(hub, "child");
+    oldParent.addChild(child);
+    const published: IMessage[] = [];
+    const subscription = hub.messages.subscribe({ next: (message) => published.push(message) });
+    render(<ChildLabels node={oldParent} />);
+    expect(labels()).toBe("child");
+
+    act(() => newParent.reparentChild(child));
+
+    expect(labels()).toBe("");
+    // The core sends nothing from the old parent. The moved child sends its
+    // Parent change on the shared hub, and the hook refreshes on that.
+    expect(published.filter((message) => message.sender === oldParent)).toEqual([]);
+    expect(published.some((message) => message.sender === child && message instanceof PropertyChangedMessage)).toBe(true);
+    subscription.unsubscribe();
+  });
+
+  it("refreshes on invalidation", () => {
+    const hub = new MessageHub();
+    let generation = 0;
+    const root = treeNode(hub, "root", () => [treeNode(hub, `gen${generation}`)]);
+    render(<ChildLabels node={root} />);
+    expect(labels()).toBe("gen0");
+
+    generation = 1;
+    act(() => root.invalidateChildren());
+
+    expect(labels()).toBe("gen1");
+  });
+
+  it("documents a useVmx recipe that copies the child list", async () => {
+    const hub = new MessageHub();
+    const store = createVmxStore(hub);
+    const root = treeNode(hub, "root");
+    const a = treeNode(hub, "a");
+    function Recipe(): JSX.Element {
+      const children = useVmx(store, () => [...root.children], shallowEqual);
+      return <output data-testid="children">{children.map((child) => child.model).join(",")}</output>;
+    }
+    render(<Recipe />);
+    expect(labels()).toBe("");
+
+    await act(async () => { root.addChild(a); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(labels()).toBe("a");
+
+    await act(async () => { root.removeChild(a); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(labels()).toBe("");
+    store.dispose();
   });
 });
 
