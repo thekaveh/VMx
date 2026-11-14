@@ -565,7 +565,10 @@ fn async_relay_command_cancel_cancels_in_flight_task() {
 #[test]
 fn async_relay_command_immediate_cancel_is_not_lost_during_admission() {
     const RUNS: usize = 4_096;
-    const RUN_TIMEOUT: Duration = Duration::from_millis(250);
+    // The run must stay executing until the main thread observes it and cancels it.
+    // A 250 ms bound let a starved starter thread lose that race on busy runners, so
+    // the bound only guards against a hang. A lost cancel still fails the assertion.
+    const RUN_TIMEOUT: Duration = Duration::from_secs(30);
     for run_number in 0..RUNS {
         let observed_cancel = Arc::new(AtomicBool::new(false));
         let observed_cancel_clone = observed_cancel.clone();
