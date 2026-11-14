@@ -57,7 +57,11 @@ See [Installation](https://github.com/thekaveh/VMx/blob/main/docs/content/instal
 ## 2. Shared selector store
 
 Create one store for the hub at the application composition root, pass it
-through your own context, and select only what each component renders:
+through your own context, and select only what each component renders. The
+package adds no context provider and no typed context helper. The store is
+plain state that you own, so your own `createContext<VmxStore>()` gives the
+types you need. Decided in #672; a second adapter that needs a shared helper
+reopens the decision:
 
 <!-- checked-snippet: examples/typescript/react/notes-showcase/tests/recipes/reactRecipe.test.tsx#react-store -->
 
