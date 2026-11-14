@@ -5,7 +5,9 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <!-- Tests don't ship as a package; relax doc/naming rules. -->
-    <NoWarn>$(NoWarn);CS1591;CA1707</NoWarn>
+    <!-- CA2027 flags WhenAny(task, Task.Delay(...)) hang guards. Each guard ends with
+         the test run, and the library code keeps the analyzer. -->
+    <NoWarn>$(NoWarn);CS1591;CA1707;CA2027</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

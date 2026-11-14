@@ -8,11 +8,16 @@
 // subscriber receives completion only).
 //
 // Ordering guarantee:
-//   The in-flight post test waits for the notification to appear in the
-//   `pending` snapshot (via XCTestExpectation) before calling dispose().
+//   The NOTIF-017 in-flight test waits until its recording subscriber has
+//   received the snapshot that contains the notification, then reads its
+//   baseline and calls dispose(). A snapshot is fanned out to subscribers in
+//   an unspecified order, so a separate observer could fire first and leave
+//   the recording subscriber one delivery behind the baseline.
 //   Because the continuation is stored *before* the snapshot emits
-//   (see NotificationHub.post), this guarantees the waiter is registered
-//   before dispose() drains it — preventing the dispose-races-post race.
+//   (see NotificationHub.post), the waiter is also registered before
+//   dispose() drains it — preventing the dispose-races-post race.
+//   NOTIF-020 reads no baseline and waits on a separate observer, which
+//   needs only the waiter registration.
 //
 // Reference-type recorders are used for all captures in @escaping Combine
 // sink closures to avoid value-copy semantics on var arrays.
@@ -63,6 +68,10 @@ final class NotificationHubDisposeTests: XCTestCase {
         let completionFlag = CompletionFlag()
         let events = PendingEvents()
         let completedExpectation = expectation(description: "NOTIF-017: pending completes on dispose")
+        // Fulfilled by the recording subscriber itself, after it has recorded
+        // the snapshot, so the baseline below counts the in-flight snapshot.
+        let appeared = expectation(description: "NOTIF-017: n appears in pending")
+        appeared.assertForOverFulfill = false
         hub.pending.sink(
             receiveCompletion: { [completionFlag] completion in
                 if case .finished = completion {
@@ -71,16 +80,11 @@ final class NotificationHubDisposeTests: XCTestCase {
                     completedExpectation.fulfill()
                 }
             },
-            receiveValue: { events.record($0) }
+            receiveValue: { snapshot in
+                events.record(snapshot)
+                if snapshot.contains(where: { $0 === n }) { appeared.fulfill() }
+            }
         ).store(in: &cancellables)
-
-        // Wait for the in-flight notification to appear in pending before
-        // calling dispose() — guarantees the continuation is registered.
-        let appeared = expectation(description: "NOTIF-017: n appears in pending")
-        appeared.assertForOverFulfill = false
-        hub.pending.sink { snapshot in
-            if snapshot.contains(where: { $0 === n }) { appeared.fulfill() }
-        }.store(in: &cancellables)
 
         let inFlightTask = Task { await hub.post(n) }
         await fulfillment(of: [appeared], timeout: hangGuard)

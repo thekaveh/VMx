@@ -5648,6 +5648,15 @@ became current
 **Then** the newer operation stays current, and the superseded completion
 causes no state or command notification
 
+### ARES-013 — A cancelled discard retry from a value-less Error restores Error
+
+**Given** a default discard-previous VM whose load failed, so it is a value-less
+`Error`
+**When** a reload starts and the VM cancels it before it completes
+**Then** state returns to the value-less `Error`, and `Idle` is not observed
+**And** no value is cleaned, and the reload intent completes without a command
+error
+
 ______________________________________________________________________
 
 ## 33. Delayed work (`DLY-NNN`) — spec v3.30

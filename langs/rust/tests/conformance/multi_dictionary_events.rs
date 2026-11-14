@@ -8,6 +8,12 @@ use vmx::{CollectionChangeAction, Message, MessageHub, ObservableMultiDictionary
 type Dictionary = ObservableMultiDictionary<u32, u32, u32>;
 type Change = (CollectionChangeAction, Option<usize>);
 
+/// Panics as a failing comparison does. A named function returns `()`, so the hook closure
+/// needs no inferred return type.
+fn comparison_failed() {
+    panic!("comparison failed");
+}
+
 fn changes(stream: &MessageHub) -> (Arc<Mutex<Vec<Change>>>, vmx::Subscription) {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&seen);
@@ -221,7 +227,7 @@ fn panicking_comparison_after_a_nested_mutation_keeps_the_views_in_step() {
     let doomed = key(2);
     *hook.lock().unwrap() = Some(Box::new(move || {
         writer.remove(&doomed, &2);
-        panic!("comparison failed");
+        comparison_failed();
     }) as Box<dyn FnMut() + Send>);
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
