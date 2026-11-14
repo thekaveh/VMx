@@ -785,6 +785,43 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         withExtendedLifetime(errorCancellables) {}
     }
 
+    /// ARES-013 — a discard retry cancelled from a value-less Error restores Error.
+    /// Catalog clauses: the cancelled reload restores the stable Error state
+    /// without publishing Idle, no value is cleaned, and the intent completes
+    /// without a command error.
+    func testAres013CancelledDiscardRetryFromErrorRestoresError() async {
+        let deferred = DeferredValue<Int>()
+        let queue = LoaderQueue<Int>([
+            { throw AsyncResourceTestError.failed },
+            { await deferred.get() },
+        ])
+        let cleaned = LockedValues<Int>()
+        let vm = makeAsyncResourceVM(loader: queue.load) { cleaned.append($0) }
+        await vm.load()
+        XCTAssertEqual(vm.state.status, .error)
+
+        let publishedStatuses = LockedValues<AsyncResourceStatus>()
+        let stateCancellable = vm.propertyChanged
+            .filter { $0 == "state" }
+            .sink { _ in publishedStatuses.append(vm.state.status) }
+        let commandErrors = LockedCount()
+        let errorCancellable = vm.reloadCommand.errors.sink { _ in commandErrors.increment() }
+
+        let intent = Task { await vm.reload() }
+        await fulfillment(of: [deferred.parked], timeout: hangGuard)
+        XCTAssertEqual(vm.state.status, .loading)
+
+        vm.cancel()
+        await intent.value
+        XCTAssertEqual(vm.state.status, .error)
+        XCTAssertNil(vm.state.value)
+        XCTAssertEqual(cleaned.values, [])
+        XCTAssertFalse(publishedStatuses.values.contains(.idle))
+        XCTAssertEqual(publishedStatuses.values.last, .error)
+        XCTAssertEqual(commandErrors.value, 0)
+        withExtendedLifetime((stateCancellable, errorCancellable)) {}
+    }
+
     /// ARES-012 — a superseded loader's cancellation is a stale completion.
     /// It publishes nothing, and the newer operation stays current.
     func testAres012SupersededLoaderCancellationIsStale() async {

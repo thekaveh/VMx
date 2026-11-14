@@ -16,6 +16,8 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Added
 
+- `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
+  cancelled from a value-less `Error` restores that `Error`.
 - `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). They cover the
   #1324 fix under Fixed.
 - `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
