@@ -91,6 +91,8 @@ is permanently destroyed.
 const vm = useVm(noteVm);                         // whole-VM invalidation
 const title = useVm(noteVm, current => current.model.title);
 const save = useCommand(noteVm.saveCommand);      // canExecute + stable execute
+const del = useParameterizedCommand(deleteNoteCommand, note, { onError });
+const kids = useVmChildren(folderNode);           // HierarchicalVM children snapshot
 const rows = useVmCollection(notes);              // IVmCollection snapshot
 const lines = useObservableList(consoleVm.lines); // ObservableList snapshot
 const total = useDerivedProperty(summary.total);  // undefined until seeded
@@ -107,6 +109,35 @@ to its `errors` channel, because `execute()` returns before the task settles.
 Pass `useCommand(command, { onError })` to receive each failure while the
 component is mounted. The hook unsubscribes on unmount. It also accepts a
 command without `errors`, such as `RelayCommand`.
+
+`useParameterizedCommand(command, parameter, options?)` binds an
+`ICommandOf<T>`. `canExecute` re-reads `canExecute(parameter)` on
+`canExecuteChanged` and whenever `parameter` changes. `execute()` runs the
+command with `parameter`. `options.onError` behaves as it does for `useCommand`.
+The parameter is a separate argument, so `useCommand` keeps its signature. A
+new parameter reference also gives a new `execute` callback.
+
+`useVmChildren(node)` returns a snapshot of a `HierarchicalVM`'s children. It
+refreshes on these events:
+
+- add, and reparent into the node;
+- remove from the node;
+- reparent away, when a child moves to another parent;
+- `invalidateChildren()` on the node.
+
+The core publishes a reparent only from the new parent (spec 18 §7). The old
+parent publishes nothing, so the hook also watches the moved child's `Parent`
+change. That change reaches the node only when its children publish on the
+node's hub, which is the case when the nodes share one hub.
+
+Do not select `node.children` directly with `shallowEqual`. The core mutates
+that cached array in place, so the selector returns the same reference after
+an add or remove and React does not re-render. If you need the store directly
+instead of the hook, copy the list:
+
+```tsx
+const children = useVmx(store, () => [...node.children], shallowEqual);
+```
 
 `useVm` also re-renders a component bound to a `ForwardingComponentVM` or
 `ForwardingCompositeVM`: it matches messages from the VM that the decorator's
