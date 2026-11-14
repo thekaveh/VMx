@@ -5,16 +5,6 @@ uses independent [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
-
-- `useParameterizedCommand(command, parameter, options?)` binds an
-  `ICommandOf<T>`. `canExecute` re-reads `canExecute(parameter)` on
-  `canExecuteChanged` and when `parameter` changes, and `execute` passes
-  `parameter`. `onError` behaves as in `useCommand`, which keeps its signature.
-- `useVmChildren(node)` returns a snapshot of a `HierarchicalVM`'s children. It
-  refreshes on add, remove, reparent away, and `invalidateChildren()`. The
-  reparent-away and remove cases need the children to publish on the node's hub.
-
 ## [0.1.3] - unreleased source version
 
 First npm release since 0.1.1. The `react-v0.1.2` tag never reached npm, so
@@ -22,6 +12,15 @@ this package also contains the changes in the 0.1.2 section of
 `packages/react/CHANGELOG.md`.
 
 ### Added
+
+- `useParameterizedCommand(command, parameter, options?)` binds an
+  `ICommandOf<T>`. `canExecute` re-reads `canExecute(parameter)` on
+  `canExecuteChanged` and when `parameter` changes, and `execute` passes
+  `parameter`. `onError` behaves as in `useCommand`, which keeps its signature.
+
+- `useVmChildren(node)` returns a snapshot of a `HierarchicalVM`'s children. It
+  refreshes on add, remove, reparent away, and `invalidateChildren()`. The
+  reparent-away and remove cases need the children to publish on the node's hub.
 
 - `useCommand(command, { onError })` calls `onError` with each failure that
   the command sends on its `errors` channel while the component is mounted
