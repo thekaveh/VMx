@@ -778,8 +778,8 @@ v3.30.0 also corrects spec prose that disagreed with the code and names all
 five flavors where ADR-0121 requires it. It moves the spec release history from
 `spec/README.md` to this file. These changes add no behavior.
 
-The 71 new conformance IDs bring the catalog to 496 library IDs plus 5
+The 72 new conformance IDs bring the catalog to 497 library IDs plus 5
 scenario IDs. Chapter count stays at 24.
 
-See ADR-0146 through ADR-0180, ADR-0184 through ADR-0226 and the affected
+See ADR-0146 through ADR-0180, ADR-0184 through ADR-0228 and the affected
 behavior chapters. No ADR uses the numbers 0181 to 0183.

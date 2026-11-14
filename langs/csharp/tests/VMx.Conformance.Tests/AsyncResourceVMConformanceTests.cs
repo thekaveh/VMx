@@ -947,15 +947,28 @@ public sealed class AsyncResourceVMConformanceTests
             1 => Task.FromException<int>(new InvalidOperationException("offline")),
             _ => second.Task,
         }, cleanup: cleaned.Add);
+        var published = new List<AsyncResourceState<int>>();
+        var commandErrors = new List<Exception>();
 
         await vm.LoadAsync();
         vm.State.Status.Should().Be(AsyncResourceStatus.Error);
-        var reload = vm.ReloadAsync();
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(vm.State)) published.Add(vm.State);
+        };
+        using var subscription = vm.ReloadCommand.Errors.Subscribe(commandErrors.Add);
+
+        vm.ReloadCommand.Execute(null);
         vm.State.Status.Should().Be(AsyncResourceStatus.Loading);
         vm.Cancel();
-        await reload;
+        await WaitUntilAsync(() => !vm.ReloadCommand.IsExecuting);
         vm.State.Status.Should().Be(AsyncResourceStatus.Error);
         vm.State.HasValue.Should().BeFalse();
         cleaned.Should().BeEmpty();
+        published.Should().NotBeEmpty();
+        published.Select(state => state.Status).Should().NotContain(AsyncResourceStatus.Idle);
+        published[^1].Status.Should().Be(AsyncResourceStatus.Error);
+        published[^1].HasValue.Should().BeFalse();
+        commandErrors.Should().BeEmpty();
     }
 }

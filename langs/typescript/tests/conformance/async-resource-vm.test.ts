@@ -918,13 +918,25 @@ describe("AsyncResourceVM conformance", () => {
 
       await vm.load();
       expect(vm.state.status).toBe(AsyncResourceStatus.Error);
-      const reload = vm.reload();
+      const published: AsyncResourceState<number>[] = [];
+      const reloadErrors: unknown[] = [];
+      vm.propertyChanged.subscribe((name) => {
+        if (name === "state") published.push(vm.state);
+      });
+      vm.reloadCommand.errors.subscribe((error) => reloadErrors.push(error));
+      vm.reloadCommand.execute();
       expect(vm.state).toEqual({ status: AsyncResourceStatus.Loading });
       vm.cancel();
-      await reload;
+      await flush();
       expect(vm.state.status).toBe(AsyncResourceStatus.Error);
       expect(hasValue(vm.state)).toBe(false);
       expect(cleaned).toEqual([]);
+      expect(published.map((state) => state.status)).not.toContain(AsyncResourceStatus.Idle);
+      const last = published[published.length - 1];
+      if (last === undefined) throw new Error("expected a published state");
+      expect(last.status).toBe(AsyncResourceStatus.Error);
+      expect(hasValue(last)).toBe(false);
+      expect(reloadErrors).toEqual([]);
     });
   });
 });

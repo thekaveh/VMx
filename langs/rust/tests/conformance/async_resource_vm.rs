@@ -1107,6 +1107,16 @@ fn async_resource_discard_retry_cancel_from_error_restores_error() {
         vm.state(),
         AsyncResourceState::Error { previous: None, .. }
     ));
+    let (command_errors, _error_subscriptions) = reload_command_errors(&vm);
+    let recorded = Arc::new(Mutex::new(Vec::new()));
+    let observed_states = recorded.clone();
+    let observed_vm = vm.clone();
+    let _state_subscription = vm.property_changed().subscribe(move |name| {
+        if name == "state" {
+            let state = observed_vm.state();
+            observed_states.lock().unwrap().push(state);
+        }
+    });
     let reload = vm.reload_async();
     wait_until(|| starts.load(Ordering::SeqCst) == 2);
     assert_eq!(vm.state(), AsyncResourceState::Loading { previous: None });
@@ -1118,4 +1128,14 @@ fn async_resource_discard_retry_cancel_from_error_restores_error() {
     ));
     assert_eq!(vm.value(), None);
     assert!(cleaned.lock().unwrap().is_empty());
+    assert_eq!(command_errors.load(Ordering::SeqCst), 0);
+    let recorded = recorded.lock().unwrap().clone();
+    assert!(
+        !recorded.contains(&AsyncResourceState::Idle),
+        "cancelled retry published Idle: {recorded:?}"
+    );
+    assert!(matches!(
+        recorded.last(),
+        Some(AsyncResourceState::Error { previous: None, .. })
+    ));
 }

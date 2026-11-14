@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-12
 - **Spec version:** 3.30.0 (chapter 23 §7 and §8, `ARES-013`)
-- **Amends:** [ADR-0100](0100-async-resource-vm.md) §8, the cancellation baseline
+- **Amends:** [ADR-0100](0100-async-resource-vm.md) §2.5, the cancellation baseline
   of `DiscardPrevious`. Related:
   [ADR-0199](0199-async-resource-loader-cancellation-restores-the-stable-state.md),
   and ledger item §1.1 in
@@ -46,7 +46,7 @@ change four flavors and the §5 and §7 text.
   stays correct, because a value-less `Error` reloads.
 - `ARES-013` covers the case with tests in all five flavors.
 - This ADR does not bump the spec version. The release version is the owner's
-  decision, as it was for ADR-0226.
+  decision.
 
 ## 4. Owner review
 

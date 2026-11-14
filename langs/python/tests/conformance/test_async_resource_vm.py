@@ -1013,7 +1013,10 @@ async def test_ares_013_cancelled_discard_retry_from_error_restores_error() -> N
     vm = _vm(loader, cleanup=cleaned.append)
     await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
     assert vm.state.status is AsyncResourceStatus.ERROR
-    reload_task = asyncio.create_task(vm.reload())
+    statuses: list[AsyncResourceStatus] = []
+    vm.property_changed.subscribe(lambda _name: statuses.append(vm.state.status))
+    command_errors = _record_command_errors(vm)
+    reload_task = asyncio.create_task(vm.reload_command.execute_async())
     await _wait_until(lambda: attempts == 2)
     assert vm.state.status is AsyncResourceStatus.LOADING
     vm.cancel()
@@ -1021,6 +1024,9 @@ async def test_ares_013_cancelled_discard_retry_from_error_restores_error() -> N
     assert vm.state.status is AsyncResourceStatus.ERROR
     assert not hasattr(vm.state, "value")
     assert cleaned == []
+    assert AsyncResourceStatus.IDLE not in statuses
+    assert statuses and statuses[-1] is AsyncResourceStatus.ERROR
+    assert command_errors == []
 
 
 @pytest.mark.conformance("ARES-012")
