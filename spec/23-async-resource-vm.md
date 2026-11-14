@@ -133,8 +133,10 @@ error. A retry failure replaces the stored error.
 
 Explicit cancellation and cancellation linked from the async command restore
 the operation's saved stable state. An initial cancelled load returns to `Idle`.
-A retained reload returns to the prior `Ready` or value-bearing `Error`.
-Cancellation never creates `Error` or reaches a command error channel.
+A retained reload returns to the prior `Ready` or value-bearing `Error`. A
+discard reload that started from a value-less `Error` returns to that `Error`
+(ADR-0228). Cancellation never creates `Error` or reaches a command error
+channel.
 
 A current loader that ends with its flavor's native cancellation signal is
 cancelled in the same way, even when the VM did not request the cancellation
@@ -162,8 +164,10 @@ cancellation and restores the saved stable state. Any other error installs
 ## 8. Previous-value policy
 
 `DiscardPrevious` is conservative and is the default. At reload start, the VM
-relinquishes an accepted value immediately, uses `Idle` as the cancellation
-baseline, and installs value-less `Loading`; a later failure is value-less.
+relinquishes an accepted value immediately and installs value-less `Loading`.
+The cancellation baseline is `Idle` after a relinquished value, and otherwise
+the saved stable state, so a cancelled reload from a value-less `Error` returns
+to that `Error` (ADR-0228). A later failure is value-less.
 
 `RetainPrevious` keeps the last accepted value in `Loading` and `Error`, and
 keeps its stable state as the cancellation baseline until a newer value is
@@ -218,7 +222,7 @@ this chapter, and chapter 12 states the behavior of each ID.
 | `ARES-001`                         | §2 state, §3 construction, §4 intents and commands |
 | `ARES-002`                         | §5 transitions                                     |
 | `ARES-003`..`ARES-005`, `ARES-012` | §7 failure, retry, and cancellation                |
-| `ARES-006`, `ARES-007`             | §8 previous-value policy                           |
+| `ARES-006`, `ARES-007`, `ARES-013` | §8 previous-value policy                           |
 | `ARES-008`, `ARES-009`             | §6 latest-start-wins                               |
 | `ARES-010`                         | §9 optional value ownership                        |
 | `ARES-011`                         | §10 disposal and scheduling                        |

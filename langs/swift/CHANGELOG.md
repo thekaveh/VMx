@@ -17,6 +17,8 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
+  cancelled from a value-less `Error` restores that `Error`.
 - `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
   `construct()` or `reconstruct()` disposes the fresh candidate and keeps the
   owned candidate's status and parent. Swift already behaved this way.
@@ -206,6 +208,9 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   version consequence: the change ships in this major release.
 
 ### Fixed
+
+- A discard-mode retry cancelled from a value-less `Error` restores
+  `Error`, not `Idle`, as the other flavors do (ADR-0228, #671).
 
 - `RelayCommand`, `RelayCommandOf` and `ModeledCrudCommands` no longer have a data
   race between `dispose()` and `canExecute()` (#1567). The disposal flag had no

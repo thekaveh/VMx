@@ -1087,3 +1087,55 @@ fn dropping_async_resource_releases_command_captures() {
         "cached commands must not strongly retain their owner"
     );
 }
+
+/// ARES-013 — A discard retry cancelled from a value-less Error restores Error
+#[test]
+fn async_resource_discard_retry_cancel_from_error_restores_error() {
+    let (send1, receive1) = channel();
+    let (_send2, receive2) = channel();
+    let cleaned = Arc::new(Mutex::new(Vec::new()));
+    let (vm, starts) = controlled_vm(
+        vec![receive1, receive2],
+        AsyncResourceRetention::DiscardPrevious,
+        Some(cleaned.clone()),
+    );
+    let first = vm.load_async();
+    wait_until(|| starts.load(Ordering::SeqCst) == 1);
+    send1.send(Err(VmxError::Other("offline".into()))).unwrap();
+    first.join().unwrap().unwrap();
+    assert!(matches!(
+        vm.state(),
+        AsyncResourceState::Error { previous: None, .. }
+    ));
+    let (command_errors, _error_subscriptions) = reload_command_errors(&vm);
+    let recorded = Arc::new(Mutex::new(Vec::new()));
+    let observed_states = recorded.clone();
+    let observed_vm = vm.clone();
+    let _state_subscription = vm.property_changed().subscribe(move |name| {
+        if name == "state" {
+            let state = observed_vm.state();
+            observed_states.lock().unwrap().push(state);
+        }
+    });
+    let reload = vm.reload_async();
+    wait_until(|| starts.load(Ordering::SeqCst) == 2);
+    assert_eq!(vm.state(), AsyncResourceState::Loading { previous: None });
+    vm.cancel();
+    reload.join().unwrap().unwrap();
+    assert!(matches!(
+        vm.state(),
+        AsyncResourceState::Error { previous: None, .. }
+    ));
+    assert_eq!(vm.value(), None);
+    assert!(cleaned.lock().unwrap().is_empty());
+    assert_eq!(command_errors.load(Ordering::SeqCst), 0);
+    let recorded = recorded.lock().unwrap().clone();
+    assert!(
+        !recorded.contains(&AsyncResourceState::Idle),
+        "cancelled retry published Idle: {recorded:?}"
+    );
+    assert!(matches!(
+        recorded.last(),
+        Some(AsyncResourceState::Error { previous: None, .. })
+    ));
+}
