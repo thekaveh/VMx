@@ -512,8 +512,10 @@ make docs-serve PYTHON=python3   # optional: serve the site locally
 ```
 
 The `docs` workflow runs `make docs-check` on every PR, and on each push to
-`develop` and `main` that changes documentation paths. It deploys the site only from `main`. The `wiki` workflow
-publishes the wiki only from pushes to `main`.
+`develop` and `main` that changes documentation paths. It deploys the site only
+from `main`. The `wiki` workflow publishes the wiki only from pushes to `main`.
+A manual run of `wiki` (`workflow_dispatch`) publishes only when it runs on
+`main`; on any other branch it builds the wiki and skips the publish.
 
 Do not edit the wiki directly. Each wiki sync deletes every wiki page and
 writes the generated pages again, so a direct edit is lost at the next
