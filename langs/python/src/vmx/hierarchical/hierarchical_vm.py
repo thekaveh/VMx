@@ -213,7 +213,12 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
     @property
     def depth(self) -> int:
         """Distance from the root. Root is 0; child of root is 1; etc."""
-        return 0 if self._hierarchical_parent is None else self._hierarchical_parent.depth + 1
+        depth = 0
+        ancestor = self._hierarchical_parent
+        while ancestor is not None:
+            depth += 1
+            ancestor = ancestor._hierarchical_parent
+        return depth
 
     @property
     def is_leaf(self) -> bool:
@@ -790,8 +795,11 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         self._hub.send(PropertyChangedMessage.create(self, self._name, "parent"))
 
     def _invalidate_path_cache_descendants(self) -> None:
-        if self._children_list is None:
-            return
-        for child in self._children_list:
-            child._path_cache = None
-            child._invalidate_path_cache_descendants()
+        stack: list[TVM] = [self]  # type: ignore[list-item]
+        while stack:
+            node = stack.pop()
+            if node._children_list is None:
+                continue
+            for child in node._children_list:
+                child._path_cache = None
+                stack.append(child)
