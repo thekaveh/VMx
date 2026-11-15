@@ -162,9 +162,14 @@ below for them.
   `Message` as the default type argument (ADR-0231, #1903). Under
   `mypy --strict`, a bare `MessageHub` annotation, parameter or construction now
   means `MessageHub[Message]`, so the annotation is optional. Explicit
-  parameterisations are unchanged. The package now declares
-  `typing-extensions>=4.12.0`, which supplies the defaults on every supported
-  Python version.
+  parameterisations are unchanged. Under plain mypy, without
+  `disallow_any_generics`, a bare `MessageHub`, `MessageHubProto` or
+  `TransactionalMessageHubProto` parameter that accepted a hub of any message
+  type now rejects a hub of another message type, such as `MessageHub[MyMessage]`;
+  annotate `MessageHub[Any]` to keep the old acceptance. The package now
+  declares `typing-extensions>=4.12.0` as a runtime dependency, the lowest
+  release checked that creates the defaulted type variables on Python 3.13 and
+  3.14.
 
 ### Fixed
 
