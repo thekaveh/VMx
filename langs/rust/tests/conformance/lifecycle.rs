@@ -750,6 +750,7 @@ fn concurrent_operation_while_transitioning_raises() {
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
 }
 
+/// LIFE-004 — dispose from Constructing (inside the construct hook) reaches Disposed and publishes it
 #[test]
 fn dispose_supersedes_constructing_without_resurrection() {
     let hub = MessageHub::new();
@@ -793,6 +794,7 @@ fn deferred_disposal_runs_after_an_admitted_hook_failure_without_replacing_it() 
     assert_eq!(vm.status(), ConstructionStatus::Disposed);
 }
 
+/// LIFE-004 — dispose from Destructing (inside the destruct hook) reaches Disposed and publishes it
 #[test]
 fn dispose_supersedes_destructing_without_resurrection() {
     let hub = MessageHub::new();

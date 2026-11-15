@@ -78,6 +78,29 @@ fn multiple_root_items_preserve_input_order() {
     assert!(root.children() == vec![first, second]);
 }
 
+/// HIER-024 — a batch attached through a non-root node still makes both
+/// None-parent items direct children of the structural root, in input order.
+#[test]
+fn none_parent_items_attach_under_root_through_a_non_root_receiver() {
+    let root = node("root", None);
+    let mid = node("mid", None);
+    root.add_child(mid.clone()).unwrap();
+    let first = node("first", None);
+    let second = node("second", None);
+
+    let result = attach(
+        &mid,
+        vec![first.clone(), second.clone()],
+        MissingParentPolicy::Park,
+    );
+
+    assert!(result.added == vec![first.clone(), second.clone()]);
+    assert!(root.children() == vec![mid.clone(), first.clone(), second.clone()]);
+    assert!(mid.children().is_empty());
+    assert!(first.parent().as_ref() == Some(&root));
+    assert!(second.parent().as_ref() == Some(&root));
+}
+
 /// HIER-025 — duplicate keys never replace the authoritative node.
 #[test]
 fn duplicate_keys_are_non_throwing_and_non_replacing() {

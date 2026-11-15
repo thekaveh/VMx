@@ -487,6 +487,7 @@ fn ordinary_send_remains_synchronous() {
     assert!(*delivered.lock().unwrap());
 }
 
+/// HUB-013 — Opposing cross-hub send callbacks complete without deadlock
 #[test]
 fn opposing_hub_callbacks_do_not_deadlock() {
     let left = MessageHub::new();
@@ -545,6 +546,7 @@ fn opposing_hub_callbacks_do_not_deadlock() {
     assert_eq!(inner_deliveries.load(Ordering::SeqCst), 2);
 }
 
+/// HUB-013 — Opposing cross-hub disposal callbacks complete without deadlock
 #[test]
 fn opposing_hub_callback_disposals_do_not_deadlock() {
     let left = MessageHub::new();
@@ -605,6 +607,7 @@ fn opposing_hub_callback_disposals_do_not_deadlock() {
     assert_eq!(post_dispose_deliveries.load(Ordering::SeqCst), 0);
 }
 
+/// HUB-013 — Opposing cross-hub batch callbacks complete without deadlock
 #[test]
 fn opposing_hub_callback_batches_do_not_deadlock_and_defer_delivery() {
     let left = MessageHub::new();
@@ -660,6 +663,7 @@ fn opposing_hub_callback_batches_do_not_deadlock_and_defer_delivery() {
     assert_eq!(inner_deliveries.load(Ordering::SeqCst), 2);
 }
 
+/// HUB-013 — A callback sending to an unrelated busy hub waits for it and stays synchronous
 #[test]
 fn unrelated_hub_callback_send_waits_for_target_batch_and_delivery() {
     let source = MessageHub::new();
