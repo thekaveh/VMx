@@ -49,6 +49,8 @@ class MetricVM extends ComponentVMBase {
         loader: (signal) => this.#api.fetch(signal),
       }),
     );
+    // Disposal does not run _onDestruct, so also release the subscription then.
+    this.own(() => this.#tickSubscription?.unsubscribe());
     // Owned: disposing MetricVM disposes the command, which is then inert.
     this.refreshCommand = this.own(
       RelayCommand.builder()
@@ -116,6 +118,18 @@ describe("component authoring recipes", () => {
     vm.construct();
     expect(fake.ticks.observed).toBe(true);
     vm.dispose();
+  });
+
+  it("releases the per-construct subscription when disposed while constructed", () => {
+    const fake = api();
+    const { hub, dispatcher } = services();
+    const vm = new MetricVM(fake, hub, dispatcher);
+
+    vm.construct();
+    expect(fake.ticks.observed).toBe(true);
+    vm.dispose();
+
+    expect(fake.ticks.observed).toBe(false);
   });
 
   it("makes an owned command inert at disposal, while an unowned one stays live", () => {
