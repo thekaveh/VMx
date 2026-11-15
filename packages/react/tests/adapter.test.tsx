@@ -277,6 +277,28 @@ describe("createVmxStore and useVmx", () => {
     error.mockRestore();
   });
 
+  it("hydrates whole-VM useVm without a mismatch and then follows the VM", async () => {
+    const hub = new MessageHub();
+    const vm = modeled(hub, 4);
+    function Probe(): JSX.Element {
+      return <span>{useVm(vm).model}</span>;
+    }
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(<Probe />);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    await act(async () => {
+      root = hydrateRoot(container, <Probe />);
+      await Promise.resolve();
+    });
+    expect(container.textContent).toBe("4");
+    expect(error).not.toHaveBeenCalled();
+    await act(async () => { vm.model = 5; await Promise.resolve(); });
+    expect(container.textContent).toBe("5");
+    await act(async () => root?.unmount());
+    error.mockRestore();
+  });
+
   it("re-renders a composite snapshot after a membership change on the hub (ADR-0142)", async () => {
     const hub = new MessageHub();
     const collection = CompositeVM.create<ComponentVM>({
@@ -475,6 +497,98 @@ describe("VM and value hooks", () => {
     }
     render(<><Probe /><InterleavedMutation /></>);
     expect(screen.getByTestId("vm-gap").textContent).toBe("1");
+  });
+
+  it("catches a VM mutation between render and subscription on a completed hub", () => {
+    const messages = new Subject<IMessage>();
+    const hub: IMessageHub = {
+      messages: messages.asObservable(),
+      send: (message) => messages.next(message),
+    };
+    messages.complete();
+    const vm = modeled(hub);
+    function Probe(): JSX.Element {
+      return <span data-testid="done-gap">{useVm(vm).model}</span>;
+    }
+    function InterleavedMutation(): null {
+      useInsertionEffect(() => { vm.model = 1; }, []);
+      return null;
+    }
+    render(<><Probe /><InterleavedMutation /></>);
+    expect(screen.getByTestId("done-gap").textContent).toBe("1");
+  });
+
+  it("renders whole-VM useVm once on a quiet mount and once per quiet switch", () => {
+    const hub = new MessageHub();
+    const first = modeled(hub);
+    const second = modeled(hub, 5);
+    let renders = 0;
+    function Probe({ vm }: { vm: ComponentVMOf<number> }): JSX.Element {
+      renders += 1;
+      return <span>{useVm(vm).model}</span>;
+    }
+    const mounted = render(<Probe vm={first} />);
+    expect(renders).toBe(1);
+    renders = 0;
+    mounted.rerender(<Probe vm={second} />);
+    expect(renders).toBe(1);
+  });
+
+  it("adds no whole-VM render for another VM's message between render and subscription", () => {
+    const hub = new MessageHub();
+    const vm = modeled(hub);
+    const other = modeled(hub, 10);
+    let renders = 0;
+    function Probe(): JSX.Element {
+      renders += 1;
+      return <span>{useVm(vm).model}</span>;
+    }
+    function OtherMutation(): null {
+      useInsertionEffect(() => { other.model = 11; }, []);
+      return null;
+    }
+    render(<><Probe /><OtherMutation /></>);
+    expect(renders).toBe(1);
+  });
+
+  it("ignores a hub message whose sender is not an object", () => {
+    const messages = new Subject<IMessage>();
+    const hub: IMessageHub = {
+      messages: messages.asObservable(),
+      send: (message) => messages.next(message),
+    };
+    const vm = modeled(hub);
+    let renders = 0;
+    function Probe(): JSX.Element {
+      renders += 1;
+      return <span>{useVm(vm).model}</span>;
+    }
+    render(<Probe />);
+    const baseline = renders;
+    act(() => { messages.next({ senderName: "stray", sender: 5 }); });
+    expect(renders).toBe(baseline);
+  });
+
+  it("leaves no hub subscription from a whole-VM useVm server render", () => {
+    const messages = new Subject<IMessage>();
+    let subscriptions = 0;
+    const hub: IMessageHub = {
+      messages: new Observable((subscriber) => {
+        subscriptions += 1;
+        const inner = messages.subscribe(subscriber);
+        return () => {
+          subscriptions -= 1;
+          inner.unsubscribe();
+        };
+      }),
+      send: (message) => messages.next(message),
+    };
+    const vm = modeled(hub, 7);
+    function Probe(): JSX.Element {
+      return <span>{useVm(vm).model}</span>;
+    }
+    expect(renderToString(<Probe />)).toContain("7");
+    expect(subscriptions).toBe(0);
   });
 
   it("supports the rules-of-hooks-safe conditional child pattern", () => {

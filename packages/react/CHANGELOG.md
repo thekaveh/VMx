@@ -58,6 +58,11 @@ this package also contains the changes in the 0.1.2 section of
 - `createVmxStore` delivers no further notification after `dispose()`, even
   inside a flush already in progress. Before, a listener that disposed the
   store let the listeners copied for that flush run after it (#1572).
+- `useVm(vm)` renders a component once on a quiet mount and once per quiet
+  VM switch. Before, it rendered twice in each case, because the hook
+  forced a re-render at subscribe. A VM mutation between render and
+  subscription still shows, and a message from another VM on the same hub
+  in that interval still causes no render (#1661).
 
 ## [0.1.2] - 2026-10-21
 
