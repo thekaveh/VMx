@@ -486,3 +486,18 @@ def test_csharp_example_projects_are_format_checked_in_ci_and_pre_commit() -> No
     hook = (REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert r"files: ^(langs|examples)/csharp/.*\.(cs|csproj|props)$" in hook
     assert 'dotnet format "$project" --verify-no-changes --no-restore --include "$f"' in hook
+
+
+def test_spec_discipline_reads_the_scenario_prefixes_from_the_coverage_tool() -> None:
+    workflow = (WORKFLOWS / "spec-discipline.yml").read_text(encoding="utf-8")
+
+    assert "--print-scenario-prefixes" in workflow
+    assert "scenario_prefixes='" not in workflow
+
+
+def test_examples_contract_runs_when_the_catalog_or_coverage_tool_changes() -> None:
+    workflow = (WORKFLOWS / "examples-contract-checks.yml").read_text(encoding="utf-8")
+    push = workflow.split("  push:\n", maxsplit=1)[1].split("\n  pull_request:", maxsplit=1)[0]
+
+    assert '"spec/12-conformance.md"' in push
+    assert '"tools/check-conformance-coverage.py"' in push
