@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import re
 import subprocess
 import sys
@@ -199,22 +200,31 @@ def _dist(root: Path, chunk_hash: str = "AbC-12_z", extra_export: str = "") -> P
     return dist
 
 
-def _package_json(root: Path) -> Path:
+CORE_PACKAGE = "@thekaveh/vmx"
+ADAPTER_PACKAGE = "@thekaveh/vmx-react"
+
+
+def _package_json(root: Path, name: str = CORE_PACKAGE, version: str = "3.31.0") -> Path:
     path = root / "package.json"
-    path.write_text(
-        '{"exports": {".": {"import": {"types": "./dist/index.d.ts"}}}}', encoding="utf-8"
-    )
+    manifest = {
+        "name": name,
+        "version": version,
+        "exports": {".": {"import": {"types": "./dist/index.d.ts"}}},
+    }
+    path.write_text(json.dumps(manifest), encoding="utf-8")
     return path
 
 
 def test_typescript_render_removes_chunk_hashes_and_trailing_spaces(tmp_path) -> None:
-    rendered = cta.render_api(_dist(tmp_path), {"index"})
+    rendered = cta.render_api(_dist(tmp_path), {"index"}, CORE_PACKAGE)
 
     assert "// ==== index.d.ts ====\nimport { A as Alpha } from './shared.js';\n" in rendered
     assert "// ==== shared.d.ts ====\ndeclare class A {\n    run(): void;\n}\n" in rendered
     assert "AbC-12_z" not in rendered
     # A rebuild that only changes the chunk hash renders the same snapshot.
-    assert cta.render_api(_dist(tmp_path, chunk_hash="Zy9-8x7w"), {"index"}) == rendered
+    assert (
+        cta.render_api(_dist(tmp_path, chunk_hash="Zy9-8x7w"), {"index"}, CORE_PACKAGE) == rendered
+    )
 
 
 def test_typescript_main_fails_when_an_export_is_removed(tmp_path, capsys) -> None:
@@ -248,7 +258,7 @@ def test_typescript_rejects_diverging_commonjs_and_unknown_files(tmp_path, capsy
 
 
 def test_typescript_render_ignores_comments(tmp_path) -> None:
-    rendered = cta.render_api(_dist(tmp_path), {"index"})
+    rendered = cta.render_api(_dist(tmp_path), {"index"}, CORE_PACKAGE)
     dist = tmp_path / "dist"
     for path in dist.glob("shared-*"):
         path.write_text(
@@ -256,7 +266,7 @@ def test_typescript_render_ignores_comments(tmp_path) -> None:
             "    run(): void; // trailing\n    /* block */\n}\nexport { A };\n",
             encoding="utf-8",
         )
-    assert cta.render_api(dist, {"index"}) == rendered
+    assert cta.render_api(dist, {"index"}, CORE_PACKAGE) == rendered
 
 
 def test_typescript_comment_markers_inside_strings_stay() -> None:
@@ -288,6 +298,99 @@ def test_typescript_check_runs_after_the_build_in_ci() -> None:
     build_at = commands.index("npm run build\n")
     check_at = commands.index("python3 ../../tools/check-typescript-api.py\n")
     assert build_at < check_at
+
+
+def test_typescript_adapter_main_names_the_adapter_and_its_bump_rule(tmp_path, capsys) -> None:
+    package_json = _package_json(tmp_path, name=ADAPTER_PACKAGE, version="0.1.3")
+    baseline = tmp_path / "api" / "vmx-react.api.txt"
+    args = [
+        "--dist",
+        str(_dist(tmp_path)),
+        "--package-json",
+        str(package_json),
+        "--baseline",
+        str(baseline),
+    ]
+
+    assert cta.main([*args, "--update"]) == 0
+    assert "// Public declarations of @thekaveh/vmx-react:" in baseline.read_text(encoding="utf-8")
+    capsys.readouterr()
+    assert cta.main(args) == 0
+    assert capsys.readouterr().out == (
+        "OK: the @thekaveh/vmx-react declarations match vmx-react.api.txt\n"
+    )
+
+    _dist(tmp_path, extra_export=", Alpha as Beta")
+    assert cta.main(args) == 1
+    captured = capsys.readouterr()
+    assert "-export { Alpha };" in captured.out
+    assert "FAIL: the @thekaveh/vmx-react declarations differ" in captured.err
+    assert "minor version bump while the version is 0.x" in captured.err
+    assert "major version bump" not in captured.err
+
+
+def test_typescript_manifest_without_a_name_is_a_render_error(tmp_path, capsys) -> None:
+    package_json = tmp_path / "package.json"
+    package_json.write_text(
+        '{"version": "0.1.3", "exports": {".": {"import": {"types": "./dist/index.d.ts"}}}}',
+        encoding="utf-8",
+    )
+    args = [
+        "--dist",
+        str(_dist(tmp_path)),
+        "--package-json",
+        str(package_json),
+        "--baseline",
+        str(tmp_path / "api.txt"),
+    ]
+    capsys.readouterr()
+
+    assert cta.main(args) == 2
+    assert "no string name field" in capsys.readouterr().err
+
+
+def test_typescript_adapter_listing_ignores_comments(tmp_path, capsys) -> None:
+    package_json = _package_json(tmp_path, name=ADAPTER_PACKAGE, version="0.1.3")
+    baseline = tmp_path / "api" / "vmx-react.api.txt"
+    args = [
+        "--dist",
+        str(_dist(tmp_path)),
+        "--package-json",
+        str(package_json),
+        "--baseline",
+        str(baseline),
+    ]
+    assert cta.main([*args, "--update"]) == 0
+
+    for path in (tmp_path / "dist").glob("shared-*"):
+        path.write_text(
+            "/** Doc. */\ndeclare class A {\n    run(): void; // trailing\n}\nexport { A };\n",
+            encoding="utf-8",
+        )
+    capsys.readouterr()
+    assert cta.main(args) == 0
+
+
+def test_react_adapter_baseline_is_tracked_and_names_the_adapter() -> None:
+    snapshot = (REPO_ROOT / "packages/react/api/vmx-react.api.txt").read_text(encoding="utf-8")
+    assert snapshot.startswith("// Public declarations of @thekaveh/vmx-react:")
+    assert "// ==== index.d.ts ====\n" in snapshot
+
+
+def test_react_adapter_check_runs_after_the_build_in_ci() -> None:
+    react = workflow_job((WORKFLOWS / "typescript.yml").read_text(encoding="utf-8"), "react")
+    commands = "\n".join(run_commands(react)) + "\n"
+    check = (
+        "python3 ../../tools/check-typescript-api.py --dist dist --package-json package.json"
+        " --baseline api/vmx-react.api.txt\n"
+    )
+    assert commands.count(check) == 1
+    build_at = commands.index("npm run build --prefix packages/react\n")
+    assert build_at < commands.index(check) < commands.index("npm test --prefix packages/react\n")
+    step = re.search(r"(?s)- name: Compare public declarations.*?(?=\n      - name:)", react)
+    assert step is not None
+    assert "working-directory: packages/react" in step.group(0)
+    assert "if: matrix.react == '19' && matrix.node-version == '26'" in step.group(0)
 
 
 # --- C#: PublicApiAnalyzers -----------------------------------------------------------
@@ -408,6 +511,8 @@ def test_contributing_documents_how_to_update_each_baseline() -> None:
         "major version bump",
         "minor bump while the version is 0.x",
         "check-rust-api-baseline.py",
+        "packages/react/api/vmx-react.api.txt",
+        "--baseline api/vmx-react.api.txt --update",
         # An intended break recorded in an unreleased CHANGELOG section is
         # accepted by moving the Rust or Swift baseline revision forward.
         "the `develop` commit that merged the break",

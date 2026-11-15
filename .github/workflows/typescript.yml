@@ -224,6 +224,14 @@ jobs:
         run: npm run lint --prefix packages/react
       - name: Build
         run: npm run build --prefix packages/react
+      - name: Compare public declarations with the API baseline
+        # One React major and one Node line are enough: the listing names only
+        # @thekaveh/vmx types, not React types. Update
+        # packages/react/api/vmx-react.api.txt for an intended change
+        # (CONTRIBUTING.md, "Public API baselines").
+        if: matrix.react == '19' && matrix.node-version == '26'
+        working-directory: packages/react
+        run: python3 ../../tools/check-typescript-api.py --dist dist --package-json package.json --baseline api/vmx-react.api.txt
       - name: Test
         run: npm test --prefix packages/react
       - name: Verify package and fresh consumer
