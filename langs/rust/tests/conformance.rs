@@ -89,6 +89,9 @@ mod conformance {
     #[cfg(feature = "notifications")]
     mod notifications;
     mod null_services;
+    // Every case here pauses a batch with a test-only probe (#1924).
+    #[cfg(feature = "test-seams")]
+    mod observable_list_batch_threading;
     mod observable_list_events;
     mod observable_list_replace_all;
     mod owned_resources;

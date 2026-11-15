@@ -69,6 +69,16 @@ macro_rules! test_seam_probes {
         #[doc = "let vm: vmx::ComponentVm = vmx::ComponentVm::new(\"probe\");"]
         #[doc = "let _ = vm.property_changed().subscriber_count_for_testing();"]
         #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let list = vmx::ObservableList::<i32>::new(1);"]
+        #[doc = "list.set_batch_publish_probe_for_testing(|| {});"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let list = vmx::ObservableList::<i32>::new(1);"]
+        #[doc = "list.set_batch_close_probe_for_testing(|| {});"]
+        #[doc = "```"]
         pub struct TestSeamProbes;
     };
 }
