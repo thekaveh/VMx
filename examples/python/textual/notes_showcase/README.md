@@ -71,7 +71,8 @@ examples/python/textual/notes_showcase/
 │       │   ├── property.py, command.py, collection.py
 │       │   ├── dispatcher.py, dialog.py, data_table.py
 │       │   ├── theme_adapter.py      ← ThemeVM → Textual theme (row 16)
-│       │   └── _hub_accessor.py
+│       │   ├── _hub_accessor.py
+│       │   └── _app_thread.py           ← hand-off of widget updates to the App thread
 │       ├── notebooks_tree.py, notes_list.py, note_form.py,
 │       │   status_bar.py, notifications.py, capability_actions.py,
 │       │   global_search.py, theme_controls.py  ← theme strip (row 16)

@@ -16,11 +16,10 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from reactivex import operators as ops
 from reactivex.abc import DisposableBase
-from reactivex.scheduler import TimeoutScheduler
 from reactivex.subject import Subject
 from vmx import (
     AggregateVM6,
@@ -45,7 +44,7 @@ from notes_showcase.viewmodels.global_search_vm import GlobalSearchVM
 from notes_showcase.viewmodels.note_form_vm import NoteFormVM
 from notes_showcase.viewmodels.note_vm import NoteVM
 from notes_showcase.viewmodels.notebooks_root_vm import NotebooksRootVM
-from notes_showcase.viewmodels.notes_view_vm import NotesViewVM
+from notes_showcase.viewmodels.notes_view_vm import NotesViewVM, default_timer_scheduler
 from notes_showcase.viewmodels.notifications_vm import NotificationsVM
 from notes_showcase.viewmodels.status_bar_vm import StatusBarVM
 from notes_showcase.viewmodels.theme_vm import ThemeVM
@@ -64,6 +63,7 @@ class WorkspaceVM:
         notification_hub: INotificationHub,
         hub: MessageHub[Message],
         dispatcher: Dispatcher,
+        notification_lifespan: timedelta | None = None,
     ) -> None:
         self._repo = repository
         self._dialog_service = dialog_service
@@ -124,14 +124,16 @@ class WorkspaceVM:
             .note_form(note_form)
             .build()
         )
-        notifications = (
+        notifications_builder = (
             NotificationsVM.builder()
             .name("notifications")
             .services(hub, dispatcher)
             .notification_hub(notification_hub)
-            .scheduler(TimeoutScheduler())
-            .build()
+            .scheduler(default_timer_scheduler(dispatcher))
         )
+        if notification_lifespan is not None:
+            notifications_builder = notifications_builder.lifespan(notification_lifespan)
+        notifications = notifications_builder.build()
         capability_actions = (
             CapabilityActionsVM.builder()
             .name("capabilities")
@@ -555,6 +557,7 @@ class WorkspaceVMBuilder:
     _notification_hub: INotificationHub | None = None
     _hub: MessageHub[Message] | None = None
     _dispatcher: Dispatcher | None = None
+    _notification_lifespan: timedelta | None = None
 
     def name(self, value: str) -> WorkspaceVMBuilder:
         return dataclasses.replace(self, _name=value)
@@ -577,6 +580,10 @@ class WorkspaceVMBuilder:
     def dispatcher(self, dispatcher: Dispatcher) -> WorkspaceVMBuilder:
         return dataclasses.replace(self, _dispatcher=dispatcher)
 
+    def notification_lifespan(self, value: timedelta) -> WorkspaceVMBuilder:
+        """Shorten the toast lifespan (tests use a few milliseconds)."""
+        return dataclasses.replace(self, _notification_lifespan=value)
+
     def build(self) -> WorkspaceVM:
         if self._repo is None:
             raise ValueError("repository is required")
@@ -590,4 +597,5 @@ class WorkspaceVMBuilder:
             dispatcher=self._dispatcher
             if self._dispatcher is not None
             else RxDispatcher.immediate(),
+            notification_lifespan=self._notification_lifespan,
         )
