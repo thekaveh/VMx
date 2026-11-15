@@ -114,6 +114,8 @@ consumers continue to work unchanged.
   Python / TypeScript on both modeled and non-modeled builders; Swift
   ships on the non-modeled builder (modeled composite is outside Swift's
   documented subset).
+- **ADR-0044** — v2.6 spec-accuracy clarifications for the chapter 02 hooks
+  and the chapter 15 distinct-until-changed rule.
 - `06-composite-vm.md` — §3.2 documents the builder selection hooks.
 - `12-conformance.md` — adds `COMP-025` (`current(selector)` invariants)
   and `COMP-026` (`onCurrentChanged(callback)` invariants); catalog total
@@ -235,6 +237,11 @@ public-surface breaks are catalogued in ADRs 0052/0053/0054 and each flavor's
   as-is, and **ADR-0058** holds the explicit `AggregateVM1..6` arity surface — both
   are "no change" decisions (teaching notes).
 
+- **ADR-0059 through ADR-0067** — Swift Phase-3 divergence and parity records,
+  the Swift conformance cutover to full-catalog enforcement, Swift
+  `ComponentVMBase` cross-module subclassing visibility, and the Swift
+  notes-showcase flagship.
+
 - The catalog therefore ends v3.0 at **242 total (237 library + 5 THEME scenario
   IDs)**; chapter count stays at 22.
 
@@ -244,6 +251,8 @@ v3.1.0 is an additive minor bump driven by upstream consumer adoption feedback.
 It keeps the active full-parity flavors at total parity and raises the conformance
 catalog from 242 to 286 total IDs (281 library + 5 THEME scenario IDs).
 
+- **ADR-0045** — v2.6 spec-accuracy clarifications for chapters 06, 20 and 21.
+- **ADR-0046** — v2.6 clarification of `IPageable.PageCount` (chapter 14).
 - **ADR-0068** — disposed `RelayCommand` instances are inert (`CMD-013`).
 - **ADR-0069** — token/cursor pagination via `TokenPagedComposition`
   (`COL-024..031`).
@@ -265,11 +274,6 @@ catalog from 242 to 286 total IDs (281 library + 5 THEME scenario IDs).
   clarification.
 - **ADR-0079** — Swift options-value factories and non-selectable group
   children add `BLD-006` and `GRP-011`.
-- **ADR-0080** — accepts Rust as the fifth VMx flavor candidate.
-- **ADR-0081** — promotes Rust to full library conformance in source. Rust now
-  carries behavioral tests for all 281 library IDs and is required by the
-  conformance coverage gate; crates.io publication remains a separate release
-  channel task.
 
 ## 9. v3.1.0 → v3.2.0 changes
 
@@ -505,6 +509,9 @@ ADR-0102 defines the non-normative consumer conformance adapter schema and the
 TypeScript factory runner. It adds no behavior chapter, spec version bump, or
 conformance ID; the supporting schema versions independently.
 
+ADR-0103 uses the VMx-owned Rust hot-stream facade directly, and ADR-0104
+completes Rust async-command parity.
+
 ## 28. v3.20.0 → v3.20.1 changes
 
 v3.20.1 makes hierarchical attachment atomic across preflight, old-parent
@@ -561,6 +568,11 @@ The catalog now contains 403 library IDs plus 5 scenario IDs.
 
 See ADR-0128 and chapter 22.
 
+ADR-0080 adopts Rust as a planned fifth flavor. ADR-0081 promotes Rust to full
+library conformance in source: Rust carries behavioral tests for every library
+ID, and the conformance coverage gate requires them. crates.io publication
+remains a separate release-channel task.
+
 ## 33. v3.23.0 → v3.24.0 changes
 
 v3.24.0 makes disposed command wrappers inert. A disposed `CompositeCommand`,
@@ -572,6 +584,9 @@ stays balanced; and a confirmation that resolves after disposal runs nothing
 IDs.
 
 See ADR-0134 and chapter 04.
+
+ADR-0135 compares TypeScript `Error` form values by what structured cloning
+keeps.
 
 ## 34. v3.24.0 → v3.25.0 changes
 
@@ -585,6 +600,13 @@ for each branch (`COL-065`). The catalog now contains 407 library IDs plus 5
 scenario IDs.
 
 See ADR-0136 and chapter 21.
+
+ADR-0137 through ADR-0141 record Rust behavior. ADR-0137 delivers command
+failures as the original `VmxError`. ADR-0138 settles an `AsyncValue` whose
+continuation panics. ADR-0139 gives `FormVm` approval callbacks a detachable
+subscription. ADR-0140 starts command workers only for admitted work and wakes
+resource waits on signals. ADR-0141 retains hub messages only through an
+opt-in bounded recorder.
 
 ## 35. v3.25.0 → v3.26.0 changes
 
@@ -636,6 +658,12 @@ no admission, cancellation, or ownership of its own (`CMDD-014..017`). Rust's
 point. The catalog now contains 425 library IDs plus 5 scenario IDs.
 
 See ADR-0145 and chapter 04 §8.3.2.
+
+ADR-0129 through ADR-0133 first ship in spec-v3.29.0. ADR-0129 clarifies
+terminal stream and command teardown order. ADR-0130 covers Rust paired
+dispatch and background lifecycle. ADR-0131 allows idiomatic batch scopes.
+ADR-0132 makes asyncio foreground delivery thread-safe in Python. ADR-0133
+preserves Python async resource operation-loop ownership.
 
 ## 39. v3.29.0 → v3.30.0 changes
 

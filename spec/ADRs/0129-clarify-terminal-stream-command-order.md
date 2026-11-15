@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-02
-- **Spec version:** 3.23.0
+- **Spec version:** 3.29.0
 
 ## 1. Context
 
