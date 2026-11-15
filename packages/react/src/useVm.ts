@@ -2,6 +2,11 @@ import { useCallback } from "react";
 import type { IMessageHub } from "@thekaveh/vmx";
 
 import { useVersionedSelector, type Equality } from "./internal/useVersionedSelector.js";
+import {
+  retainSenderTracker,
+  senderRevision,
+  type SenderRevision,
+} from "./internal/senderRevisions.js";
 
 export interface HubBackedValue {
   readonly hub: IMessageHub;
@@ -29,6 +34,37 @@ function messageSenders(vm: object): ReadonlySet<unknown> {
   }
 }
 
+/** A version that only a server render or hydration reads, so it never reaches the hub. */
+const SERVER_VERSION = -1;
+
+/**
+ * The whole-VM selection: the hook version and the sender count read at render
+ * time. `revision` is `undefined` when the hub cannot be tracked.
+ */
+interface WholeVmSelection {
+  readonly version: number;
+  readonly revision: SenderRevision | undefined;
+}
+
+const SERVER_SELECTION: WholeVmSelection = { version: SERVER_VERSION, revision: undefined };
+
+function wholeVmSelection(vm: HubBackedValue & object, version: number): WholeVmSelection {
+  if (version === SERVER_VERSION) return SERVER_SELECTION;
+  return { version, revision: senderRevision(vm.hub, messageSenders(vm)) };
+}
+
+/**
+ * Two whole-VM selections match when the version and the sender count are
+ * unchanged on the same tracker. An untracked selection never matches. The
+ * subscribe step then catches up, as it did before the tracker existed.
+ */
+function sameWholeVmSelection(current: WholeVmSelection, next: WholeVmSelection): boolean {
+  const before = current.revision;
+  const after = next.revision;
+  return current.version === next.version && before !== undefined && after !== undefined &&
+    before.tracker === after.tracker && before.count === after.count;
+}
+
 export function useVm<TVm extends object & HubBackedValue>(vm: TVm): TVm;
 export function useVm<TVm extends object & HubBackedValue, TSelected>(
   vm: TVm,
@@ -40,9 +76,13 @@ export function useVm<TVm extends object & HubBackedValue, TSelected>(
   selector?: (vm: TVm) => TSelected,
   equality?: Equality<TSelected>,
 ): TVm | TSelected {
+  const wholeVm = selector === undefined;
   const sourceSubscribe = useCallback(
     (invalidate: () => void): (() => void) => {
       const senders = messageSenders(vm);
+      // Retain the tracker before this hook subscribes, so it counts each
+      // message first. Only the whole-VM form needs the count.
+      const releaseTracker = wholeVm ? retainSenderTracker(vm.hub) : undefined;
       const subscription = vm.hub.messages.subscribe({
         next: (message) => {
           // Whole-VM invalidation covers every message this VM publishes:
@@ -52,16 +92,21 @@ export function useVm<TVm extends object & HubBackedValue, TSelected>(
           if (senders.has(message.sender)) invalidate();
         },
       });
-      return () => subscription.unsubscribe();
+      return () => {
+        subscription.unsubscribe();
+        releaseTracker?.();
+      };
     },
-    [vm],
+    [vm, wholeVm],
   );
 
-  const selected = useVersionedSelector(
+  const selected = useVersionedSelector<WholeVmSelection | TSelected>(
     sourceSubscribe,
-    (version) => selector === undefined ? version : selector(vm),
-    selector === undefined ? Object.is : (equality ?? Object.is),
-    selector === undefined,
+    (version) => selector === undefined ? wholeVmSelection(vm, version) : selector(vm),
+    (current, next) => selector === undefined
+      ? sameWholeVmSelection(current as WholeVmSelection, next as WholeVmSelection)
+      : (equality ?? Object.is)(current as TSelected, next as TSelected),
+    wholeVm ? SERVER_VERSION : undefined,
   );
   return selector === undefined ? vm : selected as TSelected;
 }
