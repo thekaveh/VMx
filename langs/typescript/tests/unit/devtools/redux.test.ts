@@ -97,6 +97,44 @@ describe("connectReduxDevtools", () => {
     hub.dispose();
   });
 
+  it("discovers a function-shaped global extension that carries connect", () => {
+    const hub = new MessageHub();
+    const extension = new RecordingExtension();
+    const connect = (options: { readonly name: string }) => extension.connect(options);
+    Object.defineProperty(globalThis, "__REDUX_DEVTOOLS_EXTENSION__", {
+      configurable: true,
+      value: Object.assign(function enhancer() {}, { connect }),
+    });
+
+    const connection = connectReduxDevtools(hub, { name: "function-global" });
+    hub.send(PropertyChangedMessage.create({}, "VM", "model"));
+
+    expect(extension.names).toEqual(["function-global"]);
+    expect(extension.transports[0]?.sent).toHaveLength(1);
+    connection.dispose();
+    hub.dispose();
+  });
+
+  it("ignores a function-shaped global that lacks connect", () => {
+    let subscriptions = 0;
+    const hub: IMessageHub = {
+      messages: new Observable<IMessage>(() => {
+        subscriptions += 1;
+        return () => undefined;
+      }),
+      send: () => undefined,
+    };
+    Object.defineProperty(globalThis, "__REDUX_DEVTOOLS_EXTENSION__", {
+      configurable: true,
+      value: function enhancer() {},
+    });
+
+    const connection = connectReduxDevtools(hub, { name: "no-connect" });
+    connection.dispose();
+
+    expect(subscriptions).toBe(0);
+  });
+
   it("does zero hub, selector, timer, or transport work when disconnected", () => {
     let subscriptions = 0;
     let selections = 0;
