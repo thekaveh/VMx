@@ -367,12 +367,18 @@ fn confirmation_decorator_uses_dialog_confirm_gate() {
         vec!["Proceed?", "Proceed?", "Proceed?"]
     );
 
-    // The null dialog's safe `false` never runs the inner command.
+    // The null dialog's safe `false` never runs the inner command. The gate
+    // stays pending until the test settles it with the null dialog's answer,
+    // so the continuation runs on this thread inside `resolve` (ADR-0195)
+    // before the count is read.
     let blocked_calls = Arc::new(Mutex::new(0));
     let blocked_inner = blocked_calls.clone();
+    let gate = AsyncValue::<bool>::pending();
+    let pending = gate.clone();
     let blocked = RelayCommand::new(move || *blocked_inner.lock().unwrap() += 1)
-        .confirm(|| NullDialogService.confirm("Proceed?", None));
+        .confirm(move || pending.clone());
     blocked.execute();
+    gate.resolve(NullDialogService.confirm("Proceed?", None).wait());
     assert_eq!(*blocked_calls.lock().unwrap(), 0);
 }
 
