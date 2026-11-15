@@ -30,6 +30,7 @@ import { ConstructionStatus } from "../lifecycle/status.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+import { isUnset } from "../builders/required.js";
 
 const optionHub = Symbol("optionHub");
 const optionDispatcher = Symbol("optionDispatcher");
@@ -725,10 +726,10 @@ export class GroupVMBuilder<VM extends ComponentVMBase> {
   }
 
   build(): GroupVM<VM> {
-    if (this.#name === null) throw new BuilderValidationError("name");
-    if (this.#hub === null || this.#dispatcher === null)
+    if (isUnset(this.#name)) throw new BuilderValidationError("name");
+    if (isUnset(this.#hub) || isUnset(this.#dispatcher))
       throw new BuilderValidationError("services");
-    if (this.#childrenFactory === null)
+    if (isUnset(this.#childrenFactory))
       throw new BuilderValidationError("children");
     return new GroupVM<VM>({
       name: this.#name,

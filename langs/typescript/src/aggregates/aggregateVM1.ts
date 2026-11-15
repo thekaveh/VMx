@@ -8,6 +8,7 @@ import { ViewModelType } from "../components/types.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+import { isUnset } from "../builders/required.js";
 import { AggregateParent, replaceAggregateSlots } from "./ownership.js";
 import { disposeBestEffort } from "../components/disposal.js";
 
@@ -108,9 +109,9 @@ export class AggregateVM1Builder<VM1 extends ComponentVMBase> {
   component1(f: () => VM1): AggregateVM1Builder<VM1> { const b = new AggregateVM1Builder<VM1>(this); b.#factory1 = f; return b; }
 
   build(): AggregateVM1<VM1> {
-    if (this.#name === null) throw new BuilderValidationError("name");
-    if (this.#hub === null || this.#dispatcher === null) throw new BuilderValidationError("services");
-    if (this.#factory1 === SENTINEL) throw new BuilderValidationError("component1");
+    if (isUnset(this.#name)) throw new BuilderValidationError("name");
+    if (isUnset(this.#hub) || isUnset(this.#dispatcher)) throw new BuilderValidationError("services");
+    if (this.#factory1 === SENTINEL || isUnset(this.#factory1)) throw new BuilderValidationError("component1");
     const factory1 = this.#factory1;
     return new AggregateVM1<VM1>({ name: this.#name, hint: this.#hint, hub: this.#hub, dispatcher: this.#dispatcher, factory1 });
   }

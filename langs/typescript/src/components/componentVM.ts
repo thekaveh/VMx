@@ -10,6 +10,7 @@ import type { IDispatcher } from "../services/dispatcher.js";
 import { NullMessageHub } from "../services/nullMessageHub.js";
 import { NullDispatcher } from "../services/nullDispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+import { isUnset } from "../builders/required.js";
 
 const optionHub = Symbol("optionHub");
 const optionDispatcher = Symbol("optionDispatcher");
@@ -155,8 +156,8 @@ export class ComponentVMBuilder {
   }
 
   build(): ComponentVM {
-    if (this.#name === null) throw new BuilderValidationError("name");
-    if (this.#hub === null || this.#dispatcher === null)
+    if (isUnset(this.#name)) throw new BuilderValidationError("name");
+    if (isUnset(this.#hub) || isUnset(this.#dispatcher))
       throw new BuilderValidationError("services");
     return new ComponentVM({
       name: this.#name,

@@ -6,6 +6,7 @@
 import { Subject } from "rxjs";
 import type { Observable } from "rxjs";
 import { BuilderValidationError } from "../builders/exceptions.js";
+import { isUnset } from "../builders/required.js";
 import { RelayCommand } from "../commands/relayCommand.js";
 import { FormRevertedMessage } from "../messages/formReverted.js";
 import { PropertyChangedMessage } from "../messages/propertyChanged.js";
@@ -1038,7 +1039,7 @@ export class FormVMBuilder<TM> {
    */
   build(): FormVM<TM> {
     if (!this.#initialSet) throw new BuilderValidationError("initial");
-    if (this.#persister === null) throw new BuilderValidationError("persister");
+    if (isUnset(this.#persister)) throw new BuilderValidationError("persister");
 
     const options: FormVMOptions<TM> = {
       initial: this.#initial as TM,
