@@ -2,9 +2,11 @@
 //! `TestBackend`, the way a user sees it.
 
 use crossterm::event::KeyCode;
-use notes_showcase::app::handle_key;
+use notes_showcase::app::{handle_key, RedrawSignal};
 use notes_showcase::{views, InMemoryNoteRepository, WorkspaceVm};
 use ratatui::{backend::TestBackend, Terminal};
+use std::time::Duration;
+use vmx::{NotificationType, VirtualTimeScheduler};
 
 fn press(workspace: &WorkspaceVm, keys: &str) {
     for key in keys.chars() {
@@ -25,6 +27,35 @@ fn screen(workspace: &WorkspaceVm) -> String {
         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[test]
+fn a_form_edit_requests_a_redraw_without_a_key_event() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let redraw = RedrawSignal::new(&workspace);
+    assert!(!redraw.take());
+
+    workspace.form().set_title("x");
+
+    assert!(redraw.take());
+}
+
+#[test]
+fn a_timed_notification_that_expires_requests_a_redraw_without_a_key_event() {
+    let scheduler = VirtualTimeScheduler::new();
+    let workspace =
+        WorkspaceVm::with_scheduler(InMemoryNoteRepository::seeded(), scheduler.clone())
+            .expect("workspace builds");
+    let redraw = RedrawSignal::new(&workspace);
+    workspace
+        .notifications()
+        .post(NotificationType::Notification, "saved");
+    assert!(redraw.take());
+
+    scheduler.advance_by(Duration::from_secs(60));
+
+    assert!(workspace.notifications().messages().is_empty());
+    assert!(redraw.take());
 }
 
 #[test]
