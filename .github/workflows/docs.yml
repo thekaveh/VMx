@@ -14,6 +14,8 @@ on:
       - "examples/**/*.md"
       - "langs/**/*.md"
       - "tools/**/*.md"
+      - "tools/tests/conftest.py"
+      - "tools/tests/test_docs_code_tabs.py"
       - "spec/**"
       - "assets/architecture.*"
       - "assets/class-diagram.*"

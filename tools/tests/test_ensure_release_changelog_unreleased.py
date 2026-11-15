@@ -1,5 +1,8 @@
 """Tests for restoring the canonical Unreleased section after Release Please."""
 
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import ensure_release_changelog_unreleased as repair
@@ -166,7 +169,20 @@ def test_normalization_leaves_fenced_code_unchanged() -> None:
 
 
 def test_normalized_release_please_output_is_mdformat_clean(tmp_path: Path) -> None:
-    mdformat = pytest.importorskip("mdformat")
+    """Run the conformance step's mdformat check on the normalized output.
+
+    The pins and plugins match the "mdformat check" step of
+    .github/workflows/conformance.yml. The check runs mdformat in its own
+    uv tool environment, because mdformat 0.7.22 needs markdown-it-py<4 and
+    the tools extra pins 4.2.0.
+    """
+    uv = shutil.which("uv")
+    if uv is None:
+        message = "uv is not on PATH, so the mdformat pins cannot run"
+        # The conformance job installs uv with astral-sh/setup-uv.
+        if os.environ.get("CI"):
+            pytest.fail(message)
+        pytest.skip(message)
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text(
         PREAMBLE + RELEASE_PLEASE_SECTION + "## [Unreleased]\n\n" + PREVIOUS_RELEASE,
@@ -174,6 +190,25 @@ def test_normalized_release_please_output_is_mdformat_clean(tmp_path: Path) -> N
     )
 
     repair.ensure_unreleased(changelog)
-    text = changelog.read_text(encoding="utf-8")
 
-    assert mdformat.text(text, extensions={"gfm", "tables"}) == text
+    result = subprocess.run(
+        [
+            uv,
+            "tool",
+            "run",
+            "--from",
+            "mdformat==0.7.22",
+            "--with",
+            "mdformat-gfm==1.0.0",
+            "--with",
+            "mdformat-tables==1.0.0",
+            "mdformat",
+            "--check",
+            str(changelog),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=300,  # the first run downloads the three pins
+    )
+    assert result.returncode == 0, result.stderr or result.stdout

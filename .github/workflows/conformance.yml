@@ -110,7 +110,14 @@ jobs:
           uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m ruff format --check --config langs/python/pyproject.toml starters/python-console/
 
       - name: Run tool's own unit tests
-        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m pytest tools/tests/ -v
+        # The two generated-site tests in test_docs_code_tabs.py need the docs
+        # site, which this job does not build. The docs job runs them after
+        # `make docs-check` builds the site.
+        run: >-
+          uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --
+          -m pytest tools/tests/ -v
+          --deselect tools/tests/test_docs_code_tabs.py::test_language_specific_site_code_fences_are_tabbed
+          --deselect tools/tests/test_docs_code_tabs.py::test_site_tab_blocks_indent_their_content
 
       - name: Check uv and docs locks against their regeneration commands
         # Dependabot can write a uv lock with a newer uv, or drop pins from the
