@@ -23,7 +23,7 @@ docs-check:
 	$(PYTHON) docs/assets/diagrams/generate_diagrams.py --check
 	$(PYTHON) tools/generate-doc-diagrams.py --check
 	$(PYTHON) -m scripts.docs.validate_diagrams
-	$(PYTHON) -m pytest tests/docs docs/assets/diagrams/test_generate_diagrams.py -q
+	$(PYTHON) -m pytest tests/docs docs/assets/diagrams/test_generate_diagrams.py tools/tests/test_docs_code_tabs.py -q
 	mkdocs build --strict
 
 docs-serve:
