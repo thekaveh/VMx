@@ -43,9 +43,9 @@ describe("HIER-018", () => {
     expect(mid.children.map((c) => c.name)).toEqual(["leaf"]);
     expect(leaf.path.map((n) => n.name)).toEqual(["root", "mid", "leaf"]);
 
-    let structureMessages = 0;
+    const structureMessages: TreeStructureChangedMessage<unknown, unknown>[] = [];
     hub.messages.subscribe((m) => {
-      if (m instanceof TreeStructureChangedMessage) structureMessages++;
+      if (m instanceof TreeStructureChangedMessage) structureMessages.push(m);
     });
 
     // Self-reparenting raises.
@@ -61,13 +61,16 @@ describe("HIER-018", () => {
     expect(mid.parent).toBe(root);
     expect(leaf.parent).toBe(mid);
     expect(leaf.depth).toBe(2);
-    expect(structureMessages).toBe(0);
+    expect(structureMessages).toHaveLength(0);
 
     const newParent = new MyNode({ hub, name: "new-parent" });
     newParent.addChild(leaf);
     expect(mid.children).toEqual([]);
     expect(newParent.children).toEqual([leaf]);
     expect(leaf.parent).toBe(newParent);
-    expect(structureMessages).toBe(1);
+    // The addChild transfer publishes exactly one message, and its kind is Reparented.
+    expect(structureMessages).toHaveLength(1);
+    expect(structureMessages[0]?.change).toBe("reparented");
+    expect(structureMessages[0]?.affected).toBe(leaf);
   });
 });
