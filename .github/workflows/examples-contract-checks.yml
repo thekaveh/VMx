@@ -29,6 +29,8 @@ on:
       - "tools/tests/test_example_accessibility.py"
       - ".github/workflows/examples-contract-checks.yml"
       - "tools/check-python-interpreter.py"
+      - "langs/python/uv.lock"
+      - "langs/python/pyproject.toml"
       - "langs/typescript/**"
       - "packages/react/**"
   pull_request:
@@ -84,11 +86,16 @@ jobs:
       - name: showcase parity check
         run: python3 tools/check-showcase-parity.py
 
+      # The accessibility test runs in the locked environment that required: conformance
+      # also uses, so its pytest and markdown-it-py come from langs/python/uv.lock (#1838).
+      - name: sync Python dependencies (locked)
+        run: uv --project langs/python sync --locked --all-extras
+
       - name: source accessibility contracts
         run: >-
-          uvx --from pytest==9.1.1
-          --with markdown-it-py==4.2.0
-          python tools/check-python-interpreter.py --tool-context -- -m pytest tools/tests/test_example_accessibility.py -q
+          uv --project langs/python run python tools/check-python-interpreter.py
+          --venv langs/python/.venv --
+          -m pytest tools/tests/test_example_accessibility.py -q
 
       - name: build local TypeScript package
         run: |

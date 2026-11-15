@@ -126,6 +126,28 @@ Ubuntu Noble package revisions revalidated on 2026-07-14. This keeps SVG and
 PNG export behavior reproducible instead of inheriting `ubuntu-latest` or
 floating APT resolutions.
 
+### 3.3 Inline workflow tool versions
+
+Some workflow `run:` commands and `setup-uv` inputs name a tool version inline.
+Dependabot does not read that text, so a maintainer edits each file listed below
+by hand. `tools/tests/test_workflow_tool_versions.py` fails when two copies of
+uv, pip-audit, cargo-audit or npm name different versions, and when the mdformat
+copies differ (#1838).
+
+| Tool                          | Version   | Files a maintainer edits                                                                                                                                | Guard                  |
+| ----------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| uv                            | `0.11.28` | The `version:` input of `astral-sh/setup-uv` in `python.yml`, `release.yml`, `conformance.yml`, `examples-contract-checks.yml` and `security-audit.yml` | Copy agreement         |
+| pip-audit                     | `2.10.1`  | `python.yml`, `security-audit.yml` and `release.yml`                                                                                                    | Copy agreement         |
+| cargo-audit                   | `0.22.2`  | `rust.yml`, `security-audit.yml` and `release.yml`                                                                                                      | Copy agreement         |
+| npm                           | `11.18.0` | `release.yml`, in its four `npm install --global` steps                                                                                                 | Copy agreement         |
+| cargo-llvm-cov                | `0.9.1`   | `rust.yml`                                                                                                                                              | None; one copy         |
+| twine                         | `6.2.0`   | `release.yml`                                                                                                                                           | None; one copy         |
+| mdformat                      | `0.7.22`  | `.pre-commit-config.yaml` (`rev`) and `conformance.yml` (`--with`)                                                                                      | mdformat pin agreement |
+| mdformat-gfm, mdformat-tables | `1.0.0`   | `.pre-commit-config.yaml` (`additional_dependencies`) and `conformance.yml` (`--with`)                                                                  | mdformat pin agreement |
+
+pytest has no inline version. The accessibility step runs in the locked
+environment, so `langs/python/uv.lock` supplies its pytest version.
+
 ## 4. Release, registry, and identity contracts
 
 | Channel     | Trigger and automation                                                                                  | Authentication boundary                                                                                                                                                                                                                                                                                                                                                                        | Public verification                                                                                                                                                               |
