@@ -246,7 +246,6 @@ cross-references each ADR carries.
 | [0228](0228-discard-retry-cancel-restores-the-stable-state.md)                      | A cancelled discard retry restores the stable state it started from                                                   | 3.30.0       | Accepted                                                                                      |
 | [0229](0229-csharp-subclass-dispatcher-access.md)                                   | C# subclasses read the injected dispatcher through a protected `Dispatcher` property                                  | 3.30.0       | Accepted                                                                                      |
 | [0230](0230-spec-version-labels-name-the-first-tag.md)                              | Spec version labels name the first spec tag that contains the ADR                                                     | 3.30.0       | Accepted                                                                                      |
-| [0231](0231-typescript-deep-chain-test-timeout.md)                                  | TypeScript 10,000-level chain tests get an explicit 30 s timeout                                                      | 3.30.0       | Accepted                                                                                      |
 
 ### 1.1 Consolidation opportunities (informative — VMX-120)
 
