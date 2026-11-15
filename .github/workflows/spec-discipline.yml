@@ -181,13 +181,12 @@ jobs:
             | grep -oE '[A-Z]{3,5}-[0-9]{3}' \
             | sort -u || true)
 
-          # Scenario-contract ID prefixes (per tools/check-conformance-coverage.py
-          # _SCENARIO_PREFIXES). These catalog assertions for EXAMPLE APPS rather
-          # than the language-neutral library; their tests live under
-          # `examples/<lang>/.../tests/` and so do not need a stub in
-          # `langs/<flavor>/tests/conformance/`. Keep this list in sync with the
-          # tool's frozenset.
-          scenario_prefixes='THEME'
+          # Scenario-contract ID prefixes, read from tools/check-conformance-coverage.py
+          # (_SCENARIO_PREFIXES) so the tool stays the only copy of the list. These
+          # catalog assertions are for EXAMPLE APPS rather than the language-neutral
+          # library; their tests live under `examples/<lang>/.../tests/` and so do
+          # not need a stub in `langs/<flavor>/tests/conformance/`.
+          scenario_prefixes="$(python3 tools/check-conformance-coverage.py --print-scenario-prefixes)"
           if [ -n "$new_ids" ]; then
             filtered=$(echo "$new_ids" | grep -vE "^(${scenario_prefixes})-" || true)
             skipped=$(echo "$new_ids" | grep -E "^(${scenario_prefixes})-" || true)

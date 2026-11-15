@@ -3,10 +3,12 @@
 
 Verifies that each notes-showcase flavor ships the same canonical set of
 VM-level test files, so the README parity matrix is backed by actual code.
-It also verifies that every flagship example suite carries the five normative
-THEME scenario IDs. Rust's Ratatui showcase is a reduced companion rather than
-a fifth flagship; the check requires its exclusions to remain explicit in the
-canonical Rust guide so omission cannot be mistaken for parity.
+It also verifies that every flagship example suite carries every THEME scenario
+ID that ``spec/12-conformance.md`` declares, read from its ### headings. A new
+THEME heading therefore fails until each flagship has a test for it. Rust's
+Ratatui showcase is a reduced companion rather than a fifth flagship; the check
+requires its exclusions to remain explicit in the canonical Rust guide so
+omission cannot be mistaken for parity.
 
 Expected slugs (each must have a matching test file in each flavor):
 
@@ -48,11 +50,30 @@ scenario, flavor, step, and differing value.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
 from pathlib import Path
 from typing import Any
+
+
+def _load_coverage_module():  # type: ignore[no-untyped-def]
+    """Load check-conformance-coverage.py, whose hyphenated filename blocks a plain import."""
+    name = "check_conformance_coverage"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(
+        name, Path(__file__).resolve().parent / "check-conformance-coverage.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+ccc = _load_coverage_module()
 
 EXPECTED = [
     "workspace_vm",
@@ -75,7 +96,7 @@ ROOTS = {
     "swift": Path("examples/swift/notes-showcase/Tests"),
 }
 
-THEME_IDS = [f"THEME-{i:03d}" for i in range(1, 6)]
+CATALOG = Path("spec/12-conformance.md")
 SCENARIO = Path("examples/notes-showcase-scenario.json")
 THEME_SCENARIO = Path("examples/notes-showcase-theme-scenario.json")
 SCENARIO_ADAPTERS = {
@@ -112,6 +133,25 @@ RUST_SCOPE_TERMS = (
     "async dispatcher scenario",
     "tag autocomplete",
 )
+
+
+class CatalogError(Exception):
+    """The conformance catalog cannot supply the THEME scenario IDs."""
+
+
+def theme_ids_from_catalog(repo_root: Path) -> list[str]:
+    """Return the scenario-contract IDs the conformance catalog declares, sorted.
+
+    The IDs come from the ### headings in ``spec/12-conformance.md``, using the
+    same heading parser and prefix list as ``check-conformance-coverage.py``.
+    """
+    try:
+        ids = ccc.parse_scenario_ids(repo_root / CATALOG)
+    except OSError as error:
+        raise CatalogError(f"cannot read {CATALOG}: {error}") from error
+    if not ids:
+        raise CatalogError(f"{CATALOG} declares no THEME-NNN scenario IDs")
+    return sorted(ids)
 
 
 def _pascal(snake: str) -> str:
@@ -170,8 +210,26 @@ def _stem_contains(stem: str, key: str) -> bool:
     return key in stem
 
 
+def _swift_library_marker(text: str, theme_id: str) -> bool:
+    """Return true when a ``/// THEME-NNN — …`` doc comment attaches to a test function."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = ccc._SWIFT_COMMENT_MARKER_PATTERN.match(line)
+        if (
+            match is not None
+            and match.group(1) == theme_id
+            and ccc._swift_marker_attaches_to_test(lines, index)
+        ):
+            return True
+    return False
+
+
 def _theme_marker_present(flavor: str, theme_id: str, text: str) -> bool:
-    """Return true when ``theme_id`` appears on an executable test declaration."""
+    """Return true when ``theme_id`` appears on an executable test declaration.
+
+    Each flavor accepts its library marker, the form the coverage tool scrapes,
+    and the name-based form the flagship suites already use.
+    """
     number = theme_id.split("-", 1)[1]
     compact = f"THEME{number}"
     underscored = f"THEME_{number}"
@@ -184,7 +242,7 @@ def _theme_marker_present(flavor: str, theme_id: str, text: str) -> bool:
             or re.search(rf"def\s+test_{underscored}{suffix}", text) is not None
         )
     if flavor == "csharp":
-        return (
+        return theme_id in ccc.csharp_marker_ids(text) or (
             re.search(rf"\[Fact[^\]]*\]\s*public\s+void\s+{underscored}{suffix}", text) is not None
         )
     if flavor == "typescript":
@@ -193,11 +251,13 @@ def _theme_marker_present(flavor: str, theme_id: str, text: str) -> bool:
             or re.search(rf"\bit\(\s*['\"]{escaped}\b", text) is not None
         )
     if flavor == "swift":
-        return re.search(rf"\bfunc\s+test{compact}{suffix}", text) is not None
+        return _swift_library_marker(text, theme_id) or (
+            re.search(rf"\bfunc\s+test{compact}{suffix}", text) is not None
+        )
     return False
 
 
-def check(roots: dict[str, Path]) -> int:
+def check(roots: dict[str, Path], theme_ids: list[str]) -> int:
     failed = False
     for flavor, root in roots.items():
         if flavor == "csharp":
@@ -223,13 +283,15 @@ def check(roots: dict[str, Path]) -> int:
                 )
                 failed = True
 
-        text = "\n".join(
+        # Each file is read on its own: block comments and Swift marker attachment
+        # are per-file properties, so files must not run together.
+        texts = [
             p.read_text(encoding="utf-8", errors="ignore")
             for p in root.rglob("*")
             if p.is_file() and p.suffix.lower() in {".cs", ".py", ".ts", ".tsx", ".swift"}
-        )
-        for theme_id in THEME_IDS:
-            if not _theme_marker_present(flavor, theme_id, text):
+        ]
+        for theme_id in theme_ids:
+            if not any(_theme_marker_present(flavor, theme_id, text) for text in texts):
                 print(
                     f"{flavor}: missing executable scenario marker '{theme_id}'",
                     file=sys.stderr,
@@ -241,7 +303,7 @@ def check(roots: dict[str, Path]) -> int:
         return 1
     print(
         f"[OK] structural parity: {len(EXPECTED)} test-file slugs and "
-        f"{THEME_IDS[0]}..{THEME_IDS[-1][-3:]} markers x 4 flavors (names and markers only)"
+        f"{theme_ids[0]}..{theme_ids[-1][-3:]} markers x 4 flavors (names and markers only)"
     )
     return 0
 
@@ -312,15 +374,15 @@ def _scenario_problems(scenario: object) -> list[str]:
     return problems
 
 
-def _theme_scenario_problems(scenario: object) -> list[str]:
-    """What keeps the THEME scenario from covering THEME-001..005."""
+def _theme_scenario_problems(scenario: object, theme_ids: list[str]) -> list[str]:
+    """What keeps the THEME scenario from covering every THEME ID in the catalog."""
     problems = _structure_problems(scenario)
     if problems or not isinstance(scenario, dict):
         return problems
     problems = _common_problems(scenario, THEME_SCENARIO_ACTIONS)
     steps = scenario["steps"]
     covered = {step.get("covers") for step in steps}
-    uncovered = [theme_id for theme_id in THEME_IDS if theme_id not in covered]
+    uncovered = [theme_id for theme_id in theme_ids if theme_id not in covered]
     if uncovered:
         problems.append(f"no step covers {uncovered}")
     live = [step for step in steps if step["action"] != "dispose"]
@@ -331,12 +393,13 @@ def _theme_scenario_problems(scenario: object) -> list[str]:
     return problems
 
 
-def check_shared_scenario(repo_root: Path, roots: dict[str, Path]) -> int:
+def check_shared_scenario(repo_root: Path, roots: dict[str, Path], theme_ids: list[str]) -> int:
     problems: list[str] = []
     passed: list[str] = []
+    theme_range = f", {theme_ids[0]}..{theme_ids[-1][-3:]}"
     for relative, validate, detail in (
         (SCENARIO, _scenario_problems, ""),
-        (THEME_SCENARIO, _theme_scenario_problems, f", {THEME_IDS[0]}..{THEME_IDS[-1][-3:]}"),
+        (THEME_SCENARIO, lambda s: _theme_scenario_problems(s, theme_ids), theme_range),
     ):
         try:
             scenario = json.loads((repo_root / relative).read_text(encoding="utf-8"))
@@ -377,8 +440,13 @@ def main() -> int:
     # subpaths and is never mutated, so main() is safe to call repeatedly.
     repo_root = Path(args.root).resolve()
     roots = {f: repo_root / r for f, r in ROOTS.items()}
-    parity_result = check(roots)
-    scenario_result = check_shared_scenario(repo_root, roots)
+    try:
+        theme_ids = theme_ids_from_catalog(repo_root)
+    except CatalogError as error:
+        print(f"catalog: {error}", file=sys.stderr)
+        return 1
+    parity_result = check(roots, theme_ids)
+    scenario_result = check_shared_scenario(repo_root, roots, theme_ids)
     rust_scope_result = check_rust_scope(repo_root)
     return 1 if parity_result or scenario_result or rust_scope_result else 0
 
