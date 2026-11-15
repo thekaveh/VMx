@@ -231,6 +231,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `AsyncResourceVM` starts no loader when `load()`, `reload()` or
+  `loadCommand` runs from an observer of its `Disposed` publication (ARES-011).
+  Before, the loader ran and `state` stayed `Loading` after `dispose()`. C#
+  already refused these starts.
+
 - `connectReduxDevtools()` discovers the Redux DevTools global when the
   extension installs it as a function with `connect`, as the browser extension
   does. Before, discovery accepted only an object, so a default call sent
