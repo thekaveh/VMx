@@ -6,7 +6,9 @@ spec-compatible with the Python, TypeScript, Swift, and Rust flavors.
 ## 1. Status
 
 **v3.30.0** — implements spec 3.30.0 end-to-end. Every library conformance ID
-passes. Multi-targets `netstandard2.0` and `net8.0`.
+passes. Multi-targets `netstandard2.0` and `net8.0`. CI runs the conformance
+suite on the `net8.0` build and on the `netstandard2.0` build; the
+`netstandard2.0` run uses .NET 8, 9 and 10 hosts only.
 
 Two companion packages have their own version lines (ADR-0009, ADR-0013):
 

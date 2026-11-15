@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    Opt-in switch for the netstandard2.0 library build (#1863). Pass
+    -p:VMxLibraryFramework=netstandard2.0 to run the test projects against the
+    netstandard2.0 build of VMx, VMx.Notifications and
+    VMx.Extensions.DependencyInjection instead of the net8.0 build that
+    MSBuild selects by default. Without the property nothing here changes.
+  -->
+  <PropertyGroup Condition="'$(VMxLibraryFramework)' == 'netstandard2.0'">
+    <DefineConstants>$(DefineConstants);VMX_LIBRARY_NETSTANDARD2_0</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(VMxLibraryFramework)' == 'netstandard2.0'">
+    <ProjectReference Update="..\..\src\VMx\VMx.csproj;..\..\src\VMx.Notifications\VMx.Notifications.csproj;..\..\src\VMx.Extensions.DependencyInjection\VMx.Extensions.DependencyInjection.csproj"
+                      SetTargetFramework="TargetFramework=netstandard2.0" />
+  </ItemGroup>
+</Project>
