@@ -54,6 +54,13 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Fixed
 
+- An `ObservableList` batch no longer loses a change, or its `Count` change,
+  when another thread's batch opens or closes at the same moment. The batch
+  depth, dirty flag and item count at the outermost open now change under one
+  lock. The closing `Reset` reaches the local stream and the hub, and an empty
+  batch publishes nothing. `CompositeVm` and `GroupVm` inherit the fix
+  (spec/06 §4.1, spec/21 §3.5, #1924). The regression tests are
+  `observable_list_batch_threading.rs`.
 - A container destruct (`CompositeVm`, `GroupVm`, and `AggregateVm1` to
   `AggregateVm6`) joins a child destruct that another thread started after the
   walk read the status, instead of failing and rolling back to `Constructed`.

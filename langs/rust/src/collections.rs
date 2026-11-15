@@ -1253,6 +1253,30 @@ impl<T: 'static> ListStreams<T> {
     }
 }
 
+/// The batch state of an `ObservableList`. One lock covers the depth, the
+/// dirty flag and the item count at the outermost open, so a change that
+/// marks an open batch dirty cannot interleave with its close (#1924).
+#[derive(Default)]
+struct BatchState {
+    depth: usize,
+    dirty: bool,
+    count_at_start: usize,
+}
+
+/// A test-only callback a batch runs at one of its seams.
+#[cfg(feature = "test-seams")]
+type BatchProbe = Arc<dyn Fn() + Send + Sync>;
+
+/// Runs the probe in `slot`, if one is set. The probe is cloned out of its
+/// own mutex first, so a probe that calls back into the list cannot deadlock.
+#[cfg(feature = "test-seams")]
+fn run_batch_probe(slot: &Mutex<Option<BatchProbe>>) {
+    let probe = lock(slot).clone();
+    if let Some(probe) = probe {
+        probe();
+    }
+}
+
 #[derive(Clone)]
 /// An ordered observable list with granular events and reset-coalescing
 /// batch updates (spec/21 §3).
@@ -1274,9 +1298,17 @@ pub struct ObservableList<T: Clone + Send + 'static> {
     streams: Arc<ListStreams<T>>,
     owner_id: usize,
     owner_name: Arc<str>,
-    batch_depth: Arc<Mutex<usize>>,
-    batch_dirty: Arc<Mutex<bool>>,
-    batch_count_at_start: Arc<Mutex<usize>>,
+    batch: Arc<Mutex<BatchState>>,
+    /// Test-only seam: runs in `publish` after it sees an open batch and
+    /// before it marks the batch dirty. Only the `test-seams` feature
+    /// compiles it.
+    #[cfg(feature = "test-seams")]
+    batch_publish_probe: Arc<Mutex<Option<BatchProbe>>>,
+    /// Test-only seam: runs in the outermost `batch_update` close after the
+    /// depth reaches zero and before the dirty flag and start count are read.
+    /// Only the `test-seams` feature compiles it.
+    #[cfg(feature = "test-seams")]
+    batch_close_probe: Arc<Mutex<Option<BatchProbe>>>,
     publication_closed: Arc<AtomicBool>,
     hub_publication_closed: Arc<AtomicBool>,
 }
@@ -1312,12 +1344,53 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             streams: Arc::new(ListStreams::new()),
             owner_id,
             owner_name: owner_name.into(),
-            batch_depth: Arc::new(Mutex::new(0)),
-            batch_dirty: Arc::new(Mutex::new(false)),
-            batch_count_at_start: Arc::new(Mutex::new(0)),
+            batch: Arc::new(Mutex::new(BatchState::default())),
+            #[cfg(feature = "test-seams")]
+            batch_publish_probe: Arc::default(),
+            #[cfg(feature = "test-seams")]
+            batch_close_probe: Arc::default(),
             publication_closed: Arc::new(AtomicBool::new(false)),
             hub_publication_closed: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Test-only seam: sets the callback `publish` runs after it sees an open
+    /// batch and before it marks the batch dirty. Production code never sets
+    /// it. Only the non-default `test-seams` feature exports it.
+    #[cfg(feature = "test-seams")]
+    #[doc(hidden)]
+    pub fn set_batch_publish_probe_for_testing<F>(&self, probe: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        *lock(&self.batch_publish_probe) = Some(Arc::new(probe));
+    }
+
+    /// Test-only seam: sets the callback the outermost `batch_update` close
+    /// runs after its depth reaches zero and before it reads the batch state.
+    /// Production code never sets it. Only the non-default `test-seams`
+    /// feature exports it.
+    #[cfg(feature = "test-seams")]
+    #[doc(hidden)]
+    pub fn set_batch_close_probe_for_testing<F>(&self, probe: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        *lock(&self.batch_close_probe) = Some(Arc::new(probe));
+    }
+
+    /// Runs the test-only publish probe, if one is set. Without the
+    /// `test-seams` feature it does nothing.
+    fn run_batch_publish_probe(&self) {
+        #[cfg(feature = "test-seams")]
+        run_batch_probe(&self.batch_publish_probe);
+    }
+
+    /// Runs the test-only close probe, if one is set. Without the
+    /// `test-seams` feature it does nothing.
+    fn run_batch_close_probe(&self) {
+        #[cfg(feature = "test-seams")]
+        run_batch_probe(&self.batch_close_probe);
     }
 
     /// Stops all further publication for a disposed owning container
@@ -1699,41 +1772,43 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     where
         F: FnOnce(),
     {
-        let mut depth = lock(&self.batch_depth);
-        if *depth == 0 {
-            *lock(&self.batch_count_at_start) = self.len();
-        }
-        *depth += 1;
-        drop(depth);
-        let result = catch_unwind(AssertUnwindSafe(action));
-        let mut depth = lock(&self.batch_depth);
-        *depth -= 1;
-        if *depth == 0 {
-            drop(depth);
-            let changed = {
-                let mut dirty = lock(&self.batch_dirty);
-                let changed = *dirty;
-                *dirty = false;
-                changed
-            };
-            if changed {
-                let count_changed = self.len() != *lock(&self.batch_count_at_start);
-                self.publish(
-                    CollectionChangeAction::Reset,
-                    None,
-                    None,
-                    count_changed,
-                    None,
-                );
+        {
+            let mut batch = lock(&self.batch);
+            if batch.depth == 0 {
+                batch.count_at_start = self.len();
             }
+            batch.depth += 1;
+        }
+        let result = catch_unwind(AssertUnwindSafe(action));
+        // The close reads and clears the dirty flag under the same lock that
+        // lowers the depth, so a change that marks this batch dirty cannot
+        // slip between the two (#1924). Delivery runs after the lock.
+        let reset = {
+            let mut batch = lock(&self.batch);
+            batch.depth -= 1;
+            if batch.depth == 0 {
+                self.run_batch_close_probe();
+                let dirty = std::mem::take(&mut batch.dirty);
+                dirty.then(|| self.len() != batch.count_at_start)
+            } else {
+                None
+            }
+        };
+        if let Some(count_changed) = reset {
+            self.deliver(
+                CollectionChangeAction::Reset,
+                None,
+                None,
+                count_changed,
+                None,
+            );
         }
         if let Err(error) = result {
             resume_unwind(error);
         }
     }
 
-    /// Sends the granular event, the local and hub collection messages, and
-    /// then the `Count` change, in that order (spec/21 §3.3).
+    /// Marks an open batch dirty, or delivers the change now (see `deliver`).
     fn publish(
         &self,
         action: CollectionChangeAction,
@@ -1745,8 +1820,29 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         if self.publication_closed.load(Ordering::Acquire) {
             return;
         }
-        if *lock(&self.batch_depth) > 0 {
-            *lock(&self.batch_dirty) = true;
+        {
+            let mut batch = lock(&self.batch);
+            if batch.depth > 0 {
+                self.run_batch_publish_probe();
+                batch.dirty = true;
+                return;
+            }
+        }
+        self.deliver(action, old_index, new_index, count_changed, event);
+    }
+
+    /// Sends the granular event, the local and hub collection messages, and
+    /// then the `Count` change, in that order (spec/21 §3.3). It holds no
+    /// batch lock.
+    fn deliver(
+        &self,
+        action: CollectionChangeAction,
+        old_index: Option<usize>,
+        new_index: Option<usize>,
+        count_changed: bool,
+        event: Option<ItemEvent<T>>,
+    ) {
+        if self.publication_closed.load(Ordering::Acquire) {
             return;
         }
         match &event {
