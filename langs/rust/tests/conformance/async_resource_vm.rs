@@ -773,6 +773,48 @@ fn async_resource_dispose_cancels_and_late_completion_is_inert() {
     assert_eq!(changes.load(Ordering::SeqCst), notifications);
 }
 
+/// ARES-011 — a load started from an observer of the Disposed publication calls
+/// no loader and leaves the state Idle.
+#[test]
+fn async_resource_load_from_disposed_observer_starts_no_loader() {
+    let starts = Arc::new(AtomicUsize::new(0));
+    let loader_starts = starts.clone();
+    let vm = Arc::new(AsyncResourceVm::with_options(
+        "resource",
+        move |_token| {
+            loader_starts.fetch_add(1, Ordering::SeqCst);
+            Ok(1)
+        },
+        AsyncResourceRetention::DiscardPrevious,
+        None,
+    ));
+    let pending = Arc::new(Mutex::new(Vec::new()));
+    let observer_vm = vm.clone();
+    let observer_pending = pending.clone();
+    let _subscription = vm.hub().subscribe(move |message| {
+        if matches!(
+            message,
+            Message::ConstructionStatusChanged(change)
+                if change.status == ConstructionStatus::Disposed
+        ) {
+            observer_pending
+                .lock()
+                .unwrap()
+                .push(observer_vm.load_async());
+        }
+    });
+
+    vm.dispose().unwrap();
+    let handles: Vec<_> = pending.lock().unwrap().drain(..).collect();
+    assert_eq!(handles.len(), 1);
+    for handle in handles {
+        handle.join().unwrap().unwrap();
+    }
+
+    assert_eq!(starts.load(Ordering::SeqCst), 0);
+    assert_eq!(vm.state().status(), AsyncResourceStatus::Idle);
+}
+
 /// ARES-011 — the current loader's token is cancelled by disposal, and a late
 /// success or failure produces no state, property, or command notification;
 /// a late success is cleaned exactly once.

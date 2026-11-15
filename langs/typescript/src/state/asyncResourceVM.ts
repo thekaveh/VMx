@@ -10,6 +10,7 @@ import { RelayCommand } from "../commands/relayCommand.js";
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import { disposeBestEffort } from "../components/disposal.js";
 import { ViewModelType } from "../components/types.js";
+import { ConstructionStatus } from "../lifecycle/status.js";
 
 export enum AsyncResourceStatus {
   Idle = "Idle",
@@ -162,12 +163,20 @@ export class AsyncResourceVM<T> extends ComponentVMBase {
     if (accepted.present) this.#cleanup(accepted.value);
   }
 
+  /**
+   * ComponentVMBase publishes Disposed before _onDispose() sets #disposed, so an
+   * observer of that publication sees only the status. Starts check both.
+   */
+  #isInert(): boolean {
+    return this.#disposed || this.status === ConstructionStatus.Disposed;
+  }
+
   #canLoad(): boolean {
-    return !this.#disposed && this.#state.status === AsyncResourceStatus.Idle;
+    return !this.#isInert() && this.#state.status === AsyncResourceStatus.Idle;
   }
 
   #canReload(): boolean {
-    return !this.#disposed && this.#state.status !== AsyncResourceStatus.Idle;
+    return !this.#isInert() && this.#state.status !== AsyncResourceStatus.Idle;
   }
 
   #canCancel(): boolean {

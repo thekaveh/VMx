@@ -605,6 +605,95 @@ describe("AsyncResourceVM conformance", () => {
       expect(calls).toBe(1);
       expect(cleaned).toEqual([1]);
     });
+
+    it("load from a Disposed observer starts no loader and keeps the stable state", async () => {
+      let calls = 0;
+      let vm!: AsyncResourceVM<number>;
+      const pending: Promise<void>[] = [];
+      const hub = new CallbackMessageHub((message) => {
+        if (
+          message instanceof ConstructionStatusChangedMessage
+          && message.status === ConstructionStatus.Disposed
+        ) {
+          pending.push(vm.load());
+        }
+      });
+      vm = new AsyncResourceVM<number>({
+        name: "resource",
+        hub,
+        dispatcher: NullDispatcher.INSTANCE,
+        loader: () => {
+          calls += 1;
+          return Promise.resolve(calls);
+        },
+      });
+
+      vm.dispose();
+      await Promise.all(pending);
+      await flush();
+
+      expect(calls).toBe(0);
+      expect(vm.state).toEqual({ status: AsyncResourceStatus.Idle });
+    });
+
+    it("reload from a Disposed observer starts no loader and cleans the held value once", async () => {
+      const cleaned: number[] = [];
+      let calls = 0;
+      let vm!: AsyncResourceVM<number>;
+      const hub = new CallbackMessageHub((message) => {
+        if (
+          message instanceof ConstructionStatusChangedMessage
+          && message.status === ConstructionStatus.Disposed
+        ) {
+          void vm.reload();
+        }
+      });
+      vm = new AsyncResourceVM<number>({
+        name: "resource",
+        hub,
+        dispatcher: NullDispatcher.INSTANCE,
+        cleanupValue: (value) => cleaned.push(value),
+        loader: () => {
+          calls += 1;
+          return Promise.resolve(calls);
+        },
+      });
+      await vm.load();
+
+      vm.dispose();
+      await flush();
+
+      expect(calls).toBe(1);
+      expect(cleaned).toEqual([1]);
+    });
+
+    it("loadCommand execute from a Disposed observer starts no loader", async () => {
+      let calls = 0;
+      let vm!: AsyncResourceVM<number>;
+      const hub = new CallbackMessageHub((message) => {
+        if (
+          message instanceof ConstructionStatusChangedMessage
+          && message.status === ConstructionStatus.Disposed
+        ) {
+          vm.loadCommand.execute();
+        }
+      });
+      vm = new AsyncResourceVM<number>({
+        name: "resource",
+        hub,
+        dispatcher: NullDispatcher.INSTANCE,
+        loader: () => {
+          calls += 1;
+          return Promise.resolve(calls);
+        },
+      });
+
+      vm.dispose();
+      await flush();
+
+      expect(calls).toBe(0);
+      expect(vm.state).toEqual({ status: AsyncResourceStatus.Idle });
+    });
   });
 
   describe("ARES-012", () => {
