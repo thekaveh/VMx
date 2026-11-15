@@ -3,7 +3,16 @@
 import re
 from pathlib import Path
 
+from .workflow_jobs import run_commands, workflow_job
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
+_PYTHON_RELEASE_JOBS = (
+    "python-test",
+    "python-build",
+    "python-publish",
+    "python-verify-published",
+    "python-release-notes",
+)
 
 
 def _workflow(name: str) -> str:
@@ -12,12 +21,12 @@ def _workflow(name: str) -> str:
 
 def test_python_release_jobs_use_the_tracked_lockfile() -> None:
     workflow = _workflow("release.yml")
-    python_jobs = workflow.split("\n  python-test:\n", maxsplit=1)[1].split(
-        "\n  typescript-build:\n", maxsplit=1
-    )[0]
+    python_jobs = "".join(
+        f"{name}:\n{workflow_job(workflow, name)}" for name in _PYTHON_RELEASE_JOBS
+    )
 
     assert "langs/python/uv.lock" in python_jobs
-    assert "uv sync --locked --all-extras" in python_jobs
+    assert "uv sync --locked --all-extras" in "\n".join(run_commands(python_jobs))
     assert "uv.lock is gitignored" not in python_jobs
 
 

@@ -13,19 +13,12 @@ import check_python_api as cpa
 import check_rust_api_baseline as crab
 import check_typescript_api as cta
 
+from .workflow_jobs import run_commands, workflow_job
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 CSHARP_LIBRARIES = ("VMx", "VMx.Notifications", "VMx.Extensions.DependencyInjection")
 SHA = re.compile(r"[0-9a-f]{40}")
-
-
-def _job(workflow: str, name: str) -> str:
-    text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
-    match = re.search(
-        rf"(?ms)^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text
-    )
-    assert match is not None, f"{workflow} has no {name} job"
-    return match.group("body")
 
 
 # --- Python: introspection snapshot -------------------------------------------------
@@ -262,9 +255,10 @@ def test_typescript_entry_points_follow_the_exports_map() -> None:
 
 
 def test_typescript_check_runs_after_the_build_in_ci() -> None:
-    build = _job("typescript.yml", "build")
-    build_at = build.index("run: npm run build\n")
-    check_at = build.index("run: python3 ../../tools/check-typescript-api.py\n")
+    build = workflow_job((WORKFLOWS / "typescript.yml").read_text(encoding="utf-8"), "build")
+    commands = "\n".join(run_commands(build)) + "\n"
+    build_at = commands.index("npm run build\n")
+    check_at = commands.index("python3 ../../tools/check-typescript-api.py\n")
     assert build_at < check_at
 
 
@@ -300,21 +294,23 @@ def test_csharp_libraries_track_public_api_files() -> None:
 def test_rust_check_compares_with_the_recorded_revision() -> None:
     revision = (REPO_ROOT / "langs/rust/api/baseline-revision").read_text(encoding="utf-8")
     assert SHA.fullmatch(revision.strip())
-    job = _job("rust.yml", "public-api")
+    rust = (WORKFLOWS / "rust.yml").read_text(encoding="utf-8")
+    job = workflow_job(rust, "public-api")
+    commands = "\n".join(run_commands(job))
     assert "fetch-depth: 0" in job
     assert "CSC_VERSION: 0.51.0" in job
-    assert "sha256sum --check --strict" in job
+    assert "sha256sum --check --strict" in commands
     assert re.search(r"CSC_SHA256: [0-9a-f]{64}\n", job)
-    assert "cargo semver-checks check-release" in job
-    assert "langs/rust/api/baseline-revision" in job
-    assert "public-api" in _job("rust.yml", "required")
+    assert "cargo semver-checks check-release" in commands
+    assert "langs/rust/api/baseline-revision" in commands
+    assert "public-api" in workflow_job(rust, "required")
     # The baseline must carry the pull request base's version, checked before the
     # comparison.
-    guard = job.index('run: python3 tools/check-rust-api-baseline.py --base-rev "$BASE_SHA"')
+    guard = commands.index('python3 tools/check-rust-api-baseline.py --base-rev "$BASE_SHA"')
     assert "BASE_SHA: ${{ github.event.pull_request.base.sha }}" in job
     # A promotion into main does not run the guard: main can declare an older version.
     assert "github.event.pull_request.base.ref == 'develop'" in job
-    assert guard < job.index("cargo semver-checks check-release")
+    assert guard < commands.index("cargo semver-checks check-release")
     workflow = (WORKFLOWS / "rust.yml").read_text(encoding="utf-8")
     assert '- "tools/check-rust-api-baseline.py"' in workflow
 
@@ -363,12 +359,13 @@ def test_swift_check_compares_with_the_recorded_revision() -> None:
     revision = (REPO_ROOT / "langs/swift/api/baseline-revision").read_text(encoding="utf-8")
     assert SHA.fullmatch(revision.strip())
     assert (REPO_ROOT / "langs/swift/api/breakage-allowlist.txt").is_file()
-    job = _job("swift.yml", "public-api")
-    assert "fetch-depth: 0" in job
-    assert "swift package diagnose-api-breaking-changes" in job
-    assert "langs/swift/api/baseline-revision" in job
-    assert "--breakage-allowlist-path langs/swift/api/breakage-allowlist.txt" in job
-    assert "public-api" in _job("swift.yml", "required")
+    swift = (WORKFLOWS / "swift.yml").read_text(encoding="utf-8")
+    commands = "\n".join(run_commands(workflow_job(swift, "public-api")))
+    assert "fetch-depth: 0" in workflow_job(swift, "public-api")
+    assert "swift package diagnose-api-breaking-changes" in commands
+    assert "langs/swift/api/baseline-revision" in commands
+    assert "--breakage-allowlist-path langs/swift/api/breakage-allowlist.txt" in commands
+    assert "public-api" in workflow_job(swift, "required")
 
 
 def test_contributing_documents_how_to_update_each_baseline() -> None:

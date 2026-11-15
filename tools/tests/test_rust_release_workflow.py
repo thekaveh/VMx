@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+from .workflow_jobs import run_commands, workflow_job
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -159,7 +161,9 @@ def test_local_rust_gates_run_the_package_check_after_packaging() -> None:
 
 def test_branch_rust_ci_runs_every_gate_on_the_msrv() -> None:
     workflow = _workflow("rust.yml")
-    job = workflow.split("\n  msrv:\n", maxsplit=1)[1].split("\n  examples:\n", maxsplit=1)[0]
+    job = workflow_job(workflow, "msrv")
+    # Each command ends with a newline, so a match must end at a line end.
+    commands = "".join(f"{command}\n" for command in run_commands(job))
     manifest = "--manifest-path langs/rust/Cargo.toml"
 
     assert "toolchain: 1.88.0" in job
@@ -171,9 +175,9 @@ def test_branch_rust_ci_runs_every_gate_on_the_msrv() -> None:
         f"cargo test --locked {manifest} --all-features\n",
         f"cargo test --locked {manifest}\n",
         f"cargo doc --locked {manifest} --all-features --no-deps",
-        "RUSTDOCFLAGS: -D warnings",
     ):
-        assert command in job, command
+        assert command in commands, command
+    assert "RUSTDOCFLAGS: -D warnings" in job
     assert "needs: [audit, build, msrv, examples, package, public-api, coverage]" in workflow
 
 
@@ -192,17 +196,25 @@ def test_contract_suite_triggers_on_rust_and_release_workflow_changes() -> None:
     assert workflow.count('- ".github/workflows/**"') == 1
 
 
+_RUST_RELEASE_JOBS = (
+    "rust-test",
+    "rust-conformance",
+    "rust-audit",
+    "rust-publish",
+    "rust-verify-published",
+    "rust-release-notes",
+)
+
+
 def _rust_release_jobs() -> str:
+    """The Rust release jobs in workflow order, each under its own key."""
     workflow = _workflow("release.yml")
-    jobs = workflow.split("\n  rust-test:\n", maxsplit=1)[1].split(
-        "\n  swift-verify:\n", maxsplit=1
-    )[0]
-    assert "\n  swift-verify:\n" not in jobs
-    return jobs
+    return "".join(f"{name}:\n{workflow_job(workflow, name)}" for name in _RUST_RELEASE_JOBS)
 
 
 def test_release_runs_msrv_stable_and_five_flavor_gates_before_publish() -> None:
     jobs = _rust_release_jobs()
+    commands = "\n".join(run_commands(jobs))
 
     assert 'toolchain: ["1.88.0", "stable"]' in jobs
     for command in (
@@ -216,17 +228,22 @@ def test_release_runs_msrv_stable_and_five_flavor_gates_before_publish() -> None
         "tools/check-conformance-coverage.py --require csharp --require python "
         "--require typescript --require swift --require rust",
     ):
-        assert command in jobs
-    assert "cargo install cargo-audit --version 0.22.2 --locked" in jobs
-    assert "cargo audit --file langs/rust/Cargo.lock --deny warnings" in jobs
+        assert command in commands
+    assert "cargo install cargo-audit --version 0.22.2 --locked" in commands
+    assert "cargo audit --file langs/rust/Cargo.lock --deny warnings" in commands
     assert "needs: [rust-test, rust-conformance, rust-audit, release-metadata]" in jobs
 
 
 def test_release_rejects_non_main_or_mismatched_tag_before_authentication() -> None:
     jobs = _rust_release_jobs()
+    commands = "\n".join(run_commands(jobs))
+    ancestry_command = 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main'
+    version_command = 'tag_version="${GITHUB_REF#refs/tags/rust-v}"'
+    assert ancestry_command in commands
+    assert version_command in commands
 
-    ancestry = jobs.index('git merge-base --is-ancestor "$GITHUB_SHA" origin/main')
-    version = jobs.index('tag_version="${GITHUB_REF#refs/tags/rust-v}"')
+    ancestry = jobs.index(ancestry_command)
+    version = jobs.index(version_command)
     auth = jobs.index("name: Authenticate with crates.io trusted publishing")
 
     assert ancestry < auth
@@ -245,22 +262,25 @@ def test_release_has_protected_mutually_exclusive_bootstrap_and_oidc_paths() -> 
     assert "if: steps.crates-auth-mode.outputs.bootstrap != 'true'" in jobs
     assert "rust-lang/crates-io-auth-action@" in jobs
     assert "CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}" in jobs
-    assert jobs.count("cargo publish --locked --manifest-path langs/rust/Cargo.toml") == 2
+    publish = "cargo publish --locked --manifest-path langs/rust/Cargo.toml"
+    assert "\n".join(run_commands(jobs)).count(publish) == 2
     assert "--allow-dirty" not in jobs
 
 
 def test_release_polls_registry_docs_and_public_consumers_before_notes() -> None:
     jobs = _rust_release_jobs()
 
+    commands = "\n".join(run_commands(jobs))
     verify = jobs.index("rust-verify-published:")
     notes = jobs.index("rust-release-notes:")
     create = jobs.index("gh release create", notes)
 
+    assert "gh release create" in commands
     assert 'toolchain: ["1.88.0", "stable"]' in jobs
-    assert "--poll-timeout 1800" in jobs
-    assert "--timeout 2100" in jobs
+    assert "--poll-timeout 1800" in commands
+    assert "--timeout 2100" in commands
     assert "timeout-minutes: 45" in jobs
     assert "needs: rust-publish" in jobs
     assert "needs: rust-verify-published" in jobs
-    assert "langs/rust/CHANGELOG.md" in jobs
+    assert "langs/rust/CHANGELOG.md" in commands
     assert verify < notes < create
