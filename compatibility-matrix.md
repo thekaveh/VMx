@@ -162,10 +162,10 @@ The C# core package `VMx` ships with two opt-in companion assemblies. Each
 versions independently, starting from 1.0.0 (ADR-0013), and declares the spec
 version that its own feature surface implements.
 
-| Package                                | Current | Spec  |
-| -------------------------------------- | ------- | ----- |
-| `VMx.Extensions.DependencyInjection`   | 2.1.1   | 2.1.x |
-| `VMx.Notifications`                    | 1.2.0   | 2.6.x |
+| Package                                | Current | Spec   |
+| -------------------------------------- | ------- | ------ |
+| `VMx.Extensions.DependencyInjection`   | 2.1.1   | 2.1.x  |
+| `VMx.Notifications`                    | 1.2.0   | 3.30.x |
 
 The **Spec** column is the spec revision that each companion's own feature
 surface implements. It is not the core dependency floor: both companions
