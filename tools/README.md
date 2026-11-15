@@ -142,12 +142,18 @@ exits 0 on success / non-zero with a per-line violation report on failure.
 
 - `check-axaml-codebehind.py` — Avalonia view code-behind (`*.axaml.cs`)
   may only call `InitializeComponent()` or `AvaloniaXamlLoader.Load(this)`.
-  Excludes `Views/Adapter/` (binding helpers, not views).
+  A view is a partial class, so every other `.cs` file of the same app
+  project that declares the view's `partial class` is checked the same way.
+  Excludes `Views/Adapter/` (binding helpers, not views) and `bin/` / `obj/`.
 
 - `check-textual-views.py` — Textual widget classes may define only
   `__init__` / `compose` / `on_mount` / `render`, `action_*` methods
   (≤ 1 statement each), and `on_*` event handlers (≤ 1 statement, no
-  direct hub subscriptions). Excludes `views/adapter/**`.
+  direct hub subscriptions). Statements inside `if`, `with`, `for`,
+  `while`, `try` and `match` blocks count toward that limit. A hub
+  subscription is any `subscribe(...)` call whose receiver chain reaches a
+  hub, including one nested in an argument or made through a local alias.
+  Excludes `views/adapter/**`.
 
 - `check-layer-imports.py` — enforces the layered import direction for
   the C#, Python, and TypeScript flagship examples:
@@ -157,6 +163,12 @@ exits 0 on success / non-zero with a per-line violation report on failure.
   which is treated as a peer because frameworks like Avalonia need
   INPC-aware sidecars co-located with the VM).
   Views → anywhere.
+
+  Every reference to another layer is checked, including Python relative
+  and `from notes_showcase import views` imports, C# alias, `global using`
+  and qualified names, and TypeScript `export ... from`, dynamic `import()`
+  and multi-line imports. Comments are ignored. A Python file that does not
+  parse is reported as a violation.
 
   The Swift flagship is intentionally outside this script: its core/view split
   is enforced by SwiftPM target boundaries (`NotesShowcaseCore` vs

@@ -104,3 +104,89 @@ def test_check_flags_class_level_code_with_valid_constructor(tmp_path: Path) -> 
     violations = cab.check(f)
     assert len(violations) == 1
     assert "_x = 42" in violations[0]
+
+
+_VIEW_CODE_BEHIND = """\
+    public partial class MainView {
+        public MainView() {
+            InitializeComponent();
+        }
+    }
+    """
+
+
+def _run_main(root: Path, monkeypatch, capsys) -> tuple[int, str]:
+    monkeypatch.setattr("sys.argv", ["check-axaml-codebehind.py", "--root", str(root)])
+    code = cab.main()
+    return code, capsys.readouterr().err
+
+
+def test_main_flags_handler_in_second_partial_class_file(tmp_path, monkeypatch, capsys) -> None:
+    """A view is a partial class, so a second file of the class can hold view logic."""
+    app = tmp_path / "examples" / "csharp" / "avalonia" / "Demo"
+    _write(app / "Views" / "MainView.axaml.cs", _VIEW_CODE_BEHIND)
+    _write(
+        app / "Views" / "MainView.Handlers.cs",
+        """\
+        public partial class MainView {
+            private void OnClick(object sender, object e) {
+                DoSomething();
+            }
+        }
+        """,
+    )
+    code, err = _run_main(tmp_path, monkeypatch, capsys)
+    assert code == 1
+    assert "MainView.Handlers.cs" in err
+    assert "DoSomething();" in err
+
+
+def test_main_scans_partial_files_outside_views_folder(tmp_path, monkeypatch, capsys) -> None:
+    app = tmp_path / "examples" / "csharp" / "avalonia" / "Demo"
+    _write(app / "Views" / "MainView.axaml.cs", _VIEW_CODE_BEHIND)
+    _write(
+        app / "ViewLogic" / "MainView.Logic.cs",
+        """\
+        public partial class MainView {
+            private int _count = 0;
+        }
+        """,
+    )
+    code, err = _run_main(tmp_path, monkeypatch, capsys)
+    assert code == 1
+    assert "MainView.Logic.cs" in err
+
+
+def test_main_takes_partial_class_name_from_declaration(tmp_path, monkeypatch, capsys) -> None:
+    app = tmp_path / "examples" / "csharp" / "avalonia" / "Demo"
+    _write(app / "Views" / "Foo.axaml.cs", _VIEW_CODE_BEHIND.replace("MainView", "Bar"))
+    _write(
+        app / "Logic" / "Other.cs",
+        """\
+        public partial class Bar {
+            private int _count = 0;
+        }
+        """,
+    )
+    code, err = _run_main(tmp_path, monkeypatch, capsys)
+    assert code == 1
+    assert "Other.cs" in err
+
+
+def test_main_skips_partial_files_in_bin_obj_and_adapter(tmp_path, monkeypatch, capsys) -> None:
+    app = tmp_path / "examples" / "csharp" / "avalonia" / "Demo"
+    _write(app / "Views" / "MainView.axaml.cs", _VIEW_CODE_BEHIND)
+    _write(
+        app / "obj" / "MainView.g.cs",
+        "public partial class MainView {\n    private int _generated = 1;\n}\n",
+    )
+    _write(
+        app / "bin" / "MainView.Gen.cs",
+        "public partial class MainView {\n    private int _generated = 1;\n}\n",
+    )
+    _write(
+        app / "Views" / "Adapter" / "MainView.Bridge.cs",
+        "public partial class MainView {\n    private int _bridged = 1;\n}\n",
+    )
+    code, err = _run_main(tmp_path, monkeypatch, capsys)
+    assert code == 0, err
