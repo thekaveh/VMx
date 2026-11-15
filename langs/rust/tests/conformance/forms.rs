@@ -4,7 +4,8 @@ use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use vmx::{
-    Command, DialogService, FormVm, Message, MessageHub, ModalVm, NullDialogService, VmxError,
+    AsyncValue, Command, DialogService, FormVm, Message, MessageHub, ModalVm, NullDialogService,
+    VmxError,
 };
 
 /// FORM-001 — Snapshot captured at construct
@@ -212,14 +213,31 @@ fn direct_approval_of_an_invalid_form_is_a_noop() {
 fn confirm_decorator_can_guard_deny_command() {
     let form = FormVm::new("form", 1);
     form.set_model(2);
-    let guarded = form
+
+    // Fire-and-forget `execute()`. The gate stays pending until the test
+    // settles it, so the continuation runs on this thread inside `resolve`
+    // (ADR-0195) and the assertions observe the decision.
+    let gate = AsyncValue::<bool>::pending();
+    let pending = gate.clone();
+    let guarded = form.deny_command().confirm(move || pending.clone());
+    guarded.execute();
+    gate.resolve(NullDialogService.confirm("Discard?", None).wait());
+    assert_eq!(form.model(), 2, "a refused confirmation reverted the model");
+    assert!(form.is_dirty());
+
+    // Awaitable entry point: the `false` gate never runs the deny command.
+    let refused = form
         .deny_command()
         .confirm(|| NullDialogService.confirm("Discard?", None));
-
-    guarded.execute();
-
-    assert_eq!(form.model(), 2);
+    refused.execute_async().join().unwrap();
+    assert_eq!(form.model(), 2, "a refused confirmation reverted the model");
     assert!(form.is_dirty());
+
+    // A `true` gate runs the deny command and reverts the model to the snapshot.
+    let confirmed = form.deny_command().confirm(|| AsyncValue::ready(true));
+    confirmed.execute_async().join().unwrap();
+    assert_eq!(form.model(), 1);
+    assert!(!form.is_dirty());
 }
 
 /// FORM-011 — FormVMBuilder<TM>.Build validates required Initial + Persister
