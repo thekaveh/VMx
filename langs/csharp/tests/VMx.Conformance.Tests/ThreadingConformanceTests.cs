@@ -66,36 +66,50 @@ public class ThreadingConformanceTests
     /// on <see cref="TestDispatcher.Background"/>.
     ///
     /// Construct() emits Constructing synchronously (so subscribers immediately see
-    /// the transition starting), then schedules <c>OnConstruct()</c> + the final
-    /// Constructed transition on the background scheduler before returning.
-    /// Callers observe Constructing immediately after Construct() returns; the VM
-    /// only reaches Constructed after the background scheduler is advanced.
+    /// the transition starting), then schedules <c>OnConstruct()</c> on the background
+    /// scheduler before returning. The terminal Constructed transition is marshalled
+    /// onto the foreground scheduler (spec/11 §4, VMX-025). Callers observe Constructing
+    /// immediately after Construct() returns. OnConstruct() runs only when the background
+    /// scheduler is advanced, and the VM reaches Constructed only after the foreground
+    /// scheduler is advanced too.
     /// </summary>
     [Fact, Trait("Conformance", "THR-002")]
     public void THR_002_Background_Construct_Dispatches_On_Background_Scheduler()
     {
         using var hub = new TestHub();
         var dispatcher = new TestDispatcher();
+        var constructRuns = 0;
         using var vm = ComponentVM<string>.Builder()
             .Name("vm")
             .Services(hub, dispatcher)
             .Model("initial")
             .Background(true)
+            .OnConstruct(() => constructRuns++)
             .Build();
 
         vm.Construct();
 
         // Construct() returns immediately; the VM is mid-transition (Constructing),
-        // NOT yet in the terminal Constructed state.
+        // NOT yet in the terminal Constructed state, and OnConstruct() has not run.
         vm.Status.Should().Be(ConstructionStatus.Constructing,
             "Background(true) means OnConstruct() and the final Constructed transition " +
             "are scheduled on the background scheduler — only Constructing is emitted synchronously");
+        constructRuns.Should().Be(0, "Construct() must not run OnConstruct() inline on the calling thread");
+
+        // Advance only the foreground scheduler. OnConstruct() is scheduled on
+        // Background, so it must still not have run.
+        dispatcher.ForegroundScheduler.AdvanceBy(1);
+
+        constructRuns.Should().Be(0, "advancing the foreground scheduler must not run OnConstruct()");
+        vm.Status.Should().Be(ConstructionStatus.Constructing,
+            "advancing the foreground scheduler alone must not complete the construction");
 
         // Advance the background scheduler — OnConstruct() runs on the background
         // scheduler, then the terminal Constructed emission is marshalled onto the
         // foreground scheduler (VMX-025), so the VM is still mid-transition here.
         dispatcher.BackgroundScheduler.AdvanceBy(1);
 
+        constructRuns.Should().Be(1, "advancing the background scheduler must run OnConstruct() exactly once");
         vm.Status.Should().Be(ConstructionStatus.Constructing,
             "the terminal Constructed emission is marshalled onto the foreground scheduler (VMX-025)");
 
@@ -104,6 +118,7 @@ public class ThreadingConformanceTests
 
         vm.Status.Should().Be(ConstructionStatus.Constructed,
             "after both schedulers advance, the transition must complete");
+        constructRuns.Should().Be(1, "the terminal transition must not run OnConstruct() a second time");
     }
 
     // ── THR-003 — CollectionChanged observed on foreground scheduler ─────────

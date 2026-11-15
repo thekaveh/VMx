@@ -83,12 +83,14 @@ final class ThreadingTests: XCTestCase {
     func testTHR002BackgroundConstructDefersConstructedUntilForegroundFlush() throws {
         let hub = MessageHub()
         let manual = ManualDispatcher()
+        var constructRuns = 0
 
         let vm = try ComponentVMOf<String>.builder()
             .name("v")
             .model("m")
             .services(hub: hub, dispatcher: manual)
             .background(true)
+            .onConstruct { constructRuns += 1 }
             .build()
 
         try vm.construct()
@@ -96,8 +98,19 @@ final class ThreadingTests: XCTestCase {
         // Phase 1: construct() returns immediately mid-transition — only the
         // synchronous `.constructing` emission has happened. The `_onConstruct`
         // hook and the terminal `.constructed` transition are still pending.
+        XCTAssertEqual(constructRuns, 0,
+                       "construct() must not run the construct hook inline on the calling thread")
         XCTAssertEqual(vm.status, .constructing,
                        "background construct emits only Constructing synchronously")
+
+        // Foreground-only step: the hook is scheduled on BACKGROUND, so flushing
+        // the foreground must not run it.
+        manual.flushForeground()
+
+        XCTAssertEqual(constructRuns, 0,
+                       "flushing the foreground scheduler must not run the construct hook")
+        XCTAssertEqual(vm.status, .constructing,
+                       "flushing the foreground scheduler alone must not complete the construction")
 
         // Phase 2: advancing the BACKGROUND scheduler runs the hook and queues
         // the terminal transition onto the FOREGROUND scheduler — but does NOT
@@ -105,6 +118,8 @@ final class ThreadingTests: XCTestCase {
         // foreground thread), so the VM is still Constructing.
         manual.flushBackground()
 
+        XCTAssertEqual(constructRuns, 1,
+                       "flushing the background scheduler must run the construct hook exactly once")
         XCTAssertEqual(vm.status, .constructing,
                        "the terminal Constructed transition is marshalled onto the foreground "
                        + "scheduler (VMX-025); flushing only the background scheduler leaves the "
@@ -116,6 +131,8 @@ final class ThreadingTests: XCTestCase {
 
         XCTAssertEqual(vm.status, .constructed,
                        "after the foreground scheduler advances the terminal transition completes")
+        XCTAssertEqual(constructRuns, 1,
+                       "the terminal transition must not run the construct hook a second time")
     }
 
     // ── THR-003 ──────────────────────────────────────────────────────────
