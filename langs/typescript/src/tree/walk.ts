@@ -14,6 +14,14 @@ export function* walk(root: ComponentVMBase): Iterable<ComponentVMBase> {
   }
 }
 
+export function find<T extends ComponentVMBase>(
+  root: ComponentVMBase,
+  predicate: (vm: ComponentVMBase) => vm is T,
+): T | null;
+export function find(
+  root: ComponentVMBase,
+  predicate: (vm: ComponentVMBase) => boolean,
+): ComponentVMBase | null;
 export function find(
   root: ComponentVMBase,
   predicate: (vm: ComponentVMBase) => boolean,
