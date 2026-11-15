@@ -215,6 +215,7 @@ npm run typecheck
 npm run lint
 npm test
 npm run build
+python3 ../../tools/check-typescript-api.py --dist dist --package-json package.json --baseline api/vmx-react.api.txt
 ```
 
 ### 2.8 Public API baselines
@@ -231,6 +232,7 @@ Rust and Swift checks build a recorded baseline revision and fail on a break.
 | C# | `PublicAPI.Shipped.txt` and `PublicAPI.Unshipped.txt` next to each library project; `langs/csharp/src/VMx/PublicAPI/net8.0/` lists the members that only `net8.0` declares | `dotnet build` (PublicApiAnalyzers: RS0016 for a member that the files do not list, RS0017 for a listed member that is gone) | Add new members to `PublicAPI.Unshipped.txt` with the RS0016 code fix, or with `dotnet format analyzers VMx.sln --diagnostics RS0016 --severity warn` (run it again until the count stops changing). Delete or edit the line of a removed or changed member. |
 | Python | `langs/python/api/vmx.api.txt` | `tools/check-python-api.py` on Python 3.12 | In `langs/python`: `uv run --python 3.12 python ../../tools/check-python-api.py --update` |
 | TypeScript | `langs/typescript/api/vmx.api.txt` | `tools/check-typescript-api.py` after `npm run build` | In `langs/typescript`: `npm run build && python3 ../../tools/check-typescript-api.py --update` |
+| React adapter | `packages/react/api/vmx-react.api.txt` | `tools/check-typescript-api.py` after `npm run build`, in the `react` job of `typescript.yml` (React 19 on Node 26) | In `packages/react`: `npm run build && python3 ../../tools/check-typescript-api.py --dist dist --package-json package.json --baseline api/vmx-react.api.txt --update` |
 | Rust | `langs/rust/api/baseline-revision` | `cargo semver-checks` 0.51.0 on Rust 1.99.1; in a pull request into `develop`, `tools/check-rust-api-baseline.py` first checks that the baseline revision declares the same `Cargo.toml` version as the pull request's base | Bump the `Cargo.toml` version as SemVer requires; the tool then accepts the break. Keep the baseline revision in that pull request. When the version is already bumped and not yet released, see the paragraph below the table. |
 | Swift | `langs/swift/api/baseline-revision` and `langs/swift/api/breakage-allowlist.txt` | `swift package diagnose-api-breaking-changes` on the root package's `VMx` product | Add each reported `API breakage: ...` line to the allowlist. A break that the allowlist does not suppress follows the paragraph below the table. |
 
@@ -252,7 +254,7 @@ Two cases need it:
 Commit the updated baseline in the same PR as the API change, so that the
 review shows it. A removed or changed public member is a breaking change: it
 needs a major version bump, or a minor bump while the version is 0.x (as for
-`vmx-rs`). An added member needs a minor bump (SemVer).
+`vmx-rs` and `@thekaveh/vmx-react`). An added member needs a minor bump (SemVer).
 
 `cargo semver-checks` accepts any break once the `Cargo.toml` version has
 moved past the version at the Rust baseline revision. The first pull request
@@ -268,6 +270,7 @@ The local commands match CI:
 (cd langs/csharp && dotnet build VMx.sln -c Release)
 (cd langs/python && uv run --python 3.12 python ../../tools/check-python-api.py)
 (cd langs/typescript && npm run build && python3 ../../tools/check-typescript-api.py)
+(cd packages/react && npm run build && python3 ../../tools/check-typescript-api.py --dist dist --package-json package.json --baseline api/vmx-react.api.txt)
 cargo install cargo-semver-checks --version 0.51.0 --locked
 python3 tools/check-rust-api-baseline.py --base-rev origin/develop
 cargo semver-checks check-release --manifest-path langs/rust/Cargo.toml \

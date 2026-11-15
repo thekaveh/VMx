@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare the built declarations of ``@thekaveh/vmx`` with the recorded API snapshot.
+"""Compare the built declarations of an npm package with its recorded API snapshot.
 
 ``npm run build`` (tsup) writes one ``.d.ts`` per package entry point and
 shared declaration chunks named ``<name>-<hash>.d.ts``. The hash changes
@@ -14,10 +14,14 @@ change the snapshot. Everything else in the declarations is part of the
 snapshot, including the ``private constructor()`` and ``#private`` markers that
 TypeScript emits.
 
-Run it after ``npm run build`` in ``langs/typescript``::
+Run it after ``npm run build`` in the package directory. The defaults check
+``@thekaveh/vmx`` in ``langs/typescript``; the React adapter
+``@thekaveh/vmx-react`` in ``packages/react`` passes its own paths::
 
-    python3 ../../tools/check-typescript-api.py            # check
-    python3 ../../tools/check-typescript-api.py --update   # rewrite baseline
+    python3 ../../tools/check-typescript-api.py            # check @thekaveh/vmx
+    python3 ../../tools/check-typescript-api.py --update   # rewrite its baseline
+    python3 ../../tools/check-typescript-api.py --dist dist --package-json package.json \
+        --baseline api/vmx-react.api.txt                   # check the adapter
 
 Exit codes: 0 when the declarations match the snapshot, 1 on any difference
 (the unified diff is printed), 2 when the build output is missing or
@@ -28,14 +32,17 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import json
+import os
 import re
 import sys
 from pathlib import Path
 
-PACKAGE_DIR = Path(__file__).resolve().parents[1] / "langs/typescript"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_DIR = REPO_ROOT / "langs/typescript"
 DEFAULT_DIST = PACKAGE_DIR / "dist"
+DEFAULT_PACKAGE_JSON = PACKAGE_DIR / "package.json"
 DEFAULT_BASELINE = PACKAGE_DIR / "api/vmx.api.txt"
-UPDATE_HINT = "npm run build && python3 ../../tools/check-typescript-api.py --update"
 
 # tsup/rollup chunk names end in an eight-character URL-safe hash.
 _CHUNK_FILE = re.compile(r"^(?P<base>.+)-(?P<hash>[A-Za-z0-9_-]{8})\.d\.c?ts$")
@@ -125,10 +132,52 @@ def _collect(dist: Path, pattern: str, entries: set[str]) -> dict[str, str]:
     return files
 
 
+def package_identity(package_json: Path) -> tuple[str, str]:
+    """Return the ``name`` and ``version`` fields of the package manifest."""
+    manifest = json.loads(package_json.read_text(encoding="utf-8"))
+    for field in ("name", "version"):
+        if not isinstance(manifest.get(field), str):
+            raise ApiError(f"{package_json} has no string {field} field")
+    return manifest["name"], manifest["version"]
+
+
+def bump_rule(version: str) -> str:
+    """Return the version bump that a removed or changed export needs (CONTRIBUTING.md)."""
+    if version.partition(".")[0] == "0":
+        return "a minor version bump while the version is 0.x"
+    return "a major version bump"
+
+
+def update_hint(package_json: Path, dist: Path, baseline: Path) -> str:
+    """Return the command that rewrites the baseline, run in the package directory.
+
+    A path that differs from the core defaults is named, so the command repeats
+    the check that CI runs for the package.
+    """
+    options = [
+        f"{flag} {os.path.relpath(path, package_json.parent)}"
+        for flag, path, default in (
+            ("--dist", dist, DEFAULT_DIST),
+            ("--package-json", package_json, DEFAULT_PACKAGE_JSON),
+            ("--baseline", baseline, DEFAULT_BASELINE),
+        )
+        if path != default
+    ]
+    return " ".join(
+        ["npm run build &&", "python3 ../../tools/check-typescript-api.py", *options, "--update"]
+    )
+
+
+def _display(path: Path) -> str:
+    """Return a path relative to the repository root, or the path as given outside it."""
+    try:
+        return path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def entry_points(package_json: Path) -> set[str]:
     """Return the declaration stems (``index``, ``notifications``, ...) of the exports map."""
-    import json
-
     manifest = json.loads(package_json.read_text(encoding="utf-8"))
     stems: set[str] = set()
     for conditions in manifest["exports"].values():
@@ -140,7 +189,7 @@ def entry_points(package_json: Path) -> set[str]:
     return stems
 
 
-def render_api(dist: Path, entries: set[str]) -> str:
+def render_api(dist: Path, entries: set[str], package_name: str) -> str:
     esm = _collect(dist, "*.d.ts", entries)
     cjs = _collect(dist, "*.d.cts", entries)
     missing = sorted(f"{stem}.d.ts" for stem in entries if f"{stem}.d.ts" not in esm)
@@ -152,7 +201,7 @@ def render_api(dist: Path, entries: set[str]) -> str:
         )
         raise ApiError(f"ESM and CommonJS declarations differ: {differing}")
     parts = [
-        "// Public declarations of @thekaveh/vmx: dist/*.d.ts without chunk hashes or comments.",
+        f"// Public declarations of {package_name}: dist/*.d.ts without chunk hashes or comments.",
         "// Generated by tools/check-typescript-api.py; do not edit by hand.",
     ]
     for name, text in esm.items():
@@ -165,39 +214,45 @@ def render_api(dist: Path, entries: set[str]) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dist", type=Path, default=DEFAULT_DIST)
-    parser.add_argument("--package-json", type=Path, default=PACKAGE_DIR / "package.json")
+    parser.add_argument("--package-json", type=Path, default=DEFAULT_PACKAGE_JSON)
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
     parser.add_argument("--update", action="store_true", help="rewrite the baseline")
     args = parser.parse_args(argv)
+    dist, package_json, baseline = (
+        path.resolve() for path in (args.dist, args.package_json, args.baseline)
+    )
     try:
-        current = render_api(args.dist, entry_points(args.package_json))
+        name, version = package_identity(package_json)
+        current = render_api(dist, entry_points(package_json), name)
     except (ApiError, OSError, KeyError, ValueError) as error:
         print(f"ERROR: cannot render the TypeScript API: {error}", file=sys.stderr)
         return 2
+    hint = update_hint(package_json, dist, baseline)
+    where = _display(package_json.parent)
     if args.update:
-        args.baseline.parent.mkdir(parents=True, exist_ok=True)
-        args.baseline.write_text(current, encoding="utf-8")
-        print(f"Updated {args.baseline}")
+        baseline.parent.mkdir(parents=True, exist_ok=True)
+        baseline.write_text(current, encoding="utf-8")
+        print(f"Updated {baseline}")
         return 0
-    if not args.baseline.is_file():
-        print(f"FAIL: missing API baseline {args.baseline}; run {UPDATE_HINT}", file=sys.stderr)
+    if not baseline.is_file():
+        print(f"FAIL: missing API baseline {baseline}; run {hint} in {where}", file=sys.stderr)
         return 1
-    recorded = args.baseline.read_text(encoding="utf-8")
+    recorded = baseline.read_text(encoding="utf-8")
     if recorded == current:
-        print(f"OK: the @thekaveh/vmx declarations match {args.baseline.name}")
+        print(f"OK: the {name} declarations match {baseline.name}")
         return 0
     sys.stdout.writelines(
         difflib.unified_diff(
             recorded.splitlines(keepends=True),
             current.splitlines(keepends=True),
-            fromfile=f"baseline/{args.baseline.name}",
+            fromfile=f"baseline/{baseline.name}",
             tofile="current",
         )
     )
     print(
-        f"FAIL: the @thekaveh/vmx declarations differ from {args.baseline}. "
-        f"For an intended change, run `{UPDATE_HINT}` in langs/typescript and commit "
-        "the baseline; a removed or changed export needs a major version bump "
+        f"FAIL: the {name} declarations differ from {baseline}. "
+        f"For an intended change, run `{hint}` in {where} and commit "
+        f"the baseline; a removed or changed export needs {bump_rule(version)} "
         "(CONTRIBUTING.md).",
         file=sys.stderr,
     )
