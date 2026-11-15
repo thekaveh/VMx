@@ -27,6 +27,68 @@ fn workspace_bootstraps_default_selection_and_vm_owned_sections() {
 }
 
 #[test]
+fn a_notebook_change_disposes_the_note_rows_it_replaces() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let before = workspace.notes().rows();
+    assert!(!before.is_empty());
+
+    workspace
+        .select_notebook("engineering")
+        .expect("notebook selects");
+    for row in &before {
+        assert_eq!(row.status(), ConstructionStatus::Disposed);
+    }
+}
+
+#[test]
+fn an_approved_delete_disposes_every_note_row_it_replaces() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let before = workspace.notes().rows();
+    assert!(!before.is_empty());
+
+    workspace.request_delete_current();
+    workspace.approve_delete_current();
+    for row in &before {
+        assert_eq!(row.status(), ConstructionStatus::Disposed);
+    }
+}
+
+#[test]
+fn note_rows_are_constructed_when_the_workspace_builds_and_when_they_load() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let rows = workspace.notes().rows();
+    assert!(!rows.is_empty());
+    for row in &rows {
+        assert_eq!(row.status(), ConstructionStatus::Constructed);
+    }
+
+    workspace
+        .select_notebook("engineering")
+        .expect("notebook selects");
+    let rows = workspace.notes().rows();
+    assert!(!rows.is_empty());
+    for row in &rows {
+        assert_eq!(row.status(), ConstructionStatus::Constructed);
+    }
+}
+
+#[test]
+fn selecting_a_listed_note_again_keeps_the_note_rows() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    workspace
+        .select_note("release-channels")
+        .expect("note selects");
+    let first: Vec<usize> = workspace.notes().rows().iter().map(VmNode::id).collect();
+
+    workspace
+        .select_note("release-channels")
+        .expect("note selects");
+    let second: Vec<usize> = workspace.notes().rows().iter().map(VmNode::id).collect();
+
+    assert_eq!(second, first);
+}
+
+#[test]
 fn notes_search_filtering_and_paging_are_owned_by_notes_vm() {
     let workspace = WorkspaceVm::seeded().expect("workspace builds");
     let notes = workspace.notes();

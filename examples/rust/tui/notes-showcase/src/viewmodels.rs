@@ -187,6 +187,8 @@ impl NotesViewVm {
         hub: MessageHub,
     ) -> Self {
         let source = CompositeVm::with_services("notes", hub.clone(), NullDispatcher::new());
+        // A row that reload() adds to a constructed list is constructed too.
+        source.set_auto_construct_on_add(true);
         let search_term = Arc::new(Mutex::new(String::new()));
         let filtered_search = search_term.clone();
         let filtered = FilteredCompositeVm::new(source.clone(), move |note: &NoteVm| {
@@ -336,7 +338,10 @@ impl NotesViewVm {
     }
 
     pub fn select_note(&self, note_id: &str) -> VmxResult<Option<NoteModel>> {
-        self.reload();
+        // A reload replaces every row, so it runs only when the note is not a row.
+        if !self.source.items().iter().any(|note| note.id() == note_id) {
+            self.reload();
+        }
         let note = self
             .source
             .items()
@@ -369,8 +374,19 @@ impl NotesViewVm {
         self.refresh_page();
     }
 
+    /// The note rows that the list currently holds.
+    pub fn rows(&self) -> Vec<NoteVm> {
+        self.source.items()
+    }
+
     pub fn reload(&self) {
+        // The clear drops the replaced rows without disposing them, so each
+        // one is disposed here, as the notification entries are.
+        let replaced = self.source.items();
         let _ = self.source.clear();
+        for row in replaced {
+            let _ = row.dispose();
+        }
         let notebook_id = lock(&self.notebook_id).clone();
         for note in self.repository.notes_for_notebook(&notebook_id) {
             let _ = self.source.add(NoteVm::new(note, self.core.hub()));
@@ -395,7 +411,65 @@ impl NotesViewVm {
     }
 }
 
-impl_node!(NotesViewVm);
+impl PartialEq for NotesViewVm {
+    fn eq(&self, other: &Self) -> bool {
+        self.core.id() == other.core.id()
+    }
+}
+
+impl Eq for NotesViewVm {}
+
+// The `impl_node!` body, except that construct and destruct also reach the
+// row list, so the rows are live while the view-model is.
+impl VmNode for NotesViewVm {
+    fn id(&self) -> usize {
+        self.core.id()
+    }
+
+    fn construct(&self) -> VmxResult<()> {
+        self.core.construct()?;
+        self.source.construct()
+    }
+
+    fn destruct(&self) -> VmxResult<()> {
+        self.source.destruct()?;
+        self.core.destruct()
+    }
+
+    fn dispose(&self) -> VmxResult<()> {
+        let result = self.core.dispose();
+        self.release_owned();
+        result
+    }
+
+    fn status(&self) -> vmx::ConstructionStatus {
+        self.core.status()
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.core.set_parent_id(parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        self.core.parent_id()
+    }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.core.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.core.parent_handle()
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        self.core.set_current_flag(is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        self.core.is_current()
+    }
+}
 
 #[derive(Clone)]
 pub struct NoteFormVm {
@@ -1009,6 +1083,7 @@ type WorkspaceAggregate = AggregateVm6<
 #[derive(Clone)]
 pub struct WorkspaceVm {
     repository: InMemoryNoteRepository,
+    hub: MessageHub,
     aggregate: WorkspaceAggregate,
     notebooks: NotebooksVm,
     notes: NotesViewVm,
@@ -1048,7 +1123,7 @@ impl WorkspaceVm {
         let form = NoteFormVm::new(repository.clone(), selected, hub.clone());
         let global_search = GlobalSearchVm::new(repository.clone(), hub.clone());
         let notifications = NotificationsVm::new(hub.clone(), Arc::new(scheduler));
-        let editor = EditorModeVm::new(hub);
+        let editor = EditorModeVm::new(hub.clone());
         let aggregate = AggregateVm6::new(
             "workspace",
             notebooks.clone(),
@@ -1098,6 +1173,7 @@ impl WorkspaceVm {
         );
         Ok(Self {
             repository,
+            hub,
             aggregate,
             notebooks,
             notes,
@@ -1116,6 +1192,11 @@ impl WorkspaceVm {
 
     pub fn notes(&self) -> NotesViewVm {
         self.notes.clone()
+    }
+
+    /// The message hub that every section of the workspace publishes on.
+    pub fn hub(&self) -> MessageHub {
+        self.hub.clone()
     }
 
     pub fn form(&self) -> NoteFormVm {

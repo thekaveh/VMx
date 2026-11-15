@@ -6,8 +6,46 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io::{self, Stdout};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
-use vmx::{VmxError, VmxResult};
+use vmx::{Message, Subscription, VmxError, VmxResult};
+
+/// Flags a change to the workspace, so the terminal loop redraws without a
+/// key event. A timed notification can expire with no key press, and
+/// notifications publish on the notification hub, not the workspace hub. So
+/// the signal watches both: the workspace hub and the notification hub's
+/// `pending_changed` stream.
+pub struct RedrawSignal {
+    changed: Arc<AtomicBool>,
+    // A subscription ends when it is dropped, so the signal keeps both.
+    _subscriptions: [Subscription; 2],
+}
+
+impl RedrawSignal {
+    pub fn new(workspace: &WorkspaceVm) -> Self {
+        let changed = Arc::new(AtomicBool::new(false));
+        let flag = {
+            let changed = Arc::clone(&changed);
+            move |_: &Message| changed.store(true, Ordering::SeqCst)
+        };
+        let workspace_changes = workspace.hub().subscribe(flag.clone());
+        let pending_changes = workspace
+            .notifications()
+            .hub()
+            .pending_changed()
+            .subscribe(flag);
+        Self {
+            changed,
+            _subscriptions: [workspace_changes, pending_changes],
+        }
+    }
+
+    /// Reports whether a change arrived since the last call, and clears the flag.
+    pub fn take(&self) -> bool {
+        self.changed.swap(false, Ordering::SeqCst)
+    }
+}
 
 pub fn run_smoke() -> VmxResult<String> {
     let workspace = WorkspaceVm::new(InMemoryNoteRepository::seeded())?;
@@ -30,17 +68,30 @@ fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     workspace: &WorkspaceVm,
 ) -> VmxResult<()> {
+    let redraw = RedrawSignal::new(workspace);
+    let mut dirty = true;
     loop {
-        terminal
-            .draw(|frame| views::render(frame, workspace))
-            .map_err(to_vmx_error)?;
-        if !event::poll(Duration::from_millis(100)).map_err(to_vmx_error)? {
-            continue;
+        if dirty {
+            terminal
+                .draw(|frame| views::render(frame, workspace))
+                .map_err(to_vmx_error)?;
+            dirty = false;
         }
-        if let Event::Key(key) = event::read().map_err(to_vmx_error)? {
-            if !handle_key(workspace, key.code) {
-                break;
+        if event::poll(Duration::from_millis(100)).map_err(to_vmx_error)? {
+            match event::read().map_err(to_vmx_error)? {
+                Event::Key(key) => {
+                    if !handle_key(workspace, key.code) {
+                        break;
+                    }
+                    dirty = true;
+                }
+                // The loop no longer redraws on a timer, so a resize redraws here.
+                Event::Resize(_, _) => dirty = true,
+                _ => {}
             }
+        }
+        if redraw.take() {
+            dirty = true;
         }
     }
     Ok(())
