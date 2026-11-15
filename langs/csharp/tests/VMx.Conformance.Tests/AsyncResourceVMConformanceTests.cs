@@ -3,6 +3,7 @@ using System.Reactive.Linq;
 using System.Reflection;
 using FluentAssertions;
 using VMx.Components;
+using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Services;
 using VMx.State;
@@ -753,6 +754,30 @@ public sealed class AsyncResourceVMConformanceTests
         changes.Should().Be(count);
         calls.Should().Be(1);
         await load;
+    }
+
+    [Fact, Trait("Conformance", "ARES-011")]
+    public async Task ARES_011_Load_From_A_Disposed_Observer_Starts_No_Loader()
+    {
+        using var hub = new MessageHub();
+        var calls = 0;
+        Task? late = null;
+        var vm = Create(hub, _ =>
+        {
+            calls++;
+            return Task.FromResult(1);
+        });
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == "Status" && vm.Status == ConstructionStatus.Disposed)
+                late ??= vm.LoadAsync();
+        };
+
+        vm.Dispose();
+        if (late is not null) await late;
+
+        calls.Should().Be(0);
+        vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
     }
 
     [Fact, Trait("Conformance", "ARES-012")]
