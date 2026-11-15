@@ -1,7 +1,7 @@
 # ADR 0131 — Allow idiomatic batch scopes
 
 **Status:** Accepted (2026-08-02)
-**Spec version:** introduced in 3.23.0
+**Spec version:** introduced in 3.29.0
 
 ## 1. Context
 

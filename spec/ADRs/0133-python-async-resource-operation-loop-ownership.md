@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (Extended by ADR-0199)
 - **Date:** 2026-09-26
-- **Spec version:** 3.23.0
+- **Spec version:** 3.29.0
 
 ## 1. Context
 
