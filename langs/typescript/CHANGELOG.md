@@ -723,6 +723,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   releases its subscription when that scope stops, and subscribes just before
   the first render, so a server render leaves no subscription (#651).
 
+### Internal
+
+- `ComponentVMBase` runs `construct()`, `destruct()` and the synchronous phases
+  of `reconstruct()` through one lifecycle runner. The scheduler-recovery layer,
+  the parent-transfer units and the `FormVM` clone diagnostics and structural
+  equality moved to internal modules under `src/components/` and `src/forms/`.
+  Behavior, spec text and the public API do not change (#1886).
+
 ## [3.30.0] — 2026-10-16
 
 First version published to npm. Earlier versions were source-only releases;
