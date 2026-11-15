@@ -3,7 +3,7 @@
 - **Status:** Accepted (Extended by ADR-0172)
 - **Date:** 2026-10-30
 - **Spec version:** 3.30.0 (flavor status update in chapter 06 §4.2)
-- **Implements:** [ADR-0153](0153-cyclic-cross-thread-container-disposal-defers-to-the-owner.md)
+- **Extends:** [ADR-0153](0153-cyclic-cross-thread-container-disposal-defers-to-the-owner.md)
   in Python
 
 ## 1. Context

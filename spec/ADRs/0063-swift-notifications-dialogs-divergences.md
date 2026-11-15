@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-06-30; §2.4 amended by ADR-0225)
 **Spec version:** 3.0.0 (subset — Phase 3, Increment 5)
-**Relates-to:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
+**Related:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
 language), [ADR-0009](0009-cross-flavor-divergence-catalogue.md) (cross-flavor
 divergence catalogue), [ADR-0013](0013-notification-service.md) (opt-in
 `VMx.Notifications` sub-package), [ADR-0029](0029-dialog-service-in-core.md)

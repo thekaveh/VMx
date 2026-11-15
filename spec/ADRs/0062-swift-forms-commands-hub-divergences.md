@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-06-29; §2.2 clarified by ADR-0184)
 **Spec version:** 3.0.0 (subset — Phase 3, Increment 4)
-**Relates-to:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
+**Related:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
 language), [ADR-0009](0009-cross-flavor-divergence-catalogue.md) (cross-flavor
 divergence catalogue), [ADR-0012](0012-command-decorators.md) (command decorators),
 [ADR-0030](0030-form-vm.md) (`FormVM<TM>` design),

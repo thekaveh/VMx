@@ -2,7 +2,9 @@
 
 **Status:** Accepted (2026-07-13; clarified by ADR-0137, ADR-0138, ADR-0140, ADR-0141)
 **Spec version:** 3.20.0 (implementation-record correction; no API or behavior change)
-**Related:** ADR-0002, ADR-0036, ADR-0080, ADR-0081, ADR-0101
+**Supersedes:** [ADR-0101](0101-hold-rx-and-gate-tc39-signals-interop.md) (Rust-backend claims only)
+**Amends:** [ADR-0080](0080-rust-flavor-feasibility.md) (the rxrust backend candidate)
+**Related:** ADR-0002, ADR-0036, ADR-0081
 
 ## 1. Context
 

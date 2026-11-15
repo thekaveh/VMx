@@ -23,3 +23,13 @@ Option 2. `langs/<lang>/` makes the multi-language intent visible at the root an
 - Cross-cutting concerns (`spec/`, `docs/`, `examples/`, `tools/`, `.github/`) live at the root.
 - CI workflows trigger on path filters matching `langs/<lang>/**` and `spec/**`.
 - Per-language `CHANGELOG.md` and `README.md` live alongside each `langs/<lang>/` to keep flavor-local context flavor-local.
+
+## 5. Later repository evidence (2026-11-15)
+
+As of 2026-11-15, two flavor-owned paths sit outside `langs/<lang>/`:
+
+- The React adapter is in `packages/react/` (`packages/react/package.json`).
+- The SwiftPM manifest is `Package.swift` at the repository root.
+
+No ADR decides these locations. This section records the state only and does not
+change the decision in §3.

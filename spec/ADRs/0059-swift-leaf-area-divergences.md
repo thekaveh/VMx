@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-06-29)
 **Spec version:** 3.0.0 (subset — Phase 3, Increment 1)
-**Relates-to:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
+**Related:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
 language), [ADR-0009](0009-cross-flavor-divergence-catalogue.md) (cross-flavor
 divergence catalogue), [ADR-0037](0037-v2.5-maintenance-clarifications.md) (Swift
 subset origin), [ADR-0053](0053-swift-converge-illegal-transition-and-non-child-current-to-throw.md)

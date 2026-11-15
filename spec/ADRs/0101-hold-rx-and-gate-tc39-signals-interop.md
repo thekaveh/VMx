@@ -1,6 +1,6 @@
 # ADR 0101 — Hold Rx as the reactive primitive and gate TC39 Signals interop
 
-**Status:** Accepted (2026-07-12)
+**Status:** Accepted (2026-07-12; Rust-backend claims superseded by ADR-0103)
 **Spec version:** 3.20.0 (decision ADR; no API or behavior change)
 **Related:** ADR-0002, ADR-0006, ADR-0011, ADR-0082, ADR-0095, ADR-0103,
 issues #80, #93, and #97

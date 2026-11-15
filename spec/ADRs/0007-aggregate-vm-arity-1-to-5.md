@@ -1,7 +1,6 @@
 # ADR 0007 — `AggregateVM` covers arities 1 through 5
 
-**Status:** Accepted (2026-05-19; §4 superseded by ADR-0034)
-**Superseded-by:** [ADR-0034](0034-aggregate-vm6.md) (extends arity to 6 in v2.2.0 — §4 of this ADR only; the §1–§3 rationale for the variadic-fanout approach remains in force)
+**Status:** Accepted (2026-05-19; §4 superseded by ADR-0034; §1 to §3 stay in force)
 **Spec version:** introduced in 1.0.0
 
 ## 1. Context

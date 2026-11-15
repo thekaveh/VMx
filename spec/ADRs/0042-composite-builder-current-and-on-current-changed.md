@@ -1,6 +1,6 @@
 # ADR 0042 — `CompositeVMBuilder` initial-current selector and `OnCurrentChanged` callback
 
-**Status:** Accepted (2026-06-13)
+**Status:** Accepted (2026-06-13; §5.1 phrasing superseded by ADR-0050)
 **Spec version:** 2.6.0 (additive minor)
 **Related:** ADR-0035 (builder audit follow-through), `spec/proposals/2026-06-13-vmx-absorption-audit-followup.md` §5 D2/D3
 

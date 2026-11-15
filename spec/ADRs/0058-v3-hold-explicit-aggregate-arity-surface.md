@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-06-28)
 **Spec version:** affirmed for 3.0.0 (no surface change)
-**Relates-to:** [ADR-0007](0007-aggregate-vm-arity-1-to-5.md) (rejected variadic
+**Related:** [ADR-0007](0007-aggregate-vm-arity-1-to-5.md) (rejected variadic
 generics; explicit arities 1–5), [ADR-0034](0034-aggregate-vm6.md) (added arity
 6 as an additive minor bump), [ADR-0006](0006-idiomatic-api-per-language.md)
 (one symmetric shape, idiomatic surface per flavor)
@@ -159,3 +159,14 @@ Decision: **decision-only**, no code change to any flavor.
 1. **Hard-cap arity at 5 and remove `AggregateVM6`.** Rejected: arity 6 already
    ships (ADR-0034) and backs the `WorkspaceVM` flagship; removing it would be a
    breaking change with no benefit.
+
+## 6. Later repository evidence (2026-11-15)
+
+As of 2026-11-15, two shared helpers exist outside the explicit per-arity classes:
+
+- TypeScript: `langs/typescript/src/aggregates/ownership.ts` holds shared slot helpers.
+- Python: `_AggregateVMBase` in `langs/python/src/vmx/aggregates/aggregate_vm.py` is the
+  base of `AggregateVM1` to `AggregateVM6`, writes slots with `setattr`, and disposes them.
+
+Both helpers were added in commit `afdeedd9` with ADR-0107, which names neither helper
+nor this ADR. This section records the state only; the decision in §2 is unchanged.
