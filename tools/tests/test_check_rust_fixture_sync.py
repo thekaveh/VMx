@@ -11,6 +11,7 @@ FIXTURE_NAMES = (
     "lifecycle-transitions.json",
     "message-ordering.json",
 )
+COPY_DIR = Path("langs/rust/src/fixtures")
 
 
 def test_main_reports_repository_lookup_timeout(monkeypatch, capsys) -> None:
@@ -26,7 +27,7 @@ def test_main_reports_repository_lookup_timeout(monkeypatch, capsys) -> None:
 
 def _fixture_tree(root: Path, copy_text: str = "{}\n") -> None:
     source = root / "spec" / "fixtures"
-    package = root / "langs" / "rust" / "src" / "fixtures"
+    package = root / COPY_DIR
     source.mkdir(parents=True)
     package.mkdir(parents=True)
     for name in FIXTURE_NAMES:
@@ -34,30 +35,53 @@ def _fixture_tree(root: Path, copy_text: str = "{}\n") -> None:
         (package / name).write_text(copy_text, encoding="utf-8")
 
 
-def test_main_returns_zero_when_runtime_fixture_matches(tmp_path, monkeypatch, capsys) -> None:
+def _use(monkeypatch, root: Path) -> None:
+    monkeypatch.setattr(crfs, "repo_root", lambda: root)
+
+
+def test_main_returns_zero_when_copies_match(tmp_path, monkeypatch, capsys) -> None:
     _fixture_tree(tmp_path)
-    monkeypatch.setattr(crfs, "repo_root", lambda: tmp_path)
+    _use(monkeypatch, tmp_path)
 
     assert crfs.main() == 0
     assert "matches" in capsys.readouterr().out
 
 
-def test_main_returns_one_when_runtime_fixture_drifts(tmp_path, monkeypatch, capsys) -> None:
+def test_main_returns_one_when_copy_drifts(tmp_path, monkeypatch, capsys) -> None:
     _fixture_tree(tmp_path, copy_text='{"drift": true}\n')
-    monkeypatch.setattr(crfs, "repo_root", lambda: tmp_path)
+    _use(monkeypatch, tmp_path)
 
     assert crfs.main() == 1
     assert "drifted" in capsys.readouterr().err
 
 
-def test_main_returns_one_when_runtime_fixture_is_missing(tmp_path, monkeypatch, capsys) -> None:
+def test_main_returns_one_when_copy_is_missing(tmp_path, monkeypatch, capsys) -> None:
     _fixture_tree(tmp_path)
-    (tmp_path / "langs/rust/src/fixtures/lifecycle-transitions.json").unlink()
-    monkeypatch.setattr(crfs, "repo_root", lambda: tmp_path)
+    (tmp_path / COPY_DIR / "lifecycle-transitions.json").unlink()
+    _use(monkeypatch, tmp_path)
 
     assert crfs.main() == 1
     assert "missing Rust fixture copy" in capsys.readouterr().err
 
 
-def test_all_packaged_test_fixtures_are_checked() -> None:
-    assert {Path(copy).name for _source, copy in crfs._FIXTURE_PAIRS} == set(FIXTURE_NAMES)
+def test_main_fails_when_spec_fixture_has_no_copy(tmp_path, monkeypatch, capsys) -> None:
+    _fixture_tree(tmp_path)
+    (tmp_path / "spec" / "fixtures" / "probe.json").write_text("{}\n", encoding="utf-8")
+    _use(monkeypatch, tmp_path)
+
+    assert crfs.main() == 1
+    assert f"missing Rust fixture copy: {COPY_DIR / 'probe.json'}" in capsys.readouterr().err
+
+
+def test_main_fails_on_copy_with_no_spec_source(tmp_path, monkeypatch, capsys) -> None:
+    _fixture_tree(tmp_path)
+    (tmp_path / COPY_DIR / "stale.json").write_text("{}\n", encoding="utf-8")
+    _use(monkeypatch, tmp_path)
+
+    assert crfs.main() == 1
+    err = capsys.readouterr().err
+    assert f"unexpected Rust fixture copy: {COPY_DIR / 'stale.json'}" in err
+
+
+def test_repository_copies_match_spec_fixtures() -> None:
+    assert crfs.main() == 0

@@ -82,6 +82,7 @@ def _preload_scripts() -> None:
     )
     _preload("check-rust-fixture-sync.py", "check_rust_fixture_sync")
     _preload("check-typescript-schema-sync.py", "check_typescript_schema_sync")
+    _preload("check-swift-fixture-sync.py", "check_swift_fixture_sync")
     _preload("check-swift-package-sync.py", "check_swift_package_sync")
     _preload("check-typescript-package.py", "check_typescript_package")
     _preload("check-react-package.py", "check_react_package")

@@ -1,11 +1,33 @@
 #!/usr/bin/env python3
-"""Assert Python's bundled runtime/test fixtures match the spec sources."""
+"""Assert Python's bundled runtime/test fixtures match the spec sources.
+
+The inventory is derived from spec/fixtures/*.json at run time. Every spec fixture
+needs a byte-identical copy in each Python copy directory, unless that directory
+lists the fixture in _COPY_DIRECTORIES as an explicit exemption. An extra JSON file
+in a copy directory fails, and an exemption that names no spec fixture fails.
+"""
 
 from __future__ import annotations
 
 import subprocess
 import sys
 from pathlib import Path
+
+SPEC_DIRECTORY = "spec/fixtures"
+
+# Copy directory -> spec fixtures that directory intentionally does not hold.
+_COPY_DIRECTORIES: dict[str, frozenset[str]] = {
+    # The lifecycle runtime loads only lifecycle-transitions.json.
+    "langs/python/src/vmx/lifecycle/_data": frozenset(
+        {
+            "command-truthtable.json",
+            "derived-properties.json",
+            "message-ordering.json",
+        }
+    ),
+    # The conformance tests load every spec fixture.
+    "langs/python/tests/conformance/fixtures/data": frozenset(),
+}
 
 
 def repo_root() -> Path:
@@ -19,24 +41,10 @@ def repo_root() -> Path:
     return Path(out.stdout.strip())
 
 
-_FIXTURE_PAIRS: list[tuple[str, str]] = [
-    (
-        "spec/fixtures/lifecycle-transitions.json",
-        "langs/python/src/vmx/lifecycle/_data/lifecycle-transitions.json",
-    ),
-    *[
-        (
-            f"spec/fixtures/{name}",
-            f"langs/python/tests/conformance/fixtures/data/{name}",
-        )
-        for name in (
-            "command-truthtable.json",
-            "derived-properties.json",
-            "lifecycle-transitions.json",
-            "message-ordering.json",
-        )
-    ],
-]
+def _json_names(directory: Path) -> set[str]:
+    if not directory.is_dir():
+        return set()
+    return {path.name for path in directory.iterdir() if path.suffix == ".json"}
 
 
 def main() -> int:
@@ -45,24 +53,47 @@ def main() -> int:
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         print(f"ERROR: unable to locate repository root: {error}", file=sys.stderr)
         return 2
+    sources = _json_names(root / SPEC_DIRECTORY)
+    if not sources:
+        print(f"FAIL: no fixtures found under {SPEC_DIRECTORY}", file=sys.stderr)
+        return 1
     failed = False
-    for source_rel, copy_rel in _FIXTURE_PAIRS:
-        source = root / source_rel
-        packaged_copy = root / copy_rel
-        if not packaged_copy.exists():
-            print(f"FAIL: missing Python fixture copy: {packaged_copy}", file=sys.stderr)
-            failed = True
-            continue
-        if source.read_bytes() != packaged_copy.read_bytes():
+    for copy_rel, exempt in _COPY_DIRECTORIES.items():
+        for name in sorted(exempt - sources):
             print(
-                f"FAIL: Python fixture copy drifted from {source_rel}\n"
-                f"  source: {source}\n  copy:   {packaged_copy}\n"
-                f"  Re-sync: cp {source_rel} {copy_rel}",
+                f"FAIL: Python fixture exemption names no spec fixture: {name} ({copy_rel})",
                 file=sys.stderr,
             )
             failed = True
-            continue
-        print(f"OK: {copy_rel} matches {source_rel}")
+        expected = sources - exempt
+        copies = _json_names(root / copy_rel)
+        for name in sorted(expected - copies):
+            print(
+                f"FAIL: missing Python fixture copy: {copy_rel}/{name}\n"
+                f"  Re-sync: cp {SPEC_DIRECTORY}/{name} {copy_rel}/{name}",
+                file=sys.stderr,
+            )
+            failed = True
+        for name in sorted(copies - expected):
+            print(
+                f"FAIL: unexpected Python fixture copy: {copy_rel}/{name} "
+                "(no spec fixture, or the fixture is exempt for this directory)",
+                file=sys.stderr,
+            )
+            failed = True
+        for name in sorted(expected & copies):
+            source = root / SPEC_DIRECTORY / name
+            packaged_copy = root / copy_rel / name
+            if source.read_bytes() != packaged_copy.read_bytes():
+                print(
+                    f"FAIL: Python fixture copy drifted from {SPEC_DIRECTORY}/{name}\n"
+                    f"  source: {source}\n  copy:   {packaged_copy}\n"
+                    f"  Re-sync: cp {SPEC_DIRECTORY}/{name} {copy_rel}/{name}",
+                    file=sys.stderr,
+                )
+                failed = True
+                continue
+            print(f"OK: {copy_rel}/{name} matches {SPEC_DIRECTORY}/{name}")
     return 1 if failed else 0
 
 
