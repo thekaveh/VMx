@@ -269,4 +269,22 @@ public class HierarchicalVMTests
         var act = () => parent.ReparentChild(null!);
         act.Should().Throw<ArgumentNullException>();
     }
+
+    // ── Batch rejection diagnostics ──────────────────────────────────────────
+
+    [Fact]
+    public void AttachMany_Selector_Failure_Rejection_Detail_Carries_The_Exception_Message()
+    {
+        var root = new Node(new Model(), _ => []);
+        var failure = new InvalidOperationException("bad key");
+
+        var result = root.AttachMany(
+            [new Node(new Model("bad"), _ => [])],
+            _ => throw failure,
+            _ => BatchParentKey<string>.Root);
+
+        var rejection = result.Rejections.Should().ContainSingle().Subject;
+        rejection.Reason.Should().Be(BatchAttachRejectionReason.SelectorFailed);
+        rejection.Detail.Should().Be(failure.Message);
+    }
 }
