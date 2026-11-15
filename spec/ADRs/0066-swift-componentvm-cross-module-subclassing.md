@@ -1,8 +1,7 @@
 # ADR 0066 — Swift `ComponentVMBase` cross-module subclassing visibility
 
 **Status:** Accepted (2026-06-30)
-**Spec version:** 3.0.0
-**Flavor:** Swift only (no spec change, no conformance change)
+**Spec version:** 3.0.0 (Swift only; no spec change, no conformance change)
 
 ## 1. Context
 

@@ -1,8 +1,7 @@
 # ADR 0067 — Swift notes-showcase flagship (total parity)
 
 **Status:** Accepted (2026-06-30)
-**Spec version:** 3.0.0
-**Flavor:** Swift only (example app; no spec change, no library-conformance change)
+**Spec version:** 3.0.0 (Swift only; example app; no spec change, no library-conformance change)
 
 ## 1. Context
 

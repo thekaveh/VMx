@@ -1,6 +1,6 @@
 # ADR 0033 — LINQ utility helpers (C# only)
 
-**Status:** Accepted (2026-05-28)
+**Status:** Superseded by ADR-0052 (2026-05-28)
 **Spec version:** introduced in 2.1.0
 
 ## 1. Context

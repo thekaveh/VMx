@@ -2,6 +2,7 @@
 
 **Status:** Accepted (2026-06-28)
 **Spec version:** 3.0.0
+**Supersedes:** [ADR-0033](0033-linq-utility-helpers-csharp-only.md)
 
 ## 1. Context
 

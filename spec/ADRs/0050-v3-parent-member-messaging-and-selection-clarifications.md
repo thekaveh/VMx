@@ -2,6 +2,7 @@
 
 **Status:** Accepted (2026-06-28)
 **Spec version:** 3.0.0
+**Supersedes:** [ADR-0042](0042-composite-builder-current-and-on-current-changed.md) §5.1 (the "SelectComponent path" phrasing)
 
 ## 1. Context
 

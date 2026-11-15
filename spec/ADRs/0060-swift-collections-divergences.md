@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-06-29; §2.4(b) superseded by ADR-0111)
 **Spec version:** 3.0.0 (subset — Phase 3, Increment 2)
-**Relates-to:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
+**Related:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
 language), [ADR-0009](0009-cross-flavor-divergence-catalogue.md) (cross-flavor
 divergence catalogue), [ADR-0037](0037-v2.5-maintenance-clarifications.md) (Swift
 subset origin), [ADR-0051](0051-v3-tree-collections-capability-and-spec-organization-gaps.md)
