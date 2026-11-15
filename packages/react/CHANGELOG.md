@@ -63,6 +63,9 @@ this package also contains the changes in the 0.1.2 section of
   forced a re-render at subscribe. A VM mutation between render and
   subscription still shows, and a message from another VM on the same hub
   in that interval still causes no render (#1661).
+- `LICENSE` is again the canonical Apache-2.0 text, a byte copy of the
+  repository root file. The published 0.1.1 tarball began `LICENSE` with a
+  shell startup error line; this version does not (#1815).
 
 ## [0.1.2] - 2026-10-21
 
