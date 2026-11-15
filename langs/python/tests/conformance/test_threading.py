@@ -83,12 +83,13 @@ def test_THR_002_background_construct_dispatches_on_background_scheduler() -> No
     foreground scheduler then publishes completion.
 
     Python status: FULLY IMPLEMENTED.  _ComponentVMBase.construct() wires
-    Background(True) dispatch (see src/vmx/components/base.py lines 268-280):
-    it emits Constructing synchronously, then schedules the remaining work on
-    self._dispatcher.background.  The full assertion is therefore exercised.
+    Background(True) dispatch: it emits Constructing synchronously, then
+    schedules the remaining work on self._dispatcher.background.  The full
+    assertion is therefore exercised.
     """
     hub: MessageHub[object] = MessageHub()
     dispatcher = TestDispatcher()
+    hook_runs: list[int] = []
     vm: ComponentVMOf[str] = (
         ComponentVMOf[str]
         .builder()
@@ -96,16 +97,29 @@ def test_THR_002_background_construct_dispatches_on_background_scheduler() -> No
         .services(hub, dispatcher)
         .model("initial")
         .background(True)
+        .on_construct(lambda: hook_runs.append(1))
         .build()
     )
 
     vm.construct()
 
     # construct() returns immediately; the VM is mid-transition (Constructing),
-    # NOT yet in the terminal Constructed state.
+    # NOT yet in the terminal Constructed state, and the hook has not run.
     assert vm.status == ConstructionStatus.CONSTRUCTING, (
         "Background(True) means OnConstruct() and the final Constructed transition "
         "are scheduled on the background scheduler — only Constructing is emitted synchronously"
+    )
+    assert hook_runs == [], (
+        "construct() must not run the construct hook inline on the calling thread"
+    )
+
+    # Advance only the foreground scheduler. The hook is scheduled on background,
+    # so it must still not have run.
+    dispatcher.foreground_scheduler.advance_by(1)
+
+    assert hook_runs == [], "advancing the foreground scheduler must not run the construct hook"
+    assert vm.status == ConstructionStatus.CONSTRUCTING, (
+        "advancing the foreground scheduler alone must not complete the construction"
     )
 
     # Advance the background scheduler so _on_construct runs; the terminal
@@ -113,6 +127,9 @@ def test_THR_002_background_construct_dispatches_on_background_scheduler() -> No
     # (VMX-025), so the VM is still mid-transition here.
     dispatcher.background_scheduler.advance_by(1)
 
+    assert hook_runs == [1], (
+        "advancing the background scheduler must run the construct hook exactly once"
+    )
     assert vm.status == ConstructionStatus.CONSTRUCTING, (
         "the terminal Constructed emission is marshalled onto the foreground scheduler (VMX-025)"
     )
@@ -123,6 +140,7 @@ def test_THR_002_background_construct_dispatches_on_background_scheduler() -> No
     assert vm.status == ConstructionStatus.CONSTRUCTED, (
         "after both schedulers are advanced the transition must complete"
     )
+    assert hook_runs == [1], "the terminal transition must not run the construct hook a second time"
 
     vm.dispose()
 
