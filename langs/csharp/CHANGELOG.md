@@ -249,6 +249,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- `ModalVM<T>` claims the first dismissal under a lock. Two threads that
+  dismiss or dispose at once no longer leave `Result` different from the
+  awaited `Completion`, and `IsDismissed` is read under the same lock
+  (spec/19 §3, #1878).
+
 - An add now ends its start attempt after it ends its membership
   transaction (ADR-0218, spec/06 §5.1, #1371). A container that a late add
   resumes publishes `Constructed` outside that add's transaction, so a
