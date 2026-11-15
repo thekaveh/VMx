@@ -9,7 +9,10 @@ public sealed class ModalVM<T> : IModalVM<T>
     private readonly TaskCompletionSource<T> _completion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    // Guards the claim: the first Dismiss to take the lock sets _result and _isDismissed.
+    private readonly object _gate = new();
     private bool _isDismissed;
+    private T? _result;
 
     /// <summary>Creates a modal with the result used for cancellation/disposal.</summary>
     public ModalVM(T cancellationResult)
@@ -21,10 +24,16 @@ public sealed class ModalVM<T> : IModalVM<T>
     public T CancellationResult { get; }
 
     /// <inheritdoc/>
-    public T? Result { get; private set; }
+    public T? Result
+    {
+        get { lock (_gate) return _result; }
+    }
 
     /// <inheritdoc/>
-    public bool IsDismissed => _isDismissed;
+    public bool IsDismissed
+    {
+        get { lock (_gate) return _isDismissed; }
+    }
 
     /// <inheritdoc/>
     public Task<T> Completion => _completion.Task;
@@ -32,9 +41,12 @@ public sealed class ModalVM<T> : IModalVM<T>
     /// <inheritdoc/>
     public void Dismiss(T result)
     {
-        if (_isDismissed) return;
-        Result = result;
-        _isDismissed = true;
+        lock (_gate)
+        {
+            if (_isDismissed) return;
+            _result = result;
+            _isDismissed = true;
+        }
         _completion.TrySetResult(result);
     }
 
