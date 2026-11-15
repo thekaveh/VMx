@@ -8,10 +8,7 @@ import { hasCapability } from "../capabilities/registry.js";
 import { ComponentVMBase } from "../components/componentVMBase.js";
 
 export function* walk(root: ComponentVMBase): Iterable<ComponentVMBase> {
-  yield root;
-  for (const child of _children(root)) {
-    yield* walk(child);
-  }
+  yield* _preOrder(root, () => true);
 }
 
 export function find<T extends ComponentVMBase>(
@@ -35,13 +32,42 @@ export function find(
 export function* walkExpanded(
   root: ComponentVMBase,
 ): Iterable<ComponentVMBase> {
+  yield* _preOrder(root, (node) => !_isCollapsed(node));
+}
+
+function _isCollapsed(node: ComponentVMBase): boolean {
+  if (!hasCapability(node, "IExpandable")) return false;
+  const expandable = node as unknown as IExpandable;
+  return !expandable.isExpanded;
+}
+
+/**
+ * Pre-order walk with an explicit stack of child iterators. Each node is
+ * yielded before its children are read, and a node's children are read only
+ * when the walk descends into it, so the factory and error timing matches a
+ * recursive walk (spec/13 §6.1, ADR-0170). The stack keeps the walk iterative,
+ * so tree depth is not limited by the call stack.
+ */
+function* _preOrder(
+  root: ComponentVMBase,
+  shouldDescend: (node: ComponentVMBase) => boolean,
+): Iterable<ComponentVMBase> {
   yield root;
-  if (hasCapability(root, "IExpandable")) {
-    const expandable = root as unknown as IExpandable;
-    if (!expandable.isExpanded) return;
-  }
-  for (const child of _children(root)) {
-    yield* walkExpanded(child);
+  if (!shouldDescend(root)) return;
+  const stack: Iterator<ComponentVMBase>[] = [
+    _children(root)[Symbol.iterator](),
+  ];
+  while (stack.length > 0) {
+    const step = (stack[stack.length - 1] as Iterator<ComponentVMBase>).next();
+    if (step.done) {
+      stack.pop();
+      continue;
+    }
+    const child = step.value;
+    yield child;
+    if (shouldDescend(child)) {
+      stack.push(_children(child)[Symbol.iterator]());
+    }
   }
 }
 

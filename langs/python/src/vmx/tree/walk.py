@@ -33,9 +33,7 @@ def walk(root: ComponentVMProto) -> Iterator[ComponentVMProto]:
     ``__iter__``. A descendant of an ``AggregateVMN`` is each non-``None``
     ``Component<i>`` slot, in slot index order.
     """
-    yield root
-    for child in _children(root):
-        yield from walk(child)
+    return _pre_order(root, lambda _node: True)
 
 
 def find(
@@ -54,11 +52,36 @@ def walk_expanded(root: ComponentVMProto) -> Iterator[ComponentVMProto]:
     expanded. A node that does NOT implement IExpandable is treated as
     always-expanded. See spec/13-tree-utilities.md §Expand-aware traversal.
     """
+    return _pre_order(root, _is_expanded_or_not_expandable)
+
+
+def _is_expanded_or_not_expandable(node: ComponentVMProto) -> bool:
+    return not (isinstance(node, IExpandable) and not node.is_expanded)
+
+
+def _pre_order(
+    root: ComponentVMProto,
+    should_descend: Callable[[ComponentVMProto], bool],
+) -> Iterator[ComponentVMProto]:
+    """Pre-order walk with an explicit stack of child iterators.
+
+    Each node is yielded before its children are read, and a node's children
+    are read only when the walk descends into it, so the factory and error
+    timing matches a recursive walk (spec/13 §6.1, ADR-0170). The stack keeps
+    the walk iterative, so tree depth is not limited by the recursion limit.
+    """
     yield root
-    if isinstance(root, IExpandable) and not root.is_expanded:
+    if not should_descend(root):
         return
-    for child in _children(root):
-        yield from walk_expanded(child)
+    stack: list[Iterator[ComponentVMProto]] = [_children(root)]
+    while stack:
+        child = next(stack[-1], None)
+        if child is None:
+            stack.pop()
+            continue
+        yield child
+        if should_descend(child):
+            stack.append(_children(child))
 
 
 def _children(node: ComponentVMProto) -> Iterator[ComponentVMProto]:

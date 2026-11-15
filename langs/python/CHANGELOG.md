@@ -161,6 +161,11 @@ below for them.
 
 ### Fixed
 
+- Tree walks (`walk`, `walk_expanded`, `find`), `HierarchicalVM.depth` and
+  path-cache invalidation no longer recurse once per level. A tree deeper than
+  the interpreter recursion limit (about 1,000 levels) no longer raises
+  `RecursionError`. Walk order and the timing of child reads are unchanged
+  (spec/13, #1912).
 - A container walk that waited for a background child or for a late add now
   continues on the container's own foreground dispatcher (ADR-0218, spec/02
   §6, #1326). Before, later sibling starts, the `Current` change and consumer
