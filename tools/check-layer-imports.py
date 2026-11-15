@@ -8,6 +8,21 @@ Enforces the Pure-VM layering of spec §6.1:
   of Views, but never plain Views).
 * Views → may import anywhere.
 
+Each flavor is scanned for every reference to another layer, in every form
+the language allows:
+
+* Python: ``import`` and ``from ... import`` statements, parsed with ``ast``.
+  Relative imports resolve against the importing file's package, and
+  ``from notes_showcase import views`` names the ``views`` layer. A file that
+  fails to parse is a violation.
+* C#: ``using`` (plain, ``static``, ``global`` and alias forms) and every
+  namespace-qualified reference such as ``NotesShowcase.Views.Foo`` or
+  ``Views.Foo`` in code. A member access such as ``this.Views.Count`` is not a
+  layer reference. Comments and string literals are ignored.
+* TypeScript: ``import``, ``export ... from``, side-effect ``import "x"`` and
+  dynamic ``import("x")``, including forms that span several lines. Comments
+  are ignored; string specifiers are kept.
+
 Why the adapter exception:
 
 The C# Avalonia flavor places its INPC sidecars (``BindableDerived<T>``,
@@ -33,44 +48,123 @@ Run from repo root:
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 from pathlib import Path
 
-# Each flavor describes its import syntax + the layer roots within its src tree.
+# Each flavor describes its layer roots and the adapter sub-layer exception.
 FLAVORS = {
     "csharp": {
         "root": "examples/csharp/avalonia/NotesShowcase",
         "suffixes": {".cs"},
-        # `using NotesShowcase.Foo.Bar;` and `using static NotesShowcase.Foo.Bar;`
-        "import_re": re.compile(r"^\s*using(?:\s+static)?\s+NotesShowcase\.([A-Za-z0-9_.]+)\s*;"),
         "layers": ["Models", "ViewModels", "Views"],
         "adapter_segment": "Views.Adapter",
     },
     "python": {
         "root": "examples/python/textual/notes_showcase/src/notes_showcase",
         "suffixes": {".py"},
-        # `from notes_showcase.foo.bar import X` / `import notes_showcase.foo.bar`
-        "import_re": re.compile(r"^\s*(?:from|import)\s+notes_showcase\.([A-Za-z0-9_.]+)"),
         "layers": ["models", "viewmodels", "views"],
         "adapter_segment": "views.adapter",
     },
     "typescript": {
         "root": "examples/typescript/react/notes-showcase/src",
         "suffixes": {".ts", ".tsx"},
-        # `import … from "../viewmodels/foo.js"` etc. We use the path
-        # specifier directly (no package name); the layer is taken from path
-        # segments after resolving against the importing file's directory.
-        # Also match the closing line of a MULTI-LINE import
-        # (`} from "../views/x.js";`) — requiring the line to start with
-        # `import` silently exempted the prevailing multi-line style.
-        "import_re": re.compile(
-            r'^\s*(?:import\s+(?:[^"\']+from\s+)?|\}?\s*from\s+)["\']([^"\']+)["\']'
-        ),
         "layers": ["models", "viewmodels", "views"],
         "adapter_segment": "views/adapter",
     },
 }
+
+_PY_PACKAGE = "notes_showcase"
+
+# C#: `Views.Foo` or `NotesShowcase.Views.Foo` (at least one member after the
+# layer). A preceding `.` means a member access on some other object, such as
+# `this.Views.Count`, so it is not a layer reference.
+_CSHARP_QUALIFIED_RE = re.compile(
+    r"(?<![\w.])(?:NotesShowcase\.)?((?:Models|ViewModels|Views)\.\w+(?:\.\w+)*)"
+)
+# C#: the namespace on its own, as in `using NotesShowcase.Views;`.
+_CSHARP_NAMESPACE_RE = re.compile(
+    r"(?<![\w.])NotesShowcase\.((?:Models|ViewModels|Views))(?![\w.])"
+)
+
+# TypeScript: the module specifier of a static import or re-export (the
+# clause may span lines), a side-effect import, or a dynamic import.
+_TS_SPECIFIER_RE = re.compile(
+    r"""\b(?:import|export)\b[\w\s{},*$]*?\bfrom\s*["']([^"'\n]+)["']"""
+    r"""|\bimport\b\s*["']([^"'\n]+)["']"""
+    r"""|\bimport\s*\(\s*["']([^"'\n]+)["']"""
+)
+
+
+def _blank(text: str) -> str:
+    """Replace every character except newlines with a space."""
+    return re.sub(r"[^\n]", " ", text)
+
+
+def _string_end(text: str, start: int) -> int:
+    """Return the offset just past the string literal that opens at ``start``."""
+    n = len(text)
+    quote = text[start]
+    if quote == '"' and start > 0 and text[start - 1] == "@":
+        # C# verbatim string: no backslash escapes, `""` is a quote.
+        j = start + 1
+        while j < n:
+            if text[j] == '"':
+                if j + 1 < n and text[j + 1] == '"':
+                    j += 2
+                    continue
+                return j + 1
+            j += 1
+        return n
+    j = start + 1
+    while j < n:
+        c = text[j]
+        if c == "\\":
+            j += 2
+            continue
+        if c == quote:
+            return j + 1
+        if c == "\n" and quote != "`":
+            # An unterminated single-line string ends at the newline.
+            return j
+        j += 1
+    return n
+
+
+def _mask_source(text: str, *, keep_strings: bool) -> str:
+    """Blank comments, and string literals unless ``keep_strings``.
+
+    Every masked character becomes a space and newlines are kept, so offsets
+    and line numbers in the result match the source.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+        if ch == "/" and nxt == "/":
+            end = text.find("\n", i)
+            end = n if end == -1 else end
+            out.append(_blank(text[i:end]))
+        elif ch == "/" and nxt == "*":
+            close = text.find("*/", i + 2)
+            end = n if close == -1 else close + 2
+            out.append(_blank(text[i:end]))
+        elif ch in "\"'`" or (ch == "@" and nxt == '"'):
+            quote_at = i + 1 if ch == "@" else i
+            end = _string_end(text, quote_at)
+            if keep_strings:
+                out.append(text[i:end])
+            else:
+                out.append(_blank(text[i:end]))
+        else:
+            out.append(ch)
+            i += 1
+            continue
+        i = end
+    return "".join(out)
 
 
 def _layer_of(path_parts: tuple[str, ...], layers: list[str]) -> str | None:
@@ -105,6 +199,17 @@ def _ts_resolved_layer(
     return _layer_of(rel.parts, layers)
 
 
+def _ts_in_adapter(importing: Path, specifier: str, base: Path, adapter_segment: str) -> bool:
+    """True when a TS specifier resolves inside the anchored ``views/adapter`` segment."""
+    try:
+        resolved = (importing.parent / specifier).resolve().relative_to(base)
+    except (ValueError, OSError, RuntimeError):
+        return False
+    # Anchored: "views/adapter" must appear as whole segments, not as a prefix
+    # of e.g. "views/adapterx".
+    return f"/{adapter_segment}/" in f"/{resolved.as_posix()}/"
+
+
 def _csharp_layer_from_import(ns: str, layers: list[str]) -> str | None:
     """`Models.Foo` → 'Models'; `Views.Adapter.Foo` → 'Views' (adapter handled separately)."""
     head = ns.split(".", 1)[0]
@@ -116,17 +221,118 @@ def _python_layer_from_import(module: str, layers: list[str]) -> str | None:
     return head if head in layers else None
 
 
+def _below_package(name: str) -> str | None:
+    """Return a dotted name relative to the ``notes_showcase`` root.
+
+    ``""`` names the root itself. ``None`` means the name is outside the package.
+    """
+    if name == _PY_PACKAGE:
+        return ""
+    prefix = _PY_PACKAGE + "."
+    if name.startswith(prefix):
+        return name[len(prefix) :]
+    return None
+
+
+def _python_import_targets(
+    node: ast.Import | ast.ImportFrom, pkg_dir: tuple[str, ...]
+) -> list[str]:
+    """Return the dotted names below the package root that one import statement names.
+
+    ``pkg_dir`` is the importing file's directory relative to the package root.
+    A name of ``""`` (the root) is never returned, so the root's own names are
+    returned instead: ``from notes_showcase import views`` names ``views``.
+    """
+    if isinstance(node, ast.Import):
+        targets: list[str] = []
+        for alias in node.names:
+            below = _below_package(alias.name)
+            if below:
+                targets.append(below)
+        return targets
+
+    if node.level:
+        up = node.level - 1
+        if up > len(pkg_dir):
+            return []  # relative import escapes the package
+        parts = list(pkg_dir[: len(pkg_dir) - up])
+        if node.module:
+            parts.extend(node.module.split("."))
+        dotted = ".".join(parts)
+    else:
+        resolved = _below_package(node.module or "")
+        if resolved is None:
+            return []  # not a notes_showcase import
+        dotted = resolved
+
+    if dotted:
+        return [dotted]
+    return [alias.name for alias in node.names if alias.name != "*"]
+
+
+def _is_adapter(target: str, adapter_segment: str, sep: str) -> bool:
+    """Anchored adapter-exception check (whole segments only)."""
+    return target == adapter_segment or target.startswith(adapter_segment + sep)
+
+
+def _refs(flavor: str, src: Path, base: Path, text: str) -> list[tuple[int, str]]:
+    """Return (line, target) for each reference to another module in one file.
+
+    Raises SyntaxError when a Python file does not parse.
+    """
+    if flavor == "python":
+        tree = ast.parse(text, filename=str(src))
+        pkg_dir = src.relative_to(base).parts[:-1]
+        refs: list[tuple[int, str]] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import | ast.ImportFrom):
+                for target in _python_import_targets(node, pkg_dir):
+                    refs.append((node.lineno, target))
+        return refs
+
+    if flavor == "csharp":
+        masked = _mask_source(text, keep_strings=False)
+        csharp_refs: list[tuple[int, str]] = []
+        for regex in (_CSHARP_QUALIFIED_RE, _CSHARP_NAMESPACE_RE):
+            for m in regex.finditer(masked):
+                csharp_refs.append((masked.count("\n", 0, m.start()) + 1, m.group(1)))
+        return csharp_refs
+
+    masked = _mask_source(text, keep_strings=True)
+    ts_refs: list[tuple[int, str]] = []
+    for m in _TS_SPECIFIER_RE.finditer(masked):
+        specifier = next(g for g in m.groups() if g is not None)
+        ts_refs.append((masked.count("\n", 0, m.start()) + 1, specifier))
+    return ts_refs
+
+
+def _target_layer(flavor: str, cfg: dict, src: Path, base: Path, target: str) -> str | None:
+    """Return the layer a reference targets, or None when it is allowed or unrelated."""
+    layers: list[str] = cfg["layers"]
+    adapter_segment: str = cfg["adapter_segment"]
+
+    if flavor == "typescript":
+        tgt_layer = _ts_resolved_layer(src, target, base, layers)
+        if tgt_layer == "views" and _ts_in_adapter(src, target, base, adapter_segment):
+            return None
+        return tgt_layer
+
+    # C# and Python names are dotted namespaces or modules.
+    if flavor == "csharp":
+        tgt_layer = _csharp_layer_from_import(target, layers)
+    else:
+        tgt_layer = _python_layer_from_import(target, layers)
+    if tgt_layer is None or _is_adapter(target, adapter_segment, "."):
+        return None
+    return tgt_layer
+
+
 def check_flavor(flavor: str, cfg: dict, repo_root: Path) -> list[str]:
     base = repo_root / cfg["root"]
     if not base.exists():
         return [f"{flavor}: source root not found: {base}"]
 
     layers: list[str] = cfg["layers"]
-    adapter_segment: str = cfg["adapter_segment"]
-    # Segment separator for the anchored adapter-exception check ("." for
-    # C#/Python namespaces, "/" for TS paths) — an unanchored startswith
-    # would also exempt e.g. `Views.AdapterEvil`.
-    sep = "/" if "/" in adapter_segment else "."
     violations: list[str] = []
 
     for src in base.rglob("*"):
@@ -151,60 +357,23 @@ def check_flavor(flavor: str, cfg: dict, repo_root: Path) -> list[str]:
         except UnicodeDecodeError:
             continue
 
-        for line_no, line in enumerate(text.splitlines(), start=1):
-            m = cfg["import_re"].match(line)
-            if not m:
+        try:
+            refs = _refs(flavor, src, base, text)
+        except (SyntaxError, ValueError) as exc:
+            line_no = getattr(exc, "lineno", None) or 1
+            violations.append(f"{flavor}: {rel}:{line_no}: syntax error: {exc}")
+            continue
+
+        lines = text.split("\n")
+        for line_no, target in sorted(refs):
+            tgt_layer = _target_layer(flavor, cfg, src, base, target)
+            if tgt_layer is None or tgt_layer not in forbidden_layers:
                 continue
-
-            target = m.group(1)
-
-            if flavor == "typescript":
-                # Resolve the relative import.
-                tgt_layer = _ts_resolved_layer(src, target, base, layers)
-                # Allow adapter even when importing from a VM:
-                # check the resolved path against the adapter segment.
-                if tgt_layer is None:
-                    continue
-                if tgt_layer == "views":
-                    # Adapter sub-layer exception:
-                    try:
-                        resolved = (src.parent / target).resolve().relative_to(base)
-                        # Anchored: "views/adapter" must appear as whole
-                        # segments, not as a prefix of e.g. "views/adapterx".
-                        if f"/{adapter_segment}/" in f"/{resolved.as_posix()}/":
-                            continue
-                    except (ValueError, OSError, RuntimeError):
-                        pass
-                if tgt_layer in forbidden_layers:
-                    violations.append(
-                        f"{flavor}: {rel}:{line_no}: forbidden import of {tgt_layer} "
-                        f"from {own_layer}: {line.strip()}"
-                    )
-
-            elif flavor == "csharp":
-                tgt_layer = _csharp_layer_from_import(target, layers)
-                if tgt_layer is None:
-                    continue
-                # Adapter exception — `Views.Adapter.*` is allowed from VMs.
-                if target == adapter_segment or target.startswith(adapter_segment + sep):
-                    continue
-                if tgt_layer in forbidden_layers:
-                    violations.append(
-                        f"{flavor}: {rel}:{line_no}: forbidden import of {tgt_layer} "
-                        f"from {own_layer}: {line.strip()}"
-                    )
-
-            elif flavor == "python":
-                tgt_layer = _python_layer_from_import(target, layers)
-                if tgt_layer is None:
-                    continue
-                if target == adapter_segment or target.startswith(adapter_segment + sep):
-                    continue
-                if tgt_layer in forbidden_layers:
-                    violations.append(
-                        f"{flavor}: {rel}:{line_no}: forbidden import of {tgt_layer} "
-                        f"from {own_layer}: {line.strip()}"
-                    )
+            snippet = lines[line_no - 1].strip() if line_no <= len(lines) else target
+            violations.append(
+                f"{flavor}: {rel}:{line_no}: forbidden import of {tgt_layer} "
+                f"from {own_layer}: {snippet}"
+            )
 
     return violations
 
