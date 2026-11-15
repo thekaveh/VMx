@@ -418,7 +418,8 @@ fetch function returns a page and cannot fail.
 Representative traversal contract:
 
 - `walk(root)` yields root first, then descendants in depth-first pre-order
-- `find(root, predicate)` returns the first match in walk order
+- `find(root, predicate)` returns the first match in walk order. In TypeScript,
+  a type-guard predicate (`vm is T`) narrows the result to `T | null`.
 - `walk_expanded(root)` respects `IExpandable` boundaries
 - `walk`, `walk_expanded`, and `find` report a children factory's invalid
   output as an error and leave the node retryable. Swift `walk`,

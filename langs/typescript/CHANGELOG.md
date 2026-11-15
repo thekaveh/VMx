@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `find` has a type-guard overload (#1984). With a predicate of the form
+  `(vm) => vm is T`, `find` returns `T | null`, so the caller reads the subclass
+  members without an `as` cast. The boolean overload and the run-time result
+  are unchanged.
 - `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
   cancelled from a value-less `Error` restores that `Error`.
 - `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused

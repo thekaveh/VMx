@@ -1733,6 +1733,7 @@ declare class ForwardingCompositeVM<VM extends ComponentVMBase> extends Componen
 }
 
 declare function walk(root: ComponentVMBase): Iterable<ComponentVMBase>;
+declare function find<T extends ComponentVMBase>(root: ComponentVMBase, predicate: (vm: ComponentVMBase) => vm is T): T | null;
 declare function find(root: ComponentVMBase, predicate: (vm: ComponentVMBase) => boolean): ComponentVMBase | null;
 declare function walkExpanded(root: ComponentVMBase): Iterable<ComponentVMBase>;
 
