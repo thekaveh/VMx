@@ -231,6 +231,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The view-model builders and `FormVM.builder()` report a required field that
+  holds `undefined` as missing, as they already did for `null` (#1591). Before,
+  `build()` returned a view model with the field unset, and the failure came
+  later, for example a `TypeError` at `construct()`. The aggregate builders
+  also reject a `null` or `undefined` component factory at `build()`, as the
+  Python builders already do.
+
 - `AsyncResourceVM` starts no loader when `load()`, `reload()` or
   `loadCommand` runs from an observer of its `Disposed` publication (ARES-011).
   Before, the loader ran and `state` stayed `Loading` after `dispose()`. C#

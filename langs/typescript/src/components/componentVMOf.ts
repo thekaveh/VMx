@@ -10,6 +10,7 @@ import type { IDispatcher } from "../services/dispatcher.js";
 import { NullMessageHub } from "../services/nullMessageHub.js";
 import { NullDispatcher } from "../services/nullDispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+import { isUnset } from "../builders/required.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 
 const optionHub = Symbol("optionHub");
@@ -263,9 +264,9 @@ export class ComponentVMOfBuilder<M> {
   }
 
   build(): ComponentVMOf<M> {
-    if (this.#name === null) throw new BuilderValidationError("name");
+    if (isUnset(this.#name)) throw new BuilderValidationError("name");
     if (this.#model === SENTINEL) throw new BuilderValidationError("model");
-    if (this.#hub === null || this.#dispatcher === null)
+    if (isUnset(this.#hub) || isUnset(this.#dispatcher))
       throw new BuilderValidationError("services");
 
     const hinter = this.#modeledHinter ?? ((): string => "");
