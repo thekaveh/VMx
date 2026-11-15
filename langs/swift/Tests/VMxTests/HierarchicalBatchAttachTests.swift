@@ -60,6 +60,22 @@ final class HierarchicalBatchAttachTests: XCTestCase {
         XCTAssertEqual(root.children.map(\.name), ["first", "second"])
     }
 
+    /// HIER-024 — a batch attached through a non-root node still makes its nil-keyed
+    /// items direct children of the structural root, in input order.
+    func testHier024RootItemsFromNonRootReceiverAttachToStructuralRoot() {
+        let root = node("root")
+        let middle = node("middle")
+        root.addChild(middle)
+        let first = node("first")
+        let second = node("second")
+        let result = attach(middle, [first, second])
+        XCTAssertEqual(result.added.map(\.name), ["first", "second"])
+        XCTAssertTrue(first.parent === root)
+        XCTAssertTrue(second.parent === root)
+        XCTAssertEqual(root.children.map(\.name), ["middle", "first", "second"])
+        XCTAssertTrue(middle.children.isEmpty)
+    }
+
     /// HIER-025 — duplicate keys never replace the authoritative node.
     func testHier025DuplicateKeys() {
         let root = node("root")
@@ -169,5 +185,7 @@ final class HierarchicalBatchAttachTests: XCTestCase {
         XCTAssertEqual(root.parkedAttachCount, 1)
         root.dispose()
         XCTAssertEqual(root.parkedAttachCount, 0)
+        root.dispose()
+        XCTAssertEqual(root.parkedAttachCount, 0, "HIER-030: repeated disposal keeps the parked count at zero")
     }
 }

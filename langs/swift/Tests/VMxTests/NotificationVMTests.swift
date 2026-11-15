@@ -49,6 +49,17 @@ private final class PendingRecorder {
     var last: [Notif] = []
 }
 
+/// Counts `onExpire()` calls, the hook the lifespan timer runs, then runs the
+/// base hook. A count of 0 shows that a resolution cancelled the timer.
+private final class ExpireCountingNotificationVM: NotificationVM {
+    private(set) var expireCalls = 0
+
+    override func onExpire() {
+        expireCalls += 1
+        super.onExpire()
+    }
+}
+
 // MARK: - Tests
 
 final class NotificationVMTests: XCTestCase {
@@ -185,7 +196,7 @@ final class NotificationVMTests: XCTestCase {
         let hub = NotificationHub()
         let n = Notif(type: .notification, message: "dismiss")
         let poster = await post(hub, n)
-        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 10)
+        let sut = ExpireCountingNotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 10)
 
         let names = NameRecorder()
         var cancellables = Set<AnyCancellable>()
@@ -199,6 +210,8 @@ final class NotificationVMTests: XCTestCase {
         // Advance past lifespan — the cancelled timer must not fire again.
         scheduler.advance(toSeconds: 20)
         XCTAssertTrue(sut.isResolved)
+        XCTAssertEqual(sut.expireCalls, 0,
+                       "NOTIF-014: the cancelled lifespan timer never runs the expire hook")
         XCTAssertEqual(names.names.filter { $0 == "isResolved" }.count, 1,
                        "NOTIF-014: resolves exactly once; timer cancelled")
 
@@ -221,7 +234,7 @@ final class NotificationVMTests: XCTestCase {
         let hub = NotificationHub()
         let n = Notif(type: .notification, message: "hub resolves")
         let poster = await post(hub, n)
-        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 60)
+        let sut = ExpireCountingNotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 60)
 
         XCTAssertFalse(sut.isResolved, "NOTIF-015: not resolved initially")
 
@@ -236,6 +249,8 @@ final class NotificationVMTests: XCTestCase {
         sut.propertyChanged.sink { names.names.append($0) }.store(in: &cancellables)
         scheduler.advance(toSeconds: 60)
         XCTAssertTrue(sut.isResolved)
+        XCTAssertEqual(sut.expireCalls, 0,
+                       "NOTIF-015: an external resolve cancels the lifespan timer")
         XCTAssertEqual(names.names.filter { $0 == "isResolved" }.count, 0,
                        "NOTIF-015: timer cancelled — no re-fire after external resolve")
 
@@ -253,7 +268,7 @@ final class NotificationVMTests: XCTestCase {
         let hub = NotificationHub()
         let n = Notif(type: .notification, message: "tick")
         let poster = await post(hub, n)
-        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 10)
+        let sut = ExpireCountingNotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 10)
 
         let names = NameRecorder()
         var cancellables = Set<AnyCancellable>()
@@ -268,6 +283,10 @@ final class NotificationVMTests: XCTestCase {
 
         scheduler.advance(toSeconds: 10)
         XCTAssertTrue(sut.isResolved, "NOTIF-016: auto-dismissed at lifespan")
+        XCTAssertEqual(sut.remaining, 0, accuracy: 0.001,
+                       "NOTIF-016: remaining is 0 at the lifespan")
+        XCTAssertEqual(sut.expireCalls, 1,
+                       "NOTIF-016: the expire hook runs exactly once at the lifespan")
         XCTAssertEqual(sut.opacity, 0.0, accuracy: 0.01)
         await fulfillment(of: [poster.resolved], timeout: hangGuard)
         XCTAssertEqual(poster.reaction, .approve)
@@ -277,6 +296,8 @@ final class NotificationVMTests: XCTestCase {
         XCTAssertTrue(sut.isResolved)
         XCTAssertEqual(names.names.filter { $0 == "isResolved" }.count, 1,
                        "NOTIF-016: auto-dismiss fires exactly once")
+        XCTAssertEqual(sut.expireCalls, 1,
+                       "NOTIF-016: still one expire-hook call after advancing past the lifespan")
 
         cancellables.removeAll()
         sut.dispose()

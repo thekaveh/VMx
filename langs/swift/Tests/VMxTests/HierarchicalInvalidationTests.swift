@@ -63,16 +63,24 @@ final class HierarchicalInvalidationTests: XCTestCase {
         root.invalidateChildren()
 
         XCTAssertEqual(calls, 0)
+
+        // The next Children access still performs the first materialization.
+        _ = root.children
+        XCTAssertEqual(calls, 1, "HIER-020: the next Children access materializes once")
     }
 
     /// HIER-021 — invalidateSubtree reloads materialized descendants.
     func testHIER021InvalidateSubtreeReloadsMaterializedDescendants() {
+        var rootCalls = 0
         var grandchildCalls = 0
         let child = node { _ in
             grandchildCalls += 1
             return [self.node()]
         }
-        let root = node { _ in [child] }
+        let root = node { _ in
+            rootCalls += 1
+            return [child]
+        }
         _ = root.children
         let firstGrandchild = child.children[0]
 
@@ -80,6 +88,8 @@ final class HierarchicalInvalidationTests: XCTestCase {
         let reloadedChild = root.children[0]
         let secondGrandchild = reloadedChild.children[0]
 
+        XCTAssertEqual(rootCalls, 2,
+                       "HIER-021: the root's cached child list is dropped, so its factory runs again")
         XCTAssertEqual(grandchildCalls, 2)
         XCTAssertFalse(secondGrandchild === firstGrandchild)
     }
