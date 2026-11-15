@@ -181,6 +181,9 @@ uv run --project langs/python python tools/check-conformance-coverage.py \
     --require csharp --require python --require typescript --require swift \
     --require rust
 
+# Conformance catalog structure: chapter Conformance tables and entry shape.
+uv run --project langs/python python tools/check-conformance-catalog.py
+
 # Executed conformance evidence for one flavor, from its runner's own report.
 # Each flavor workflow runs this after its tests; for example, Python:
 (cd langs/python && uv sync --locked --all-extras && \

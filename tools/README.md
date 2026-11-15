@@ -98,6 +98,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 ### 1.1 Release, package, and coverage checks
 
 - `check-cobertura-threshold.py` — Fails when aggregate Cobertura line or branch coverage drops below a floor (C# coverage gate).
+- `check-conformance-catalog.py` — Checks the catalog structure that the coverage tool does not read: each library ID appears in a chapter Conformance table, each `§N` and "Chapter 12 §N holds the `X` IDs" clause names a real section, each `###` ID heading is well formed, and each entry has Given, When and Then clauses. Exits 1 on a problem and 2 when a file cannot be read.
 - `check-conformance-execution.py` — Checks that every library conformance ID has a passing executed test case, not only a marker.
 - `check-coverage-floor.py` — Checks an llvm-cov coverage export against a flavor's recorded floor in `coverage-floors.json` (Rust and Swift).
 - `check-fixture-contracts.py` — Validates the canonical fixture inventories and their structural contracts.

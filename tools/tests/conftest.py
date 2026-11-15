@@ -62,6 +62,7 @@ def _preload(script_filename: str, module_alias: str) -> None:
 def _preload_scripts() -> None:
     """Pre-load all check-*.py scripts under hyphen-stripped aliases."""
     _preload("check-conformance-coverage.py", "check_conformance_coverage")
+    _preload("check-conformance-catalog.py", "check_conformance_catalog")
     _preload("check-conformance-execution.py", "check_conformance_execution")
     _preload("check-fixture-contracts.py", "check_fixture_contracts")
     _preload("check-axaml-codebehind.py", "check_axaml_codebehind")

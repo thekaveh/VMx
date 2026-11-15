@@ -168,5 +168,11 @@ jobs:
         # marker for an ID the catalog does not define (ORPHAN).
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift --require rust
 
+      - name: Check conformance catalog structure
+        # Reads the chapter Conformance tables and the Given/When/Then shape of
+        # each catalog entry. The coverage check above reads only test markers,
+        # so a dropped table row or a malformed ID heading would otherwise pass.
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-conformance-catalog.py
+
       - name: Check Swift fixture sync
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-swift-fixture-sync.py
