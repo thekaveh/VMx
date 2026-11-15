@@ -728,3 +728,28 @@ def test_duplicate_catalog_headings_are_reported(tmp_path: Path) -> None:
     )
 
     assert ccc.find_duplicate_catalog_ids(catalog) == ["LIFE-001"]
+
+
+def test_parse_scenario_ids_is_the_complement_of_catalog_ids(tmp_path: Path) -> None:
+    catalog = tmp_path / "12-conformance.md"
+    catalog.write_text(
+        "### LIFE-001 — library test\n\n### THEME-001 — scenario\n\n### THEME-002 — scenario\n",
+        encoding="utf-8",
+    )
+
+    assert ccc.parse_scenario_ids(catalog) == {"THEME-001", "THEME-002"}
+    assert ccc.parse_catalog_ids(catalog) == {"LIFE-001"}
+
+
+def test_print_scenario_prefixes_prints_the_single_source(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert ccc.main(["--print-scenario-prefixes"]) == 0
+    assert capsys.readouterr().out == "THEME\n"
+
+
+def test_print_scenario_prefixes_needs_no_catalog(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert ccc.main(["--repo-root", str(tmp_path), "--print-scenario-prefixes"]) == 0
+    assert capsys.readouterr().out == "THEME\n"

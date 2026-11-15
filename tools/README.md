@@ -105,7 +105,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `check-python-interpreter.py` — Asserts the interpreter identity, then runs Python arguments with that executable.
 - `check-python-api.py` — Compares the public API of the `vmx` Python package with `langs/python/api/vmx.api.txt` on Python 3.12; `--update` rewrites the baseline.
 - `check-python-package.py` — Validates the exact VMx Python wheel and sdist contents before publication.
-- `check-react-package.py` — Fails when the React adapter's npm payload drifts from its allowlist.
+- `check-react-package.py` — Checks the React adapter manifest name and peer dependencies, then fails on any missing or unexpected file in its npm payload (an exact allowlist).
 - `check-rust-api-baseline.py` — In a pull request, checks that the Rust API baseline revision declares the same `Cargo.toml` version as the base commit, so `cargo semver-checks` cannot accept a break against a stale baseline.
 - `check-rust-doc-snippets.py` — Compiles every Rust fence in the public Rust getting-started guide.
 - `check-rust-package.py` — Verifies that the Rust crate package holds exactly the fixed top-level and generated files plus each file Git tracks under `langs/rust/src` and `langs/rust/tests`. A new tracked file needs no edit to the tool.
@@ -165,8 +165,8 @@ exits 0 on success / non-zero with a per-line violation report on failure.
   canonical VM test files (`workspace_vm`, `notebooks_root_vm`,
   `notebook_vm`, `notes_view_vm`, `note_vm`, `note_form_vm`,
   `status_bar_vm`, `notifications_vm`, `capability_actions_vm`,
-  `theme_vm`, `in_memory_repository`) and all `THEME-00x`
-  scenario markers.
+  `theme_vm`, `in_memory_repository`) and a test marker for every
+  `THEME-NNN` scenario ID that `spec/12-conformance.md` declares.
 
 A fifth check is the React ESLint rule under
 `examples/typescript/react/notes-showcase/eslint.config.js` —

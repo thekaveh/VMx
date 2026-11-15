@@ -10,6 +10,7 @@ permissions:
 #   * check-layer-imports.py    — cross-layer (models <-> viewmodels <-> views)
 #                                 imports stay one-way (M <- VM <- V)
 #   * check-showcase-parity.py  — all four UI-backed examples expose the same VM surface
+#                                 and a test for every THEME ID in the catalog
 #
 # They live at the repo root under tools/ so they are language-agnostic; this
 # workflow is the single integration point that fails CI if any contract drifts.
@@ -23,6 +24,8 @@ on:
       - "tools/check-textual-views.py"
       - "tools/check-layer-imports.py"
       - "tools/check-showcase-parity.py"
+      - "tools/check-conformance-coverage.py"
+      - "spec/12-conformance.md"
       - "tools/tests/test_example_accessibility.py"
       - ".github/workflows/examples-contract-checks.yml"
       - "tools/check-python-interpreter.py"
@@ -101,4 +104,6 @@ jobs:
         run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix examples/typescript/react/notes-showcase
 
       - name: React semantic and keyboard accessibility
-        run: npm test --prefix examples/typescript/react/notes-showcase
+        # The two build steps above already built both packages. Suppress the
+        # showcase pretest hook so CI does not reinstall and rebuild them.
+        run: npm test --prefix examples/typescript/react/notes-showcase --ignore-scripts

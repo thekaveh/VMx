@@ -83,6 +83,7 @@ def _preload_scripts() -> None:
     _preload("check-typescript-schema-sync.py", "check_typescript_schema_sync")
     _preload("check-swift-package-sync.py", "check_swift_package_sync")
     _preload("check-typescript-package.py", "check_typescript_package")
+    _preload("check-react-package.py", "check_react_package")
     _preload("check-nuget-package.py", "check_nuget_package")
     _preload("check-dependency-locks.py", "check_dependency_locks")
     _preload("check-coverage-floor.py", "check_coverage_floor")
