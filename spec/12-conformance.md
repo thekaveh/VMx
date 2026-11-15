@@ -67,6 +67,9 @@ Within Given/When/Then prose:
 - `Status = Constructed` (single `=`) appears only as the *value* of a
   `ConstructionStatusChangedMessage` — i.e., shorthand for "the message whose `Status`
   field equals `Constructed`".
+- An entry with no operation under test has the line `**When** (setup only)` between
+  its **Given** and **Then** lines. Its **Then** clauses hold right after the **Given**
+  setup.
 
 Type and method names follow the spec convention (PascalCase for types/properties/builder
 methods; lowercase for primitive operations like `construct()` / `select()`). Each
@@ -3243,6 +3246,7 @@ refreshed next token (COL-065 covers the branches that retain it)
 ### COL-032 — shared VM collection capability keeps selection separate
 
 **Given** one `CompositeVM<VM>` and one `GroupVM<VM>`
+**When** (setup only)
 **Then** both satisfy the shared VM collection capability, including count,
 indexed/iterable reads, observation, mutation, move, and batching
 **And** only the composite satisfies the selectable collection capability
@@ -4587,6 +4591,7 @@ this ID pins the command-path error channel, chapter 20 §2/§8.)*
 ### FORM-018 — `IsValid` reflects errors
 
 **Given** a `FormVM<TM>` whose validators produce one or more errors
+**When** (setup only)
 **Then** `IsValid == false`
 **And** when the effective `Errors` map is empty, `IsValid == true`
 
@@ -5067,6 +5072,7 @@ Swift equality cannot fail, so the Swift test checks the call counts only.
 ### DISC-001 — Initial active key and `IsActive`
 
 **Given** a `DiscriminatorVM<TKey>` constructed with initial key `k0`
+**When** (setup only)
 **Then** `ActiveKey == k0`
 **And** `IsActive(k0) == true`
 **And** `IsActive(other) == false`
@@ -5527,6 +5533,7 @@ disposal began
 ### ARES-001 — Initial state and command eligibility
 
 **Given** a newly created async resource VM
+**When** (setup only)
 **Then** its immutable state is `Idle` with no value or error
 **And** load is enabled while reload and cancel are disabled
 **And** no loader call or state notification occurred during construction
