@@ -8,6 +8,7 @@
  * See spec/18-hierarchical-vm.md and ADR-0028.
  */
 import { BuilderValidationError } from "../builders/exceptions.js";
+import { isUnset } from "../builders/required.js";
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import { ViewModelType } from "../components/types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
@@ -932,11 +933,11 @@ export class HierarchicalVMBuilder<
    */
   build(): TVM {
     if (!this.#modelSet) throw new BuilderValidationError("model");
-    if (this.#childrenFactory === null)
+    if (isUnset(this.#childrenFactory))
       throw new BuilderValidationError("childrenFactory");
-    if (this.#hub === null || this.#dispatcher === null)
+    if (isUnset(this.#hub) || isUnset(this.#dispatcher))
       throw new BuilderValidationError("services");
-    if (this.#vmFactory === null) throw new BuilderValidationError("vmFactory");
+    if (isUnset(this.#vmFactory)) throw new BuilderValidationError("vmFactory");
 
     const ctx: HierarchicalVMConstructionContext<TModel, TVM> = {
       model: this.#model as TModel,

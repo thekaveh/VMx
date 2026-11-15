@@ -8,6 +8,7 @@ import { ViewModelType } from "../components/types.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+import { isUnset } from "../builders/required.js";
 import {
   AggregateParent,
   buildAggregateCandidate,
@@ -136,11 +137,11 @@ export class AggregateVM3Builder<
   component3(f: () => VM3): AggregateVM3Builder<VM1, VM2, VM3> { const b = new AggregateVM3Builder<VM1, VM2, VM3>(this); b.#factory3 = f; return b; }
 
   build(): AggregateVM3<VM1, VM2, VM3> {
-    if (this.#name === null) throw new BuilderValidationError("name");
-    if (this.#hub === null || this.#dispatcher === null) throw new BuilderValidationError("services");
-    if (this.#factory1 === SENTINEL) throw new BuilderValidationError("component1");
-    if (this.#factory2 === SENTINEL) throw new BuilderValidationError("component2");
-    if (this.#factory3 === SENTINEL) throw new BuilderValidationError("component3");
+    if (isUnset(this.#name)) throw new BuilderValidationError("name");
+    if (isUnset(this.#hub) || isUnset(this.#dispatcher)) throw new BuilderValidationError("services");
+    if (this.#factory1 === SENTINEL || isUnset(this.#factory1)) throw new BuilderValidationError("component1");
+    if (this.#factory2 === SENTINEL || isUnset(this.#factory2)) throw new BuilderValidationError("component2");
+    if (this.#factory3 === SENTINEL || isUnset(this.#factory3)) throw new BuilderValidationError("component3");
     const factory1 = this.#factory1;
     const factory2 = this.#factory2;
     const factory3 = this.#factory3;

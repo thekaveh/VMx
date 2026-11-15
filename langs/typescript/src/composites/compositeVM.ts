@@ -8,6 +8,7 @@ import { ComponentVMBase } from "../components/componentVMBase.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+import { isUnset } from "../builders/required.js";
 import type { ChildOrder } from "../components/types.js";
 import { requireChildOrder } from "../components/vmContainer.js";
 
@@ -246,10 +247,10 @@ export class CompositeVMBuilder<VM extends ComponentVMBase> {
   }
 
   build(): CompositeVM<VM> {
-    if (this.#name === null) throw new BuilderValidationError("name");
-    if (this.#hub === null || this.#dispatcher === null)
+    if (isUnset(this.#name)) throw new BuilderValidationError("name");
+    if (isUnset(this.#hub) || isUnset(this.#dispatcher))
       throw new BuilderValidationError("services");
-    if (this.#childrenFactory === null)
+    if (isUnset(this.#childrenFactory))
       throw new BuilderValidationError("children");
     return new CompositeVM<VM>({
       name: this.#name,
