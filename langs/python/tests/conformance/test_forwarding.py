@@ -29,7 +29,11 @@ from vmx.services.dispatcher import RxDispatcher
 
 
 def _make_component_inner() -> MagicMock:
-    """Minimal ComponentVMOfProto[str] mock with deterministic values."""
+    """Minimal ComponentVMOfProto[str] mock with deterministic values.
+
+    Each command and each ``can_*`` predicate returns its own object, so an
+    identity check fails when a forwarder returns a different member.
+    """
     m = MagicMock()
     type(m).name = PropertyMock(return_value="inner-name")
     type(m).hint = PropertyMock(return_value="inner-hint")
@@ -40,17 +44,18 @@ def _make_component_inner() -> MagicMock:
     type(m).model = PropertyMock(return_value="inner-model")
     type(m).modeled_hint = PropertyMock(return_value="inner-modeled-hint")
     type(m).property_changed = PropertyMock(return_value=MagicMock())
-    _cmd = MagicMock()
-    type(m).select_command = PropertyMock(return_value=_cmd)
-    type(m).deselect_command = PropertyMock(return_value=_cmd)
-    type(m).select_next_command = PropertyMock(return_value=_cmd)
-    type(m).select_previous_command = PropertyMock(return_value=_cmd)
-    type(m).reconstruct_command = PropertyMock(return_value=_cmd)
-    m.can_construct.return_value = True
-    m.can_destruct.return_value = True
-    m.can_reconstruct.return_value = False
-    m.can_select.return_value = True
-    m.can_deselect.return_value = False
+    type(m).select_command = PropertyMock(return_value=MagicMock(name="select_command"))
+    type(m).deselect_command = PropertyMock(return_value=MagicMock(name="deselect_command"))
+    type(m).select_next_command = PropertyMock(return_value=MagicMock(name="select_next_command"))
+    type(m).select_previous_command = PropertyMock(
+        return_value=MagicMock(name="select_previous_command")
+    )
+    type(m).reconstruct_command = PropertyMock(return_value=MagicMock(name="reconstruct_command"))
+    m.can_construct.return_value = MagicMock(name="can_construct")
+    m.can_destruct.return_value = MagicMock(name="can_destruct")
+    m.can_reconstruct.return_value = MagicMock(name="can_reconstruct")
+    m.can_select.return_value = MagicMock(name="can_select")
+    m.can_deselect.return_value = MagicMock(name="can_deselect")
     return m
 
 
@@ -121,9 +126,9 @@ def test_FWD_001_no_override_delegates_every_member() -> None:
     assert fwd.reconstruct_command is inner.reconstruct_command
 
     # ── Lifecycle predicates ──────────────────────────────────────────────────
-    assert fwd.can_construct() == inner.can_construct()
-    assert fwd.can_destruct() == inner.can_destruct()
-    assert fwd.can_reconstruct() == inner.can_reconstruct()
+    assert fwd.can_construct() is inner.can_construct()
+    assert fwd.can_destruct() is inner.can_destruct()
+    assert fwd.can_reconstruct() is inner.can_reconstruct()
 
     # ── Lifecycle mutators call through to inner ──────────────────────────────
     fwd.construct()
@@ -139,8 +144,8 @@ def test_FWD_001_no_override_delegates_every_member() -> None:
     inner.dispose.assert_called_once()
 
     # ── Selection predicates ──────────────────────────────────────────────────
-    assert fwd.can_select() == inner.can_select()
-    assert fwd.can_deselect() == inner.can_deselect()
+    assert fwd.can_select() is inner.can_select()
+    assert fwd.can_deselect() is inner.can_deselect()
 
     # ── Selection mutators ────────────────────────────────────────────────────
     fwd.select()
@@ -286,8 +291,8 @@ def test_FWD_002_hint_override_returns_override_all_others_delegate() -> None:
     assert fwd.model == inner.model
     assert fwd.modeled_hint == inner.modeled_hint
     assert fwd.select_command is inner.select_command
-    assert fwd.can_construct() == inner.can_construct()
-    assert fwd.can_select() == inner.can_select()
+    assert fwd.can_construct() is inner.can_construct()
+    assert fwd.can_select() is inner.can_select()
 
 
 # ---------------------------------------------------------------------------
