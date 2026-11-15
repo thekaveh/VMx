@@ -1578,25 +1578,37 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
 
     /// Removes and returns the item at `index`.
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
-        let item = self
-            .remove_at_silent(index)
+        let (item, retired) = self
+            .remove_at_committed(index)
             .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
         let event_item = self
             .streams
             .item_removed
             .has_subscribers()
             .then(|| item.clone());
-        self.publish(
-            CollectionChangeAction::Remove,
-            Some(index),
-            None,
-            true,
-            event_item.map(|item| ItemEvent::Removed(ItemRemovedEvent { item, index })),
-        );
+        // A displaced snapshot drops after the change is published (#1295).
+        publish_then_drop(retired, || {
+            self.publish(
+                CollectionChangeAction::Remove,
+                Some(index),
+                None,
+                true,
+                event_item.map(|item| ItemEvent::Removed(ItemRemovedEvent { item, index })),
+            );
+        });
         Ok(item)
     }
 
     pub(crate) fn remove_at_silent(&self, index: usize) -> Option<T> {
+        self.remove_at_committed(index).map(|(item, retired)| {
+            drop(retired);
+            item
+        })
+    }
+
+    /// Removes the item at `index` and returns it with the displaced snapshot.
+    /// The caller drops the snapshot after it publishes the change (#1295).
+    fn remove_at_committed(&self, index: usize) -> Option<(T, Retired<T>)> {
         let mut retired = None;
         let removed = {
             let mut inner = lock(&self.inner);
@@ -1606,8 +1618,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 Some(cow_mut(&mut inner, &mut retired).remove(index))
             }
         };
-        drop(retired);
-        removed
+        removed.map(|item| (item, retired))
     }
 
     pub(crate) fn insert_silent(&self, index: usize, item: T) -> VmxResult<()> {
@@ -1638,6 +1649,15 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     }
 
     pub(crate) fn replace_silent(&self, index: usize, item: T) -> VmxResult<T> {
+        let (old, retired) = self.replace_committed(index, item)?;
+        drop(retired);
+        Ok(old)
+    }
+
+    /// Replaces the item at `index` and returns the old item with the
+    /// displaced snapshot. The caller drops the snapshot after it publishes
+    /// the change (#1295).
+    fn replace_committed(&self, index: usize, item: T) -> VmxResult<(T, Retired<T>)> {
         let mut retired = None;
         let old = {
             let mut inner = lock(&self.inner);
@@ -1646,8 +1666,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             }
             std::mem::replace(&mut cow_mut(&mut inner, &mut retired)[index], item)
         };
-        drop(retired);
-        Ok(old)
+        Ok((old, retired))
     }
 
     pub(crate) fn publish_replace(&self, index: usize) {
@@ -1667,7 +1686,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             .item_replaced
             .has_subscribers()
             .then(|| item.clone());
-        let old = self.replace_silent(index, item)?;
+        let (old, retired) = self.replace_committed(index, item)?;
         let event = new_item.map(|new_item| {
             ItemEvent::Replaced(ItemReplacedEvent {
                 new_item,
@@ -1675,13 +1694,16 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 index,
             })
         });
-        self.publish(
-            CollectionChangeAction::Replace,
-            Some(index),
-            Some(index),
-            false,
-            event,
-        );
+        // A displaced snapshot drops after the change is published (#1295).
+        publish_then_drop(retired, || {
+            self.publish(
+                CollectionChangeAction::Replace,
+                Some(index),
+                Some(index),
+                false,
+                event,
+            );
+        });
         Ok(old)
     }
 
