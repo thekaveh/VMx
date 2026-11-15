@@ -57,6 +57,12 @@ jobs:
           # its same-repository branch and its exact generated metadata surface.
           if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] && \
              [ "$HEAD_REF" = "release-please--branches--main--components--python" ]; then
+            # Diff and read the base-side modes from the merge base, not the base tip,
+            # so a base that moved after release-please branched adds no changes here.
+            merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA") || {
+              echo "::error::No merge base between $BASE_SHA and $HEAD_SHA."
+              exit 1
+            }
             disallowed=""
             invalid=""
             manifest_changed=false
@@ -75,12 +81,12 @@ jobs:
                 langs/python/src/vmx/__about__.py) about_changed=true ;;
                 *) disallowed="${disallowed}${path}\n" ;;
               esac
-              base_mode=$(git ls-tree "$BASE_SHA" -- "$path" | awk 'NR == 1 { print $1 }')
+              base_mode=$(git ls-tree "$merge_base" -- "$path" | awk 'NR == 1 { print $1 }')
               head_mode=$(git ls-tree "$HEAD_SHA" -- "$path" | awk 'NR == 1 { print $1 }')
               if [ "$base_mode" != "100644" ] || [ "$head_mode" != "100644" ]; then
                 invalid="${invalid}mode ${base_mode:-missing}->${head_mode:-missing}\t${path}\n"
               fi
-            done < <(git diff --name-status --no-renames "$BASE_SHA" "$HEAD_SHA")
+            done < <(git diff --name-status --no-renames "$merge_base" "$HEAD_SHA")
             if [ -z "$disallowed" ] && [ -z "$invalid" ] && \
                [ "$manifest_changed" = true ] && [ "$matrix_changed" = true ] && \
                [ "$changelog_changed" = true ] && [ "$about_changed" = true ]; then
@@ -104,155 +110,11 @@ jobs:
       - name: Require ADR for non-trivial spec changes
         env:
           # Passed via env (not inline interpolation) so label text cannot
-          # inject into the shell.
+          # inject into the shell. tools/check-spec-adr.py reads it from there.
           PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
-        run: |
-          base_sha="${{ github.event.pull_request.base.sha }}"
-          head_sha="${{ github.event.pull_request.head.sha }}"
-
-          # Files under spec/ that don't themselves require a paired ADR:
-          # - spec/README.md, spec/HISTORY.md, spec/VERSION (housekeeping)
-          # - spec/ADRs/** (ADRs themselves)
-          # - spec/fixtures/** (machine-checkable test inputs; tweakable alongside spec text)
-          # - spec/12-conformance.md (test catalog; adding IDs is governed by the
-          #   separate "Require conformance stubs" step below, not by ADRs)
-          # - spec/proposals/** (historical planning artifacts; landed proposals are
-          #   already covered by the ADR they introduced)
-          changed=$(git diff --name-only "$base_sha" "$head_sha" -- spec/ \
-            | grep -v '^spec/README.md$' \
-            | grep -v '^spec/HISTORY.md$' \
-            | grep -v '^spec/VERSION$' \
-            | grep -v '^spec/ADRs/' \
-            | grep -v '^spec/fixtures/' \
-            | grep -v '^spec/12-conformance.md$' \
-            | grep -v '^spec/proposals/' \
-            || true)
-
-          # Newly added ADRs satisfy the rule.
-          new_adrs=$(git diff --name-status --diff-filter=A "$base_sha" "$head_sha" -- spec/ADRs/ \
-            | awk '{print $2}' || true)
-
-          if [ -n "$changed" ] && [ -z "$new_adrs" ]; then
-            # Allow bypass via PR label.
-            if jq -e 'index("no-adr-needed") != null' <<<"$PR_LABELS_JSON" >/dev/null; then
-              echo "::notice::Spec changed without an ADR, but bypassed by 'no-adr-needed' label."
-              echo "Changed spec files (bypassed):"
-              echo "$changed"
-              exit 0
-            fi
-
-            echo "::error::Spec text changed but no new ADR was added in spec/ADRs/."
-            echo "Changed spec files:"
-            echo "$changed"
-            echo
-            echo "If this change does not warrant an ADR (e.g., it is a typo or pure formatting),"
-            echo "the maintainer may add the label 'no-adr-needed' to bypass this check."
-            exit 1
-          fi
-
-          echo "OK: spec changes either include a new ADR or only touch exempted files."
-
-      - name: Require conformance stubs when new IDs are added
-        # Scope: this check detects newly-added IDs by matching diff lines that
-        # begin with "+### " (heading additions in spec/12-conformance.md). It
-        # does NOT catch IDs added inside an existing heading body, nor heading
-        # *renames* (one delete + one add, where the deleted ID's stub looks
-        # orphaned afterwards). For the normal additive flow this is sufficient;
-        # for renames, prefer additive deprecation. tools/check-conformance-
-        # coverage.py provides the authoritative cross-check.
-        shell: bash
-        run: |
-          base_sha="${{ github.event.pull_request.base.sha }}"
-          head_sha="${{ github.event.pull_request.head.sha }}"
-
-          # Bootstrap case: if spec/12-conformance.md is being NEWLY ADDED in this PR
-          # (didn't exist at base_sha), all its IDs are "bootstrap" — not new additions
-          # against an existing catalog. Skip the stub check; the next PR that modifies
-          # the catalog will re-enable enforcement.
-          if ! git cat-file -e "${base_sha}:spec/12-conformance.md" 2>/dev/null; then
-            echo "spec/12-conformance.md is being newly added in this PR (bootstrap);"
-            echo "stub check is skipped. Subsequent PRs that add IDs to the existing"
-            echo "catalog will be enforced normally."
-            exit 0
-          fi
-
-          new_ids=$(git diff "$base_sha" "$head_sha" -- spec/12-conformance.md \
-            | grep -E '^\+### ' \
-            | grep -oE '[A-Z]{3,5}-[0-9]{3}' \
-            | sort -u || true)
-
-          # Scenario-contract ID prefixes (per tools/check-conformance-coverage.py
-          # _SCENARIO_PREFIXES). These catalog assertions for EXAMPLE APPS rather
-          # than the language-neutral library; their tests live under
-          # `examples/<lang>/.../tests/` and so do not need a stub in
-          # `langs/<flavor>/tests/conformance/`. Keep this list in sync with the
-          # tool's frozenset.
-          scenario_prefixes='THEME'
-          if [ -n "$new_ids" ]; then
-            filtered=$(echo "$new_ids" | grep -vE "^(${scenario_prefixes})-" || true)
-            skipped=$(echo "$new_ids" | grep -E "^(${scenario_prefixes})-" || true)
-            if [ -n "$skipped" ]; then
-              echo "Skipping scenario-contract IDs (covered by example-app suites, not library conformance):"
-              echo "$skipped"
-              echo
-            fi
-            new_ids="$filtered"
-          fi
-
-          if [ -z "$new_ids" ]; then
-            echo "No new library-conformance IDs in this PR (after scenario filtering)."
-            exit 0
-          fi
-
-          echo "New conformance IDs in this PR:"
-          echo "$new_ids"
-
-          # Stub patterns must match what tools/check-conformance-coverage.py recognizes:
-          # - Python: @pytest.mark.conformance("XXX-NNN") (multiline / kwargs allowed)
-          # - C#:     [Trait("Conformance", "XXX-NNN")] (inside attribute brackets)
-          # - TypeScript: describe("XXX-NNN", ...)
-          # - Swift:  /// XXX-NNN — ... / // XXX-NNN — ...
-          # - Rust:   /// XXX-NNN — ... attached to #[test] functions
-          missing_in=()
-          for id in $new_ids; do
-            # Python stub presence
-            if [ -d langs/python/tests/conformance ]; then
-              if ! grep -rE -q "pytest\.mark\.conformance\(\s*[\"']${id}[\"']" langs/python/tests/conformance; then
-                missing_in+=("langs/python/tests/conformance:${id}")
-              fi
-            fi
-            # C# stub presence
-            if [ -d langs/csharp/tests/VMx.Conformance.Tests ]; then
-              if ! grep -rE -q "\[[^][]*Trait\(\s*\"Conformance\"\s*,\s*\"${id}\"" langs/csharp/tests/VMx.Conformance.Tests; then
-                missing_in+=("langs/csharp/tests/VMx.Conformance.Tests:${id}")
-              fi
-            fi
-            # TypeScript stub presence
-            if [ -d langs/typescript/tests/conformance ]; then
-              if ! grep -rE -q "describe\(\s*[\"']${id}[\"']" langs/typescript/tests/conformance; then
-                missing_in+=("langs/typescript/tests/conformance:${id}")
-              fi
-            fi
-            # Swift stub presence
-            if [ -d langs/swift/Tests/VMxTests ]; then
-              if ! grep -rE -q "^[[:space:]]*///?[[:space:]]+${id}([[:space:](]|$).*—" langs/swift/Tests/VMxTests; then
-                missing_in+=("langs/swift/Tests/VMxTests:${id}")
-              fi
-            fi
-            # Rust stub presence
-            if [ -d langs/rust/tests/conformance ]; then
-              if ! grep -rE -q "^[[:space:]]*///[[:space:]]+${id}([[:space:](]|$).*—" langs/rust/tests/conformance; then
-                missing_in+=("langs/rust/tests/conformance:${id}")
-              fi
-            fi
-          done
-
-          if [ ${#missing_in[@]} -gt 0 ]; then
-            echo "::error::Newly-added conformance IDs lack matching test stubs (must use @pytest.mark.conformance(\"…\"), [Trait(\"Conformance\", \"…\")], describe(\"…\"), Swift /// XXX-NNN — markers, or Rust /// XXX-NNN — markers):"
-            for item in "${missing_in[@]}"; do
-              echo "  - $item"
-            done
-            exit 1
-          fi
-
-          echo "OK: every new conformance ID has a matching test stub in every active language."
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # The script diffs from the merge base of the two commits, so a base branch
+        # that moved after the pull request branched adds no changes here. It holds
+        # the exempt spec paths, the numbered-ADR pattern and the exact label match.
+        run: python3 tools/check-spec-adr.py --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA"

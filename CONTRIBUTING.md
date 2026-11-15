@@ -288,14 +288,19 @@ link.
 Behavior changes start in `spec/`. The rules are:
 
 - A spec change requires a matching ADR in `spec/ADRs/`. This is enforced by the
-  `spec-discipline` CI check.
+  `Require ADR for non-trivial spec changes` step of the `spec-discipline` CI check,
+  which runs `tools/check-spec-adr.py` against the merge base of the pull request.
+  A numbered ADR file (`NNNN-kebab-title.md`) is required; other files under
+  `spec/ADRs/` do not count.
 - Files exempt from the ADR requirement: `spec/README.md`, `spec/HISTORY.md`,
   `spec/VERSION`, `spec/ADRs/**`, `spec/fixtures/**`, `spec/12-conformance.md` (adding catalog
   IDs is governed by the conformance-stub rule below, not by ADRs), and
   `spec/proposals/**` (historical planning artifacts; landed proposals are
   already covered by the ADR they introduced).
 - A new conformance test ID in `spec/12-conformance.md` requires a matching test stub
-  in **every** active language flavor in the same PR. The CI check looks for
+  in **every** active language flavor in the same PR. The `Enforce conformance coverage`
+  step of the `conformance` CI workflow enforces this by running
+  `tools/check-conformance-coverage.py`. The marker forms it accepts are:
   `@pytest.mark.conformance("XXX-NNN")` (Python), `[Trait("Conformance", "XXX-NNN")]`
   (C#), `describe("XXX-NNN", ...)` (TypeScript), Swift doc / line comments
   where the ID is the first token after the marker (for example
