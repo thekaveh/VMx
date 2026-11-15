@@ -119,16 +119,19 @@ orphans an earlier one.
 
 ## 4. Keyboard shortcuts
 
-| Binding       | Action                           |
-| ------------- | -------------------------------- |
-| `Mod+N`       | New note in the current notebook |
-| `Mod+Shift+N` | New notebook at the root         |
-| `Mod+E`       | Export the workspace snapshot    |
-| `Mod+S`       | Save the current note            |
+| Binding           | Action                           |
+| ----------------- | -------------------------------- |
+| `Mod+Alt+N`       | New note in the current notebook |
+| `Mod+Alt+Shift+N` | New notebook at the root         |
+| `Mod+E`           | Export the workspace snapshot    |
+| `Mod+S`           | Save the current note            |
 
-`Mod` is `Cmd` on macOS, `Ctrl` elsewhere. `useHotkeys` in
-`src/views/components/Layout.tsx` registers the bindings. Each map entry calls
-a VM command's `execute()` when the matching `canExecute` predicate is truthy.
+`Mod` is `Cmd` or `Ctrl` on every platform. The new-note and new-notebook keys
+use `Alt`, because Chromium reserves `Ctrl+N` and `Ctrl+Shift+N` on Windows and
+Linux. They match the physical `N` key, so Option on macOS does not change
+them. `useHotkeys` in `src/views/components/Layout.tsx` registers the bindings.
+Each map entry calls a VM command's `execute()` when the matching `canExecute`
+predicate is truthy.
 Thus the bindings keep the Pure-VM contract.
 
 ## 5. References
