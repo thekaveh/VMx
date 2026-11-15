@@ -16,10 +16,10 @@ VMx is **one language-neutral specification with five idiomatic flavors**. All f
 
 ## 2. Spec discipline (enforced by CI)
 
-Two rules in `.github/workflows/spec-discipline.yml` block PRs:
+Two rules block PRs:
 
-1. **Any change under `spec/` requires a new ADR in `spec/ADRs/`** in the same PR. Exempt paths: `spec/README.md`, `spec/HISTORY.md`, `spec/VERSION`, `spec/ADRs/**`, `spec/fixtures/**`, `spec/proposals/**`, `spec/12-conformance.md`. A maintainer can apply the `no-adr-needed` label to bypass for typos/formatting.
-2. **A new conformance ID in `spec/12-conformance.md` requires a matching test stub in every catalog-complete flavor**, in the same PR (THEME-prefixed scenario IDs are exempt — they live in example apps). This gate is a presence check. The conformance workflow's `tools/check-conformance-coverage.py` is stricter: it ignores commented-out Python, C#, and TypeScript markers. Swift and Rust intentionally use attached comment-form markers with an em dash:
+1. **Any change under `spec/` requires a new ADR in `spec/ADRs/`** in the same PR. The `Require ADR for non-trivial spec changes` step of `.github/workflows/spec-discipline.yml` runs `tools/check-spec-adr.py`, which diffs from the merge base. Exempt paths: `spec/README.md`, `spec/HISTORY.md`, `spec/VERSION`, `spec/ADRs/**`, `spec/fixtures/**`, `spec/proposals/**`, `spec/12-conformance.md`. A maintainer can apply the `no-adr-needed` label to bypass for typos/formatting.
+2. **A new conformance ID in `spec/12-conformance.md` requires a matching test stub in every catalog-complete flavor**, in the same PR (THEME-prefixed scenario IDs are exempt — they live in example apps). The `Enforce conformance coverage` step of `.github/workflows/conformance.yml` enforces this by running `tools/check-conformance-coverage.py`, which requires 100% catalog coverage and ignores commented-out Python, C#, and TypeScript markers. Swift and Rust intentionally use attached comment-form markers with an em dash:
    - Python: `@pytest.mark.conformance("XXX-NNN")`
    - C#: `[Trait("Conformance", "XXX-NNN")]`
    - TypeScript: `describe("XXX-NNN", ...)`

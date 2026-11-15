@@ -109,6 +109,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `check-rust-api-baseline.py` — In a pull request, checks that the Rust API baseline revision declares the same `Cargo.toml` version as the base commit, so `cargo semver-checks` cannot accept a break against a stale baseline.
 - `check-rust-doc-snippets.py` — Compiles every Rust fence in the public Rust getting-started guide.
 - `check-rust-package.py` — Verifies that the Rust crate package holds exactly the fixed top-level and generated files plus each file Git tracks under `langs/rust/src` and `langs/rust/tests`. A new tracked file needs no edit to the tool.
+- `check-spec-adr.py` — Enforces the spec-discipline ADR rule for one pull request: a spec text change needs a numbered ADR in `spec/ADRs/`, or the `no-adr-needed` label. It diffs from the merge base of the base and head commits, so a base that moved after the branch point adds no changes. Standard library only, because the workflow runs it on the runner's `python3`.
 - `check-swift-package-sync.py` — Verifies that the root and nested SwiftPM manifests stay equivalent.
 - `check-swift-subscript-chains.py` — Rejects `]?.` (optional chaining on a subscript result), also split over two lines, in the repository's Swift files; Swift 6.4 at `-Onone` can return a non-nil member for a missing dictionary key there (#1462).
 - `check-typescript-api.py` — Compares the built `@thekaveh/vmx` declarations, with chunk hashes and comments removed, with `langs/typescript/api/vmx.api.txt`; `--update` rewrites the baseline.
