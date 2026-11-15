@@ -13,6 +13,8 @@ from collections import Counter
 from itertools import pairwise
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 ADR_DIR = ROOT / "spec" / "ADRs"
 REGISTRY = ADR_DIR / "README.md"
@@ -236,19 +238,29 @@ def test_changelog_accepts_entries_that_share_only_a_first_line() -> None:
 
 _PREAMBLE_FIELD_RE = re.compile(r"^(?:- )?\*\*([A-Za-z][A-Za-z\- ]*[A-Za-z]):\*\*", re.MULTILINE)
 _BACK_LINK_VERB_RE = re.compile(r"\b([a-z]+) by\s+\[?adr-\d{4}")
-_BACK_LINK_VERB = {"Supersedes": "superseded", "Amends": "amended", "Extends": "extended"}
+_RELATIONSHIP_VERBS = {
+    "Supersedes": "superseded",
+    "Amends": "amended",
+    "Extends": "extended",
+    "Clarifies": "clarified",
+}
 
-# (earlier, later, relationship field in the later ADR). The later ADR names the
-# earlier one in that field, so the earlier Status and registry cell must say so.
-_RELATIONSHIPS = (
-    ("0101", "0103", "Supersedes"),
-    ("0080", "0103", "Amends"),
-    ("0042", "0050", "Supersedes"),
-    ("0037", "0048", "Supersedes"),
-    ("0041", "0090", "Extends"),
-    ("0153", "0166", "Extends"),
-    ("0153", "0167", "Extends"),
-)
+# Owner findings from #1814. This PR is a check, not an ADR edit, so each entry
+# exempts one back-link that the real tree lacks: (earlier ADR, later ADR,
+# surface) -> reason. A surface is "Status", "Status first word", "registry cell",
+# "registry row" or "file", as back_link_gaps names it.
+BACK_LINK_EXEMPTIONS: dict[tuple[str, str, str], str] = {
+    ("0024", "0142", "Status"): (
+        "ADR-0024 Status says 'adopted for ... by ADR-0142', not the 'amended by' back-link "
+        "that section 2.3 defines. Owner finding: reword the Status back-link. The registry "
+        "cell already says 'amended by 0142'."
+    ),
+    ("0151", "0213", "registry cell"): (
+        "ADR-0213 Supersedes ADR-0151 Decision rule 3, and the ADR-0151 Status says 'superseded "
+        "by ADR-0213'. The registry cell says 'amended by 0213'. Owner finding: the cell should "
+        "repeat 'superseded by 0213'."
+    ),
+}
 
 
 def _registry_section(registry_text: str, start: str, end: str) -> str:
@@ -264,20 +276,80 @@ def _defined_preamble_fields(registry_text: str) -> set[str]:
     return fields | set(re.findall(r"`([A-Z][a-z]+)`", relationships))
 
 
-def _adr_file(number: str) -> str:
-    return next(ADR_DIR.glob(f"{number}-*.md")).read_text(encoding="utf-8")
+def _defined_relationship_fields(registry_text: str) -> set[str]:
+    """Return the relationship field names in the table of registry section 2.2."""
+    section = _registry_section(registry_text, "### 2.2", "### 2.3")
+    return set(re.findall(r"^\| `([A-Z][a-z]+)`\s*\|", section, re.MULTILINE))
+
+
+_LINK_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
+_ADR_REF_RE = re.compile(r"ADR-(\d{4})")
+
+
+def _preamble_field_values(preamble: str) -> list[tuple[str, str]]:
+    """Return (field name, value text) for each bold field of an ADR preamble."""
+    matches = list(_PREAMBLE_FIELD_RE.finditer(preamble))
+    ends = [match.start() for match in matches[1:]] + [len(preamble)]
+    return [
+        (match.group(1), preamble[match.end() : end])
+        for match, end in zip(matches, ends, strict=True)
+    ]
+
+
+def _relationship_edges(adr_dir: Path) -> list[tuple[str, str, str, bool]]:
+    """Return (later, field, earlier, whole) for each ADR a relationship field names.
+
+    A value ends at ``Related:``. ``whole`` is true when the value is only ADR
+    links, so the earlier ADR is replaced as a whole decision (ADR-0052 names
+    ADR-0033 this way). A value with a section or rule names a part instead.
+    """
+    edges: list[tuple[str, str, str, bool]] = []
+    for path in sorted(adr_dir.glob("[0-9][0-9][0-9][0-9]-*.md")):
+        later = path.name[:4]
+        for field, value in _preamble_field_values(_preamble(path.read_text(encoding="utf-8"))):
+            if field not in _RELATIONSHIP_VERBS:
+                continue
+            value = re.split(r"\bRelated:", value, maxsplit=1)[0]
+            rest = _ADR_REF_RE.sub("", _LINK_RE.sub("", value))
+            whole = not re.sub(r"\band\b|[\s,.;]", "", rest)
+            edges.extend(
+                (later, field, earlier, whole)
+                for earlier in dict.fromkeys(_ADR_REF_RE.findall(value))
+            )
+    return edges
+
+
+def back_link_gaps(adr_dir: Path) -> list[tuple[str, str, str]]:
+    """Return (earlier, later, surface) for each back-link that a relationship field lacks.
+
+    The earlier ADR's Status must read ``<verb> by ADR-NNNN`` and its registry
+    cell must read ``<verb> by NNNN`` (section 2.3). A whole supersession also
+    needs a Status that starts ``Superseded``. A surface is ``file`` or
+    ``registry row`` when the earlier ADR is missing from the tree.
+    """
+    registry = registry_rows((adr_dir / "README.md").read_text(encoding="utf-8"))
+    cells = {number: cell for number, _, cell in registry}
+    gaps: list[tuple[str, str, str]] = []
+    for later, field, earlier, whole in _relationship_edges(adr_dir):
+        verb = _RELATIONSHIP_VERBS[field]
+        path = next(adr_dir.glob(f"{earlier}-*.md"), None)
+        if path is None:
+            gaps.append((earlier, later, "file"))
+            continue
+        status = adr_status(path.read_text(encoding="utf-8"))
+        if not re.search(rf"\b{verb} by\b[^;)]*ADR-{later}\b", status, re.IGNORECASE):
+            gaps.append((earlier, later, "Status"))
+        if whole and field == "Supersedes" and not re.match(r"Superseded\b", status):
+            gaps.append((earlier, later, "Status first word"))
+        if earlier not in cells:
+            gaps.append((earlier, later, "registry row"))
+        elif not re.search(rf"\b{verb} by\b[^;)]*\b{later}\b", cells[earlier], re.IGNORECASE):
+            gaps.append((earlier, later, "registry cell"))
+    return gaps
 
 
 def _preamble(text: str) -> str:
     return re.split(r"^## ", text, maxsplit=1, flags=re.MULTILINE)[0]
-
-
-def _registry_cells() -> dict[str, tuple[str, str]]:
-    """Map each ADR number to its (file name, Status cell) registry row."""
-    return {
-        number: (file_name, cell)
-        for number, file_name, cell in registry_rows(REGISTRY.read_text(encoding="utf-8"))
-    }
 
 
 def test_adr_preamble_fields_are_defined_by_registry_format() -> None:
@@ -303,23 +375,110 @@ def test_status_back_link_verbs_are_defined_by_registry_format() -> None:
     assert undefined == {}
 
 
-def test_replaced_adr_is_superseded_in_status_and_registry() -> None:
-    cells = _registry_cells()
-    assert adr_status(_adr_file("0033")).startswith("Superseded by ADR-0052")
-    assert cells["0033"][1].startswith("Superseded by 0052")
-    assert re.search(r"\*\*Supersedes:\*\*[^*]*ADR-0033\b", _preamble(_adr_file("0052")))
+def test_relationship_fields_are_the_registry_fields() -> None:
+    registry = REGISTRY.read_text(encoding="utf-8")
+    assert set(_RELATIONSHIP_VERBS) == _defined_relationship_fields(registry)
 
 
-def test_relationship_fields_back_link_the_earlier_status_and_registry() -> None:
-    cells = _registry_cells()
-    issues: list[str] = []
-    for earlier, later, field in _RELATIONSHIPS:
-        verb = _BACK_LINK_VERB[field]
-        if not re.search(rf"\*\*{field}:\*\*[^*]*ADR-{earlier}\b", _preamble(_adr_file(later))):
-            issues.append(f"ADR-{later} has no **{field}:** field naming ADR-{earlier}")
-        status = adr_status(_adr_file(earlier))
-        if not re.search(rf"\b{verb} by\b[^;)]*ADR-{later}\b", status, re.IGNORECASE):
-            issues.append(f"ADR-{earlier} Status lacks '{verb} by ADR-{later}'")
-        if not re.search(rf"\b{verb} by\b[^;)]*\b{later}\b", cells[earlier][1], re.IGNORECASE):
-            issues.append(f"ADR-{earlier} registry cell lacks '{verb} by {later}'")
-    assert issues == []
+def test_relationship_fields_have_back_links_in_status_and_registry() -> None:
+    gaps = back_link_gaps(ADR_DIR)
+    assert sorted(set(gaps) - set(BACK_LINK_EXEMPTIONS)) == []
+    assert sorted(set(BACK_LINK_EXEMPTIONS) - set(gaps)) == []  # each exemption is still needed
+
+
+def _adr_tree(root: Path, rows: tuple[tuple[str, str, str], ...], adrs: dict[str, str]) -> Path:
+    """Write a small spec/ADRs tree: a registry with the given rows, and the ADR files."""
+    adr_dir = root / "spec" / "ADRs"
+    adr_dir.mkdir(parents=True)
+    (adr_dir / "README.md").write_text(_registry(*rows), encoding="utf-8")
+    for file_name, text in adrs.items():
+        (adr_dir / file_name).write_text(text, encoding="utf-8")
+    return adr_dir
+
+
+_EARLIER_ACCEPTED = "# ADR 0001\n\n- **Status:** Accepted\n- **Date:** 2026-01-01\n"
+_BOTH_ACCEPTED = (
+    ("0001", "0001-a.md", "Accepted"),
+    ("0002", "0002-b.md", "Accepted"),
+)
+
+
+def _later(field: str, value: str) -> str:
+    return f"# ADR 0002\n\n- **Status:** Accepted\n- **Date:** 2026-01-02\n- **{field}:** {value}\n"
+
+
+def test_back_link_check_reports_a_superseded_adr_without_a_back_link(tmp_path: Path) -> None:
+    adr_dir = _adr_tree(
+        tmp_path,
+        _BOTH_ACCEPTED,
+        {
+            "0001-a.md": _EARLIER_ACCEPTED,
+            "0002-b.md": _later("Supersedes", "[ADR-0001](0001-a.md)."),
+        },
+    )
+    assert set(back_link_gaps(adr_dir)) == {
+        ("0001", "0002", "Status"),
+        ("0001", "0002", "Status first word"),
+        ("0001", "0002", "registry cell"),
+    }
+
+
+def test_back_link_check_accepts_a_superseded_adr_with_back_links(tmp_path: Path) -> None:
+    adr_dir = _adr_tree(
+        tmp_path,
+        (("0001", "0001-a.md", "Superseded by 0002"), ("0002", "0002-b.md", "Accepted")),
+        {
+            "0001-a.md": (
+                "# ADR 0001\n\n- **Status:** Superseded by ADR-0002\n- **Date:** 2026-01-01\n"
+            ),
+            "0002-b.md": _later("Supersedes", "[ADR-0001](0001-a.md)."),
+        },
+    )
+    assert back_link_gaps(adr_dir) == []
+
+
+def test_back_link_check_accepts_a_partial_supersession_kept_accepted(tmp_path: Path) -> None:
+    adr_dir = _adr_tree(
+        tmp_path,
+        (
+            ("0001", "0001-a.md", "Accepted (§2 superseded by 0002)"),
+            ("0002", "0002-b.md", "Accepted"),
+        ),
+        {
+            "0001-a.md": (
+                "# ADR 0001\n\n- **Status:** Accepted (§2 superseded by ADR-0002)\n"
+                "- **Date:** 2026-01-01\n"
+            ),
+            "0002-b.md": _later("Supersedes", "[ADR-0001](0001-a.md) §2."),
+        },
+    )
+    assert back_link_gaps(adr_dir) == []
+
+
+@pytest.mark.parametrize("field", ["Amends", "Extends", "Clarifies"])
+def test_back_link_check_reports_each_non_supersession_field(tmp_path: Path, field: str) -> None:
+    adr_dir = _adr_tree(
+        tmp_path,
+        _BOTH_ACCEPTED,
+        {"0001-a.md": _EARLIER_ACCEPTED, "0002-b.md": _later(field, "[ADR-0001](0001-a.md) §2.")},
+    )
+    gaps = set(back_link_gaps(adr_dir))
+    assert ("0001", "0002", "Status") in gaps
+    assert ("0001", "0002", "registry cell") in gaps
+
+
+def test_back_link_check_requires_the_verb_of_the_field(tmp_path: Path) -> None:
+    adr_dir = _adr_tree(
+        tmp_path,
+        (("0001", "0001-a.md", "Accepted (amended by 0002)"), ("0002", "0002-b.md", "Accepted")),
+        {
+            "0001-a.md": (
+                "# ADR 0001\n\n- **Status:** Accepted (amended by ADR-0002)\n"
+                "- **Date:** 2026-01-01\n"
+            ),
+            "0002-b.md": _later("Extends", "[ADR-0001](0001-a.md) §2."),
+        },
+    )
+    gaps = set(back_link_gaps(adr_dir))
+    assert ("0001", "0002", "Status") in gaps
+    assert ("0001", "0002", "registry cell") in gaps
