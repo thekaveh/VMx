@@ -13,7 +13,7 @@ order unspecified, and no conformance ID constrains it.
 
 A container whose later children depend on earlier ones needs the reverse
 order for teardown. For example, a chart child reads from a query child, and
-the query child reads from a connection child. Heimdall kept a hand-written
+the query child reads from a connection child. One consumer kept a hand-written
 reverse loop instead of a `GroupVM` for this reason (#662).
 
 ADR-0090 drains owned resources in LIFO order, because FIFO "conflicts with

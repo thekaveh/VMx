@@ -11,9 +11,9 @@ A `HierarchicalVM` node cannot be the current item of its tree. Its inherited
 nodes never set that reference, so `CanSelect()` is false. The C#, Python and
 TypeScript notes showcases keep a flat list and a hand-written `current`
 instead of a hierarchy. The React tree also walks `parentId` links by hand to
-find the ancestors of the current notebook. Heimdall reports its own
-`SelectableTreeNodeVM` for the same need (#667, plan §1.8.1 of
-`spec/proposals/2026-10-20-heimdall-upstream-candidates-plan.md`).
+find the ancestors of the current notebook. One consumer reports its own
+selectable tree-node class for the same need (#667, plan §1.8.1 of
+`spec/proposals/2026-10-20-upstream-candidates-plan.md`).
 
 Two facts constrain the design:
 

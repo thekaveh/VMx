@@ -14,8 +14,8 @@ settle. A later construct calls it again, and so does the construct phase of
 `reconstruct()`. Destruct sets `Current` to `null` first (§5, `COMP-005`), so
 the selector chooses `Current` again on each construct.
 
-A consumer cannot rely on behavior that the spec does not state. The Heimdall
-plan (#649) records a consumer that accepts a null current page after every
+A consumer cannot rely on behavior that the spec does not state. The upstream
+candidates plan records a consumer that accepts a null current page after every
 reconstruct for this reason (#654).
 
 ## 2. Decision
