@@ -4,6 +4,8 @@ import json
 import re
 from pathlib import Path
 
+from .workflow_jobs import run_commands, workflow_job
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -223,15 +225,16 @@ def test_required_security_gate_scans_committed_secrets() -> None:
 def test_codeql_covers_every_implementation_language() -> None:
     workflow = (REPO_ROOT / ".github/workflows/security-audit.yml").read_text(encoding="utf-8")
 
-    codeql = workflow.split("  codeql:\n", maxsplit=1)[1].split("\n  npm:", maxsplit=1)[0]
+    codeql = workflow_job(workflow, "codeql")
+    commands = "\n".join(run_commands(codeql))
     assert "      security-events: write" in codeql
     assert "      fail-fast: false" in codeql
     for language in ("csharp", "javascript-typescript", "python", "rust", "swift"):
         assert codeql.count(f"          - language: {language}\n") == 1
     assert "            build-mode: manual\n            runner: macos-15" in codeql
     assert codeql.count("            build-mode: none\n") == 4
-    assert "swift build -c release --package-path langs/swift" in codeql
-    assert "swift build -c release --package-path examples/swift/notes-showcase" in codeql
+    assert "swift build -c release --package-path langs/swift" in commands
+    assert "swift build -c release --package-path examples/swift/notes-showcase" in commands
     init = re.search(r"github/codeql-action/init@([0-9a-f]{40})\b", codeql)
     analyze = re.search(r"github/codeql-action/analyze@([0-9a-f]{40})\b", codeql)
     assert init and analyze

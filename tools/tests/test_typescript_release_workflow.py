@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+from .workflow_jobs import run_commands, workflow_job
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -99,27 +101,35 @@ def test_test_tsconfig_uses_es2022_without_raising_production_target() -> None:
     assert production_config["compilerOptions"]["target"] == "ES2020"
 
 
+_TYPESCRIPT_RELEASE_JOBS = (
+    "typescript-build",
+    "typescript-publish",
+    "typescript-verify-published",
+    "typescript-release-notes",
+)
+
+
 def _typescript_release_jobs() -> str:
+    """The TypeScript release jobs in workflow order, each under its own key."""
     workflow = _workflow("release.yml")
-    jobs = workflow.split("\n  typescript-build:\n", maxsplit=1)[1].split(
-        "\n  react-build:\n", maxsplit=1
-    )[0]
-    assert "\n  react-build:\n" not in jobs
-    return jobs
+    return "".join(f"{name}:\n{workflow_job(workflow, name)}" for name in _TYPESCRIPT_RELEASE_JOBS)
 
 
 def test_release_uses_trusted_publishing_node_and_npm_floors_without_cache() -> None:
     jobs = _typescript_release_jobs()
 
     assert 'node-version: "24"' in jobs
-    assert "npm install --global npm@11.18.0" in jobs
+    assert "npm install --global npm@11.18.0" in "\n".join(run_commands(jobs))
     assert "id-token: write" in jobs
     assert "environment:\n      name: npm-typescript" in jobs
     assert "cache: npm" not in jobs
 
 
 def test_release_runs_every_gate_before_publish() -> None:
-    jobs = _typescript_release_jobs()
+    release = _workflow("release.yml")
+    build = workflow_job(release, "typescript-build")
+    commands = run_commands(build)
+    script = "\n".join(commands)
     required = [
         "npm run sync-fixtures",
         "npm run typecheck",
@@ -131,14 +141,15 @@ def test_release_runs_every_gate_before_publish() -> None:
         "python3 tools/check-typescript-package.py",
         "python3 tools/smoke-npm-consumer.py",
     ]
-    pack_index = jobs.index("npm pack --pack-destination /tmp/npm-release")
-    publish_job_index = jobs.index("\n  typescript-publish:\n")
+    pack = "npm pack --pack-destination /tmp/npm-release"
+    pack_index = script.index(pack)
 
-    assert all(jobs.index(command) < pack_index for command in required)
-    assert pack_index < publish_job_index
-    assert "--package-dir langs/typescript" in jobs
+    assert all(script.index(command) < pack_index for command in required)
+    # The pack is the last run step of the build job, after every gate.
+    assert pack in commands[-1]
+    assert "--package-dir langs/typescript" in script
     # #1333: the publish job installs only the npm CLI and publishes the packed tarball.
-    publish_job = jobs[publish_job_index:].split("\n  typescript-verify-published:\n", 1)[0]
+    publish_job = workflow_job(release, "typescript-publish")
     assert "needs: [typescript-build, release-metadata]" in publish_job
     assert "name: typescript-release-${{ github.run_id }}" in publish_job
     assert '"@thekaveh/vmx@${tag_version}"' in publish_job
@@ -148,23 +159,25 @@ def test_release_runs_every_gate_before_publish() -> None:
 
 def test_release_has_mutually_exclusive_bootstrap_and_oidc_publish_steps() -> None:
     jobs = _typescript_release_jobs()
+    commands = "\n".join(run_commands(jobs)) + "\n"
 
     assert "if: steps.npm-auth.outputs.bootstrap == 'true'" in jobs
     assert "NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}" in jobs
-    assert 'npm publish "$TARBALL" --access public --provenance' in jobs
+    assert 'npm publish "$TARBALL" --access public --provenance' in commands
     assert "name: Publish with npm trusted publishing" in jobs
     assert "if: steps.npm-auth.outputs.bootstrap != 'true'" in jobs
-    assert 'npm publish "$TARBALL" --access public\n' in jobs
+    assert 'npm publish "$TARBALL" --access public\n' in commands
 
 
 def test_release_polls_public_package_and_provenance_on_supported_node_lines() -> None:
     jobs = _typescript_release_jobs()
+    commands = "\n".join(run_commands(jobs))
 
     assert "typescript-verify-published:" in jobs
     assert 'node-version: ["20.5.0", "22", "24", "26"]' in jobs
-    assert "--poll-timeout 600" in jobs
-    assert "--timeout 900" in jobs
-    assert "--require-provenance" in jobs
+    assert "--poll-timeout 600" in commands
+    assert "--timeout 900" in commands
+    assert "--require-provenance" in commands
     helper = (REPO_ROOT / "tools/smoke-npm-consumer.py").read_text(encoding="utf-8")
     assert '"dist.attestations"' in helper
     assert "predicateType" in helper
@@ -174,11 +187,13 @@ def test_release_polls_public_package_and_provenance_on_supported_node_lines() -
 def test_release_notes_follow_public_verification() -> None:
     jobs = _typescript_release_jobs()
 
+    commands = "\n".join(run_commands(jobs))
     verify_index = jobs.index("typescript-verify-published:")
     notes_index = jobs.index("typescript-release-notes:")
     create_index = jobs.index("gh release create", notes_index)
 
+    assert "gh release create" in commands
     assert verify_index < notes_index < create_index
     assert "needs: typescript-verify-published" in jobs
-    assert "langs/typescript/CHANGELOG.md" in jobs
-    assert "--notes-file /tmp/typescript-release-notes.md" in jobs
+    assert "langs/typescript/CHANGELOG.md" in commands
+    assert "--notes-file /tmp/typescript-release-notes.md" in commands

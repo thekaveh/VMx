@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+from .workflow_jobs import run_commands, workflow_job
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "wiki.yml"
 _CONFORMANCE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "conformance.yml"
@@ -81,10 +83,13 @@ def test_wiki_workflow_runs_full_docs_gate_before_publication() -> None:
 
 def test_wiki_workflow_grants_write_only_to_the_publish_job() -> None:
     workflow = _WORKFLOW.read_text(encoding="utf-8")
-    build, publish = workflow.split("\n  publish:\n", maxsplit=1)
+    header = workflow.split("\njobs:\n", maxsplit=1)[0]
+    build = workflow_job(workflow, "build")
+    publish = workflow_job(workflow, "publish")
 
+    assert "contents: write" not in header
     assert "contents: write" not in build
-    assert "make docs-check" in build
+    assert "make docs-check" in "\n".join(run_commands(build))
     assert "pip install" not in publish
     assert publish.count("contents: write") == 1
     assert workflow.count("persist-credentials: false") == workflow.count("actions/checkout@")

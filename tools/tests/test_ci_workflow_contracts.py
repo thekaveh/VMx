@@ -4,6 +4,8 @@ import json
 import re
 from pathlib import Path
 
+from .workflow_jobs import run_commands, workflow_job, workflow_jobs
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 
@@ -175,19 +177,22 @@ def test_protected_branch_checks_are_always_present_and_aggregate_every_job() ->
 
 def test_wpf_example_builds_on_windows_with_real_xaml_enabled() -> None:
     csharp = (WORKFLOWS / "csharp.yml").read_text(encoding="utf-8")
+    job = workflow_job(csharp, "wpf-example")
 
-    assert "wpf-example:" in csharp
-    assert "runs-on: windows-latest" in csharp
-    assert "dotnet build examples/csharp/wpf/TodoApp/WpfTodoApp.csproj -c Release" in csharp
+    assert "runs-on: windows-latest" in job
+    assert "dotnet build examples/csharp/wpf/TodoApp/WpfTodoApp.csproj -c Release" in (
+        "\n".join(run_commands(job))
+    )
 
 
 def test_react_showcase_runs_complete_static_and_production_gates() -> None:
     typescript = (WORKFLOWS / "typescript.yml").read_text(encoding="utf-8")
+    commands = "\n".join(run_commands(workflow_job(typescript, "examples")))
     prefix = "--prefix examples/typescript/react/notes-showcase"
 
-    assert f"npm run typecheck {prefix}" in typescript
-    assert f"npm run lint {prefix}" in typescript
-    assert f"npm run build {prefix}" in typescript
+    assert f"npm run typecheck {prefix}" in commands
+    assert f"npm run lint {prefix}" in commands
+    assert f"npm run build {prefix}" in commands
 
 
 def test_spec_discipline_enforces_develop_first_gitflow() -> None:
@@ -239,9 +244,9 @@ def test_release_yml_alone_creates_the_python_github_release() -> None:
     assert config["packages"]["langs/python"]["skip-github-release"] is True
 
     release = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
-    notes = release.split("\n  python-release-notes:\n", 1)[1].split("\n  typescript:\n", 1)[0]
+    notes = workflow_job(release, "python-release-notes")
     assert "    needs: python-verify-published\n" in notes
-    assert 'gh release create "$tag"' in notes
+    assert 'gh release create "$tag"' in "\n".join(run_commands(notes))
 
     runbook = (REPO_ROOT / "langs/python/RELEASING.md").read_text(encoding="utf-8")
     assert "skip-github-release: true" in runbook
@@ -249,21 +254,18 @@ def test_release_yml_alone_creates_the_python_github_release() -> None:
     assert "tools/release-please-labels.py" in runbook
 
 
-def _release_job(workflow: str, name: str) -> str:
-    return workflow.split(f"\n  {name}:\n", 1)[1].split("\n\n  ", 1)[0]
-
-
 def test_python_release_notes_job_relabels_after_the_github_release() -> None:
     # #1447: release-please builds no Python release, so release.yml relabels.
-    job = _release_job(
+    job = workflow_job(
         (WORKFLOWS / "release.yml").read_text(encoding="utf-8"), "python-release-notes"
     )
+    commands = "\n".join(run_commands(job))
 
     assert "    permissions:\n      contents: write\n      pull-requests: write\n" in job
-    create = job.index('gh release create "$tag"')
-    relabel = job.index("python3 tools/release-please-labels.py relabel")
+    create = commands.index('gh release create "$tag"')
+    relabel = commands.index("python3 tools/release-please-labels.py relabel")
     assert create < relabel
-    assert '--version "${GITHUB_REF#refs/tags/python-v}"' in job
+    assert '--version "${GITHUB_REF#refs/tags/python-v}"' in commands
 
 
 def test_release_please_workflow_fails_on_a_stale_pending_label() -> None:
@@ -316,8 +318,8 @@ def test_swift_coverage_counts_concurrently_executed_regions_exactly() -> None:
     # counter updates lose increments when tests call the same function from
     # many threads, so the region can read as unexecuted (#513).
     swift = (WORKFLOWS / "swift.yml").read_text(encoding="utf-8")
-    coverage = swift.split("\n  coverage:\n", maxsplit=1)[1].split("\n  required:\n")[0]
-    coverage = " ".join(coverage.split())  # read folded `run: >-` commands as one line
+    commands = run_commands(workflow_job(swift, "coverage"))
+    coverage = " ".join("\n".join(commands).split())  # a folded `run: >-` value is one line
 
     assert (
         "swift test --package-path langs/swift --enable-code-coverage"
@@ -329,8 +331,8 @@ def test_swift_example_tests_fail_fast_and_name_a_hung_case() -> None:
     # A hung NotesShowcase case once held the job until its 30-minute timeout
     # with no name in the log (#533). The watchdog kills and names it instead.
     swift = (WORKFLOWS / "swift.yml").read_text(encoding="utf-8")
-    examples = swift.split("\n  examples:\n", maxsplit=1)[1].split("\n  coverage:\n")[0]
-    examples = " ".join(examples.split())  # read folded `run: >-` commands as one line
+    commands = run_commands(workflow_job(swift, "examples"))
+    examples = " ".join("\n".join(commands).split())  # a folded `run: >-` value is one line
 
     assert (
         "python3 ../../../tools/swift-test-watchdog.py --per-test-timeout 120"
@@ -381,17 +383,10 @@ _OIDC_FORBIDDEN = (
 )
 
 
-def _workflow_jobs(text: str) -> dict[str, str]:
-    body = text.split("\njobs:\n", maxsplit=1)[1]
-    body = re.sub(r"(?m)^\s*#.*\n", "", body)
-    parts = re.split(r"(?m)^  ([A-Za-z0-9_-]+):\n", body)
-    return dict(zip(parts[1::2], parts[2::2], strict=True))
-
-
 def oidc_job_violations(text: str) -> list[str]:
     """Return 'job: line' for each forbidden command in a job with id-token: write."""
     violations: list[str] = []
-    for name, job in _workflow_jobs(text).items():
+    for name, job in workflow_jobs(text).items():
         if not re.search(r"(?m)^      id-token: write$", job):
             continue
         violations.extend(
@@ -432,7 +427,7 @@ def test_oidc_job_check_rejects_each_forbidden_command() -> None:
 
 
 def test_registry_publish_jobs_alone_hold_id_token_and_an_environment() -> None:
-    jobs = _workflow_jobs((WORKFLOWS / "release.yml").read_text(encoding="utf-8"))
+    jobs = workflow_jobs((WORKFLOWS / "release.yml").read_text(encoding="utf-8"))
     oidc = {name for name, job in jobs.items() if "      id-token: write\n" in job}
     environments = {name for name, job in jobs.items() if "    environment:\n" in job}
     publishers = {
@@ -464,7 +459,7 @@ def test_registry_publish_jobs_alone_hold_id_token_and_an_environment() -> None:
 
 def test_csharp_example_projects_are_format_checked_in_ci_and_pre_commit() -> None:
     # #1384: the library format gate covers only VMx.sln.
-    jobs = _workflow_jobs((WORKFLOWS / "csharp.yml").read_text(encoding="utf-8"))
+    jobs = workflow_jobs((WORKFLOWS / "csharp.yml").read_text(encoding="utf-8"))
     cases = {
         "examples": (
             "examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj",
@@ -478,11 +473,11 @@ def test_csharp_example_projects_are_format_checked_in_ci_and_pre_commit() -> No
         ),
     }
     for name, projects in cases.items():
-        job = jobs[name]
-        check = job.index('dotnet format "$project" --verify-no-changes --no-restore')
+        commands = "\n".join(run_commands(jobs[name]))
+        check = commands.index('dotnet format "$project" --verify-no-changes --no-restore')
         for project in projects:
-            assert project in job[:check], (name, project)
-            assert job.index("dotnet restore") < check
+            assert project in commands[:check], (name, project)
+            assert commands.index("dotnet restore") < check
     hook = (REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert r"files: ^(langs|examples)/csharp/.*\.(cs|csproj|props)$" in hook
     assert 'dotnet format "$project" --verify-no-changes --no-restore --include "$f"' in hook

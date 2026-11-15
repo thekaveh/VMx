@@ -10,13 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from .workflow_jobs import run_commands, workflow_job
+
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def _job(name: str) -> str:
-    workflow = (ROOT / ".github/workflows/release.yml").read_text()
-    tail = workflow.split(f"\n  {name}:\n", 1)[1]
-    return re.split(r"(?m)^  [a-z][a-z0-9-]*:\n", tail, maxsplit=1)[0]
 
 
 def _run_notes(tmp_path: Path, changelog: str, version: str = "0.2.0"):
@@ -39,7 +35,9 @@ def _run_notes(tmp_path: Path, changelog: str, version: str = "0.2.0"):
     executable.chmod(0o755)
     arguments = tmp_path / "gh-arguments.txt"
     notes = tmp_path / "react-release-notes.md"
-    script = textwrap.dedent(_job("react-release-notes").split("        run: |\n", 1)[1])
+    release = (ROOT / ".github/workflows/release.yml").read_text()
+    job = workflow_job(release, "react-release-notes")
+    script = textwrap.dedent(job.split("        run: |\n", 1)[1])
     script = script.replace("/tmp/react-release-notes.md", '"$RUNNER_TEMP/react-release-notes.md"')
     environment = {
         "PATH": str(executable.parent) + os.pathsep + os.defpath,
@@ -305,26 +303,29 @@ def test_real_adapter_changelog_extracts_current_package_version(tmp_path: Path)
 
 
 def test_release_notes_remain_after_public_verification() -> None:
-    assert "    needs: react-verify-published\n" in _job("react-release-notes")
-    verification = _job("react-verify-published")
+    release = (ROOT / ".github/workflows/release.yml").read_text()
+    assert "    needs: react-verify-published\n" in workflow_job(release, "react-release-notes")
+    verification = workflow_job(release, "react-verify-published")
+    commands = "\n".join(run_commands(verification))
     assert "    needs: react-publish\n" in verification
     assert 'react: ["18.3.1", "19.2.8"]' in verification
-    assert "dist.attestations --json | grep -q" in verification
-    assert "'provenance'" in verification
+    assert "dist.attestations --json | grep -q" in commands
+    assert "'provenance'" in commands
     assert (
         'npm install --ignore-scripts --no-audit --no-fund "@thekaveh/vmx-react@${version}" '
-        '"react@${{ matrix.react }}" "react-dom@${{ matrix.react }}"' in verification
+        '"react@${{ matrix.react }}" "react-dom@${{ matrix.react }}"' in commands
     )
-    assert "mkdir /tmp/react-consumer" in verification
-    assert "createVmxStore" in verification
+    assert "mkdir /tmp/react-consumer" in commands
+    assert "createVmxStore" in commands
 
 
 def _run_core_prerequisite(
     tmp_path: Path, package: dict[str, object], npm_exit: int = 0, tag_version: str = "0.2.0"
 ):
-    step = _job("react-build").split("      - name: Verify tag and public core prerequisite\n", 1)[
-        1
-    ]
+    release = (ROOT / ".github/workflows/release.yml").read_text()
+    step = workflow_job(release, "react-build").split(
+        "      - name: Verify tag and public core prerequisite\n", 1
+    )[1]
     script = textwrap.dedent(step.split("        run: |\n", 1)[1].split("\n      - ", 1)[0])
     adapter = tmp_path / "packages/react"
     adapter.mkdir(parents=True)
