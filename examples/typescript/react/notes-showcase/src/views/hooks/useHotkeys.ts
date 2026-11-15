@@ -2,8 +2,10 @@
  * useHotkeys — tiny static-keymap hotkey dispatcher.
  *
  * See plan §5.c. Reads a `{ "Mod+S": () => …, … }` map and dispatches
- * matching `keydown` events on `window`. "Mod" means Cmd on macOS, Ctrl
- * everywhere else (per the de-facto browser convention).
+ * matching `keydown` events on `window`. "Mod" matches Cmd or Ctrl on every
+ * platform. A final `KeyA`..`KeyZ` token is a `KeyboardEvent.code` name and
+ * matches the physical key, so Option on macOS does not change it. Other
+ * final tokens match `KeyboardEvent.key`.
  *
  * No external dependency. Re-binds on every keymap change — callers should
  * pass stable command references (the `useCommand` result has a stable
@@ -15,9 +17,11 @@ import { useEffect, useRef } from "react";
 export type Hotkey = `Mod+${string}` | `Mod+Shift+${string}`;
 export type Keymap = Record<string, () => void>;
 
+const CODE_TOKEN = /^Key[A-Z]$/;
+
 function matchesHotkey(e: KeyboardEvent, hotkey: string): boolean {
   const parts = hotkey.split("+").map((p) => p.trim());
-  const key = parts[parts.length - 1]?.toLowerCase() ?? "";
+  const token = parts[parts.length - 1] ?? "";
   const wantMod = parts.includes("Mod");
   const wantShift = parts.includes("Shift");
   const wantAlt = parts.includes("Alt");
@@ -25,7 +29,8 @@ function matchesHotkey(e: KeyboardEvent, hotkey: string): boolean {
   if (wantMod !== hasMod) return false;
   if (wantShift !== e.shiftKey) return false;
   if (wantAlt !== e.altKey) return false;
-  return e.key.toLowerCase() === key;
+  if (CODE_TOKEN.test(token)) return e.code === token;
+  return e.key.toLowerCase() === token.toLowerCase();
 }
 
 export function useHotkeys(map: Keymap): void {
