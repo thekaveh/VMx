@@ -101,4 +101,6 @@ jobs:
         run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix examples/typescript/react/notes-showcase
 
       - name: React semantic and keyboard accessibility
-        run: npm test --prefix examples/typescript/react/notes-showcase
+        # The two build steps above already built both packages. Suppress the
+        # showcase pretest hook so CI does not reinstall and rebuild them.
+        run: npm test --prefix examples/typescript/react/notes-showcase --ignore-scripts
