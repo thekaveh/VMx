@@ -76,11 +76,15 @@ def test_HIER_020_invalidate_unmaterialized_children_is_noop() -> None:
     root.invalidate_children()
 
     assert calls == 0
+    # The next access still performs the first materialization.
+    _ = root.children
+    assert calls == 1
 
 
 @pytest.mark.conformance("HIER-021")
 def test_HIER_021_invalidate_subtree_reloads_materialized_descendants() -> None:
     grandchild_calls = 0
+    root_calls = 0
 
     def grandchild_factory(_: Node) -> list[Node]:
         nonlocal grandchild_calls
@@ -88,7 +92,13 @@ def test_HIER_021_invalidate_subtree_reloads_materialized_descendants() -> None:
         return [Node()]
 
     child = Node(grandchild_factory)
-    root = Node(lambda _: [child])
+
+    def root_factory(_: Node) -> list[Node]:
+        nonlocal root_calls
+        root_calls += 1
+        return [child]
+
+    root = Node(root_factory)
     _ = root.children
     first_grandchild = child.children[0]
 
@@ -96,6 +106,7 @@ def test_HIER_021_invalidate_subtree_reloads_materialized_descendants() -> None:
     reloaded_child = root.children[0]
     second_grandchild = reloaded_child.children[0]
 
+    assert root_calls == 2, "the root's own child cache is dropped and its factory runs again"
     assert grandchild_calls == 2
     assert second_grandchild is not first_grandchild
 

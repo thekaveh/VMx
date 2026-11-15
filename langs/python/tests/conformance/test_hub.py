@@ -339,6 +339,7 @@ def test_HUB_013_ordinary_send_remains_synchronous() -> None:
     assert delivered
 
 
+@pytest.mark.conformance("HUB-013")
 def test_opposing_hub_callbacks_do_not_deadlock() -> None:
     left = _fresh_hub()
     right = _fresh_hub()
@@ -378,6 +379,7 @@ def test_opposing_hub_callbacks_do_not_deadlock() -> None:
     right.dispose()
 
 
+@pytest.mark.conformance("HUB-013")
 def test_opposing_hub_callback_batches_do_not_deadlock() -> None:
     left = _fresh_hub()
     right = _fresh_hub()
@@ -418,6 +420,7 @@ def test_opposing_hub_callback_batches_do_not_deadlock() -> None:
     right.dispose()
 
 
+@pytest.mark.conformance("HUB-013")
 def test_unrelated_hub_callback_send_waits_for_busy_target() -> None:
     source = _fresh_hub()
     target = _fresh_hub()
@@ -456,6 +459,7 @@ def test_unrelated_hub_callback_send_waits_for_busy_target() -> None:
     target.dispose()
 
 
+@pytest.mark.conformance("HUB-013")
 def test_cyclic_dispose_of_batched_hub_completes_on_batch_exit() -> None:
     batched = _fresh_hub()
     source = _fresh_hub()

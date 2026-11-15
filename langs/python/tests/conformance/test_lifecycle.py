@@ -257,6 +257,42 @@ def test_LIFE_004_dispose_reaches_disposed() -> None:
     assert len(disposed) == 1
 
 
+@pytest.mark.conformance("LIFE-004")
+@pytest.mark.parametrize("state", ["destructed", "constructed", "constructing", "destructing"])
+def test_LIFE_004_dispose_reaches_disposed_from_each_listed_state(state: str) -> None:
+    """LIFE-004: dispose() from each listed state ends Disposed and emits one Disposed message."""
+    hub = _hub()
+    vm_cell: list[ComponentVM] = []
+
+    def dispose_in_hook() -> None:
+        # Runs while the VM is mid-transition (Constructing or Destructing).
+        vm_cell[0].dispose()
+
+    builder = ComponentVMBuilder().name(f"life-004-{state}").services(hub, _dispatcher())
+    if state == "constructing":
+        builder = builder.on_construct(dispose_in_hook)
+    elif state == "destructing":
+        builder = builder.on_destruct(dispose_in_hook)
+    vm = builder.build()
+    vm_cell.append(vm)
+    msgs = _status_messages(hub)
+
+    if state == "constructing":
+        vm.construct()
+    elif state == "destructing":
+        vm.construct()
+        vm.destruct()
+    elif state == "constructed":
+        vm.construct()
+        vm.dispose()
+    else:
+        vm.dispose()
+
+    assert vm.status == ConstructionStatus.DISPOSED
+    disposed = [m for m in msgs if m.status == ConstructionStatus.DISPOSED]
+    assert len(disposed) == 1
+
+
 # ---------------------------------------------------------------------------
 # LIFE-007 — is_constructed == (status == Constructed) invariant
 # ---------------------------------------------------------------------------
@@ -309,6 +345,37 @@ def test_LIFE_008_concurrent_operation_raises() -> None:
 
     assert len(caught) == 1, (
         "Re-entrant construct() during the in-flight transition must raise StatusTransitionError"
+    )
+
+
+@pytest.mark.conformance("LIFE-008")
+def test_LIFE_008_concurrent_destruct_raises() -> None:
+    """LIFE-008: re-invoking destruct() while it is in-flight raises StatusTransitionError."""
+    caught: list[StatusTransitionError] = []
+    vm: ComponentVM | None = None
+
+    def on_destruct_cb() -> None:
+        # This hook fires while the VM is still mid-destruct (state Destructing,
+        # not yet Destructed). Re-entering destruct() must raise.
+        assert vm is not None
+        try:
+            vm.destruct()
+        except StatusTransitionError as exc:
+            caught.append(exc)
+
+    vm = (
+        ComponentVMBuilder()
+        .name("vm-reentrant-destruct")
+        .services(_hub(), _dispatcher())
+        .on_destruct(on_destruct_cb)
+        .build()
+    )
+
+    vm.construct()
+    vm.destruct()
+
+    assert len(caught) == 1, (
+        "Re-entrant destruct() during the in-flight transition must raise StatusTransitionError"
     )
 
 

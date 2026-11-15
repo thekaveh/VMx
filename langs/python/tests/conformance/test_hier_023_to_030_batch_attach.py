@@ -72,6 +72,22 @@ def test_hier_024_null_parent_keys_attach_multiple_roots_below_receiver_root() -
     assert first.parent is root and second.parent is root
 
 
+@pytest.mark.conformance("HIER-024")
+def test_hier_024_root_sentinel_items_attach_to_structural_root_from_non_root_receiver() -> None:
+    root = Node("root")
+    receiver = Node("receiver")
+    root.add_child(receiver)
+    first = Node("first")
+    second = Node("second")
+
+    result = attach(receiver, [first, second])
+
+    assert result.added == [first, second]
+    assert list(root.children) == [receiver, first, second], "items join the structural root"
+    assert list(receiver.children) == [], "the non-root receiver gains no children"
+    assert first.parent is root and second.parent is root
+
+
 @pytest.mark.conformance("HIER-025")
 def test_hier_025_duplicate_keys_never_replace_existing_or_first_batch_node() -> None:
     root = Node("root")
@@ -208,5 +224,8 @@ def test_hier_030_dispose_clears_root_owned_parked_items() -> None:
     assert root.parked_attach_count == 1
 
     root.dispose()
+
+    assert root.parked_attach_count == 0
+    root.dispose()  # repeated disposal remains safe
 
     assert root.parked_attach_count == 0
