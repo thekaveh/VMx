@@ -61,6 +61,7 @@ public sealed class ThemeVMTests
     // ── THEME-001 ──────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Conformance", "THEME-001")]
     public void THEME_001_SetThemeCommand_dark_publishes_ThemeChangedMessage_with_prev_and_curr()
     {
         var (vm, hub) = Build(initial: ThemeModel.LIGHT_PRESET);
@@ -80,6 +81,7 @@ public sealed class ThemeVMTests
     // ── THEME-002 ──────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Conformance", "THEME-002")]
     public void THEME_002_Unknown_preset_throws_ArgumentException_without_publishing_a_message()
     {
         var (vm, hub) = Build();
@@ -95,6 +97,7 @@ public sealed class ThemeVMTests
     // ── THEME-003 ──────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Conformance", "THEME-003")]
     public void THEME_003_ToggleHighContrast_preserves_accent_and_scale()
     {
         var custom = ThemeModel.LIGHT_PRESET with
@@ -118,6 +121,7 @@ public sealed class ThemeVMTests
     // ── THEME-004 ──────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Conformance", "THEME-004")]
     public void THEME_004_SetFontScale_clamps_below_floor()
     {
         var (vm, hub) = Build();
@@ -130,6 +134,7 @@ public sealed class ThemeVMTests
     }
 
     [Fact]
+    [Trait("Conformance", "THEME-004")]
     public void THEME_004_SetFontScale_clamps_above_ceiling()
     {
         var (vm, hub) = Build();
@@ -142,6 +147,7 @@ public sealed class ThemeVMTests
     }
 
     [Fact]
+    [Trait("Conformance", "THEME-004")]
     public void THEME_004_SetFontScale_in_range_keeps_value()
     {
         var (vm, _) = Build();
@@ -154,6 +160,7 @@ public sealed class ThemeVMTests
     // ── THEME-005 ──────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Conformance", "THEME-005")]
     public void THEME_005_FollowSystemCommand_sets_FollowsSystem_true_then_SetThemeCommand_resets_to_false()
     {
         var (vm, _) = Build(
