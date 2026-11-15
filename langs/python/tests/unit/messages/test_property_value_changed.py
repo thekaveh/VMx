@@ -10,7 +10,7 @@ from vmx.services.message_hub import MessageHub
 class _TestSource:
     """Minimal source that emits PropertyChangedMessage via a hub."""
 
-    def __init__(self, hub: MessageHub) -> None:  # type: ignore[type-arg]
+    def __init__(self, hub: MessageHub[PropertyChangedMessage[_TestSource]]) -> None:
         self._hub = hub
         self._count: int = 0
         self._label: str = ""
