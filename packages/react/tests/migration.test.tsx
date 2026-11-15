@@ -2,7 +2,7 @@
 // Each "before" shape is what a consumer written against an older VMx line
 // contains; a shape that no longer compiles is pinned with @ts-expect-error so
 // the guide's claim fails loudly if the core changes again.
-import { type JSX } from "react";
+import { StrictMode, type JSX } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { Observable, Subject } from "rxjs";
 import { afterEach, describe, expect, it } from "vitest";
@@ -221,6 +221,35 @@ describe("upgrade recipe: hub-first store lifetime", () => {
     expect(subscriptions()).toBe(1);
 
     mounted.unmount();
+    expect(subscriptions()).toBe(0);
+  });
+
+  it("holds no hub subscription after the last whole-VM useVm unmounts", async () => {
+    const { hub, subscriptions } = countingHub();
+    const vm = new RunVM(hub, run);
+    function Whole(): JSX.Element {
+      return <span>{useVm(vm).model.name}</span>;
+    }
+
+    const mounted = render(<Whole />);
+    mounted.unmount();
+    await Promise.resolve();
+    expect(subscriptions()).toBe(0);
+  });
+
+  it("keeps the whole-VM tracker across a StrictMode remount", async () => {
+    const { hub, subscriptions } = countingHub();
+    const vm = new RunVM(hub, run);
+    function Whole(): JSX.Element {
+      return <span>{useVm(vm).model.name}</span>;
+    }
+
+    const mounted = render(<StrictMode><Whole /></StrictMode>);
+    await Promise.resolve();
+    expect(subscriptions()).toBe(2);
+
+    mounted.unmount();
+    await Promise.resolve();
     expect(subscriptions()).toBe(0);
   });
 });

@@ -4,21 +4,24 @@ import { useSyncExternalStoreWithSelector } from "use-sync-external-store/with-s
 export type Equality<T> = (current: T, next: T) => boolean;
 export type SourceSubscribe = (invalidate: () => void) => () => void;
 
-/** Adapt a directly observable value to a cached monotonic selector token. */
+/**
+ * Adapt a directly observable value to a cached monotonic selector token.
+ * `serverVersion`, when given, is the version that server renders and
+ * hydration read. A selector can return a fixed value for it and skip work
+ * that needs a live subscription.
+ */
 export function useVersionedSelector<T>(
   sourceSubscribe: SourceSubscribe,
   selector: (version: number) => T,
   equality: Equality<T> = Object.is,
-  forceSubscribeCatchUp = false,
+  serverVersion?: number,
 ): T {
   const versionRef = useRef(0);
   const selectionRef = useRef<{ readonly value: T } | null>(null);
   const selectorRef = useRef(selector);
   const equalityRef = useRef(equality);
-  const forceCatchUpRef = useRef(forceSubscribeCatchUp);
   selectorRef.current = selector;
   equalityRef.current = equality;
-  forceCatchUpRef.current = forceSubscribeCatchUp;
 
   const subscribe = useCallback(
     (notify: () => void): (() => void) => {
@@ -31,10 +34,7 @@ export function useVersionedSelector<T>(
       const unsubscribe = sourceSubscribe(invalidate);
       const previous = selectionRef.current;
       const current = selectorRef.current(versionRef.current);
-      if (
-        forceCatchUpRef.current || previous === null ||
-        !equalityRef.current(previous.value, current)
-      ) {
+      if (previous === null || !equalityRef.current(previous.value, current)) {
         versionRef.current += 1;
       }
       return () => {
@@ -46,6 +46,10 @@ export function useVersionedSelector<T>(
   );
 
   const getSnapshot = useCallback(() => versionRef.current, []);
+  const getServerSnapshot = useCallback(
+    () => serverVersion ?? versionRef.current,
+    [serverVersion],
+  );
   const trackedSelector = useCallback(
     (version: number): T => {
       const selected = selector(version);
@@ -57,7 +61,7 @@ export function useVersionedSelector<T>(
   return useSyncExternalStoreWithSelector(
     subscribe,
     getSnapshot,
-    getSnapshot,
+    getServerSnapshot,
     trackedSelector,
     equality,
   );
