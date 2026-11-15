@@ -30,8 +30,10 @@ release procedure for every flavor.
 - Edit the site and wiki pages only in their sources: `docs/content/` and the
   other files that `docs/manifest.yaml` lists. Run `make docs-check` before the
   PR. The site and wiki are generated from these
-  sources and publish only from `main`. Do not edit the wiki directly: each
-  publication replaces every wiki page.
+  sources and publish only from `main`. A manual run of the `wiki` workflow
+  (`workflow_dispatch`) publishes only when it runs on `main`; on any other
+  branch it builds the wiki and skips the publish. Do not edit the wiki
+  directly: each publication replaces every wiki page.
 
 The repository's [CONTRIBUTING.md](../../CONTRIBUTING.md) holds the full
 policy: review, branch synchronization between `develop` and `main`, CI run

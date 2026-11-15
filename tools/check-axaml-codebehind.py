@@ -18,6 +18,11 @@ Why both forms are allowed:
 Either keeps the view file body trivial. Anything else (a field assignment, a
 ``this.AttachDevTools()`` call, an event subscription) is rejected.
 
+A view is a partial class, so its members can also sit in another file. For each
+view, every other ``.cs`` file of the same app project that declares
+``partial class <Name>`` is checked the same way. ``bin/``, ``obj/`` and
+``Views/Adapter/`` are not scanned.
+
 The script is also tolerant of *expression-bodied* constructors, e.g.
 ``public MyView() => AvaloniaXamlLoader.Load(this);`` — which is the form
 used throughout the Phase 5.a + retrofit code-behind. The regex strips the
@@ -121,6 +126,42 @@ def check(path: Path) -> list[str]:
     return violations
 
 
+AVALONIA_ROOT = Path("examples") / "csharp" / "avalonia"
+CODE_BEHIND_SUFFIX = ".axaml.cs"
+_PARTIAL_CLASS_RE = re.compile(r"\bpartial\s+class\s+(\w+)")
+_BUILD_DIRS = {"bin", "obj"}
+
+
+def _app_dir(view: Path, root: Path) -> Path:
+    """Return the app project directory that holds a view (the `*` in the scan glob)."""
+    return root / AVALONIA_ROOT / view.relative_to(root / AVALONIA_ROOT).parts[0]
+
+
+def _view_class_name(view: Path) -> str:
+    """Return the class a view file declares, or the file stem when none is found."""
+    match = _PARTIAL_CLASS_RE.search(view.read_text(encoding="utf-8"))
+    if match is not None:
+        return match.group(1)
+    return view.name[: -len(CODE_BEHIND_SUFFIX)]
+
+
+def _partial_files(app_dir: Path, class_name: str) -> list[Path]:
+    """Return the other .cs files of an app project that declare `partial class <name>`.
+
+    Build output (`bin/`, `obj/`) and the adapter sub-layer (`Views/Adapter/`)
+    are not scanned.
+    """
+    declares = re.compile(rf"\bpartial\s+class\s+{re.escape(class_name)}\b")
+    found: list[Path] = []
+    for path in sorted(app_dir.rglob("*.cs")):
+        rel = path.relative_to(app_dir).parts
+        if any(part in _BUILD_DIRS for part in rel) or rel[:2] == ("Views", "Adapter"):
+            continue
+        if declares.search(path.read_text(encoding="utf-8")):
+            found.append(path)
+    return found
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=".", help="Repo root (default: current dir)")
@@ -134,8 +175,14 @@ def main() -> int:
     ]
 
     failures: list[str] = []
+    scanned: set[Path] = set(targets)
     for p in targets:
         failures.extend(check(p))
+        # The view is a partial class, so its members can sit in another file of the project.
+        for partial in _partial_files(_app_dir(p, root), _view_class_name(p)):
+            if partial not in scanned:
+                scanned.add(partial)
+                failures.extend(check(partial))
 
     if failures:
         print("\n".join(failures), file=sys.stderr)

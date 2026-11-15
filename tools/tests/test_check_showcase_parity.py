@@ -40,6 +40,16 @@ def _build_valid_tree(root: Path) -> None:
         "\n".join(f"func testTHEME{i:03d}_Scenario() {{ }}" for i in range(1, 6)),
         encoding="utf-8",
     )
+    catalog = root / "spec/12-conformance.md"
+    catalog.parent.mkdir(parents=True, exist_ok=True)
+    catalog.write_text(
+        "\n".join(
+            ["### LIFE-001 — a library heading, not a scenario"]
+            + [f"### THEME-{i:03d} — scenario {i}" for i in range(1, 6)]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     scope_doc = root / csp.RUST_SCOPE_DOC
     scope_doc.parent.mkdir(parents=True, exist_ok=True)
     scope_doc.write_text("\n".join(csp.RUST_SCOPE_TERMS), encoding="utf-8")
@@ -106,9 +116,105 @@ def test_main_returns_one_when_a_slug_file_is_missing(tmp_path, monkeypatch, cap
 
 def test_main_returns_one_when_test_roots_absent(tmp_path, monkeypatch, capsys) -> None:
     """An empty repo root (no flavor test trees) reports each missing root and fails."""
+    catalog = tmp_path / "spec/12-conformance.md"
+    catalog.parent.mkdir(parents=True)
+    catalog.write_text("### THEME-001 — scenario 1\n", encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
     assert csp.main() == 1
     assert "test root not found" in capsys.readouterr().err
+
+
+def test_a_theme_heading_without_flagship_tests_fails(tmp_path, monkeypatch, capsys) -> None:
+    """A THEME-006 heading in the catalog must fail every flagship, not pass silently."""
+    _build_valid_tree(tmp_path)
+    catalog = tmp_path / "spec/12-conformance.md"
+    catalog.write_text(
+        catalog.read_text(encoding="utf-8") + "### THEME-006 — synthetic scenario with no test\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
+    assert csp.main() == 1
+    err = capsys.readouterr().err
+    for flavor in ("csharp", "python", "typescript", "swift"):
+        assert f"{flavor}: missing executable scenario marker 'THEME-006'" in err
+    assert "no step covers ['THEME-006']" in err
+
+
+def test_library_form_markers_satisfy_every_flagship(tmp_path, monkeypatch, capsys) -> None:
+    """Each flavor's library marker counts for a THEME ID, with no name-based form present."""
+    _build_valid_tree(tmp_path)
+    cs = tmp_path / "examples/csharp/avalonia/NotesShowcase.Tests/ThemeVMTests.cs"
+    py = tmp_path / "examples/python/textual/notes_showcase/tests/test_theme_vm.py"
+    ts = tmp_path / "examples/typescript/react/notes-showcase/tests/themeVm.test.ts"
+    sw = tmp_path / "examples/swift/notes-showcase/Tests/ThemeVMTests.swift"
+    cs.write_text(
+        "\n".join(
+            f'[Fact]\n[Trait("Conformance", "THEME-{i:03d}")]\npublic void Scenario_{i}() {{ }}'
+            for i in range(1, 6)
+        ),
+        encoding="utf-8",
+    )
+    py.write_text(
+        "\n".join(
+            f'@pytest.mark.conformance("THEME-{i:03d}")\ndef helper_{i}(): pass'
+            for i in range(1, 6)
+        ),
+        encoding="utf-8",
+    )
+    ts.write_text(
+        "\n".join(f'describe("THEME-{i:03d}", () => {{}});' for i in range(1, 6)),
+        encoding="utf-8",
+    )
+    sw.write_text(
+        "\n".join(
+            f"/// THEME-{i:03d} — scenario {i}\nfunc testScenario{i}() {{ }}" for i in range(1, 6)
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
+    assert csp.main() == 0, capsys.readouterr().err
+
+
+def test_a_commented_csharp_trait_is_not_a_theme_marker(tmp_path, monkeypatch, capsys) -> None:
+    """A line-commented Conformance trait must not satisfy the C# THEME marker."""
+    _build_valid_tree(tmp_path)
+    cs = tmp_path / "examples/csharp/avalonia/NotesShowcase.Tests/ThemeVMTests.cs"
+    cs.write_text(
+        "\n".join(
+            f'// [Trait("Conformance", "THEME-{i:03d}")]\n[Fact]\npublic void Scenario_{i}() {{ }}'
+            for i in range(1, 6)
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
+    assert csp.main() == 1
+    assert "csharp: missing executable scenario marker 'THEME-001'" in capsys.readouterr().err
+
+
+def test_theme_ids_are_read_from_the_real_catalog() -> None:
+    assert csp.theme_ids_from_catalog(REPO_ROOT) == [f"THEME-{i:03d}" for i in range(1, 6)]
+
+
+def test_main_returns_one_when_the_catalog_declares_no_theme_id(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    _build_valid_tree(tmp_path)
+    (tmp_path / "spec/12-conformance.md").write_text(
+        "### LIFE-001 — only library IDs\n", encoding="utf-8"
+    )
+
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
+    assert csp.main() == 1
+    assert "declares no THEME-NNN scenario IDs" in capsys.readouterr().err
+
+
+def test_main_returns_one_when_the_catalog_is_missing(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
+    assert csp.main() == 1
+    assert "cannot read spec/12-conformance.md" in capsys.readouterr().err
 
 
 def test_main_returns_one_when_theme_marker_is_missing(tmp_path, monkeypatch, capsys) -> None:
@@ -240,7 +346,8 @@ def test_theme_scenario_must_cover_every_theme_id() -> None:
     scenario = json.loads((REPO_ROOT / csp.THEME_SCENARIO).read_text(encoding="utf-8"))
     scenario["steps"] = [step for step in scenario["steps"] if step.get("covers") != "THEME-004"]
 
-    assert "no step covers ['THEME-004']" in csp._theme_scenario_problems(scenario)
+    theme_ids = csp.theme_ids_from_catalog(REPO_ROOT)
+    assert "no step covers ['THEME-004']" in csp._theme_scenario_problems(scenario, theme_ids)
 
 
 def test_theme_scenario_must_keep_its_error_path_and_teardown() -> None:
@@ -249,7 +356,7 @@ def test_theme_scenario_must_keep_its_error_path_and_teardown() -> None:
         step for step in scenario["steps"][:-1] if step["expect"].get("error") is None
     ]
 
-    problems = csp._theme_scenario_problems(scenario)
+    problems = csp._theme_scenario_problems(scenario, csp.theme_ids_from_catalog(REPO_ROOT))
     assert "no step expects a rejected operation (error path)" in problems
     assert "the scenario does not end with an asserted teardown" in problems
     assert "no step exercises ['dispose']" in problems
@@ -260,7 +367,7 @@ def test_theme_scenario_steps_must_assert_the_theme_and_events() -> None:
     del scenario["steps"][1]["expect"]["theme"]
     del scenario["steps"][2]["expect"]["events"]
 
-    problems = csp._theme_scenario_problems(scenario)
+    problems = csp._theme_scenario_problems(scenario, csp.theme_ids_from_catalog(REPO_ROOT))
     assert "a step before dispose does not assert the theme" in problems
     assert "a step does not assert its ordered events" in problems
 
@@ -270,4 +377,4 @@ def test_the_repository_scenarios_have_no_problems() -> None:
     theme = json.loads((REPO_ROOT / csp.THEME_SCENARIO).read_text(encoding="utf-8"))
 
     assert csp._scenario_problems(lifecycle) == []
-    assert csp._theme_scenario_problems(theme) == []
+    assert csp._theme_scenario_problems(theme, csp.theme_ids_from_catalog(REPO_ROOT)) == []

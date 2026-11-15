@@ -62,6 +62,7 @@ def _preload(script_filename: str, module_alias: str) -> None:
 def _preload_scripts() -> None:
     """Pre-load all check-*.py scripts under hyphen-stripped aliases."""
     _preload("check-conformance-coverage.py", "check_conformance_coverage")
+    _preload("check-conformance-catalog.py", "check_conformance_catalog")
     _preload("check-conformance-execution.py", "check_conformance_execution")
     _preload("check-fixture-contracts.py", "check_fixture_contracts")
     _preload("check-axaml-codebehind.py", "check_axaml_codebehind")
@@ -73,6 +74,7 @@ def _preload_scripts() -> None:
     _preload("check-python-fixture-sync.py", "check_python_fixture_sync")
     _preload("check-python-package.py", "check_python_package")
     _preload("check-release-please-state.py", "check_release_please_state")
+    _preload("check-spec-adr.py", "check_spec_adr")
     _preload("release-please-labels.py", "release_please_labels")
     _preload(
         "ensure-release-changelog-unreleased.py",
@@ -82,6 +84,7 @@ def _preload_scripts() -> None:
     _preload("check-typescript-schema-sync.py", "check_typescript_schema_sync")
     _preload("check-swift-package-sync.py", "check_swift_package_sync")
     _preload("check-typescript-package.py", "check_typescript_package")
+    _preload("check-react-package.py", "check_react_package")
     _preload("check-nuget-package.py", "check_nuget_package")
     _preload("check-dependency-locks.py", "check_dependency_locks")
     _preload("check-coverage-floor.py", "check_coverage_floor")

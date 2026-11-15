@@ -61,10 +61,11 @@ repos:
         files: ^((spec|docs)/.*|(langs/[^/]+|packages/react)/CHANGELOG)\.md$
         # mdformat rewrites indented Material tab content into standalone fenced
         # blocks, which builds but renders as separate single-tab groups.
+        # The CI step in conformance.yml holds the same list; tools/tests/
+        # test_mdformat_scope.py fails when the two differ.
         exclude: |
           (?x)^(
             docs/content/examples/rust-tui-notes-showcase\.md|
-            docs/content/flavors/rust\.md|
             docs/content/primitives/(command-families|services-messages-dispatching)\.md|
             docs/content/primitives/viewmodel-families/(composite-family|forwarding-wrapper-family|hierarchical-family)\.md|
             docs/content/primitives/viewmodel-families/specialized/(confirmation-vm|discriminator-vm|form-vm|modal-vm|notification-vm)\.md

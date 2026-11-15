@@ -93,3 +93,13 @@ def test_wiki_workflow_grants_write_only_to_the_publish_job() -> None:
     assert "pip install" not in publish
     assert publish.count("contents: write") == 1
     assert workflow.count("persist-credentials: false") == workflow.count("actions/checkout@")
+
+
+def test_wiki_workflow_publishes_only_from_main() -> None:
+    workflow = _WORKFLOW.read_text(encoding="utf-8")
+    _, publish = workflow.split("\n  publish:\n", maxsplit=1)
+
+    # Four spaces mark a job-level key; step keys have eight. Exact equality
+    # rejects an added term such as "|| github.ref == 'refs/heads/develop'".
+    job_conditions = re.findall(r"^    if: (.+)$", publish, flags=re.MULTILINE)
+    assert job_conditions == ["github.ref == 'refs/heads/main'"]

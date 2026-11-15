@@ -98,6 +98,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 ### 1.1 Release, package, and coverage checks
 
 - `check-cobertura-threshold.py` — Fails when aggregate Cobertura line or branch coverage drops below a floor (C# coverage gate).
+- `check-conformance-catalog.py` — Checks the catalog structure that the coverage tool does not read: each library ID appears in a chapter Conformance table, each `§N` and "Chapter 12 §N holds the `X` IDs" clause names a real section, each `###` ID heading is well formed, and each entry has Given, When and Then clauses. Exits 1 on a problem and 2 when a file cannot be read.
 - `check-conformance-execution.py` — Checks that every library conformance ID has a passing executed test case, not only a marker.
 - `check-coverage-floor.py` — Checks an llvm-cov coverage export against a flavor's recorded floor in `coverage-floors.json` (Rust and Swift).
 - `check-fixture-contracts.py` — Validates the canonical fixture inventories and their structural contracts.
@@ -105,10 +106,11 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `check-python-interpreter.py` — Asserts the interpreter identity, then runs Python arguments with that executable.
 - `check-python-api.py` — Compares the public API of the `vmx` Python package with `langs/python/api/vmx.api.txt` on Python 3.12; `--update` rewrites the baseline.
 - `check-python-package.py` — Validates the exact VMx Python wheel and sdist contents before publication.
-- `check-react-package.py` — Fails when the React adapter's npm payload drifts from its allowlist.
+- `check-react-package.py` — Checks the React adapter manifest name and peer dependencies, then fails on any missing or unexpected file in its npm payload (an exact allowlist).
 - `check-rust-api-baseline.py` — In a pull request, checks that the Rust API baseline revision declares the same `Cargo.toml` version as the base commit, so `cargo semver-checks` cannot accept a break against a stale baseline.
 - `check-rust-doc-snippets.py` — Compiles every Rust fence in the public Rust getting-started guide.
 - `check-rust-package.py` — Verifies that the Rust crate package holds exactly the fixed top-level and generated files plus each file Git tracks under `langs/rust/src` and `langs/rust/tests`. A new tracked file needs no edit to the tool.
+- `check-spec-adr.py` — Enforces the spec-discipline ADR rule for one pull request: a spec text change needs a numbered ADR in `spec/ADRs/`, or the `no-adr-needed` label. It diffs from the merge base of the base and head commits, so a base that moved after the branch point adds no changes. Standard library only, because the workflow runs it on the runner's `python3`.
 - `check-swift-package-sync.py` — Verifies that the root and nested SwiftPM manifests stay equivalent.
 - `check-swift-subscript-chains.py` — Rejects `]?.` (optional chaining on a subscript result), also split over two lines, in the repository's Swift files; Swift 6.4 at `-Onone` can return a non-nil member for a missing dictionary key there (#1462).
 - `check-typescript-api.py` — Compares the built `@thekaveh/vmx` declarations, with chunk hashes and comments removed, with `langs/typescript/api/vmx.api.txt`; `--update` rewrites the baseline.
@@ -140,12 +142,18 @@ exits 0 on success / non-zero with a per-line violation report on failure.
 
 - `check-axaml-codebehind.py` — Avalonia view code-behind (`*.axaml.cs`)
   may only call `InitializeComponent()` or `AvaloniaXamlLoader.Load(this)`.
-  Excludes `Views/Adapter/` (binding helpers, not views).
+  A view is a partial class, so every other `.cs` file of the same app
+  project that declares the view's `partial class` is checked the same way.
+  Excludes `Views/Adapter/` (binding helpers, not views) and `bin/` / `obj/`.
 
 - `check-textual-views.py` — Textual widget classes may define only
   `__init__` / `compose` / `on_mount` / `render`, `action_*` methods
   (≤ 1 statement each), and `on_*` event handlers (≤ 1 statement, no
-  direct hub subscriptions). Excludes `views/adapter/**`.
+  direct hub subscriptions). Statements inside `if`, `with`, `for`,
+  `while`, `try` and `match` blocks count toward that limit. A hub
+  subscription is any `subscribe(...)` call whose receiver chain reaches a
+  hub, including one nested in an argument or made through a local alias.
+  Excludes `views/adapter/**`.
 
 - `check-layer-imports.py` — enforces the layered import direction for
   the C#, Python, and TypeScript flagship examples:
@@ -156,6 +164,12 @@ exits 0 on success / non-zero with a per-line violation report on failure.
   INPC-aware sidecars co-located with the VM).
   Views → anywhere.
 
+  Every reference to another layer is checked, including Python relative
+  and `from notes_showcase import views` imports, C# alias, `global using`
+  and qualified names, and TypeScript `export ... from`, dynamic `import()`
+  and multi-line imports. Comments are ignored. A Python file that does not
+  parse is reported as a violation.
+
   The Swift flagship is intentionally outside this script: its core/view split
   is enforced by SwiftPM target boundaries (`NotesShowcaseCore` vs
   `NotesShowcase`) plus Swift compile checks.
@@ -164,8 +178,8 @@ exits 0 on success / non-zero with a per-line violation report on failure.
   canonical VM test files (`workspace_vm`, `notebooks_root_vm`,
   `notebook_vm`, `notes_view_vm`, `note_vm`, `note_form_vm`,
   `status_bar_vm`, `notifications_vm`, `capability_actions_vm`,
-  `theme_vm`, `in_memory_repository`) and all `THEME-00x`
-  scenario markers.
+  `theme_vm`, `in_memory_repository`) and a test marker for every
+  `THEME-NNN` scenario ID that `spec/12-conformance.md` declares.
 
 A fifth check is the React ESLint rule under
 `examples/typescript/react/notes-showcase/eslint.config.js` —

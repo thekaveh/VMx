@@ -34,7 +34,7 @@ Examples:
 import argparse
 import re
 import sys
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
 # ─── parsing ──────────────────────────────────────────────────────────
@@ -49,7 +49,20 @@ _HEADING_PREFIX = "### "
 # the per-flavor scraper compares against. The IDs still appear in
 # `spec/12-conformance.md` (one ### heading per scenario) for documentation +
 # cross-flavor parity; example-app suites cover them separately.
+#
+# This set is the single source of the scenario prefixes. spec-discipline.yml
+# reads it through `--print-scenario-prefixes`, and check-showcase-parity.py
+# reads the IDs through `parse_scenario_ids`. Do not copy the list elsewhere.
 _SCENARIO_PREFIXES: frozenset[str] = frozenset({"THEME"})
+
+
+def _heading_ids(catalog_path: Path) -> Iterator[tuple[str, str]]:
+    """Yield (prefix, ID) for every XXX-NNN named on a ### heading line, in order."""
+    for raw_line in catalog_path.read_text(encoding="utf-8").splitlines():
+        if not raw_line.startswith(_HEADING_PREFIX):
+            continue
+        for match in _ID_PATTERN.finditer(raw_line):
+            yield match.group(1), f"{match.group(1)}-{match.group(2)}"
 
 
 def parse_catalog_ids(catalog_path: Path) -> set[str]:
@@ -64,16 +77,24 @@ def parse_catalog_ids(catalog_path: Path) -> set[str]:
     not `langs/<lang>/tests/conformance/`, and would otherwise show up as
     permanent gaps in cross-flavor coverage.
     """
-    ids: set[str] = set()
-    for raw_line in catalog_path.read_text(encoding="utf-8").splitlines():
-        if not raw_line.startswith(_HEADING_PREFIX):
-            continue
-        for match in _ID_PATTERN.finditer(raw_line):
-            prefix = match.group(1)
-            if prefix in _SCENARIO_PREFIXES:
-                continue
-            ids.add(f"{match.group(1)}-{match.group(2)}")
-    return ids
+    return {
+        catalog_id
+        for prefix, catalog_id in _heading_ids(catalog_path)
+        if prefix not in _SCENARIO_PREFIXES
+    }
+
+
+def parse_scenario_ids(catalog_path: Path) -> set[str]:
+    """Return the scenario-contract IDs (see `_SCENARIO_PREFIXES`) on ### headings.
+
+    These are the complement of `parse_catalog_ids`: the example-app THEME IDs
+    that the flagship suites must cover.
+    """
+    return {
+        catalog_id
+        for prefix, catalog_id in _heading_ids(catalog_path)
+        if prefix in _SCENARIO_PREFIXES
+    }
 
 
 def find_duplicate_catalog_ids(catalog_path: Path) -> list[str]:
@@ -170,20 +191,29 @@ def scrape_python_conformance_ids(directory: Path) -> set[str]:
     return ids
 
 
+def csharp_marker_ids(text: str) -> set[str]:
+    """Return the C# conformance IDs in one source file's text.
+
+    Markers inside /* */ blocks or after // on a line do not count.
+    """
+    ids: set[str] = set()
+    # Remove block comments first so their contents never reach the pattern.
+    cleaned = _BLOCK_COMMENT_RE.sub("", text)
+    for match in _CS_TRAIT_PATTERN.finditer(cleaned):
+        line_start = cleaned.rfind("\n", 0, match.start()) + 1
+        if (
+            "//" not in cleaned[line_start : match.start()]
+            and match.group(1).split("-", 1)[0] not in _NON_CONFORMANCE_PREFIXES
+        ):
+            ids.add(match.group(1))
+    return ids
+
+
 def scrape_csharp_conformance_ids(directory: Path) -> set[str]:
     """Scrape C# conformance IDs, ignoring markers inside /* */ blocks or after // on a line."""
     ids: set[str] = set()
     for path in directory.rglob("*.cs"):
-        text = path.read_text(encoding="utf-8")
-        # Remove block comments first so their contents never reach the pattern.
-        cleaned = _BLOCK_COMMENT_RE.sub("", text)
-        for match in _CS_TRAIT_PATTERN.finditer(cleaned):
-            line_start = cleaned.rfind("\n", 0, match.start()) + 1
-            if (
-                "//" not in cleaned[line_start : match.start()]
-                and match.group(1).split("-", 1)[0] not in _NON_CONFORMANCE_PREFIXES
-            ):
-                ids.add(match.group(1))
+        ids |= csharp_marker_ids(path.read_text(encoding="utf-8"))
     return ids
 
 
@@ -539,6 +569,14 @@ def main(argv: Iterable[str] | None = None) -> int:
         help="Repository root (default: the parent of this script).",
     )
     parser.add_argument(
+        "--print-scenario-prefixes",
+        action="store_true",
+        help=(
+            "Print the scenario-contract prefixes joined by '|' and exit 0. "
+            "spec-discipline.yml reads this list instead of keeping its own copy."
+        ),
+    )
+    parser.add_argument(
         "--require",
         action="append",
         default=[],
@@ -552,6 +590,10 @@ def main(argv: Iterable[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(list(argv) if argv is not None else None)
+
+    if args.print_scenario_prefixes:
+        print("|".join(sorted(_SCENARIO_PREFIXES)))
+        return 0
 
     repo_root = Path(args.repo_root).resolve()
     catalog_path = repo_root / "spec" / "12-conformance.md"

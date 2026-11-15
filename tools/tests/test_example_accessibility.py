@@ -1,5 +1,6 @@
 """Source-level accessibility contracts for flagship views."""
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -87,3 +88,49 @@ def test_examples_contract_builds_local_vmx_before_installing_react_showcase() -
     install = workflow.index("npm ci --prefix examples/typescript/react/notes-showcase")
 
     assert build < install
+
+
+_SHOWCASE_PREFIX = "--prefix examples/typescript/react/notes-showcase"
+_SHOWCASE_LIFECYCLE_COMMAND = re.compile(r"\bnpm (?:test|run (?:build|typecheck))\b")
+
+
+def _showcase_lifecycle_commands(workflow: str) -> list[str]:
+    """Return the workflow lines that run the showcase test, build or typecheck."""
+    return [
+        line.strip()
+        for line in workflow.splitlines()
+        if not line.lstrip().startswith("#")
+        and _SHOWCASE_PREFIX in line
+        and _SHOWCASE_LIFECYCLE_COMMAND.search(line)
+    ]
+
+
+def test_showcase_lifecycle_commands_in_ci_ignore_package_scripts() -> None:
+    # #1832: the showcase pretest, prebuild and pretypecheck hooks reinstall and
+    # rebuild both packages. CI builds them once in earlier steps and must pass
+    # --ignore-scripts so the hooks do not run again.
+    commands = {
+        path.name: _showcase_lifecycle_commands(path.read_text(encoding="utf-8"))
+        for path in sorted((REPO_ROOT / ".github/workflows").glob("*.yml"))
+    }
+
+    assert any(commands.values()), "the scan found no showcase test, build or typecheck step"
+    offenders = [
+        f"{name}: {line}"
+        for name, lines in commands.items()
+        for line in lines
+        if "--ignore-scripts" not in line
+    ]
+    assert offenders == []
+
+
+def test_showcase_lifecycle_scan_reports_a_command_without_ignore_scripts() -> None:
+    workflow = (
+        "      - name: React semantic and keyboard accessibility\n"
+        "        run: npm test --prefix examples/typescript/react/notes-showcase\n"
+        "      # run: npm test --prefix examples/typescript/react/notes-showcase\n"
+    )
+
+    assert _showcase_lifecycle_commands(workflow) == [
+        "run: npm test --prefix examples/typescript/react/notes-showcase"
+    ]

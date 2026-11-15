@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Fail closed when the official React adapter npm payload drifts."""
+"""Verify the React adapter manifest and the exact allowlisted npm payload."""
 
 from __future__ import annotations
 
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "packages" / "react"
+PACKAGE_NAME = "@thekaveh/vmx-react"
+PEER_DEPENDENCIES = ("@thekaveh/vmx", "react", "rxjs", "use-sync-external-store")
 REQUIRED = {
     "package/package.json",
     "package/README.md",
@@ -23,15 +26,29 @@ REQUIRED = {
 }
 
 
-def main() -> int:
-    manifest = json.loads((PACKAGE / "package.json").read_text(encoding="utf-8"))
-    if manifest.get("name") != "@thekaveh/vmx-react":
-        raise SystemExit("unexpected React adapter package name")
+def validate_manifest(manifest: dict) -> list[str]:
+    """Return errors for the adapter package name and its peer dependencies."""
+    errors = []
+    if manifest.get("name") != PACKAGE_NAME:
+        errors.append("unexpected React adapter package name")
     peers = manifest.get("peerDependencies", {})
-    for dependency in ("@thekaveh/vmx", "react", "rxjs", "use-sync-external-store"):
-        if dependency not in peers:
-            raise SystemExit(f"missing peer dependency: {dependency}")
+    errors.extend(
+        f"missing peer dependency: {dependency}"
+        for dependency in PEER_DEPENDENCIES
+        if dependency not in peers
+    )
+    return errors
 
+
+def validate_paths(paths: set[str]) -> list[str]:
+    """Return sorted errors when the packed payload differs from the allowlist."""
+    errors = [f"missing required package file: {path}" for path in sorted(REQUIRED - paths)]
+    errors.extend(f"unexpected package file: {path}" for path in sorted(paths - REQUIRED))
+    return errors
+
+
+def package_contents() -> set[str]:
+    """Pack the adapter without lifecycle scripts and return the prefixed payload paths."""
     with tempfile.TemporaryDirectory(prefix="vmx-react-pack-") as directory:
         result = subprocess.run(
             ["npm", "pack", "--json", "--ignore-scripts", "--pack-destination", directory],
@@ -42,14 +59,17 @@ def main() -> int:
             env={**os.environ, "npm_config_cache": str(Path(directory) / ".npm-cache")},
             timeout=180,
         )
-        payload = json.loads(result.stdout)
-        files = {f"package/{item['path']}" for item in payload[0]["files"]}
-        missing = sorted(REQUIRED - files)
-        if missing:
-            raise SystemExit(f"React adapter payload is missing: {', '.join(missing)}")
-        forbidden = sorted(path for path in files if "/tests/" in path or "/src/" in path)
-        if forbidden:
-            raise SystemExit(f"React adapter payload leaks source/tests: {', '.join(forbidden)}")
+    payload = json.loads(result.stdout)
+    return {f"package/{item['path']}" for item in payload[0]["files"]}
+
+
+def main() -> int:
+    manifest = json.loads((PACKAGE / "package.json").read_text(encoding="utf-8"))
+    errors = validate_manifest(manifest) + validate_paths(package_contents())
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        return 1
 
     print("OK: React adapter package metadata and payload are complete")
     return 0

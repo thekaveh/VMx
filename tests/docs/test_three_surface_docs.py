@@ -10,9 +10,11 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
+import yaml
 from markdown_it import MarkdownIt
 from scripts.docs import build_docs, check_docs
 from scripts.docs.check_docs import (
+    LINK_CHECK_ROOTS,
     _check_descendant_heading_numbers,
     check,
     check_canonical_links,
@@ -20,6 +22,7 @@ from scripts.docs.check_docs import (
     check_generated_wiki_links,
     check_heading_case,
     check_historical_audits,
+    check_package_readme_links,
     check_professional_markdown,
     check_raw_html_headings,
     check_self_containment,
@@ -232,6 +235,213 @@ def test_canonical_link_check_rejects_missing_heading_fragment(tmp_path: Path) -
 
     assert len(findings) == 1
     assert "heading fragment does not exist" in findings[0].message
+
+
+def test_canonical_link_check_rejects_missing_target_in_root_readme(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("[Missing](missing.md)\n", encoding="utf-8")
+
+    findings = check_canonical_links(tmp_path)
+
+    assert [finding.message for finding in findings] == [
+        "README.md: target does not exist: missing.md"
+    ]
+
+
+def test_canonical_link_check_rejects_missing_fragment_outside_docs_content(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "CONTRIBUTING.md").write_text("# Contributing\n\n## Setup\n", encoding="utf-8")
+    readme = tmp_path / "langs/x/README.md"
+    readme.parent.mkdir(parents=True)
+    readme.write_text("[Contributing](../../CONTRIBUTING.md#missing)\n", encoding="utf-8")
+
+    findings = check_canonical_links(tmp_path)
+
+    assert [finding.message for finding in findings] == [
+        "langs/x/README.md: heading fragment does not exist: ../../CONTRIBUTING.md#missing"
+    ]
+
+
+def test_reference_style_links_outside_docs_content_are_not_rejected(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "CODE_OF_CONDUCT.md").write_text(
+        "See the [covenant][cc].\n\n[cc]: https://www.contributor-covenant.org/\n",
+        encoding="utf-8",
+    )
+
+    assert check_canonical_links(tmp_path) == []
+
+
+def _repository_link_fixture(tmp_path: Path) -> Path:
+    content = tmp_path / "docs/content"
+    content.mkdir(parents=True)
+    (content / "guide.md").write_text("# Guide\n\n## 1. Setup\n", encoding="utf-8")
+    return content
+
+
+def test_repository_url_link_accepts_existing_target_and_heading(tmp_path: Path) -> None:
+    _repository_link_fixture(tmp_path)
+    (tmp_path / "README.md").write_text(
+        "[Setup](https://github.com/thekaveh/VMx/blob/main/docs/content/guide.md#1-setup)\n"
+        "[Tree](https://github.com/thekaveh/VMx/tree/main/docs/content)\n"
+        "[Raw](https://raw.githubusercontent.com/thekaveh/VMx/main/docs/content/guide.md)\n",
+        encoding="utf-8",
+    )
+
+    assert check_canonical_links(tmp_path) == []
+
+
+def test_repository_url_link_rejects_absent_path(tmp_path: Path) -> None:
+    _repository_link_fixture(tmp_path)
+    (tmp_path / "README.md").write_text(
+        "[Gone](https://github.com/thekaveh/VMx/blob/main/docs/content/removed.md)\n",
+        encoding="utf-8",
+    )
+
+    findings = check_canonical_links(tmp_path)
+
+    assert [finding.message for finding in findings] == [
+        "README.md: target does not exist: "
+        "https://github.com/thekaveh/VMx/blob/main/docs/content/removed.md"
+    ]
+
+
+def test_repository_url_link_rejects_wrong_letter_case(tmp_path: Path) -> None:
+    _repository_link_fixture(tmp_path)
+    (tmp_path / "README.md").write_text(
+        "[Case](https://github.com/thekaveh/VMx/blob/main/docs/Content/guide.md)\n",
+        encoding="utf-8",
+    )
+
+    findings = check_canonical_links(tmp_path)
+
+    assert len(findings) == 1
+    assert "target does not exist" in findings[0].message
+
+
+def test_repository_url_markdown_fragment_must_match_a_heading(tmp_path: Path) -> None:
+    _repository_link_fixture(tmp_path)
+    (tmp_path / "README.md").write_text(
+        "[Gone](https://github.com/thekaveh/VMx/blob/main/docs/content/guide.md#2-missing)\n",
+        encoding="utf-8",
+    )
+
+    findings = check_canonical_links(tmp_path)
+
+    assert [finding.message for finding in findings] == [
+        "README.md: heading fragment does not exist: "
+        "https://github.com/thekaveh/VMx/blob/main/docs/content/guide.md#2-missing"
+    ]
+
+
+def test_repository_url_to_a_vmx_git_path_is_reported(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text(
+        "[Clone](https://github.com/thekaveh/VMx.git/blob/main/README.md)\n",
+        encoding="utf-8",
+    )
+
+    findings = check_canonical_links(tmp_path)
+
+    assert len(findings) == 1
+    assert "VMx.git path" in findings[0].message
+
+
+def test_github_heading_anchors_match_github_rendering(tmp_path: Path) -> None:
+    page = tmp_path / "docs/content/anchors.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        "### 8.2.2.1. Python Console hello_vmx\n\n"
+        "### 2.1 The `ICompositeVM<VM>` contract\n\n"
+        "### 3.1 `select_component(vm)` / `deselect_component(vm)`\n",
+        encoding="utf-8",
+    )
+
+    anchors = check_docs._heading_anchors(page)
+
+    assert {
+        "8221-python-console-hello_vmx",
+        "21-the-icompositevmvm-contract",
+        "31-select_componentvm--deselect_componentvm",
+    } <= anchors
+
+
+def test_package_readme_sources_require_absolute_https_links(tmp_path: Path) -> None:
+    readme = tmp_path / "langs/python/README.md"
+    readme.parent.mkdir(parents=True)
+    readme.write_text(
+        "# vmx\n\n[Guide](docs/guide.md)\n\n![Logo](assets/logo.png)\n",
+        encoding="utf-8",
+    )
+
+    findings = check_package_readme_links(tmp_path)
+
+    assert [finding.message for finding in findings] == [
+        "langs/python/README.md: package README link must be an absolute https URL: docs/guide.md",
+        "langs/python/README.md: package README image must be an absolute https URL: "
+        "assets/logo.png",
+    ]
+
+
+def test_package_readme_sources_allow_absolute_and_same_page_links(tmp_path: Path) -> None:
+    readme = tmp_path / "langs/python/README.md"
+    readme.parent.mkdir(parents=True)
+    readme.write_text(
+        "# vmx\n\n[Top](#vmx)\n\n"
+        "[Guide](https://github.com/thekaveh/VMx/blob/main/CONTRIBUTING.md)\n",
+        encoding="utf-8",
+    )
+
+    assert check_package_readme_links(tmp_path) == []
+
+
+def test_link_scan_covers_root_and_link_checked_roots_without_excluded_folders(
+    tmp_path: Path,
+) -> None:
+    expected: list[Path] = [tmp_path / "AGENTS.md"]
+    (tmp_path / "AGENTS.md").write_text("# Agents\n", encoding="utf-8")
+    for root in LINK_CHECK_ROOTS:
+        page = tmp_path / root / "nested/guide.md"
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_text("# Guide\n", encoding="utf-8")
+        expected.append(page)
+    excluded = tmp_path / "langs/python/.venv/lib/readme.md"
+    excluded.parent.mkdir(parents=True)
+    excluded.write_text("# Vendored\n", encoding="utf-8")
+
+    scanned = check_docs._scan_link_checked_markdown(tmp_path)
+
+    assert scanned == sorted(expected)
+    assert excluded not in scanned
+
+
+def _workflow_glob_matches(pattern: str, path: str) -> bool:
+    """Match a GitHub Actions path filter: `**` crosses folders, `*` does not."""
+    regex = ""
+    index = 0
+    while index < len(pattern):
+        if pattern.startswith("**/", index):
+            regex += "(?:.*/)?"
+            index += 3
+        elif pattern.startswith("**", index):
+            regex += ".*"
+            index += 2
+        elif pattern[index] == "*":
+            regex += "[^/]*"
+            index += 1
+        else:
+            regex += re.escape(pattern[index])
+            index += 1
+    return re.fullmatch(regex, path) is not None
+
+
+def test_docs_workflow_push_filter_covers_every_link_checked_root() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/docs.yml").read_text(encoding="utf-8"))
+    push_paths = workflow[True]["push"]["paths"]
+    samples = ["AGENTS.md", *(f"{root}/nested/guide.md" for root in LINK_CHECK_ROOTS)]
+
+    for sample in samples:
+        assert any(_workflow_glob_matches(pattern, sample) for pattern in push_paths), sample
 
 
 def test_surface_rewrite_preserves_cross_page_and_local_fragments() -> None:

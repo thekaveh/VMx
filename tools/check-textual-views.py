@@ -56,52 +56,114 @@ def _is_hub_name(name: str) -> bool:
     return lowered == "hub" or lowered.endswith("_hub")
 
 
-def _is_hub_subscription(node: ast.stmt) -> bool:
-    """Return True when the statement looks like a direct hub subscription.
+def _chain_has_hub(node: ast.expr, hub_locals: set[str]) -> bool:
+    """Return True when the receiver chain of an expression reaches a hub.
+
+    The chain is walked through attributes, call targets (``func``) and names.
+    ``hub_locals`` holds local names that the method bound to a hub chain.
+    """
+    while True:
+        if isinstance(node, ast.Attribute):
+            if _is_hub_name(node.attr):
+                return True
+            node = node.value
+        elif isinstance(node, ast.Call):
+            node = node.func
+        elif isinstance(node, ast.Name):
+            return _is_hub_name(node.id) or node.id in hub_locals
+        else:
+            return False
+
+
+def _hub_locals(method: ast.AST) -> set[str]:
+    """Return local names that a method binds to a hub chain.
+
+    ``messages = self._vm.hub.messages`` makes ``messages`` a hub stream, so a
+    later ``messages.subscribe(...)`` in the same method is a direct subscription.
+    The search repeats until no new name is found, so an alias of an alias also
+    counts.
+    """
+    assignments: list[tuple[list[ast.expr], ast.expr]] = []
+    for node in ast.walk(method):
+        if isinstance(node, ast.Assign):
+            assignments.append((node.targets, node.value))
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            assignments.append(([node.target], node.value))
+
+    found: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for targets, value in assignments:
+            if not _chain_has_hub(value, found):
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id not in found:
+                    found.add(target.id)
+                    changed = True
+    return found
+
+
+def _hub_subscription_calls(method: ast.AST) -> list[ast.Call]:
+    """Return every direct hub subscription call inside a method.
 
     Textual widgets bypass the adapter when they wire themselves to the
-    message hub. This catches:
+    message hub. A call counts when its ``subscribe`` receiver chain reaches a
+    hub, wherever the call sits. This catches:
 
-    * ``self._vm.hub.messages.subscribe(...)``
-    * ``hub.subscribe(...)``
-    * ``self._sub = vm.hub.messages.subscribe(...)`` (assignment form)
+    * ``self._vm.hub.messages.subscribe(...)``, and the same call used as an argument
+      or assignment value, such as ``self._subs.append(...)``
+    * ``self._vm.hub.messages.pipe(f).subscribe(...)``
+    * ``resolve_hub(self._vm).messages.subscribe(...)``
+    * ``messages = self._vm.hub.messages`` followed by ``messages.subscribe(...)``
     """
-    # Unwrap the statement forms a subscription realistically takes — a bare
-    # expression, an assignment, or an annotated assignment. (Inspecting only
-    # ast.Expr made the check unreachable for real code, which stores the
-    # disposable.)
-    if isinstance(node, ast.Expr | ast.Assign):
-        call = node.value
-    elif isinstance(node, ast.AnnAssign) and node.value is not None:
-        call = node.value
-    else:
-        return False
-    if not isinstance(call, ast.Call):
-        return False
-    fn = call.func
-    while isinstance(fn, ast.Attribute):
-        if fn.attr == "subscribe":
-            # Walk back to see whether a hub appears in the attribute chain.
+    hub_locals = _hub_locals(method)
+    calls: list[ast.Call] = []
+    for node in ast.walk(method):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if (
+            isinstance(fn, ast.Attribute)
+            and fn.attr == "subscribe"
             # Word-anchored match ("hub" / "*_hub"), not a substring — a bare
             # substring would flag e.g. `github.subscribe(...)`.
-            walk = fn
-            while isinstance(walk, ast.Attribute):
-                if _is_hub_name(walk.attr) or (
-                    isinstance(walk.value, ast.Name) and _is_hub_name(walk.value.id)
-                ):
-                    return True
-                walk = walk.value  # type: ignore[assignment]
-            return False
-        fn = fn.value  # type: ignore[assignment]
-    return False
+            and _chain_has_hub(fn.value, hub_locals)
+        ):
+            calls.append(node)
+    return calls
+
+
+# Compound statements whose inner statements count toward a handler's size.
+_TRY_TYPES: tuple[type[ast.stmt], ...] = (
+    (ast.Try, ast.TryStar) if hasattr(ast, "TryStar") else (ast.Try,)
+)
+
+
+def _nested_bodies(stmt: ast.stmt) -> list[list[ast.stmt]] | None:
+    """Return the statement lists nested in a compound statement.
+
+    Returns ``None`` for a simple statement.
+    """
+    if isinstance(stmt, ast.If | ast.For | ast.AsyncFor | ast.While):
+        return [stmt.body, stmt.orelse]
+    if isinstance(stmt, ast.With | ast.AsyncWith):
+        return [stmt.body]
+    if isinstance(stmt, _TRY_TYPES):
+        handlers = [handler.body for handler in stmt.handlers]
+        return [stmt.body, *handlers, stmt.orelse, stmt.finalbody]
+    if isinstance(stmt, ast.Match):
+        return [case.body for case in stmt.cases]
+    return None
 
 
 def _count_real_statements(body: list[ast.stmt]) -> int:
     """Return the effective thin-handler statement count.
 
-    A guarded one-call handler such as ``if event.button.id: cmd.execute()`` counts
-    as one statement, but multiple statements hidden inside the guard count as
-    multiple statements.
+    A compound statement (``if``, ``with``, ``for``, ``while``, ``try``,
+    ``match``) counts the statements inside it, so a block cannot hide several
+    statements behind one line. A guarded one-call handler such as
+    ``if event.button.id: cmd.execute()`` still counts as one statement.
     """
     count = 0
     for i, stmt in enumerate(body):
@@ -115,12 +177,22 @@ def _count_real_statements(body: list[ast.stmt]) -> int:
             and isinstance(stmt.value.value, str)
         ):
             continue
-        if isinstance(stmt, ast.If):
-            nested = _count_real_statements(stmt.body) + _count_real_statements(stmt.orelse)
-            count += max(1, nested)
-        else:
+        nested = _nested_bodies(stmt)
+        if nested is None:
             count += 1
+        else:
+            count += max(1, sum(_count_real_statements(block) for block in nested))
     return count
+
+
+def _hub_violations(path: Path, method: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    """Return one violation for each direct hub subscription in a method."""
+    name = method.name
+    return [
+        f"{path}:{call.lineno}: '{name}' subscribes to the hub "
+        f"directly (forbidden in views — use the adapter)"
+        for call in _hub_subscription_calls(method)
+    ]
 
 
 def check_module(path: Path) -> list[str]:
@@ -144,12 +216,7 @@ def check_module(path: Path) -> list[str]:
             # applies: on_mount/__init__ are precisely where a forbidden
             # direct subscription would naturally be wired.
             if name in LIFECYCLE_METHODS:
-                for stmt in ast.walk(item):
-                    if isinstance(stmt, ast.stmt) and _is_hub_subscription(stmt):
-                        violations.append(
-                            f"{path}:{stmt.lineno}: '{name}' subscribes to the hub "
-                            f"directly (forbidden in views — use the adapter)"
-                        )
+                violations.extend(_hub_violations(path, item))
                 continue
 
             real_stmts = _count_real_statements(item.body)
@@ -170,12 +237,7 @@ def check_module(path: Path) -> list[str]:
                         f"{path}:{item.lineno}: '{name}' has {real_stmts} statements "
                         f"(max 1 for on_* event handlers)"
                     )
-                for stmt in ast.walk(item):
-                    if isinstance(stmt, ast.stmt) and _is_hub_subscription(stmt):
-                        violations.append(
-                            f"{path}:{stmt.lineno}: '{name}' subscribes to the hub "
-                            f"directly (forbidden in views — use the adapter)"
-                        )
+                violations.extend(_hub_violations(path, item))
                 continue
 
             violations.append(

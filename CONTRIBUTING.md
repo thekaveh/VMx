@@ -181,6 +181,9 @@ uv run --project langs/python python tools/check-conformance-coverage.py \
     --require csharp --require python --require typescript --require swift \
     --require rust
 
+# Conformance catalog structure: chapter Conformance tables and entry shape.
+uv run --project langs/python python tools/check-conformance-catalog.py
+
 # Executed conformance evidence for one flavor, from its runner's own report.
 # Each flavor workflow runs this after its tests; for example, Python:
 (cd langs/python && uv sync --locked --all-extras && \
@@ -288,14 +291,19 @@ link.
 Behavior changes start in `spec/`. The rules are:
 
 - A spec change requires a matching ADR in `spec/ADRs/`. This is enforced by the
-  `spec-discipline` CI check.
+  `Require ADR for non-trivial spec changes` step of the `spec-discipline` CI check,
+  which runs `tools/check-spec-adr.py` against the merge base of the pull request.
+  A numbered ADR file (`NNNN-kebab-title.md`) is required; other files under
+  `spec/ADRs/` do not count.
 - Files exempt from the ADR requirement: `spec/README.md`, `spec/HISTORY.md`,
   `spec/VERSION`, `spec/ADRs/**`, `spec/fixtures/**`, `spec/12-conformance.md` (adding catalog
   IDs is governed by the conformance-stub rule below, not by ADRs), and
   `spec/proposals/**` (historical planning artifacts; landed proposals are
   already covered by the ADR they introduced).
 - A new conformance test ID in `spec/12-conformance.md` requires a matching test stub
-  in **every** active language flavor in the same PR. The CI check looks for
+  in **every** active language flavor in the same PR. The `Enforce conformance coverage`
+  step of the `conformance` CI workflow enforces this by running
+  `tools/check-conformance-coverage.py`. The marker forms it accepts are:
   `@pytest.mark.conformance("XXX-NNN")` (Python), `[Trait("Conformance", "XXX-NNN")]`
   (C#), `describe("XXX-NNN", ...)` (TypeScript), Swift doc / line comments
   where the ID is the first token after the marker (for example
@@ -512,8 +520,10 @@ make docs-serve PYTHON=python3   # optional: serve the site locally
 ```
 
 The `docs` workflow runs `make docs-check` on every PR, and on each push to
-`develop` and `main` that changes documentation paths. It deploys the site only from `main`. The `wiki` workflow
-publishes the wiki only from pushes to `main`.
+`develop` and `main` that changes documentation paths. It deploys the site only
+from `main`. The `wiki` workflow publishes the wiki only from pushes to `main`.
+A manual run of `wiki` (`workflow_dispatch`) publishes only when it runs on
+`main`; on any other branch it builds the wiki and skips the publish.
 
 Do not edit the wiki directly. Each wiki sync deletes every wiki page and
 writes the generated pages again, so a direct edit is lost at the next
