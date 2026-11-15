@@ -30,7 +30,7 @@ describe("DIA-010", () => {
   });
 });
 
-describe("DIA-012", () => {
+describe("DIA-010", () => {
   it("null present keeps an earlier result", async () => {
     const modal = new ModalVM("cancel");
     modal.dismiss("chosen");

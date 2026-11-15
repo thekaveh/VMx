@@ -122,11 +122,7 @@ def test_EXP_005_walk_expanded_skips_collapsed() -> None:
     root = _ExpandableLeaf("root", [a, b_collapsed], expanded=True)
 
     visited = list(walk_expanded(root))
-    assert root in visited
-    assert a in visited
-    assert b_collapsed in visited
-    assert b1 not in visited
-    assert b2 not in visited
+    assert visited == [root, a, b_collapsed]
 
 
 # ---------------------------------------------------------------------------

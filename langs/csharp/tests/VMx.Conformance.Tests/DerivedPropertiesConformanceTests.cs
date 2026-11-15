@@ -212,6 +212,7 @@ public class DerivedPropertiesConformanceTests
         using var stream = File.OpenRead(path);
         var doc = JsonDocument.Parse(stream);
         var scenarios = doc.RootElement.GetProperty("scenarios");
+        scenarios.GetArrayLength().Should().BeGreaterThan(0);
         foreach (var scenario in scenarios.EnumerateArray())
         {
             var name = scenario.GetProperty("name").GetString()!;

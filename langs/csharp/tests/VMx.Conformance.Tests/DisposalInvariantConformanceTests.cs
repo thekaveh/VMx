@@ -130,15 +130,19 @@ public class DisposalInvariantConformanceTests
     {
         var hub = new NotificationHub();
         var completions = 0;
+        var snapshots = 0;
         using var subscription = hub.Pending.Subscribe(
-            _ => { },
+            _ => Interlocked.Increment(ref snapshots),
             () => Interlocked.Increment(ref completions));
         var pending = hub.Post(new Notification(NotificationType.Notification, "info"));
+        var snapshotsBeforeDispose = snapshots;
 
         Parallel.For(0, 64, _ => hub.Dispose());
 
         (await pending).Should().Be(NotificationReaction.Pending);
         completions.Should().Be(1);
+        // ADR-0197: disposal publishes no terminal Pending snapshot.
+        snapshots.Should().Be(snapshotsBeforeDispose);
     }
 
     [Fact, Trait("Conformance", "DISP-004")]
@@ -183,14 +187,17 @@ public class DisposalInvariantConformanceTests
         using var source = new BehaviorSubject<int>(7);
         var property = DerivedProperty.From(source, value => value);
         var completions = 0;
+        var changes = 0;
         using var subscription = property.ValueChanged.Subscribe(
-            _ => { },
+            _ => changes++,
             () => completions++);
+        var changesBeforeDispose = changes;
 
         property.Dispose();
         property.Dispose();
         source.OnNext(8);
 
+        changes.Should().Be(changesBeforeDispose);
         property.Value.Should().Be(7);
         completions.Should().Be(1);
 

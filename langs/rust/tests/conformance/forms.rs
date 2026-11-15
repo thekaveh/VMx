@@ -137,13 +137,30 @@ fn persist_failure_leaves_state_unchanged() {
     assert!(form.is_dirty());
 }
 
+/// Sender of the first `model` PropertyChanged message in `messages`.
+fn model_change_sender(messages: &[Message]) -> usize {
+    messages
+        .iter()
+        .find_map(|message| match message {
+            Message::PropertyChanged(change) if change.property_name == "model" => {
+                Some(change.sender_id)
+            }
+            _ => None,
+        })
+        .expect("a model PropertyChanged message")
+}
+
 /// FORM-008 — Hub messages on revert
 #[test]
 fn revert_publishes_form_reverted_and_model_changed() {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
     let form = FormVm::with_options("form", 1, |_| Ok(()), false, hub.clone());
+    let other = FormVm::with_options("other", 1, |_| Ok(()), false, hub.clone());
     form.set_model(2);
+    let before_other = recorder.messages().len();
+    other.set_model(2);
+    let other_sender = model_change_sender(&recorder.messages()[before_other..]);
     let start = recorder.messages().len();
 
     form.revert();
@@ -151,14 +168,16 @@ fn revert_publishes_form_reverted_and_model_changed() {
     let history = recorder.messages();
     let messages = &history[start..];
     assert_eq!(messages.len(), 2);
-    assert!(matches!(
-        messages[0],
-        Message::FormReverted(ref reverted) if reverted.sender_name == "FormVm"
-    ));
-    assert!(matches!(
-        messages[1],
-        Message::PropertyChanged(ref change) if change.property_name == "model"
-    ));
+    let reverted_sender = match &messages[0] {
+        Message::FormReverted(reverted) if reverted.sender_name == "FormVm" => reverted.sender_id,
+        unexpected => panic!("expected FormReverted, got {unexpected:?}"),
+    };
+    let changed_sender = match &messages[1] {
+        Message::PropertyChanged(change) if change.property_name == "model" => change.sender_id,
+        unexpected => panic!("expected a model PropertyChanged, got {unexpected:?}"),
+    };
+    assert_eq!(reverted_sender, changed_sender);
+    assert_ne!(reverted_sender, other_sender);
 }
 
 /// FORM-009 — Strict mode: ApproveCommand.CanExecute gates on IsDirty
@@ -825,6 +844,13 @@ fn reset_is_snapshotted_twice_and_revalidated() {
 
     assert_eq!(*calls.lock().unwrap(), 2);
     assert!(!Arc::ptr_eq(&form.model().nested, &form.snapshot().nested));
+    let reset_value = ResetModel {
+        value: String::new(),
+        nested: Arc::new(Mutex::new(vec![1])),
+    };
+    assert_eq!(form.model(), reset_value);
+    assert_eq!(form.snapshot(), reset_value);
+    assert!(!form.is_dirty());
     assert_eq!(form.field_error("value"), Some("required".to_string()));
     assert!(!form.is_valid());
     assert!(!approve_command.can_execute());

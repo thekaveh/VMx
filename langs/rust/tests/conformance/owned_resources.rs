@@ -93,6 +93,8 @@ fn owned_resource_survives_reconstruct() {
 /// DISP-012 — injected hub is publicly visible and read-only.
 #[test]
 fn injected_hub_is_publicly_visible() {
+    // No hub setter exists: `hub()` takes `&self` and returns a clone, so the
+    // compiler rejects any attempt to replace the injected hub.
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
     let vm = probe(hub.clone());

@@ -232,6 +232,7 @@ def test_DPROP_011_dispose_completes_value_changed() -> None:
 @pytest.mark.conformance("DPROP-012")
 def test_DPROP_012_fixture_scenarios() -> None:
     fixture = load("derived-properties.json")
+    assert fixture["scenarios"], "the fixture must contain at least one scenario"
     for scenario in fixture["scenarios"]:
         transform = TRANSFORMS[scenario["transform"]]
         initial = scenario["sources_initial"]
