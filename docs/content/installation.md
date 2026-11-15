@@ -23,6 +23,10 @@ Minimum runtimes:
 - Swift: iOS 16, macOS 13, tvOS 16, or watchOS 9
 - Rust: 1.88, edition 2021
 
+CI runs the C# conformance suite against the `net8.0` build, and against the
+`netstandard2.0` build on .NET 8, 9 and 10 hosts. CI does not run the
+`netstandard2.0` build on .NET Framework, Mono or Unity.
+
 ## 2.1. C\#
 
 The NuGet package is not published. Reference the VMx project from a

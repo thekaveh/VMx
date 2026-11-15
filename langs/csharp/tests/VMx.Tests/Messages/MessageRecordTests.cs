@@ -71,6 +71,8 @@ public class MessageRecordTests
         (message with { SenderName = "people" }).SenderName.Should().Be("people");
     }
 
+#if !VMX_LIBRARY_NETSTANDARD2_0
+    // OldIndex and NewIndex are default interface members; netstandard2.0 lacks them (#1863).
     [Fact]
     public void CollectionChangedMessage_LegacyInterfaceImplementerReceivesCompatiblePositionDefaults()
     {
@@ -79,6 +81,7 @@ public class MessageRecordTests
         message.OldIndex.Should().Be(4);
         message.NewIndex.Should().Be(4);
     }
+#endif
 
     private sealed class LegacyCollectionChangedMessage : ICollectionChangedMessage<int>
     {
