@@ -57,21 +57,23 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   error when the installed `markdown-it-py` differs from the `tools` extra pin.
 
 - `check-python-fixture-sync.py` — verifies the Python package's tracked runtime
-  lifecycle fixture and the sdist's four conformance fixtures are byte-identical
-  to their spec sources. This keeps both runtime and shipped source tests
-  self-contained.
+  and sdist conformance fixture copies are byte-identical to `spec/fixtures/*.json`.
+  The inventory is read from `spec/fixtures/` at run time; a fixture with no copy
+  fails unless `_COPY_DIRECTORIES` exempts it for that directory. This keeps both
+  runtime and shipped source tests self-contained.
 
-- `check-rust-fixture-sync.py` — verifies the Rust crate's runtime lifecycle
-  fixture and packaged conformance fixtures are byte-identical to their spec
-  sources. The packaged-consumer smoke then runs the extracted crate's own tests.
+- `check-rust-fixture-sync.py` — verifies the Rust crate's packaged fixture copies
+  are byte-identical to `spec/fixtures/*.json`, with the same run-time inventory and
+  exemption rule. The packaged-consumer smoke then runs the extracted crate's own tests.
 
 - `check-release-please-state.py` — compares the Python source version with the
   truthful last-published release-please manifest. The `release-please` workflow uses
   its output to pause automation when a bootstrap release is pending, preventing a
   generated version downgrade.
 
-- `check-swift-fixture-sync.py` — verifies Swift's four bundled JSON resources
-  are byte-identical to `spec/fixtures/*.json`.
+- `check-swift-fixture-sync.py` — verifies Swift's bundled JSON resources are
+  byte-identical to `spec/fixtures/*.json`, with the same run-time inventory and
+  exemption rule.
 
 - `swift-test-watchdog.py` — runs a SwiftPM test command and watches the
   `xctest` process that `swift test --parallel` starts for each case. A case
@@ -101,7 +103,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `check-conformance-catalog.py` — Checks the catalog structure that the coverage tool does not read: each library ID appears in a chapter Conformance table, each `§N` and "Chapter 12 §N holds the `X` IDs" clause names a real section, each `###` ID heading is well formed, and each entry has Given, When and Then clauses. Exits 1 on a problem and 2 when a file cannot be read.
 - `check-conformance-execution.py` — Checks that every library conformance ID has a passing executed test case, not only a marker.
 - `check-coverage-floor.py` — Checks an llvm-cov coverage export against a flavor's recorded floor in `coverage-floors.json` (Rust and Swift).
-- `check-fixture-contracts.py` — Validates the canonical fixture inventories and their structural contracts.
+- `check-fixture-contracts.py` — Validates the canonical fixture inventories and their structural contracts, and fails on a `spec/fixtures/*.json` file that has no contract entry.
 - `check-nuget-package.py` — Validates the VMx NuGet main and symbol packages against an exact contract.
 - `check-python-interpreter.py` — Asserts the interpreter identity, then runs Python arguments with that executable.
 - `check-python-api.py` — Compares the public API of the `vmx` Python package with `langs/python/api/vmx.api.txt` on Python 3.12; `--update` rewrites the baseline.

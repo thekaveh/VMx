@@ -121,3 +121,11 @@ def test_rejects_values_outside_fixture_domains(tmp_path: Path, name: str, mutat
         lambda value: value.__setitem__("$schema-version", "2.0.0"),
     )
     assert cfc.main(["--fixtures", str(fixtures)]) == 1
+
+
+def test_rejects_fixture_with_no_contract_entry(tmp_path: Path, capsys) -> None:
+    fixtures = _copy_fixtures(tmp_path)
+    (fixtures / "probe.json").write_text("{}\n", encoding="utf-8")
+
+    assert cfc.main(["--fixtures", str(fixtures)]) == 1
+    assert "probe.json: no contract entry" in capsys.readouterr().err

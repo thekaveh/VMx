@@ -276,11 +276,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--fixtures", type=Path, default=Path("spec/fixtures"))
     args = parser.parse_args(argv)
+    known = (*EXPECTED_IDS, "lifecycle-transitions.json")
     errors = [
-        error
-        for name in (*EXPECTED_IDS, "lifecycle-transitions.json")
-        for error in validate_fixture(args.fixtures / name)
+        f"{path.name}: no contract entry in tools/check-fixture-contracts.py"
+        for path in sorted(args.fixtures.glob("*.json"))
+        if path.name not in known
     ]
+    errors += [error for name in known for error in validate_fixture(args.fixtures / name)]
     if errors:
         for error in errors:
             print(f"FAIL: {error}", file=sys.stderr)
