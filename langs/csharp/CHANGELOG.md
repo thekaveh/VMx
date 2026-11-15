@@ -16,6 +16,13 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Added
 
+- `ComponentVMBase.Dispatcher`: a protected read-only property that gives a
+  subclass in any assembly the dispatcher its base was constructed with
+  (ADR-0229, #1597). A subclass that declares its own `Dispatcher` member gets
+  warning CS0108. A nested subclass whose base initializer names an enclosing
+  `Dispatcher` identifier now binds to the inherited property, so it must
+  qualify that identifier with its enclosing type.
+
 - `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
   cancelled from a value-less `Error` restores that `Error`.
 

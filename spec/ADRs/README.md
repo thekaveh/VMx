@@ -244,6 +244,7 @@ cross-references each ADR carries.
 | [0226](0226-rust-refused-population-disposes-fresh-candidates.md)                   | Rust applies the candidate cleanup, and AGG-008 covers it in all five flavors                                         | 3.30.0       | Accepted                                                                                      |
 | [0227](0227-rust-destruct-walk-joins-a-raced-destruct.md)                           | Rust container destruct walks join a destruct that another thread started                                             | 3.30.0       | Accepted                                                                                      |
 | [0228](0228-discard-retry-cancel-restores-the-stable-state.md)                      | A cancelled discard retry restores the stable state it started from                                                   | 3.30.0       | Accepted                                                                                      |
+| [0229](0229-csharp-subclass-dispatcher-access.md)                                   | C# subclasses read the injected dispatcher through a protected `Dispatcher` property                                  | 3.30.0       | Accepted                                                                                      |
 
 ### 1.1 Consolidation opportunities (informative — VMX-120)
 
