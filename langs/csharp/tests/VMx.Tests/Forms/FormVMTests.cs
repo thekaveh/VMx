@@ -714,6 +714,45 @@ public class FormVMTests
         form.ApproveCommand.CanExecute(null).Should().BeTrue("the in-flight mark is released");
     }
 
+    // ── Builder steps ────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Builder_WithFormPersister_Sends_The_Approved_Model_To_PersistAsync()
+    {
+        var persisted = new List<Model>();
+        var persister = new LambdaPersister<Model>(model =>
+        {
+            persisted.Add(model);
+            return Task.CompletedTask;
+        });
+        using var sut = FormVM<Model>.Builder()
+            .Initial(new Model("A", 1))
+            .WithFormPersister(persister)
+            .Build();
+
+        sut.SetModel(new Model("B", 2));
+        await sut.ApproveAsync();
+
+        persisted.Should().ContainSingle().Which.Should().Be(new Model("B", 2));
+    }
+
+    [Fact]
+    public void Builder_ModelValidator_Reports_Its_Field_Errors_Through_Errors()
+    {
+        using var sut = FormVM<Model>.Builder()
+            .Initial(new Model("A", 1))
+            .Persister(_ => Task.CompletedTask)
+            .ModelValidator(model => model.Value < 0
+                ? new Dictionary<string, string?> { ["Value"] = "negative" }
+                : new Dictionary<string, string?>())
+            .Build();
+
+        sut.SetModel(new Model("B", -1));
+
+        sut.Errors.Should().ContainKey("Value").WhoseValue.Should().Be("negative");
+        sut.IsValid.Should().BeFalse();
+    }
+
     // ── Test double helpers ───────────────────────────────────────────────────
 
     private sealed class LambdaPersister<TM>(Func<TM, Task> action) : IFormPersister<TM>
