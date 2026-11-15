@@ -52,24 +52,18 @@ _DEFAULT_PAGE_SIZE = 5
 _DEFAULT_SEARCH_DEBOUNCE_S = 0.150
 
 
-def default_search_scheduler(dispatcher: Dispatcher, debounce_seconds: float) -> SchedulerBase:
-    """Pick a scheduler that can actually run a ``debounce_seconds`` timer.
+def default_timer_scheduler(dispatcher: Dispatcher) -> SchedulerBase:
+    """Pick a scheduler whose timed actions run on the host's thread.
 
-    ``ImmediateScheduler`` cannot wait: a positive debounce on it raises
-    ``WouldBlockException``, which silently terminates the search pipeline
-    (search then never filters). Resolution order:
+    Resolution order:
 
-    1. no debounce → ``ImmediateScheduler`` (the timer is never used);
-    2. a timer-capable dispatcher foreground (e.g. ``RxDispatcher.asyncio``
+    1. a timer-capable dispatcher foreground (e.g. ``RxDispatcher.asyncio``
        in the NiceGUI host) → that scheduler, so results land on the UI loop;
-    3. a running asyncio loop (the Textual host builds the workspace inside
-       ``asyncio.run``) → a scheduler bound to that loop;
-    4. otherwise → ``TimeoutScheduler`` (threaded timer, loop-less hosts).
-
-    Tests that need deterministic timing inject a ``TestScheduler`` instead.
+    2. a running asyncio loop (the Textual host builds the workspace inside
+       ``asyncio.run``) → a scheduler bound to that loop, so timer actions
+       run on the loop thread that owns the widgets (#1642);
+    3. otherwise → ``TimeoutScheduler`` (threaded timer, loop-less hosts).
     """
-    if debounce_seconds <= 0:
-        return ImmediateScheduler()
     foreground = dispatcher.foreground
     if not isinstance(foreground, ImmediateScheduler):
         return foreground
@@ -78,6 +72,22 @@ def default_search_scheduler(dispatcher: Dispatcher, debounce_seconds: float) ->
     except RuntimeError:
         return TimeoutScheduler()
     return AsyncIOThreadSafeScheduler(loop)
+
+
+def default_search_scheduler(dispatcher: Dispatcher, debounce_seconds: float) -> SchedulerBase:
+    """Pick a scheduler that can actually run a ``debounce_seconds`` timer.
+
+    ``ImmediateScheduler`` cannot wait: a positive debounce on it raises
+    ``WouldBlockException``, which silently terminates the search pipeline
+    (search then never filters). With no debounce it returns
+    ``ImmediateScheduler`` and the timer is never used; otherwise it returns
+    :func:`default_timer_scheduler`.
+
+    Tests that need deterministic timing inject a ``TestScheduler`` instead.
+    """
+    if debounce_seconds <= 0:
+        return ImmediateScheduler()
+    return default_timer_scheduler(dispatcher)
 
 
 class NotesViewVM(

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from dataclasses import dataclass
+from typing import Any
 
 from textual.widgets import Static
 from vmx import MessageHub
@@ -282,5 +285,37 @@ def test_push_text_area_text_keeps_a_vm_value_that_equals_the_rendition() -> Non
         push_text_area_text(text_area, vm, "title")
         assert vm.writes == []
         assert vm.title == "a\nb"
+    finally:
+        sub.dispose()
+
+
+class _ThreadRecordingStatic(Static):
+    """A Static that records the thread of each update() call."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.update_threads: list[int] = []
+
+    def update(self, content: Any = "") -> None:
+        self.update_threads.append(threading.get_ident())
+        super().update(content)
+
+
+async def test_a_worker_thread_change_is_applied_on_the_loop_thread() -> None:
+    """A change sent from a worker thread writes the widget on the bind thread (#1642)."""
+    vm = _make_vm(title="before")
+    widget = _ThreadRecordingStatic()
+    sub = bind_property(widget, "renderable", vm, "title")
+    try:
+        worker = threading.Thread(target=lambda: vm.set_title("from worker"))
+        worker.start()
+        worker.join()
+        await asyncio.sleep(0)
+
+        assert str(widget.content) == "from worker"
+        assert worker.ident not in widget.update_threads, (
+            "the widget was updated on the worker thread"
+        )
+        assert set(widget.update_threads) == {threading.get_ident()}
     finally:
         sub.dispose()
