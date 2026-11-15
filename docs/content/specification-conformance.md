@@ -64,6 +64,9 @@ fallback, so a same-named test elsewhere is never credited. For each ID:
 - the ID is **skipped** if every case for it was skipped;
 - the ID is **missing** if no executed case carries it.
 
+C# applies these rules to each target framework of the conformance project, so
+an ID passes only when every framework passes it.
+
 Only a passing ID qualifies. Parameterized variants and duplicate reports each
 count, so a failing variant fails the ID and a skipped variant is ignored. A
 report that cannot be parsed, is truncated, disagrees with its own totals, or
@@ -84,8 +87,9 @@ configuration:
 
 Windows cells run the same tests, but the C#, TypeScript, and Rust jobs have no
 reliable `python3` there, so they publish no separate evidence. SwiftPM's xUnit
-report does not mark XCTest skips. The Swift conformance suite uses no
-`XCTSkip`, so a skipped Swift case cannot pass for executed.
+report does not mark XCTest skips, so the check also scans the Swift conformance
+sources. An `XCTSkip` call outside a comment fails the gate: inside a marked test
+it fails that ID, and anywhere else the check names the file and line.
 
 ## 10.4. How The Repo Enforces It
 

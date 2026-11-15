@@ -20,10 +20,25 @@ CATALOG = """\
 """
 
 
+CSHARP_PROJECT = "langs/csharp/tests/VMx.Conformance.Tests/VMx.Conformance.Tests.csproj"
+CSHARP_CASES = "langs/csharp/tests/VMx.Conformance.Tests/LifecycleTests.cs"
+
+
 def _repo(tmp_path: Path) -> Path:
     (tmp_path / "spec").mkdir()
     (tmp_path / "spec/12-conformance.md").write_text(CATALOG, encoding="utf-8")
     return tmp_path
+
+
+def _csharp_repo(tmp_path: Path, frameworks: str = "net8.0") -> Path:
+    repo = _repo(tmp_path)
+    _write(
+        repo / CSHARP_PROJECT,
+        "<Project><PropertyGroup>"
+        f"<TargetFrameworks>{frameworks}</TargetFrameworks>"
+        "</PropertyGroup></Project>",
+    )
+    return repo
 
 
 def _write(path: Path, text: str) -> Path:
@@ -286,15 +301,26 @@ public sealed class LifecycleConformanceTests
 TRX_NS = "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"
 
 
+PASSING = [
+    ("LIFE_001_Constructs", "LIFE_001_Constructs", "Passed"),
+    ("LIFE_002_Destructs(value: 1)", "LIFE_002_Destructs(value: 1)", "Passed"),
+    ("LIFE_002_Destructs(value: 2)", "LIFE_002_Destructs(value: 2)", "Passed"),
+    ("Shared_Test", "Shared_Test", "Passed"),
+]
+
+
 def _trx(
     results: list[tuple[str, str, str]],
     *,
     total: int | None = None,
     error: int = 0,
     class_name: str = "VMx.Conformance.Tests.LifecycleConformanceTests",
+    framework: str = "net8.0",
 ) -> str:
+    # dotnet test stores each test assembly under bin/<configuration>/<framework>/.
+    storage = f"/work/langs/csharp/tests/VMx.Conformance.Tests/bin/Release/{framework}/x.dll"
     definitions = "".join(
-        f'<UnitTest id="id{n}" name="{name}"><TestMethod className="'
+        f'<UnitTest id="id{n}" name="{name}" storage="{storage}"><TestMethod className="'
         f'{class_name}, VMx.Conformance.Tests" name="{method}"/>'
         "</UnitTest>"
         for n, (name, method, _) in enumerate(results)
@@ -312,8 +338,8 @@ def _trx(
 
 
 def test_trx_cases_map_through_csharp_source_markers(tmp_path: Path) -> None:
-    repo = _repo(tmp_path)
-    _write(repo / "langs/csharp/tests/VMx.Conformance.Tests/LifecycleTests.cs", CS_SOURCE)
+    repo = _csharp_repo(tmp_path)
+    _write(repo / CSHARP_CASES, CS_SOURCE)
     report = _write(
         tmp_path / "results.trx",
         _trx(
@@ -338,8 +364,8 @@ def test_trx_cases_map_through_csharp_source_markers(tmp_path: Path) -> None:
 
 
 def test_same_named_test_in_another_class_is_never_credited(tmp_path: Path) -> None:
-    repo = _repo(tmp_path)
-    _write(repo / "langs/csharp/tests/VMx.Conformance.Tests/LifecycleTests.cs", CS_SOURCE)
+    repo = _csharp_repo(tmp_path)
+    _write(repo / CSHARP_CASES, CS_SOURCE)
     conformance = _write(
         tmp_path / "conformance.trx",
         _trx(
@@ -362,7 +388,7 @@ def test_same_named_test_in_another_class_is_never_credited(tmp_path: Path) -> N
 
     assert rc == 0
     assert data["ids"]["LIFE-001"]["cases"] == [
-        {"case": "LIFE_001_Constructs", "outcome": "passed"}
+        {"case": "LIFE_001_Constructs", "outcome": "passed", "framework": "net8.0"}
     ]
 
 
@@ -370,8 +396,8 @@ def test_same_named_class_in_another_project_does_not_credit_a_skipped_id(
     tmp_path: Path,
 ) -> None:
     # #784: VMx.Tests holds a class and method with the conformance names.
-    repo = _repo(tmp_path)
-    _write(repo / "langs/csharp/tests/VMx.Conformance.Tests/LifecycleTests.cs", CS_SOURCE)
+    repo = _csharp_repo(tmp_path)
+    _write(repo / CSHARP_CASES, CS_SOURCE)
     conformance = _write(
         tmp_path / "conformance.trx",
         _trx([("LIFE_001_Constructs", "LIFE_001_Constructs", "NotExecuted")]),
@@ -388,13 +414,13 @@ def test_same_named_class_in_another_project_does_not_credit_a_skipped_id(
 
     assert data["ids"]["LIFE-001"]["status"] == "skipped"
     assert data["ids"]["LIFE-001"]["cases"] == [
-        {"case": "LIFE_001_Constructs", "outcome": "skipped"}
+        {"case": "LIFE_001_Constructs", "outcome": "skipped", "framework": "net8.0"}
     ]
 
 
 def test_trx_host_error_and_count_mismatch_are_rejected(tmp_path: Path) -> None:
-    repo = _repo(tmp_path)
-    _write(repo / "langs/csharp/tests/VMx.Conformance.Tests/LifecycleTests.cs", CS_SOURCE)
+    repo = _csharp_repo(tmp_path)
+    _write(repo / CSHARP_CASES, CS_SOURCE)
     passed = [("LIFE_001_Constructs", "LIFE_001_Constructs", "Passed")]
 
     crashed = _write(tmp_path / "crash.trx", _trx(passed, error=1))
@@ -402,6 +428,54 @@ def test_trx_host_error_and_count_mismatch_are_rejected(tmp_path: Path) -> None:
 
     assert _run(repo, "csharp", crashed)[0] == 2
     assert _run(repo, "csharp", short)[0] == 2
+
+
+def test_csharp_id_that_ran_on_one_framework_only_fails_the_gate(tmp_path: Path, capsys) -> None:
+    repo = _csharp_repo(tmp_path, "net8.0;net9.0")
+    _write(repo / CSHARP_CASES, CS_SOURCE)
+    on_net8 = _write(tmp_path / "net8.trx", _trx(PASSING, framework="net8.0"))
+    not_on_net9 = [("LIFE_001_Constructs", "LIFE_001_Constructs", "NotExecuted"), *PASSING[1:]]
+    on_net9 = _write(tmp_path / "net9.trx", _trx(not_on_net9, framework="net9.0"))
+
+    rc, data = _run(repo, "csharp", on_net8, on_net9)
+
+    assert rc == 1
+    assert {i: item["status"] for i, item in data["ids"].items()} == {
+        "LIFE-001": "skipped",
+        "LIFE-002": "passed",
+        "LIFE-003": "passed",
+        "LIFE-004": "passed",
+    }
+    assert "LIFE-001: skipped on net9.0 (LIFE_001_Constructs [skipped])" in capsys.readouterr().err
+
+
+def test_csharp_framework_without_a_conformance_run_fails_and_is_named(
+    tmp_path: Path, capsys
+) -> None:
+    repo = _csharp_repo(tmp_path, "net8.0;net9.0;net10.0")
+    _write(repo / CSHARP_CASES, CS_SOURCE)
+    reports = [
+        _write(tmp_path / f"{framework}.trx", _trx(PASSING, framework=framework))
+        for framework in ("net8.0", "net9.0")
+    ]
+
+    rc, data = _run(repo, "csharp", *reports)
+
+    assert rc == 1
+    assert data["ids"]["LIFE-001"]["frameworks"] == {
+        "net8.0": "passed",
+        "net9.0": "passed",
+        "net10.0": "missing",
+    }
+    assert "LIFE-001: missing on net10.0" in capsys.readouterr().err
+
+
+def test_csharp_without_the_conformance_project_is_rejected(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)  # no VMx.Conformance.Tests.csproj, so no target frameworks
+    _write(repo / CSHARP_CASES, CS_SOURCE)
+    report = _write(tmp_path / "results.trx", _trx(PASSING))
+
+    assert _run(repo, "csharp", report)[0] == 2
 
 
 SWIFT_SOURCE = """\
@@ -419,7 +493,9 @@ final class LifecycleTests: XCTestCase {
 
     // LIFE-003 prose mention without the em dash is not a marker
     /// LIFE-003 — skipped through XCTSkip
-    func testSkips() throws {}
+    func testSkips() throws {
+        throw XCTSkip("probe")
+    }
 }
 
 final class OtherTests: XCTestCase {
@@ -439,12 +515,93 @@ def test_swift_xunit_cases_map_through_source_markers(tmp_path: Path) -> None:
           <testsuite name="TestResults" errors="0" tests="4" failures="1" time="1.0">
             <testcase classname="VMxTests.LifecycleTests" name="testConstructs" time="0.1"/>
             <testcase classname="VMxTests.LifecycleTests" name="testDestructs" time="0.1"/>
-            <testcase classname="VMxTests.LifecycleTests" name="testSkips" time="0.1">
-              <skipped/>
-            </testcase>
+            <testcase classname="VMxTests.LifecycleTests" name="testSkips" time="0.1"/>
             <testcase classname="VMxTests.OtherTests" name="testConstructs" time="0.1">
               <failure message="x"/>
             </testcase>
+          </testsuite>
+        </testsuites>
+        """,
+    )
+
+    rc, data = _run(repo, "swift", report)
+
+    # SwiftPM writes the XCTSkip test with no child element, so the XML reads
+    # it as passed; the source scan is what fails it.
+    assert rc == 1
+    assert {i: item["status"] for i, item in data["ids"].items()} == {
+        "LIFE-001": "passed",
+        "LIFE-002": "passed",
+        "LIFE-003": "failed",
+        "LIFE-004": "failed",  # the class disambiguates the shared name
+    }
+
+
+SWIFTPM_ALL_PASS = """\
+<testsuites>
+  <testsuite name="TestResults" errors="0" tests="4" failures="0" time="1.0">
+    <testcase classname="VMxTests.LifecycleTests" name="testConstructs" time="0.1"/>
+    <testcase classname="VMxTests.LifecycleTests" name="testDestructs" time="0.1"/>
+    <testcase classname="VMxTests.LifecycleTests" name="testSkips" time="0.1"/>
+    <testcase classname="VMxTests.OtherTests" name="testConstructs" time="0.1"/>
+  </testsuite>
+</testsuites>
+"""
+
+
+def test_swift_xctskip_in_a_marked_test_fails_the_id(tmp_path: Path, capsys) -> None:
+    repo = _repo(tmp_path)
+    _write(repo / "langs/swift/Tests/VMxTests/LifecycleTests.swift", SWIFT_SOURCE)
+    report = _write(tmp_path / "xunit.xml", SWIFTPM_ALL_PASS)
+
+    rc, data = _run(repo, "swift", report)
+
+    assert rc == 1
+    assert data["ids"]["LIFE-003"]["status"] == "failed"
+    assert "LIFE-003: failed (XCTSkip at langs/swift/Tests/VMxTests/LifecycleTests.swift:" in (
+        capsys.readouterr().err
+    )
+
+
+HELPER_SOURCE = """\
+import XCTest
+
+func requireLiveBackend() throws {
+    throw XCTSkip("no backend")
+}
+
+final class HelperTests: XCTestCase {
+    /// LIFE-001 — construct transitions
+    func testConstructs() throws {
+        try requireLiveBackend()
+    }
+
+    /// LIFE-002 — destruct transitions
+    func testDestructs() {}
+
+    /// LIFE-003 — passes on its own
+    func testSkips() {}
+
+    /// LIFE-004 — other
+    func testOther() {}
+}
+"""
+
+
+def test_swift_xctskip_in_an_unmarked_helper_names_the_file_and_line(
+    tmp_path: Path, capsys
+) -> None:
+    repo = _repo(tmp_path)
+    _write(repo / "langs/swift/Tests/VMxTests/HelperTests.swift", HELPER_SOURCE)
+    report = _write(
+        tmp_path / "xunit.xml",
+        """\
+        <testsuites>
+          <testsuite name="TestResults" errors="0" tests="4" failures="0" time="1.0">
+            <testcase classname="VMxTests.HelperTests" name="testConstructs" time="0.1"/>
+            <testcase classname="VMxTests.HelperTests" name="testDestructs" time="0.1"/>
+            <testcase classname="VMxTests.HelperTests" name="testSkips" time="0.1"/>
+            <testcase classname="VMxTests.HelperTests" name="testOther" time="0.1"/>
           </testsuite>
         </testsuites>
         """,
@@ -456,9 +613,11 @@ def test_swift_xunit_cases_map_through_source_markers(tmp_path: Path) -> None:
     assert {i: item["status"] for i, item in data["ids"].items()} == {
         "LIFE-001": "passed",
         "LIFE-002": "passed",
-        "LIFE-003": "skipped",
-        "LIFE-004": "failed",  # the class disambiguates the shared name
+        "LIFE-003": "passed",
+        "LIFE-004": "passed",
     }
+    err = capsys.readouterr().err
+    assert "langs/swift/Tests/VMxTests/HelperTests.swift:4: XCTSkip outside" in err
 
 
 RUST_SOURCE = """\
@@ -557,7 +716,7 @@ def test_untrustworthy_libtest_output_is_rejected(tmp_path: Path, log: str) -> N
 
 
 def test_marker_without_a_test_function_is_rejected(tmp_path: Path) -> None:
-    repo = _repo(tmp_path)
+    repo = _csharp_repo(tmp_path)
     _write(
         repo / "langs/csharp/tests/VMx.Conformance.Tests/Broken.cs",
         'public sealed class Broken\n{\n    [Fact, Trait("Conformance", "LIFE-001")]\n}\n',
