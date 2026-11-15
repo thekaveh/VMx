@@ -626,6 +626,7 @@ name = "vmx"
 source = { editable = "." }
 dependencies = [
     { name = "reactivex" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -667,5 +668,6 @@ requires-dist = [
     { name = "reactivex", specifier = ">=4.0.4" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
     { name = "ruff", marker = "extra == 'lint'", specifier = ">=0.4" },
+    { name = "typing-extensions", specifier = ">=4.12.0" },
 ]
 provides-extras = ["dev", "lint", "test", "tools", "typing"]

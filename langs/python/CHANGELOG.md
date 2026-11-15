@@ -158,6 +158,13 @@ below for them.
   collections and dictionaries keep their type name. `sender_name` is now a
   keyword-only field. When it is not given, it defaults to the sender's type
   name. An explicit empty name, such as a container named `""`, stays empty.
+- `MessageHub`, `MessageHubProto` and `TransactionalMessageHubProto` declare
+  `Message` as the default type argument (ADR-0231, #1903). Under
+  `mypy --strict`, a bare `MessageHub` annotation, parameter or construction now
+  means `MessageHub[Message]`, so the annotation is optional. Explicit
+  parameterisations are unchanged. The package now declares
+  `typing-extensions>=4.12.0`, which supplies the defaults on every supported
+  Python version.
 
 ### Fixed
 
