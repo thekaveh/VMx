@@ -13,15 +13,15 @@
  */
 import { Subject } from "rxjs";
 import type { Observable } from "rxjs";
+import { ComponentVMBase } from "../components/componentVMBase.js";
+import type { IOwningParentVM } from "../components/componentVMBase.js";
 import {
   beginParentTransfer,
   captureParentTransferCommit,
-  ContainerRollbackError,
   compensateAutoConstruct,
-  ComponentVMBase,
+  ContainerRollbackError,
   ParentTransfer,
-} from "../components/componentVMBase.js";
-import type { IOwningParentVM } from "../components/componentVMBase.js";
+} from "../components/parentTransfer.js";
 import { disposeBestEffort } from "../components/disposal.js";
 import { emittedIndex } from "../collections/emittedIndex.js";
 import {

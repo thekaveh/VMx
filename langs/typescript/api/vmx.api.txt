@@ -525,6 +525,15 @@ declare class BatchUpdateHandle {
     [Symbol.dispose](): void;
 }
 
+declare class ParentTransfer {
+    #private;
+    private readonly commitAction;
+    private readonly rollbackAction;
+    constructor(commitAction: () => void, rollbackAction: () => void);
+    commit(): void;
+    rollback(): void;
+}
+
 interface IParentVM {
     readonly supportsChildSelection: boolean;
     readonly currentChild: ComponentVMBase | null;
@@ -537,14 +546,6 @@ interface IOwningParentVM extends IParentVM {
     containsChild(vm: ComponentVMBase): boolean;
     detachForTransfer(vm: ComponentVMBase): ParentTransfer;
     childDisposed(vm: ComponentVMBase): void;
-}
-declare class ParentTransfer {
-    #private;
-    private readonly commitAction;
-    private readonly rollbackAction;
-    constructor(commitAction: () => void, rollbackAction: () => void);
-    commit(): void;
-    rollback(): void;
 }
 interface DisposableResource {
     dispose(): void;
