@@ -9,7 +9,7 @@ import {
   MessageHub,
   PropertyChangedMessage,
 } from "../../../src/index.js";
-import { deepEquals } from "../../../src/forms/formVm.js";
+import { deepEquals } from "../../../src/forms/structuralEquality.js";
 
 interface IModel {
   name: string;

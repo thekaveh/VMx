@@ -2,10 +2,8 @@ import { ComponentVMBase } from "../components/componentVMBase.js";
 import { disposeBestEffort } from "../components/disposal.js";
 import { disposeUnownedCandidates } from "../components/unownedCandidates.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
-import type {
-  IOwningParentVM,
-  ParentTransfer,
-} from "../components/componentVMBase.js";
+import type { IOwningParentVM } from "../components/componentVMBase.js";
+import type { ParentTransfer } from "../components/parentTransfer.js";
 
 /** @internal Fixed-slot parent adaptor used by aggregate implementations. */
 export class AggregateParent implements IOwningParentVM {

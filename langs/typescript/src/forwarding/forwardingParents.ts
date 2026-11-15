@@ -12,8 +12,8 @@
 import {
   ComponentVMBase,
   type IOwningParentVM,
-  ParentTransfer,
 } from "../components/componentVMBase.js";
+import { ParentTransfer } from "../components/parentTransfer.js";
 
 /** @internal A forwarding decorator that joins containers for a wrapped VM. */
 export type ForwardingWrapper = ComponentVMBase & { readonly wrappedBase: ComponentVMBase };
