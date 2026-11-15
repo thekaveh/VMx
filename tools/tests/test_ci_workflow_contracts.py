@@ -126,6 +126,37 @@ def test_csharp_and_typescript_library_coverage_is_enforced() -> None:
         assert threshold in typescript
 
 
+# #1863: the netstandard2.0 build is packed for NuGet, so one C# job must run the
+# library conformance suite against that build, not only against the net8.0 build.
+_NETSTANDARD_CONFORMANCE_JOB = "netstandard2-conformance"
+
+
+def test_csharp_conformance_suite_runs_against_the_netstandard2_0_library_build() -> None:
+    jobs = workflow_jobs((WORKFLOWS / "csharp.yml").read_text(encoding="utf-8"))
+    assert _NETSTANDARD_CONFORMANCE_JOB in jobs, f"csharp.yml jobs: {sorted(jobs)}"
+    job = jobs[_NETSTANDARD_CONFORMANCE_JOB]
+
+    conformance = [
+        command
+        for command in _dotnet_test_commands(job)
+        if "tests/VMx.Conformance.Tests/VMx.Conformance.Tests.csproj" in command
+    ]
+    assert conformance, "the netstandard2.0 job runs no conformance test command"
+    for command in conformance:
+        assert "-p:VMxLibraryFramework=netstandard2.0" in command, command
+        assert "--logger trx" in command, command
+    assert "tools/check-conformance-execution.py" in job
+    assert "--configuration" in job
+    assert "netstandard2.0" in job
+    assert "conformance-evidence-csharp-netstandard2.0" in job
+    # The job logs the framework of the loaded VMx.dll, so a wrong build is visible.
+    assert ".NETStandard,Version=v2.0" in job
+
+    needs = re.search(r"(?m)^    needs: \[(.*)\]$", jobs["required"])
+    assert needs is not None
+    assert _NETSTANDARD_CONFORMANCE_JOB in [name.strip() for name in needs.group(1).split(",")]
+
+
 def test_every_workflow_change_triggers_the_pin_inventory() -> None:
     conformance = (WORKFLOWS / "conformance.yml").read_text(encoding="utf-8")
 
@@ -136,7 +167,10 @@ def test_every_workflow_change_triggers_the_pin_inventory() -> None:
 def test_protected_branch_checks_are_always_present_and_aggregate_every_job() -> None:
     required = {
         "conformance.yml": ("required: conformance", None),
-        "csharp.yml": ("required: csharp", "needs: [build, package, examples, wpf-example]"),
+        "csharp.yml": (
+            "required: csharp",
+            "needs: [build, package, examples, wpf-example, netstandard2-conformance]",
+        ),
         "python.yml": (
             "required: python",
             "needs: [build, examples, small-examples, inspector, nicegui, package]",

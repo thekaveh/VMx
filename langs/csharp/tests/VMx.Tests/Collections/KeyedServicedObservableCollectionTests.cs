@@ -1,5 +1,7 @@
 using System.Collections.Specialized;
+#if !VMX_LIBRARY_NETSTANDARD2_0
 using System.Diagnostics.CodeAnalysis;
+#endif
 using System.Reflection;
 using FluentAssertions;
 using VMx.Collections;
@@ -44,10 +46,22 @@ public class KeyedServicedObservableCollectionTests
             .GetMethod(nameof(KeyedServicedObservableCollection<string, Item>.TryGetValue))!;
         ParameterInfo itemParameter = method.GetParameters()[1];
 
+#if VMX_LIBRARY_NETSTANDARD2_0
+        // The netstandard2.0 build applies its internal polyfill attribute, which has the same
+        // simple name as the BCL attribute. Name the type by its full name and read ReturnValue
+        // through reflection, so the test compiles against both builds (#1863).
+        var attribute = itemParameter.GetCustomAttributes(inherit: false)
+            .FirstOrDefault(a => a.GetType().FullName == "System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute");
+
+        attribute.Should().NotBeNull();
+        bool returnValue = (bool)attribute!.GetType().GetProperty("ReturnValue")!.GetValue(attribute)!;
+        returnValue.Should().BeFalse();
+#else
         var attribute = itemParameter.GetCustomAttribute<MaybeNullWhenAttribute>();
 
         attribute.Should().NotBeNull();
         attribute!.ReturnValue.Should().BeFalse();
+#endif
     }
 
     [Fact]
