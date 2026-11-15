@@ -5,6 +5,7 @@ Conformance-level tests live in tests/conformance/test_hier_001_to_014.py.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from vmx.hierarchical import HierarchicalVM
 from vmx.messages import TreeStructureChange, TreeStructureChangedMessage
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
+from vmx.tree import find, walk, walk_expanded
 
 # ---------------------------------------------------------------------------
 # Shared test doubles
@@ -371,3 +373,84 @@ class TestDisposedNodeRefusal:
 
         assert first.parent is None
         assert second.parent is None
+
+
+# ---------------------------------------------------------------------------
+# Tree walks, depth and path invalidation on deep chains (no recursion)
+# ---------------------------------------------------------------------------
+
+DEEP_CHAIN_LEVELS = 10_000
+
+
+def _deep_chain(levels: int, hub: MessageHub[Any], dispatcher: RxDispatcher) -> Node:
+    """A chain of ``levels`` nodes. Children come from factories, so building the
+    chain does not touch the path caches."""
+
+    def build(depth: int) -> Node:
+        def factory(_: Node) -> list[Node]:
+            return [] if depth + 1 == levels else [build(depth + 1)]
+
+        return Node(children_factory=factory, hub=hub, dispatcher=dispatcher, name=f"n{depth}")
+
+    return build(0)
+
+
+def test_deep_chain_walks_find_and_depth_do_not_recurse() -> None:
+    hub = make_hub()
+    dispatcher = RxDispatcher.immediate()
+    root = _deep_chain(DEEP_CHAIN_LEVELS, hub, dispatcher)
+
+    nodes = list(walk(root))
+    last = nodes[-1]
+
+    assert len(nodes) == DEEP_CHAIN_LEVELS
+    assert last.depth == DEEP_CHAIN_LEVELS - 1
+    assert len(last.path) == DEEP_CHAIN_LEVELS
+    assert len(list(walk_expanded(root))) == DEEP_CHAIN_LEVELS
+    assert find(root, lambda node: node is last) is last
+
+
+def test_deep_chain_moves_under_a_new_parent() -> None:
+    hub = make_hub()
+    dispatcher = RxDispatcher.immediate()
+    root = _deep_chain(DEEP_CHAIN_LEVELS, hub, dispatcher)
+    # Materialize top-down in a loop, so the move itself is what recurses.
+    last = root
+    while not last.is_leaf:
+        last = last.children[0]
+    new_root = Node(hub=hub, dispatcher=dispatcher, name="new-root")
+
+    new_root.add_child(root)
+
+    assert root.parent is new_root
+    assert last.depth == DEEP_CHAIN_LEVELS
+    assert last.path[0] is new_root
+    assert last.path[1] is root
+
+
+def test_walks_pin_preorder_and_child_read_order_on_a_small_tree() -> None:
+    hub = make_hub()
+    dispatcher = RxDispatcher.immediate()
+    shape = {"root": ["a", "b"], "a": ["a1", "a2"], "a1": ["a1x"], "b": ["b1"]}
+    reads: list[str] = []
+    by_name: dict[str, Node] = {}
+
+    def factory_for(name: str) -> Callable[[Node], list[Node]]:
+        def factory(_: Node) -> list[Node]:
+            reads.append(name)
+            return [by_name[child] for child in shape.get(name, [])]
+
+        return factory
+
+    for name in ["root", "a", "a1", "a1x", "a2", "b", "b1"]:
+        by_name[name] = Node(
+            children_factory=factory_for(name), hub=hub, dispatcher=dispatcher, name=name
+        )
+    root = by_name["root"]
+    expected = ["root", "a", "a1", "a1x", "a2", "b", "b1"]
+
+    assert [node.name for node in walk(root)] == expected
+    assert reads == expected, "children are read in the same pre-order as the walk"
+    assert [node.name for node in walk_expanded(root)] == expected
+    assert find(root, lambda node: node.name == "b1") is by_name["b1"]
+    assert by_name["a1x"].depth == 3

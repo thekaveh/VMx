@@ -175,9 +175,13 @@ export abstract class HierarchicalVM<
 
   /** Distance from the root. Root is 0; child of root is 1; etc. */
   get depth(): number {
-    return this.#hierarchicalParent === null
-      ? 0
-      : this.#hierarchicalParent.depth + 1;
+    let depth = 0;
+    let ancestor = this.#hierarchicalParent;
+    while (ancestor !== null) {
+      depth += 1;
+      ancestor = ancestor.#hierarchicalParent;
+    }
+    return depth;
   }
 
   /**
@@ -768,10 +772,14 @@ export abstract class HierarchicalVM<
   }
 
   #invalidatePathCacheDescendants(): void {
-    if (this.#children === null) return;
-    for (const child of this.#children) {
-      child.#pathCache = null;
-      child.#invalidatePathCacheDescendants();
+    const stack: TVM[] = [this.#self];
+    while (stack.length > 0) {
+      const node = stack.pop() as TVM;
+      if (node.#children === null) continue;
+      for (const child of node.#children) {
+        child.#pathCache = null;
+        stack.push(child);
+      }
     }
   }
 }

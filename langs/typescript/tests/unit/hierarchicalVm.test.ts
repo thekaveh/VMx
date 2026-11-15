@@ -9,8 +9,12 @@ import { describe, expect, it } from "vitest";
 import {
   HierarchicalVM,
   MessageHub,
+  RxDispatcher,
   TreeStructureChangedMessage,
   ViewModelType,
+  find,
+  walk,
+  walkExpanded,
 } from "../../src/index.js";
 import type { HierarchicalVMOptions } from "../../src/index.js";
 import type { IMessageHub } from "../../src/services/messageHub.js";
@@ -294,5 +298,93 @@ describe("NullValidation", () => {
   it("reparentChild throws on null", () => {
     const parentVm = leaf();
     expect(() => parentVm.reparentChild(null as unknown as Node)).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deep chains: walks, depth and path invalidation do not recurse
+// ---------------------------------------------------------------------------
+
+const DEEP_CHAIN_LEVELS = 10_000;
+
+/** A chain of `levels` nodes. Children come from factories, so building the
+ * chain does not touch the path caches. */
+function deepChain(levels: number, hub: IMessageHub, dispatcher: RxDispatcher): Node {
+  const build = (depth: number): Node =>
+    new Node({
+      hub,
+      dispatcher,
+      name: `n${depth}`,
+      childrenFactory: () => (depth + 1 === levels ? [] : [build(depth + 1)]),
+    });
+  return build(0);
+}
+
+describe("DeepChain", () => {
+  it("deep chain: walk, walkExpanded, find and depth reach the last level", () => {
+    const root = deepChain(DEEP_CHAIN_LEVELS, makeHub(), RxDispatcher.immediate());
+
+    const nodes = [...walk(root)];
+    const last = nodes[nodes.length - 1] as Node;
+
+    expect(nodes).toHaveLength(DEEP_CHAIN_LEVELS);
+    expect(last.depth).toBe(DEEP_CHAIN_LEVELS - 1);
+    expect(last.path).toHaveLength(DEEP_CHAIN_LEVELS);
+    expect([...walkExpanded(root)]).toHaveLength(DEEP_CHAIN_LEVELS);
+    expect(find(root, (vm) => vm === last)).toBe(last);
+  });
+
+  it("deep chain: a materialized chain moves under a new parent", () => {
+    const hub = makeHub();
+    const dispatcher = RxDispatcher.immediate();
+    const root = deepChain(DEEP_CHAIN_LEVELS, hub, dispatcher);
+    // Materialize top-down in a loop, so the move itself is what recurses.
+    let last = root;
+    while (!last.isLeaf) last = last.children[0] as Node;
+    const newRoot = new Node({ hub, dispatcher, name: "new-root" });
+
+    newRoot.addChild(root);
+
+    expect(root.parent).toBe(newRoot);
+    expect(last.depth).toBe(DEEP_CHAIN_LEVELS);
+    expect(last.path[0]).toBe(newRoot);
+    expect(last.path[1]).toBe(root);
+  });
+});
+
+describe("WalkOrder", () => {
+  it("pins pre-order and child read order on a small tree", () => {
+    const hub = makeHub();
+    const dispatcher = RxDispatcher.immediate();
+    const shape: Record<string, string[]> = {
+      root: ["a", "b"],
+      a: ["a1", "a2"],
+      a1: ["a1x"],
+      b: ["b1"],
+    };
+    const reads: string[] = [];
+    const byName = new Map<string, Node>();
+    for (const name of ["root", "a", "a1", "a1x", "a2", "b", "b1"]) {
+      byName.set(
+        name,
+        new Node({
+          hub,
+          dispatcher,
+          name,
+          childrenFactory: () => {
+            reads.push(name);
+            return (shape[name] ?? []).map((child) => byName.get(child) as Node);
+          },
+        }),
+      );
+    }
+    const root = byName.get("root") as Node;
+    const expected = ["root", "a", "a1", "a1x", "a2", "b", "b1"];
+
+    expect([...walk(root)].map((vm) => vm.name)).toEqual(expected);
+    expect(reads).toEqual(expected);
+    expect([...walkExpanded(root)].map((vm) => vm.name)).toEqual(expected);
+    expect(find(root, (vm) => vm.name === "b1")).toBe(byName.get("b1"));
+    expect(byName.get("a1x")?.depth).toBe(3);
   });
 });

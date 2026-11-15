@@ -231,6 +231,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Tree walks (`walk`, `walkExpanded`, `find`), `HierarchicalVM.depth` and
+  path-cache invalidation no longer recurse once per level. A deep tree no
+  longer raises `RangeError` (maximum call stack size exceeded). Walk order and
+  the timing of child reads are unchanged (spec/13, #1912).
+
 - The view-model builders and `FormVM.builder()` report a required field that
   holds `undefined` as missing, as they already did for `null` (#1591). Before,
   `build()` returned a view model with the field unset, and the failure came
