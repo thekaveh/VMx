@@ -62,6 +62,37 @@ describe("RecordingMessageHub", () => {
     expect(completed).toBe(1);
     expect(hub.records).toEqual([]);
   });
+
+  it("runs a batch body after disposal and records nothing", () => {
+    const hub = new RecordingMessageHub();
+    hub.dispose();
+    let ran = 0;
+
+    hub.batch(() => {
+      ran++;
+      hub.send(changed("afterDisposal"));
+    });
+
+    expect(ran).toBe(1);
+    expect(hub.records).toEqual([]);
+  });
+
+  it("propagates a batch body error after disposal", () => {
+    const hub = new RecordingMessageHub();
+    hub.dispose();
+    const failure = new Error("x");
+    let thrown: unknown;
+
+    try {
+      hub.batch(() => {
+        throw failure;
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(failure);
+  });
 });
 
 describe("ManualDispatcher", () => {
@@ -111,5 +142,19 @@ describe("createTestServices", () => {
     expect(services.hub.records).toHaveLength(1);
     services.dispose();
     services.dispose();
+  });
+
+  it("runs a hub batch body after services disposal", () => {
+    const services = createTestServices();
+    services.dispose();
+    let ran = 0;
+
+    services.hub.batch(() => {
+      ran++;
+      services.hub.send(changed("afterDisposal"));
+    });
+
+    expect(ran).toBe(1);
+    expect(services.hub.records).toEqual([]);
   });
 });

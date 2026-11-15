@@ -227,6 +227,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `RecordingMessageHub.batch` runs its body after `dispose()`, as
+  `MessageHub.batch` does (spec/03 §3.3, ADR-0184, #1918). Before, it returned
+  without calling the body, so a body that threw lost its error. Sends inside
+  the body still record nothing, and `createTestServices().hub` behaves the
+  same way.
+
 - A failed add, insert, replacement or population that started a background
   child now returns that child to `Destructed` once its construct settles
   `Constructed` with no parent (ADR-0218, spec/06 §4.2, #1372, `COMP-054`,
