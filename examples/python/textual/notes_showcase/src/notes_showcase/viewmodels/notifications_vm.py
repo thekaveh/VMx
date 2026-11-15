@@ -13,7 +13,6 @@ import dataclasses
 from datetime import timedelta
 
 from reactivex.abc import DisposableBase, SchedulerBase
-from reactivex.scheduler import TimeoutScheduler
 from vmx import (
     ComponentVM,
     MessageHub,
@@ -24,6 +23,8 @@ from vmx import (
 from vmx.messages.protocols import Message
 from vmx.notifications import INotificationHub, Notification, NotificationVM
 from vmx.services.dispatcher import Dispatcher
+
+from notes_showcase.viewmodels.notes_view_vm import default_timer_scheduler
 
 _DEFAULT_CAP = 5
 
@@ -47,7 +48,7 @@ class NotificationsVM(ComponentVM):
     ) -> None:
         super().__init__(name=name, hint=hint, hub=hub, dispatcher=dispatcher)
         self._notification_hub = notification_hub
-        self._scheduler = scheduler or TimeoutScheduler()
+        self._scheduler = scheduler or default_timer_scheduler(dispatcher)
         self._lifespan = lifespan
         self._cap = cap
         self._visible: ObservableList[NotificationVM] = ObservableList()

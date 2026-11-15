@@ -25,9 +25,11 @@ from collections.abc import Callable
 from typing import Any
 
 from reactivex.abc import DisposableBase
+from reactivex.disposable import Disposable
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.properties.derived import DerivedProperty
 
+from notes_showcase.views.adapter._app_thread import AppThreadHandoff
 from notes_showcase.views.adapter._hub_accessor import resolve_hub
 
 
@@ -96,6 +98,9 @@ def bind_property(
         return transform(value) if transform is not None else value
 
     _assign(widget, attr, _read())
+    # A change from a worker thread is queued on the App thread (#1642). The VM
+    # read and the widget write run together there.
+    handoff = AppThreadHandoff()
 
     def _on_next(message: object) -> None:
         if not isinstance(message, PropertyChangedMessage):
@@ -104,10 +109,15 @@ def bind_property(
             return
         if message.property_name != vm_property:
             return
-        _assign(widget, attr, _read())
+        handoff.run(lambda: _assign(widget, attr, _read()))
 
     subscription = resolve_hub(vm).messages.subscribe(on_next=_on_next)
-    return subscription
+
+    def _dispose() -> None:
+        handoff.dispose()
+        subscription.dispose()
+
+    return Disposable(_dispose)
 
 
 def on_vm_property_change(
