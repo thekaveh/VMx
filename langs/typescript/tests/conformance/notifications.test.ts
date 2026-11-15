@@ -222,13 +222,27 @@ describe("NOTIF-013", () => {
   });
 });
 
+/**
+ * NotificationVM that counts calls to the protected expire hook. The lifespan
+ * timer calls the hook when it fires, so a count above zero after a cancel
+ * means the timer was kept (NOTIF-014 to NOTIF-016).
+ */
+class ExpireCountingVM extends NotificationVM {
+  expireCalls = 0;
+
+  protected override onExpire(): void {
+    this.expireCalls += 1;
+    super.onExpire();
+  }
+}
+
 describe("NOTIF-014", () => {
   it("Manual dismissCommand cancels the timer; subsequent ticks are no-ops", () => {
     const scheduler = new FakeScheduler();
     const hub = new NotificationHub();
     const notification = new Notification(NotificationType.Notification, "dismiss");
     hub.post(notification);
-    const sut = new NotificationVM(notification, hub, scheduler, 10_000);
+    const sut = new ExpireCountingVM(notification, hub, scheduler, 10_000);
 
     // Dismiss manually at t=0
     sut.dismissCommand.execute();
@@ -237,6 +251,7 @@ describe("NOTIF-014", () => {
     // Advance past lifespan — timer must not double-resolve
     scheduler.advanceTo(20_000);
 
+    expect(sut.expireCalls).toBe(0);
     expect(sut.isResolved).toBe(true);
     let lastPending: readonly Notification[] = [];
     hub.pending.subscribe((p) => { lastPending = p; });
@@ -252,7 +267,7 @@ describe("NOTIF-015", () => {
     const hub = new NotificationHub();
     const notification = new Notification(NotificationType.Notification, "hub resolves");
     hub.post(notification);
-    const sut = new NotificationVM(notification, hub, scheduler, 60_000);
+    const sut = new ExpireCountingVM(notification, hub, scheduler, 60_000);
 
     expect(sut.isResolved).toBe(false);
 
@@ -263,6 +278,7 @@ describe("NOTIF-015", () => {
 
     // Advance past lifespan — timer must not re-fire
     scheduler.advanceTo(60_000);
+    expect(sut.expireCalls).toBe(0);
     expect(sut.isResolved).toBe(true);
 
     sut.dispose();
@@ -275,7 +291,7 @@ describe("NOTIF-016", () => {
     const hub = new NotificationHub();
     const notification = new Notification(NotificationType.Notification, "tick");
     hub.post(notification);
-    const sut = new NotificationVM(notification, hub, scheduler, 10_000);
+    const sut = new ExpireCountingVM(notification, hub, scheduler, 10_000);
 
     // t=0: opacity 1.0, not resolved
     expect(sut.opacity).toBeCloseTo(1.0, 3);
@@ -290,10 +306,13 @@ describe("NOTIF-016", () => {
     scheduler.advanceTo(10_000);
     expect(sut.isResolved).toBe(true);
     expect(sut.opacity).toBeCloseTo(0.0, 2);
+    expect(sut.remainingMs).toBe(0);
+    expect(sut.expireCalls).toBe(1);
 
     // No double-resolve: advancing further is a no-op
     scheduler.advanceTo(110_000);
     expect(sut.isResolved).toBe(true);
+    expect(sut.expireCalls).toBe(1);
 
     sut.dispose();
   });

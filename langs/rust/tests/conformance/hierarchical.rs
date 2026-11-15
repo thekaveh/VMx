@@ -1369,13 +1369,21 @@ fn reparent_rejects_self_and_ancestor_cycles() {
     assert!(mid.children().is_empty());
     assert!(tree_changes(&recorder).contains(&(TreeStructureChange::Reparented, leaf_node.id())));
 
-    let new_parent = leaf("new-parent");
+    // `node` shares the recorded hub; `leaf` would publish to a private hub.
+    let new_parent = node("new-parent");
+    let before_transfer = tree_changes(&recorder).len();
     new_parent.add_child(leaf_node.clone()).unwrap();
     assert!(other.children().is_empty());
     assert!(mid.children().is_empty());
     let transferred = new_parent.children();
     assert!(transferred.len() == 1 && transferred[0] == leaf_node);
     assert!(leaf_node.parent().as_ref() == Some(&new_parent));
+    // The add_child transfer publishes exactly one Reparented message.
+    assert_eq!(
+        tree_changes(&recorder)[before_transfer..].to_vec(),
+        vec![(TreeStructureChange::Reparented, leaf_node.id())],
+        "AddChild transfer publishes one Reparented message"
+    );
 }
 
 /// HIER-019 — InvalidateChildren reloads on next access
@@ -1449,16 +1457,53 @@ fn invalidate_unmaterialized_children_is_noop() {
 /// HIER-021 — InvalidateSubtree invalidates materialized descendants
 #[test]
 fn invalidate_subtree_invalidates_materialized_descendants() {
-    let root = leaf("root");
-    let child = leaf("child");
-    child.add_child(leaf("grandchild")).unwrap();
+    let root_calls = Arc::new(Mutex::new(0));
+    let root_seen = root_calls.clone();
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |_| {
+            *root_seen.lock().unwrap() += 1;
+            Vec::new()
+        },
+        false,
+        MessageHub::new(),
+    );
+    let child_calls = Arc::new(Mutex::new(0));
+    let child_seen = child_calls.clone();
+    let child = HierarchicalVm::with_children_factory(
+        "child",
+        "child".to_string(),
+        move |_| {
+            *child_seen.lock().unwrap() += 1;
+            Vec::new()
+        },
+        false,
+        MessageHub::new(),
+    );
     root.add_child(child.clone()).unwrap();
+    child.children();
+    assert_eq!(*root_calls.lock().unwrap(), 1);
+    assert_eq!(*child_calls.lock().unwrap(), 1);
+    assert!(root.is_children_materialized());
     assert!(child.is_children_materialized());
 
     root.invalidate_subtree();
 
     assert!(!root.is_children_materialized());
     assert!(!child.is_children_materialized());
+    root.children();
+    child.children();
+    assert_eq!(
+        *root_calls.lock().unwrap(),
+        2,
+        "the root factory runs again"
+    );
+    assert_eq!(
+        *child_calls.lock().unwrap(),
+        2,
+        "the materialized descendant factory runs again"
+    );
 }
 
 /// HIER-022 — Child-cache invalidation publishes property changed

@@ -112,10 +112,87 @@ final class LifecycleTests: XCTestCase {
         cancel.cancel()
     }
 
+    /// LIFE-004 — dispose from Destructed reaches Disposed and publishes it.
     func testLife004DisposeFromDestructed() {
-        let vm = makeVM()
+        let hub = MessageHub()
+        let vm = makeVM(hub: hub)
+        var seen: [ConstructionStatus] = []
+        let cancel = hub.messages
+            .compactMap { ($0 as? ConstructionStatusChangedMessage)?.status }
+            .sink { seen.append($0) }
+
         vm.dispose()
+
         XCTAssertEqual(vm.status, .disposed)
+        XCTAssertTrue(
+            seen.contains(.disposed),
+            "LIFE-004: a ConstructionStatusChangedMessage with .disposed must be observed"
+        )
+        cancel.cancel()
+    }
+
+    /// LIFE-004 — dispose from Constructing: the construct hook disposes the VM
+    /// while the transition is in flight, and `.disposed` is published.
+    func testLife004DisposeFromConstructing() throws {
+        let hub = MessageHub()
+        var vm: ComponentVM!
+        var statusInHook: ConstructionStatus?
+        vm = ComponentVM(
+            name: "life004-constructing",
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE,
+            onConstruct: {
+                statusInHook = vm.status
+                vm.dispose()
+            }
+        )
+        var seen: [ConstructionStatus] = []
+        let cancel = hub.messages
+            .compactMap { ($0 as? ConstructionStatusChangedMessage)?.status }
+            .sink { seen.append($0) }
+
+        try vm.construct()
+
+        XCTAssertEqual(statusInHook, .constructing, "the construct hook must run while Constructing")
+        XCTAssertEqual(vm.status, .disposed)
+        XCTAssertTrue(
+            seen.contains(.disposed),
+            "LIFE-004: a ConstructionStatusChangedMessage with .disposed must be observed"
+        )
+        cancel.cancel()
+    }
+
+    /// LIFE-004 — dispose from Destructing: the destruct hook disposes the VM
+    /// while the transition is in flight, and `.disposed` is published.
+    func testLife004DisposeFromDestructing() throws {
+        let hub = MessageHub()
+        var vm: ComponentVM!
+        var statusInHook: ConstructionStatus?
+        vm = ComponentVM(
+            name: "life004-destructing",
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE,
+            onDestruct: {
+                statusInHook = vm.status
+                vm.dispose()
+            }
+        )
+        try vm.construct()
+
+        var seen: [ConstructionStatus] = []
+        let cancel = hub.messages
+            .compactMap { ($0 as? ConstructionStatusChangedMessage)?.status }
+            .sink { seen.append($0) }
+
+        try vm.destruct()
+
+        XCTAssertEqual(statusInHook, .destructing, "the destruct hook must run while Destructing")
+        XCTAssertEqual(vm.status, .disposed)
+        XCTAssertTrue(
+            seen.contains(.disposed),
+            "LIFE-004: a ConstructionStatusChangedMessage with .disposed must be observed"
+        )
+        cancel.cancel()
     }
 
     /// LIFE-005 — construct from Disposed raises. v3 (ADR-0053) converges Swift

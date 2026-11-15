@@ -63,6 +63,22 @@ describe("HIER-024", () => {
     expect(result.added).toEqual([first, second]);
     expect(root.children).toEqual([first, second]);
   });
+
+  it("attaches root-sentinel items to the structural root when the receiver is not the root", () => {
+    const root = new Node("root");
+    const mid = new Node("mid");
+    root.addChild(mid);
+    const first = new Node("first");
+    const second = new Node("second");
+
+    const result = attach(mid, [first, second]);
+
+    expect(result.added).toEqual([first, second]);
+    expect(root.children).toEqual([mid, first, second]);
+    expect(mid.children).toEqual([]);
+    expect(first.parent).toBe(root);
+    expect(second.parent).toBe(root);
+  });
 });
 
 describe("HIER-025", () => {
@@ -197,6 +213,9 @@ describe("HIER-030", () => {
     const root = new Node("root");
     attach(root, [new Node("child", "missing")]);
     expect(root.parkedAttachCount).toBe(1);
+    root.dispose();
+    expect(root.parkedAttachCount).toBe(0);
+    // Repeated disposal stays safe and the parked count stays at zero.
     root.dispose();
     expect(root.parkedAttachCount).toBe(0);
   });

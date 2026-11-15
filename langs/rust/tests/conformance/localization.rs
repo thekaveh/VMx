@@ -51,6 +51,7 @@ fn custom_localizer_can_be_substituted() {
     assert_eq!(localizer.localize("title"), "loc:title");
 }
 
+/// LOC-002 — NullLocalizer.Localize returns the key verbatim
 #[test]
 fn null_localizer_returns_key_from_args_form() {
     let localizer = NullLocalizer;

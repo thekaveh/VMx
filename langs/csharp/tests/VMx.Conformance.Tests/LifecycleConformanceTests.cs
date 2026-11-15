@@ -259,10 +259,12 @@ public class LifecycleConformanceTests
                     vm.Dispose();
                 })
                 .Build();
+            var messages = RecordStatusMessages(hub);
 
             vm.Construct();
 
             vm.Status.Should().Be(ConstructionStatus.Disposed);
+            messages.Should().Contain(m => m.Status == ConstructionStatus.Disposed);
         }
 
         // From Destructing — dispose mid-destruct via the OnDestruct hook,
@@ -279,10 +281,12 @@ public class LifecycleConformanceTests
                 })
                 .Build();
             vm.Construct();
+            var messages = RecordStatusMessages(hub);
 
             vm.Destruct();
 
             vm.Status.Should().Be(ConstructionStatus.Disposed);
+            messages.Should().Contain(m => m.Status == ConstructionStatus.Disposed);
         }
     }
 
@@ -328,6 +332,25 @@ public class LifecycleConformanceTests
 
         caught.Should().NotBeNull(
             "a second Construct while already Constructing must raise StatusTransitionException");
+
+        // destruct() re-entered from its own OnDestruct hook (Status == Destructing).
+        StatusTransitionException? destructCaught = null;
+        ComponentVM<string>? destructVm = null;
+        destructVm = ComponentVM<string>.Builder()
+            .Name("life-vm").Services(new TestHub(), new TestDispatcher()).Model("m")
+            .OnDestruct(() =>
+            {
+                destructVm!.Status.Should().Be(ConstructionStatus.Destructing);
+                try { destructVm.Destruct(); }
+                catch (StatusTransitionException ex) { destructCaught = ex; }
+            })
+            .Build();
+        destructVm.Construct();
+
+        destructVm.Destruct();
+
+        destructCaught.Should().NotBeNull(
+            "a second Destruct while already Destructing must raise StatusTransitionException");
     }
 
     // LIFE-009 — construct from Constructed is a no-op: no new messages and

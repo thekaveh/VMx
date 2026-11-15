@@ -588,13 +588,30 @@ fn dismiss_command_is_idempotent_against_later_ticks() {
 /// NOTIF-015 — Hub-side Resolve propagates to VM IsResolved state
 #[test]
 fn external_hub_resolve_marks_notification_vm_resolved() {
+    let scheduler = VirtualTimeScheduler::new();
     let hub = NotificationHub::new();
     let notification = hub.post(NotificationType::Notification, "info");
-    let vm = NotificationVm::with_hub(notification.clone(), hub.clone(), 10_000);
+    let vm = NotificationVm::with_scheduler(
+        notification.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
+    scheduler.advance_by(Duration::from_millis(3_000));
 
     hub.resolve(notification.id, NotificationReaction::Approve);
 
     assert!(vm.is_resolved());
+    assert_eq!(vm.remaining_time_ms(), 7_000);
+
+    scheduler.advance_by(Duration::from_millis(10_000));
+
+    assert!(vm.is_resolved());
+    assert_eq!(
+        vm.remaining_time_ms(),
+        7_000,
+        "the resolution cancels the lifespan timer, so it has no further effect"
+    );
 }
 
 /// NOTIF-015 — Hub-side Resolve with a Pending reaction still resolves the VM
@@ -760,7 +777,7 @@ fn manual_clock_expiry_is_deterministic() {
 #[test]
 fn hub_dispose_resolves_waiters_pending() {
     let hub = NotificationHub::new();
-    let (_notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "info");
+    let (notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "info");
     let recorder = hub.pending_changed().record(16);
     let values = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = values.clone();
@@ -787,6 +804,17 @@ fn hub_dispose_resolves_waiters_pending() {
     assert!(
         recorder.is_empty(),
         "dispose sends no pending message (ADR-0197)"
+    );
+
+    hub.resolve(notification.id, NotificationReaction::Approve);
+    hub.dispose();
+
+    assert_eq!(hub.reaction(notification.id), NotificationReaction::Pending);
+    assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(
+        values.lock().unwrap().len(),
+        values_before,
+        "a later Resolve and a second dispose send nothing"
     );
 }
 

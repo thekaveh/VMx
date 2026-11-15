@@ -142,10 +142,10 @@ final class HierarchicalMutationTests: XCTestCase {
     /// throws, leaves the tree intact, and publishes 0 TreeStructureChangedMessages.
     func testHier018ReparentGuard() throws {
         let hub = MessageHub()
-        var structureCount = 0
+        var structureMessages: [TreeStructureChangedMessage] = []
         var bag = Set<AnyCancellable>()
         hub.messages.sink { msg in
-            if msg is TreeStructureChangedMessage { structureCount += 1 }
+            if let structure = msg as? TreeStructureChangedMessage { structureMessages.append(structure) }
         }.store(in: &bag)
 
         let leaf = makeNode(hub, name: "leaf")
@@ -179,7 +179,7 @@ final class HierarchicalMutationTests: XCTestCase {
         XCTAssertEqual(leaf.depth, 2, "leaf.depth should remain 2")
 
         // No structure messages should have been published.
-        XCTAssertEqual(structureCount, 0, "No TreeStructureChangedMessages expected on guard rejection")
+        XCTAssertEqual(structureMessages.count, 0, "No TreeStructureChangedMessages expected on guard rejection")
 
         let newParent = makeNode(hub, name: "newParent")
         guard case .success = newParent.addChild(leaf) else {
@@ -189,6 +189,12 @@ final class HierarchicalMutationTests: XCTestCase {
         XCTAssertEqual(newParent.children.count, 1)
         XCTAssertTrue(newParent.children.first === leaf)
         XCTAssertTrue(leaf.parent === newParent)
-        XCTAssertEqual(structureCount, 1)
+        // The addChild transfer publishes exactly one message: Reparented, from newParent, for leaf.
+        XCTAssertEqual(structureMessages.count, 1)
+        let transfer = try XCTUnwrap(structureMessages.first)
+        XCTAssertTrue(transfer.sender === newParent)
+        XCTAssertTrue(transfer.affected === leaf)
+        XCTAssertEqual(transfer.change, .reparented,
+                       "HIER-018: the addChild transfer publishes Reparented, not Added")
     }
 }
