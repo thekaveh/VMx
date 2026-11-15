@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import re
 import subprocess
 import sys
@@ -61,6 +62,7 @@ def _toy_package(root: Path, extra: str = MAKE_WIDGET) -> str:
 
                 def __init__(self, size: int = 1) -> None:
                     self.size = size
+                    self.label: str = "widget"
 
                 @property
                 def area(self) -> int:
@@ -97,6 +99,8 @@ def test_python_render_lists_exports_signatures_and_private_base_members(
     assert "    static def default() -> 'Widget'\n" in rendered
     assert "    def close(self) -> 'None'\n" in rendered  # inherited from a private base
     assert "    attribute size: int\n" in rendered
+    # Assigned only by __init__, with no class-level annotation.
+    assert "    attribute label: str\n" in rendered
     assert "_private" not in rendered
     assert "  def make_widget(size: 'int') -> 'Widget'\n" in rendered
     # The implementation module declares no __all__, so it is not a public module.
@@ -121,6 +125,30 @@ def test_python_main_fails_with_a_diff_when_a_member_is_removed(
     captured = capsys.readouterr()
     assert "-    def removed(self) -> 'None'" in captured.out
     assert "major version bump" in captured.err
+
+
+def test_python_main_fails_when_an_init_attribute_is_renamed(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(cpa, "PYTHON_VERSION", sys.version_info[:2])
+    baseline = tmp_path / "api.txt"
+    name = _toy_package(tmp_path)
+
+    assert cpa.main(["--package", name, "--baseline", str(baseline), "--update"]) == 0
+    assert cpa.main(["--package", name, "--baseline", str(baseline)]) == 0
+
+    source = tmp_path / name / "impl" / "core.py"
+    source.write_text(
+        source.read_text(encoding="utf-8").replace("self.label", "self.caption"),
+        encoding="utf-8",
+    )
+    for module in [key for key in sys.modules if key == name or key.startswith(f"{name}.")]:
+        monkeypatch.delitem(sys.modules, module)
+    importlib.invalidate_caches()
+    capsys.readouterr()
+    assert cpa.main(["--package", name, "--baseline", str(baseline)]) == 1
+    captured = capsys.readouterr()
+    assert "-    attribute label: str" in captured.out
+    assert "+    attribute caption: str" in captured.out
 
 
 def test_python_main_refuses_an_unpinned_interpreter(monkeypatch, capsys) -> None:

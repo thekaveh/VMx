@@ -367,6 +367,7 @@ module vmx
     def dispose(self) -> 'None'
   class BuilderValidationError(ValueError)
     def __init__(self, missing_field: 'str') -> 'None'
+    attribute missing_field: str
   class ChildOrder(Enum)
     member INSERTION = 'insertion'
     member REVERSE = 'reverse'
@@ -1306,6 +1307,8 @@ module vmx
     def subscribe_membership(self, callback: 'Callable[[], None]') -> 'DisposableBase'
   class StatusTransitionError(RuntimeError)
     def __init__(self, current_status: 'ConstructionStatus', attempted_operation: 'str') -> 'None'
+    attribute attempted_operation: str
+    attribute current_status: ConstructionStatus
   class TokenPagedComposition(typing.Generic[~TVM, ~TToken])
     def __init__(self, fetch_next: 'FetchNext[TToken, TVM]', *, auto_construct_on_add: 'bool' = False, pages_equal: 'PagesEqual[TVM] | None' = None) -> 'None'
     property current_token [get] -> TToken | None
