@@ -35,7 +35,6 @@ export class RecordingMessageHub implements ITransactionalMessageHub {
   }
 
   batch(transaction: () => void): void {
-    if (this.#disposed) return;
     this.#hub.batch(transaction);
   }
 
