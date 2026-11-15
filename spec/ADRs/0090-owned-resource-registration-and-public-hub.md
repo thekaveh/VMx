@@ -2,7 +2,8 @@
 
 **Status:** Accepted (2026-07-10)
 **Spec version:** introduced in 3.10.0
-**Related:** ADR-0003, ADR-0006, ADR-0041, ADR-0084, issue #83
+**Extends:** [ADR-0041](0041-single-disposable-lifecycle.md)
+**Related:** ADR-0003, ADR-0006, ADR-0084, issue #83
 
 ## 1. Context
 

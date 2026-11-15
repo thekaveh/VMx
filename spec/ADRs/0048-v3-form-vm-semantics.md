@@ -2,6 +2,7 @@
 
 **Status:** Accepted (2026-06-28; clarified by ADR-0113, ADR-0135, ADR-0139)
 **Spec version:** 3.0.0
+**Supersedes:** [ADR-0037](0037-v2.5-maintenance-clarifications.md) §2.7 (the key-order caveat)
 
 ## 1. Context
 

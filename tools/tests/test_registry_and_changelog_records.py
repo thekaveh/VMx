@@ -229,3 +229,97 @@ def test_changelog_accepts_entries_that_share_only_a_first_line() -> None:
         "- Shared first line,\n  then another ending.\n"
     )
     assert changelog_issues(text) == []
+
+
+# ADR preamble fields and back-links (#1810). Registry section 2 of
+# spec/ADRs/README.md defines the field names and back-link verbs that ADRs use.
+
+_PREAMBLE_FIELD_RE = re.compile(r"^(?:- )?\*\*([A-Za-z][A-Za-z\- ]*[A-Za-z]):\*\*", re.MULTILINE)
+_BACK_LINK_VERB_RE = re.compile(r"\b([a-z]+) by\s+\[?adr-\d{4}")
+_BACK_LINK_VERB = {"Supersedes": "superseded", "Amends": "amended", "Extends": "extended"}
+
+# (earlier, later, relationship field in the later ADR). The later ADR names the
+# earlier one in that field, so the earlier Status and registry cell must say so.
+_RELATIONSHIPS = (
+    ("0101", "0103", "Supersedes"),
+    ("0080", "0103", "Amends"),
+    ("0042", "0050", "Supersedes"),
+    ("0037", "0048", "Supersedes"),
+    ("0041", "0090", "Extends"),
+    ("0153", "0166", "Extends"),
+    ("0153", "0167", "Extends"),
+)
+
+
+def _registry_section(registry_text: str, start: str, end: str) -> str:
+    begin = registry_text.index(start)
+    return registry_text[begin : registry_text.index(end, begin)]
+
+
+def _defined_preamble_fields(registry_text: str) -> set[str]:
+    """Names that registry sections 2.1 (preamble) and 2.2 (relationships) define."""
+    preamble_format = _registry_section(registry_text, "### 2.1", "### 2.2")
+    relationships = _registry_section(registry_text, "### 2.2", "### 2.3")
+    fields = set(re.findall(r"\*\*([A-Za-z][A-Za-z ]*):\*\*", preamble_format))
+    return fields | set(re.findall(r"`([A-Z][a-z]+)`", relationships))
+
+
+def _adr_file(number: str) -> str:
+    return next(ADR_DIR.glob(f"{number}-*.md")).read_text(encoding="utf-8")
+
+
+def _preamble(text: str) -> str:
+    return re.split(r"^## ", text, maxsplit=1, flags=re.MULTILINE)[0]
+
+
+def _registry_cells() -> dict[str, tuple[str, str]]:
+    """Map each ADR number to its (file name, Status cell) registry row."""
+    return {
+        number: (file_name, cell)
+        for number, file_name, cell in registry_rows(REGISTRY.read_text(encoding="utf-8"))
+    }
+
+
+def test_adr_preamble_fields_are_defined_by_registry_format() -> None:
+    defined = _defined_preamble_fields(REGISTRY.read_text(encoding="utf-8"))
+    assert {"Status", "Date", "Spec version", "Supersedes", "Amends", "Extends"} <= defined
+    assert {"Clarifies", "Related"} <= defined
+    undefined: dict[str, list[str]] = {}
+    for path in sorted(ADR_DIR.glob("[0-9][0-9][0-9][0-9]-*.md")):
+        fields = _PREAMBLE_FIELD_RE.findall(_preamble(path.read_text(encoding="utf-8")))
+        if set(fields) - defined:
+            undefined[path.name] = sorted(set(fields) - defined)
+    assert undefined == {}
+
+
+def test_status_back_link_verbs_are_defined_by_registry_format() -> None:
+    verbs_text = _registry_section(REGISTRY.read_text(encoding="utf-8"), "### 2.3", "### 2.4")
+    undefined: dict[str, list[str]] = {}
+    for path in sorted(ADR_DIR.glob("[0-9][0-9][0-9][0-9]-*.md")):
+        status = adr_status(path.read_text(encoding="utf-8")).lower()
+        for verb in _BACK_LINK_VERB_RE.findall(status):
+            if f"`{verb} by`" not in verbs_text.lower():
+                undefined.setdefault(verb, []).append(path.name)
+    assert undefined == {}
+
+
+def test_replaced_adr_is_superseded_in_status_and_registry() -> None:
+    cells = _registry_cells()
+    assert adr_status(_adr_file("0033")).startswith("Superseded by ADR-0052")
+    assert cells["0033"][1].startswith("Superseded by 0052")
+    assert re.search(r"\*\*Supersedes:\*\*[^*]*ADR-0033\b", _preamble(_adr_file("0052")))
+
+
+def test_relationship_fields_back_link_the_earlier_status_and_registry() -> None:
+    cells = _registry_cells()
+    issues: list[str] = []
+    for earlier, later, field in _RELATIONSHIPS:
+        verb = _BACK_LINK_VERB[field]
+        if not re.search(rf"\*\*{field}:\*\*[^*]*ADR-{earlier}\b", _preamble(_adr_file(later))):
+            issues.append(f"ADR-{later} has no **{field}:** field naming ADR-{earlier}")
+        status = adr_status(_adr_file(earlier))
+        if not re.search(rf"\b{verb} by\b[^;)]*ADR-{later}\b", status, re.IGNORECASE):
+            issues.append(f"ADR-{earlier} Status lacks '{verb} by ADR-{later}'")
+        if not re.search(rf"\b{verb} by\b[^;)]*\b{later}\b", cells[earlier][1], re.IGNORECASE):
+            issues.append(f"ADR-{earlier} registry cell lacks '{verb} by {later}'")
+    assert issues == []

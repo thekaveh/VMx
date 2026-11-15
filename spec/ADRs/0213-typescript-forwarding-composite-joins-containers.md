@@ -6,7 +6,7 @@
   no conformance ID changes)
 - **Supersedes:** [ADR-0151](0151-forwarding-decorators-own-resources-on-the-wrapped-component.md)
   Decision rule 3
-- **Relates to:** [ADR-0124](0124-canonicalize-forwarding-ownership-and-callback-boundaries.md)
+- **Related:** [ADR-0124](0124-canonicalize-forwarding-ownership-and-callback-boundaries.md)
 
 ## 1. Context
 

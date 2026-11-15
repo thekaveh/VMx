@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-06-30)
 **Spec version:** 3.0.0
-**Relates-to:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
+**Related:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
 language), [ADR-0009](0009-cross-flavor-divergence-catalogue.md) (cross-flavor
 divergence catalogue), [ADR-0014](0014-search-and-filter.md) (SearchableState),
 [ADR-0016](0016-modeled-crud-commands.md) (ModeledCrudCommands),

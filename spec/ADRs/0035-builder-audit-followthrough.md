@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-05-31)
 **Spec version:** introduced in 2.3.0
-**Source:** `docs/superpowers/specs/2026-05-31-builder-pattern-audit.md` (local research artifact; not tracked)
+**Related:** `docs/superpowers/specs/2026-05-31-builder-pattern-audit.md` (local research artifact; not tracked)
 
 ## 1. Context
 

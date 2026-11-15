@@ -4,7 +4,7 @@
 - **Date:** 2026-11-09
 - **Spec version:** 3.30.0 (removes the Rust gap notes in chapter 06 §1 and
   chapter 07 §3; no conformance ID changes)
-- **Relates to:** [ADR-0161](0161-reverse-child-destruct-order.md),
+- **Related:** [ADR-0161](0161-reverse-child-destruct-order.md),
   [ADR-0162](0162-supported-child-transition-helper.md),
   [ADR-0179](0179-foreign-dispose-publishes-disposed-first.md)
 
