@@ -119,8 +119,13 @@ async def test_disp_002_repeated_async_command_dispose_cancels_one_inflight_run(
 async def test_disp_003_concurrent_notification_hub_dispose_completes_once() -> None:
     hub = NotificationHub()
     completions: list[None] = []
-    hub.pending.subscribe(on_completed=lambda: completions.append(None))
+    snapshots: list[object] = []
+    hub.pending.subscribe(
+        on_next=snapshots.append,
+        on_completed=lambda: completions.append(None),
+    )
     pending = hub.post(Notification(NotificationType.NOTIFICATION, "info"))
+    snapshots_before_dispose = len(snapshots)
     barrier = threading.Barrier(32)
 
     def dispose() -> None:
@@ -136,6 +141,8 @@ async def test_disp_003_concurrent_notification_hub_dispose_completes_once() -> 
 
     assert await pending is NotificationReaction.PENDING
     assert len(completions) == 1
+    # ADR-0197: disposal publishes no terminal Pending snapshot.
+    assert len(snapshots) == snapshots_before_dispose
 
 
 @pytest.mark.conformance("DISP-004")
@@ -179,12 +186,18 @@ def test_disp_005_reactive_helper_completes_once_and_retains_last_value() -> Non
     source: BehaviorSubject[int] = BehaviorSubject(7)
     property_ = from_sources(source, transform=lambda value: value)
     completions: list[None] = []
-    property_.value_changed.subscribe(on_completed=lambda: completions.append(None))
+    changes: list[int] = []
+    property_.value_changed.subscribe(
+        on_next=changes.append,
+        on_completed=lambda: completions.append(None),
+    )
+    changes_before_dispose = len(changes)
 
     property_.dispose()
     property_.dispose()
     source.on_next(8)
 
+    assert len(changes) == changes_before_dispose
     assert property_.value == 7
     assert len(completions) == 1
 

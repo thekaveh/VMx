@@ -200,6 +200,8 @@ final class DisposalInvariantTests: XCTestCase {
         let dispatcher = ImmediateDispatcher.INSTANCE
         let child = try ComponentVM.builder()
             .name("child").services(hub: hub, dispatcher: dispatcher).build()
+        let childCleanups = LockedCounter()
+        child.own { childCleanups.increment() }
         let parent = try CompositeVM<ComponentVM>.builder()
             .name("parent").services(hub: hub, dispatcher: dispatcher)
             .children { [child] }.build()
@@ -214,6 +216,7 @@ final class DisposalInvariantTests: XCTestCase {
 
         XCTAssertEqual(disposed.filter { $0 == "child" }.count, 1)
         XCTAssertEqual(disposed.filter { $0 == "parent" }.count, 1)
+        XCTAssertEqual(childCleanups.value, 1)
         cancellable.cancel()
     }
 
@@ -280,10 +283,12 @@ final class DisposalInvariantTests: XCTestCase {
         let appeared = expectation(description: "notification appeared")
         appeared.assertForOverFulfill = false
         let completions = LockedCounter()
+        let snapshots = LockedCounter()
         var cancellables = Set<AnyCancellable>()
         hub.pending.sink(
             receiveCompletion: { _ in completions.increment() },
             receiveValue: { snapshot in
+                snapshots.increment()
                 if snapshot.contains(where: { $0 === notification }) {
                     appeared.fulfill()
                 }
@@ -291,6 +296,7 @@ final class DisposalInvariantTests: XCTestCase {
         ).store(in: &cancellables)
         let pending = Task { await hub.post(notification) }
         await fulfillment(of: [appeared], timeout: hangGuard)
+        let snapshotsBeforeDispose = snapshots.value
 
         let disposed = expectation(description: "all disposers returned")
         disposed.expectedFulfillmentCount = 64
@@ -305,11 +311,14 @@ final class DisposalInvariantTests: XCTestCase {
         let pendingResult = await pending.value
         XCTAssertEqual(pendingResult, .pending)
         XCTAssertEqual(completions.value, 1)
+        // ADR-0197: disposal publishes no terminal Pending snapshot.
+        XCTAssertEqual(snapshots.value, snapshotsBeforeDispose)
     }
 
     /// DISP-004 — interaction owners complete once and preserve the first result.
-    func testDisp004InteractionOwnersCompleteOnceAndPreserveFirstResult() async {
-        let form = FormVM(initial: 1, persister: { _ in })
+    func testDisp004InteractionOwnersCompleteOnceAndPreserveFirstResult() async throws {
+        let persisted = LockedCounter()
+        let form = FormVM(initial: 1, persister: { _ in persisted.increment() })
         let completions = LockedCounter()
         let cancellable = form.onApproved.sink(
             receiveCompletion: { _ in completions.increment() },
@@ -319,6 +328,14 @@ final class DisposalInvariantTests: XCTestCase {
         form.dispose()
         XCTAssertEqual(completions.value, 1)
         cancellable.cancel()
+
+        // A disposed form is inert: mutation, deny and approve change nothing.
+        form.setModel(2)
+        form.denyCommand.execute()
+        form.approveCommand.execute()
+        try await form.approveAsync()
+        XCTAssertEqual(persisted.value, 0)
+        XCTAssertEqual(form.model, 1)
 
         let modal = BasicModalVM(cancellationResult: "cancel")
         modal.dismiss("first")
@@ -333,15 +350,18 @@ final class DisposalInvariantTests: XCTestCase {
         let source = CurrentValueSubject<Int, Never>(7)
         let property = DerivedProperty<Int>.from(source.eraseToAnyPublisher()) { $0 }
         let completions = LockedCounter()
+        let changes = LockedCounter()
         let cancellable = property.valueChanged.sink(
             receiveCompletion: { _ in completions.increment() },
-            receiveValue: { _ in }
+            receiveValue: { _ in changes.increment() }
         )
+        let changesBeforeDispose = changes.value
 
         property.dispose()
         property.dispose()
         source.send(8)
 
+        XCTAssertEqual(changes.value, changesBeforeDispose)
         XCTAssertEqual(try property.value, 7)
         XCTAssertEqual(completions.value, 1)
         cancellable.cancel()

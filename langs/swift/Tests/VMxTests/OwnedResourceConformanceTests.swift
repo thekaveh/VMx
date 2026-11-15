@@ -92,6 +92,7 @@ final class OwnedResourceConformanceTests: XCTestCase {
 
     /// DISP-012 — injected hub is publicly visible and read-only.
     func testDisp012HubIsPubliclyVisible() {
+        // `hub` is a `public let`, so the compiler rejects any assignment: no setter exists.
         let hub = MessageHub()
         let vm = OwnedProbeVM(hub: hub)
         XCTAssertTrue(vm.hub === hub)

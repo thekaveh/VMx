@@ -24,8 +24,8 @@ final class ModalPresentationTests: XCTestCase {
         XCTAssertEqual(modal.result, "cancel")
     }
 
-    /// DIA-012 — null present keeps an earlier result.
-    func testDIA012NullPresentKeepsAnEarlierResult() async {
+    /// DIA-010 — null present keeps an earlier result.
+    func testDIA010NullPresentKeepsAnEarlierResult() async {
         let modal = BasicModalVM(cancellationResult: "cancel")
         modal.dismiss("chosen")
 

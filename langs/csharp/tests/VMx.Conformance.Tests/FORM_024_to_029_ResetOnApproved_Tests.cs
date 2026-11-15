@@ -10,6 +10,21 @@ public class FORM_024_to_029_ResetOnApproved_Tests
 {
     private sealed record Model(string Value, List<int>? Nested = null);
 
+    // A record's synthesized Equals compares a collection by reference, so a
+    // reset model and its copied snapshot would be dirty. This Equals compares
+    // the collection element by element, as FormVM.IsDirty requires (see its docs).
+    private sealed record ResetModel(string Value, List<int>? Nested = null)
+    {
+        public bool Equals(ResetModel? other) =>
+            other is not null
+            && Value == other.Value
+            && (Nested is null
+                ? other.Nested is null
+                : other.Nested is not null && Nested.SequenceEqual(other.Nested));
+
+        public override int GetHashCode() => Value.GetHashCode();
+    }
+
     [Fact, Trait("Conformance", "FORM-024")]
     public async Task FORM_024_Reset_Runs_After_Persist_And_Approved_Uses_Captured_Model()
     {
@@ -43,7 +58,7 @@ public class FORM_024_to_029_ResetOnApproved_Tests
     public async Task FORM_025_Reset_Is_Snapshotted_Twice_And_Revalidated()
     {
         var calls = 0;
-        using var form = FormVM<Model>.Builder()
+        using var form = FormVM<ResetModel>.Builder()
             .Initial(new("initial", []))
             .Persister(_ => Task.CompletedTask)
             .Strict(true)
@@ -57,8 +72,11 @@ public class FORM_024_to_029_ResetOnApproved_Tests
         await form.ApproveAsync();
 
         calls.Should().Be(2);
+        form.Model.Should().Be(new ResetModel("", [1]));
+        form.Snapshot.Should().Be(new ResetModel("", [1]));
         ReferenceEquals(form.Model, form.Snapshot).Should().BeFalse();
         ReferenceEquals(form.Model.Nested, form.Snapshot.Nested).Should().BeFalse();
+        form.IsDirty.Should().BeFalse();
         form.FieldError("value").Should().Be("required");
         form.IsValid.Should().BeFalse();
         form.ApproveCommand.CanExecute(null).Should().BeFalse();

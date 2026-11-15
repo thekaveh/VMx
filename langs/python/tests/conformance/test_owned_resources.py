@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 
 import pytest
@@ -116,6 +117,8 @@ def test_disp_012_injected_hub_is_publicly_visible() -> None:
     hub: MessageHub[object] = MessageHub()
     vm = ProbeVM(hub)
     assert vm.hub is hub
+    # The baseline hub member is a read-only property: no setter is defined.
+    assert inspect.getattr_static(vm, "hub").fset is None
 
 
 @pytest.mark.conformance("DISP-013")

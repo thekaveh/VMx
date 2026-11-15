@@ -32,6 +32,14 @@ fn add_emits_collection_changed_add() {
         collection_actions(&recorder),
         vec![CollectionChangeAction::Add]
     );
+    let first_new_index = recorder
+        .messages()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::CollectionChanged(change) => Some(change.new_index),
+            _ => None,
+        });
+    assert_eq!(first_new_index, Some(Some(0)));
 }
 
 /// GRP-002 — Group keeps baseline self-selection commands without child selection.

@@ -82,11 +82,7 @@ public class ExpandCollapseConformanceTests
         var root = new ExpandableComposite("root", new IComponentVM[] { a, bCollapsed }, expanded: true);
 
         var visited = VMx.Tree.Tree.WalkExpanded(root).ToList();
-        visited.Should().Contain((IComponentVM)root);
-        visited.Should().Contain((IComponentVM)a);
-        visited.Should().Contain((IComponentVM)bCollapsed);
-        visited.Should().NotContain((IComponentVM)b1);
-        visited.Should().NotContain((IComponentVM)b2);
+        visited.Should().Equal((IComponentVM)root, a, bCollapsed);
     }
 
     // ── EXP-006 ─────────────────────────────────────────────────────────────

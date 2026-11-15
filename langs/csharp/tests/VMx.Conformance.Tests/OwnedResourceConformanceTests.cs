@@ -90,6 +90,9 @@ public class OwnedResourceConformanceTests
         var vm = new ProbeVM(hub);
 
         vm.Hub.Should().BeSameAs(hub);
+        // The baseline hub member is get-only: reflection finds no setter.
+        typeof(ComponentVMBase).GetProperty(nameof(ComponentVMBase.Hub))!
+            .CanWrite.Should().BeFalse();
     }
 
     [Fact, Trait("Conformance", "DISP-013")]

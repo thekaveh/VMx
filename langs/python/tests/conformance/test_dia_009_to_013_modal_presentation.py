@@ -29,8 +29,8 @@ async def test_DIA_010_null_present_uses_cancellation_result() -> None:
     assert modal.result == "cancel"
 
 
-@pytest.mark.conformance("DIA-012")
-async def test_DIA_012_null_present_keeps_an_earlier_result() -> None:
+@pytest.mark.conformance("DIA-010")
+async def test_DIA_010_null_present_keeps_an_earlier_result() -> None:
     modal = ModalVM("cancel")
     modal.dismiss("chosen")
 
