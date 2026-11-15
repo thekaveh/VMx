@@ -9,7 +9,7 @@ import unicodedata
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlsplit
 
 import yaml
 from markdown_it import MarkdownIt
@@ -23,6 +23,7 @@ from scripts.docs.links import (
 )
 from scripts.docs.manifest import load_manifest
 from scripts.docs.opener import load_opener
+from scripts.docs.repository_urls import repository_path, repository_path_exists, tracked_tree
 from scripts.docs.snippets import checked_snippet_pages, checked_snippets
 from scripts.docs.transforms import WIKI_BASE_PATH
 
@@ -60,6 +61,44 @@ STANDALONE_NUMBERED_DOCS = (
     Path("langs/csharp/packaging/VMx.Notifications/README.md"),
     Path("langs/csharp/packaging/VMx.Extensions.DependencyInjection/README.md"),
     Path("examples/python/nicegui/notes_showcase/README.md"),
+)
+# Path parts that name build output, caches and dependency trees, not documentation.
+REPO_SURFACE_EXCLUDED_PARTS = frozenset(
+    {
+        ".build",
+        ".venv",
+        "_build",
+        "audit",
+        "bin",
+        "generated",
+        "node_modules",
+        "obj",
+        "superpowers",
+        "target",
+    }
+)
+# Directories whose Markdown links the gate resolves, beside the root-level *.md files.
+LINK_CHECK_ROOTS = (
+    "docs/content",
+    "docs/maintenance",
+    "langs",
+    "packages",
+    "examples",
+    "tools",
+    "spec",
+    "starters",
+    "benchmarks",
+)
+# Package README sources: a registry shows each one as the package description, and
+# a registry has no repository files, so every link and image must be absolute https.
+PACKAGE_README_SOURCES = (
+    Path("langs/python/README.md"),
+    Path("langs/typescript/README.md"),
+    Path("packages/react/README.md"),
+    Path("langs/rust/README.md"),
+    Path("langs/csharp/packaging/VMx/README.md"),
+    Path("langs/csharp/packaging/VMx.Notifications/README.md"),
+    Path("langs/csharp/packaging/VMx.Extensions.DependencyInjection/README.md"),
 )
 
 
@@ -122,24 +161,23 @@ def _scan_repo_surface_markdown(repo_root: Path) -> list[Path]:
         )
         if (repo_root / name).is_file()
     ]
-    excluded_parts = {
-        ".build",
-        ".venv",
-        "_build",
-        "audit",
-        "bin",
-        "generated",
-        "node_modules",
-        "obj",
-        "superpowers",
-        "target",
-    }
     for root_name in ("docs/content", "docs/maintenance", "examples", "langs", "tools"):
         for path in _scan_markdown(repo_root / root_name):
-            if excluded_parts.intersection(path.relative_to(repo_root).parts):
+            if REPO_SURFACE_EXCLUDED_PARTS.intersection(path.relative_to(repo_root).parts):
                 continue
             files.append(path)
     return sorted(set(files))
+
+
+def _scan_link_checked_markdown(repo_root: Path) -> list[Path]:
+    """Return the Markdown files whose repository-local links the gate resolves."""
+    files = {path for path in repo_root.glob("*.md") if path.is_file()}
+    for root_name in LINK_CHECK_ROOTS:
+        for path in _scan_markdown(repo_root / root_name):
+            if REPO_SURFACE_EXCLUDED_PARTS.intersection(path.relative_to(repo_root).parts):
+                continue
+            files.add(path)
+    return sorted(files)
 
 
 def _normalized_opener_paragraphs(markdown: str) -> list[str]:
@@ -291,10 +329,14 @@ def _relative_target_path(source: Path, target: str) -> Path | None:
 
 
 def _github_heading_slug(title: str) -> str:
-    plain = html.unescape(re.sub(r"<[^>]+>", "", title))
-    plain = re.sub(r"[`*_~]", "", plain).strip().lower()
-    plain = re.sub(r"[^\w\- ]", "", plain)
-    return re.sub(r"\s+", "-", plain)
+    """Return the anchor GitHub derives from a heading's visible text.
+
+    GitHub lower-cases the text, removes every character that is not a word
+    character, a hyphen or a space, and turns each space into one hyphen. Runs
+    of spaces are not merged, so `a / b` gives `a--b`.
+    """
+    visible = _visible_markdown_text(title).lower()
+    return re.sub(r"[^\w\- ]", "", visible).replace(" ", "-")
 
 
 def _heading_anchors(path: Path) -> set[str]:
@@ -318,31 +360,88 @@ def _without_fenced_code(markdown: str) -> str:
     return "".join("\n" if index in hidden else line for index, line in enumerate(lines))
 
 
+def _is_absolute_https(target: str) -> bool:
+    try:
+        parts = urlsplit(target)
+    except ValueError:
+        return False
+    return parts.scheme == "https" and bool(parts.netloc)
+
+
+def _repository_url_target(
+    target: str,
+    repo_root: Path,
+    tracked: tuple[set[str], set[str]] | None,
+) -> tuple[Path | None, str | None]:
+    """Resolve a link into this repository's main branch to a file in repo_root.
+
+    Return the file (or directory) the URL names and no problem, or None and the
+    problem. A URL outside the main branch of this repository is not checked.
+    Both RepositoryUrlError and the ValueError from a malformed URL are reported
+    with their own messages.
+    """
+    try:
+        mapped = repository_path(target)
+    except ValueError as error:
+        return None, f"{error}: {target}"
+    if mapped is None:
+        return None, None
+    segments, directory = mapped
+    if not repository_path_exists(repo_root, segments, directory=directory, tracked=tracked):
+        return None, f"target does not exist: {target}"
+    return repo_root.joinpath(*segments), None
+
+
 def check_canonical_links(repo_root: Path) -> list[Finding]:
-    """Reject relative canonical-doc links whose repository target is absent."""
+    """Reject repository-local links whose target or heading fragment is absent.
+
+    Relative links resolve against the file system, lexically and never through
+    a symlink. Links into this repository's main branch on GitHub resolve to the
+    tracked tree with exact letter case. Reference-style links are rejected in
+    docs/content only, where the site and wiki are generated from.
+    """
     findings: list[Finding] = []
-    for path in _scan_markdown(repo_root / "docs/content"):
+    tracked = tracked_tree(repo_root)
+    for path in _scan_link_checked_markdown(repo_root):
+        relative = path.relative_to(repo_root)
         text = _without_fenced_code(path.read_text(encoding="utf-8"))
-        for reference in find_reference_links(text):
-            findings.append(
-                Finding(
-                    "error",
-                    f"{path.relative_to(repo_root)}: reference-style links are unsupported; "
-                    f"use an inline link for {reference.label}",
+        if relative.parts[:2] == ("docs", "content"):
+            for reference in find_reference_links(text):
+                findings.append(
+                    Finding(
+                        "error",
+                        f"{relative}: reference-style links are unsupported; "
+                        f"use an inline link for {reference.label}",
+                    )
                 )
-            )
         targets = [link.target for link in find_links(text)]
         targets.extend(attribute.target for attribute in find_html_link_attributes(text))
         for target in targets:
+            if target.startswith(("http://", "https://")):
+                resolved, problem = _repository_url_target(target, repo_root, tracked)
+                if problem is not None:
+                    findings.append(Finding("error", f"{relative}: {problem}"))
+                    continue
+                if resolved is None or "#" not in target or resolved.suffix != ".md":
+                    continue
+                fragment = unquote(target.split("#", 1)[1].split("?", 1)[0])
+                if fragment and fragment not in _heading_anchors(resolved):
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{relative}: heading fragment does not exist: {target}",
+                        )
+                    )
+                continue
             if not _relative_target_exists(path, target, repo_root):
                 findings.append(
                     Finding(
                         "error",
-                        f"{path.relative_to(repo_root)}: target does not exist: {target}",
+                        f"{relative}: target does not exist: {target}",
                     )
                 )
                 continue
-            if "#" not in target or target.startswith(("http://", "https://", "mailto:")):
+            if "#" not in target or target.startswith("mailto:"):
                 continue
             fragment = unquote(target.split("#", 1)[1].split("?", 1)[0])
             target_path = _relative_target_path(path, target)
@@ -354,7 +453,37 @@ def check_canonical_links(repo_root: Path) -> list[Finding]:
                 findings.append(
                     Finding(
                         "error",
-                        f"{path.relative_to(repo_root)}: heading fragment does not exist: {target}",
+                        f"{relative}: heading fragment does not exist: {target}",
+                    )
+                )
+    return findings
+
+
+def check_package_readme_links(repo_root: Path) -> list[Finding]:
+    """Require every link and image in a package README source to be absolute https.
+
+    A registry shows the README without the repository, so a relative target
+    cannot resolve there. A same-page `#` link stays allowed.
+    """
+    findings: list[Finding] = []
+    for relative in PACKAGE_README_SOURCES:
+        path = repo_root / relative
+        if not path.is_file():
+            continue
+        text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        targets = [("image" if link.image else "link", link.target) for link in find_links(text)]
+        for attribute in find_html_link_attributes(text):
+            kind = "image" if attribute.attribute.lower() == "src" else "link"
+            targets.append((kind, attribute.target))
+        for kind, target in targets:
+            if target.startswith("#") and kind == "link":
+                continue
+            if not _is_absolute_https(target):
+                findings.append(
+                    Finding(
+                        "error",
+                        f"{relative}: package README {kind} must be an absolute https URL: "
+                        f"{target}",
                     )
                 )
     return findings
@@ -839,6 +968,7 @@ def check(repo_root: Path) -> list[Finding]:
     findings.extend(check_project_opening(repo_root))
     findings.extend(check_self_containment(repo_root))
     findings.extend(check_canonical_links(repo_root))
+    findings.extend(check_package_readme_links(repo_root))
     findings.extend(check_generated_wiki_links(repo_root))
     findings.extend(check_generated_wiki_tabs(repo_root))
     findings.extend(check_generated_html_links(repo_root))
