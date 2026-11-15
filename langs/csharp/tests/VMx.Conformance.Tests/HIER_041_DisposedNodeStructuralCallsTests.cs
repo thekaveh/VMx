@@ -19,7 +19,8 @@ public class HIER_041_DisposedNodeStructuralCallsTests
     private static readonly TestDispatcher Dispatcher = new();
 
     private sealed class Node(string key, IMessageHub hub, Func<Node, IEnumerable<Node>>? factory = null)
-        : HierarchicalVM<string, Node>(key, factory ?? (_ => []), hub, Dispatcher, key)
+        : HierarchicalVM<string, Node>(
+            key, factory ?? (_ => []), hub, HIER_041_DisposedNodeStructuralCallsTests.Dispatcher, key)
     {
         public override ViewModelType Type => ViewModelType.Component;
     }
