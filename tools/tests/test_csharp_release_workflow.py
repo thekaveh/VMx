@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+from .workflow_jobs import run_commands, workflow_job
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -50,7 +52,7 @@ def test_csharp_ci_and_release_audit_transitive_dependencies() -> None:
     command = "dotnet list langs/csharp/VMx.sln package --vulnerable --include-transitive"
 
     assert command in ci
-    assert command in release
+    assert command in "\n".join(run_commands(release))
 
 
 def test_csharp_restore_enforces_low_severity_transitive_auditing() -> None:
@@ -67,22 +69,29 @@ def test_conformance_triggers_on_csharp_and_release_workflow_changes() -> None:
     assert workflow.count('- ".github/workflows/**"') == 1
 
 
+_CSHARP_RELEASE_JOBS = (
+    "csharp-build",
+    "csharp-publish",
+    "csharp-verify-published",
+    "csharp-release-notes",
+)
+
+
 def _csharp_release_jobs() -> str:
+    """The C# release jobs in workflow order, each under its own key."""
     workflow = _workflow("release.yml")
-    body = workflow.split("\n  csharp-build:\n", maxsplit=1)[1].split(
-        "\n  python-test:\n", maxsplit=1
-    )[0]
-    return f"csharp-build:\n{body}"
+    return "".join(f"{name}:\n{workflow_job(workflow, name)}" for name in _CSHARP_RELEASE_JOBS)
 
 
 def test_release_builds_and_validates_before_protected_authentication() -> None:
     jobs = _csharp_release_jobs()
+    commands = "\n".join(run_commands(jobs))
 
     assert "csharp-build:" in jobs
-    assert "dotnet restore langs/csharp/VMx.sln --locked-mode" in jobs
-    assert "dotnet format langs/csharp/VMx.sln --verify-no-changes" in jobs
-    assert "python3 tools/check-nuget-package.py" in jobs
-    assert "python3 tools/smoke-nuget-consumer.py" in jobs
+    assert "dotnet restore langs/csharp/VMx.sln --locked-mode" in commands
+    assert "dotnet format langs/csharp/VMx.sln --verify-no-changes" in commands
+    assert "python3 tools/check-nuget-package.py" in commands
+    assert "python3 tools/smoke-nuget-consumer.py" in commands
     assert re.search(r"actions/upload-artifact@[0-9a-f]{40}\b", jobs)
     assert jobs.index("csharp-build:") < jobs.index("csharp-publish:")
 
@@ -94,7 +103,7 @@ def test_release_tags_select_one_explicit_csharp_package_namespace() -> None:
     assert '- "csharp-v*"' in workflow
     assert '- "csharp-notifications-v*"' in workflow
     assert '- "csharp-dependency-injection-v*"' in workflow
-    assert "python3 tools/select-csharp-release.py" in jobs
+    assert "python3 tools/select-csharp-release.py" in "\n".join(run_commands(jobs))
     assert "project_version == version" not in jobs
 
 
@@ -108,7 +117,7 @@ def test_release_uses_protected_nuget_oidc_without_long_lived_key() -> None:
     assert "secrets.NUGET_API_KEY" not in jobs
     assert "--skip-duplicate" not in jobs
     assert "NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}" in jobs
-    assert '--api-key "$NUGET_API_KEY"' in jobs
+    assert '--api-key "$NUGET_API_KEY"' in "\n".join(run_commands(jobs))
     assert '--api-key "${{ steps.login.outputs.NUGET_API_KEY }}"' not in jobs
 
 
@@ -117,10 +126,11 @@ def test_release_verifies_public_frameworks_before_release_notes() -> None:
 
     assert "csharp-verify-published:" in jobs
     assert 'framework: ["net8.0", "netstandard2.0"]' in jobs
-    assert "--poll-timeout 900" in jobs
-    assert "--timeout 1200" in jobs
+    commands = "\n".join(run_commands(jobs))
+    assert "--poll-timeout 900" in commands
+    assert "--timeout 1200" in commands
     assert "csharp-verify-published:\n    timeout-minutes: 25" in jobs
     assert "csharp-release-notes:" in jobs
     assert "needs: csharp-verify-published" in jobs
-    assert "tools/render-csharp-release-notes.py" in jobs
-    assert "gh release create" in jobs
+    assert "tools/render-csharp-release-notes.py" in commands
+    assert "gh release create" in "\n".join(run_commands(jobs))

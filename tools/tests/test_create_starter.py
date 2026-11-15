@@ -12,6 +12,8 @@ from pathlib import Path
 import create_starter as starter
 import pytest
 
+from .workflow_jobs import run_commands, workflow_job
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = starter.DEFAULT_REGISTRY
 
@@ -348,11 +350,6 @@ def _run_blocks(workflow: str) -> list[str]:
     return blocks
 
 
-def _job(workflow: str, name: str) -> str:
-    body = workflow.split(f"\n  {name}:\n", 1)[1]
-    return re.split(r"\n  [a-z][a-z-]*:\n", body, maxsplit=1)[0]
-
-
 def test_starters_workflow_is_a_least_privilege_clean_room_that_gates_no_pr() -> None:
     workflow = (REPO_ROOT / ".github/workflows/starters.yml").read_text(encoding="utf-8")
     triggers = workflow.split("\non:\n", 1)[1].split("\nconcurrency:\n", 1)[0]
@@ -388,14 +385,15 @@ def test_starters_workflow_runs_each_channel_with_a_timeout(
     job: str, runner: str, flags: list[str]
 ) -> None:
     workflow = (REPO_ROOT / ".github/workflows/starters.yml").read_text(encoding="utf-8")
-    body = _job(workflow, job)
+    body = workflow_job(workflow, job)
+    commands = "\n".join(run_commands(body))
 
     assert re.search(r"timeout-minutes: \d+", body), job
     assert f"runs-on: {runner}" in body
     for flag in flags:
-        assert flag in body, (job, flag)
+        assert flag in commands, (job, flag)
     minutes = int(re.search(r"timeout-minutes: (\d+)", body).group(1))  # type: ignore[union-attr]
-    seconds = int(re.search(r"--timeout (\d+)", body).group(1))  # type: ignore[union-attr]
+    seconds = int(re.search(r"--timeout (\d+)", commands).group(1))  # type: ignore[union-attr]
     assert seconds < minutes * 60, "the generator deadline must fire before the job timeout"
 
 
