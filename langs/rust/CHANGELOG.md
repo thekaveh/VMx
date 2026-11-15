@@ -74,6 +74,13 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   error. A walk that waits on a child no longer loses the child's failure when
   the walk ends during the check (ADR-0227 §2.8). The regression tests are
   `destruct_start_race.rs`.
+- `ObservableList::remove_at` and `ObservableList::replace` publish a committed
+  change before they drop the displaced snapshot, as `push`, `insert` and
+  `remove` do. This completes #1295 for these two methods. An item whose `Drop`
+  panics no longer suppresses the local and hub notifications of `remove_at`
+  or `replace`. The panic still reaches the caller (spec/21 §2.5, #1926). The
+  regression tests are the two `..._with_a_reader_snapshot` tests in
+  `drop_panic_publication.rs`.
 
 ## [0.36.0] — unreleased source version
 
