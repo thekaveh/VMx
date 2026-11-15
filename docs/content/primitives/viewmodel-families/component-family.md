@@ -125,6 +125,8 @@ class MetricVM extends ComponentVMBase {
         loader: (signal) => this.#api.fetch(signal),
       }),
     );
+    // Disposal does not run _onDestruct, so also release the subscription then.
+    this.own(() => this.#tickSubscription?.unsubscribe());
     // Owned: disposing MetricVM disposes the command, which is then inert.
     this.refreshCommand = this.own(
       RelayCommand.builder()
@@ -164,9 +166,11 @@ class MetricVM extends ComponentVMBase {
   children before themselves (`LIFE-013`). To dispose a member view-model
   before the parent, register it as a member instead (§6.2.2.7).
 - **Per-construct resources** start in `OnConstruct` and end in `OnDestruct`
-  (or their flavor equivalents; ADR-0041 §2, §4). A resource registered with `own`
-  survives reconstruct. The helper deliberately does not expose two mutable
-  lifetime bags.
+  (or their flavor equivalents; ADR-0041 §2, §4). Disposal from Constructed does
+  not run `OnDestruct` (spec 02 §2.2), so a per-construct resource is also
+  released at disposal, through an owned cleanup or the disposal hook, as the
+  snippet shows. A resource registered with `own` survives reconstruct. The
+  helper deliberately does not expose two mutable lifetime bags.
 
 ## 6.2.2.7. Children Of A Leaf View-Model
 
