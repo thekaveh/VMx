@@ -102,7 +102,8 @@ jobs:
 
       - name: Check executed conformance evidence
         # Every library ID needs a passing executed case in SwiftPM's own xUnit
-        # report, not just a marker in the sources.
+        # report, not just a marker in the sources. The tool also fails any
+        # XCTSkip in the Swift tests, which SwiftPM's report would count as a pass.
         run: >-
           python3 tools/check-conformance-execution.py --flavor swift
           --report langs/swift/conformance-results.xml --evidence conformance-evidence.json
