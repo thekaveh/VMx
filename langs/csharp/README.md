@@ -15,7 +15,7 @@ Two companion packages have their own version lines (ADR-0009, ADR-0013):
 - `VMx.Extensions.DependencyInjection` 2.1.1 adds `services.AddVMx(...)`. Its
   minimum spec is 2.1.0.
 - `VMx.Notifications` 1.2.0 adds the opt-in `INotificationHub`. Its minimum
-  spec is 2.6.0.
+  spec is 3.30.0.
 
 Each companion depends on `VMx` >= 3.30.0. Neither companion is on NuGet yet.
 See [`compatibility-matrix.md`](../../compatibility-matrix.md).

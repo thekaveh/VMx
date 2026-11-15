@@ -21,6 +21,8 @@ Rules enforced:
      metadata.
   5. Every current package version must have a non-empty bracketed CHANGELOG
      section before a release tag can publish an immutable artifact.
+  6. The C# ``VMx.Notifications`` ``MinSpecVersion`` must be at least the highest
+     spec version named on a ``### NOTIF-`` rule heading of ``spec/12-conformance.md``.
 
 In-development exemption:
   ``spec/VERSION`` and versions recorded in its current matrix row are source
@@ -132,6 +134,10 @@ _SPEC_ROW_RE = re.compile(
     rf"^({_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT})\.x$",
     re.ASCII,
 )
+# The C# companion whose MinSpecVersion must cover the newest NOTIF- rule.
+_NOTIF_COMPANION = "csharp/VMx.Notifications"
+# A "### NOTIF-NNN ... — spec vX.Y[.Z]" rule heading; group 1 is the spec version.
+_NOTIF_RULE_SPEC_RE = re.compile(r"### NOTIF-\d+ .* — spec v(\d+\.\d+(?:\.\d+)?)", re.ASCII)
 
 
 # ─── helpers ──────────────────────────────────────────────────────────
@@ -935,6 +941,47 @@ def check_min_spec_versions(
     return issues
 
 
+def _version_tuple(version: str) -> tuple[int, int, int]:
+    """Return ``(major, minor, patch)`` for an ``X.Y`` or ``X.Y.Z`` string; patch defaults to 0."""
+    major, minor, *patch = (int(part) for part in version.split("."))
+    return (major, minor, patch[0] if patch else 0)
+
+
+def check_notifications_min_spec(
+    repo_root: Path,
+    manifests: dict[str, dict[str, str]],
+) -> list[str]:
+    """Report a notifications companion whose ``MinSpecVersion`` lags its newest NOTIF rule.
+
+    The companion implements every ``NOTIF-NNN`` rule of ``spec/12-conformance.md``, so its
+    declared minimum spec must be at least the highest ``spec vX.Y[.Z]`` suffix on a
+    ``### NOTIF-`` heading. The companion skips the ``spec/VERSION`` equality rule, so
+    nothing else compares this value with the catalog. A missing catalog or companion yields
+    no issue, and so does a value that is not exact ``X.Y.Z`` (``validate_semver_values``
+    reports that form).
+    """
+    manifest = manifests.get(_NOTIF_COMPANION)
+    catalog = repo_root / "spec" / "12-conformance.md"
+    if manifest is None or not catalog.is_file():
+        return []
+    rule_specs = [
+        _version_tuple(match.group(1))
+        for line in catalog.read_text(encoding="utf-8").splitlines()
+        if (match := _NOTIF_RULE_SPEC_RE.fullmatch(line))
+    ]
+    declared = manifest.get("min_spec_version", "")
+    if not rule_specs or not _STABLE_SEMVER_RE.fullmatch(declared):
+        return []
+    newest = max(rule_specs)
+    if _version_tuple(declared) >= newest:
+        return []
+    newest_text = ".".join(str(part) for part in newest)
+    return [
+        f"  {_NOTIF_COMPANION}: minSpecVersion={declared!r} is below spec v{newest_text}, "
+        "the newest NOTIF- rule in spec/12-conformance.md"
+    ]
+
+
 def find_missing_tags(
     spec_version: str,
     manifests: dict[str, dict[str, str]],
@@ -1174,8 +1221,9 @@ def render_report(
 
     if msv_issues:
         lines.append(
-            "Version issues (minSpecVersion must equal spec/VERSION; every current"
-            " version needs a substantive CHANGELOG section):"
+            "Version issues (minSpecVersion must equal spec/VERSION, or cover the newest"
+            " NOTIF- rule for VMx.Notifications; every current version needs a substantive"
+            " CHANGELOG section):"
         )
         lines.extend(msv_issues)
         lines.append("")
@@ -1241,6 +1289,7 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     msv_issues = validate_semver_values(spec_version, manifests, matrix_rows)
     msv_issues.extend(check_min_spec_versions(spec_version, manifests))
+    msv_issues.extend(check_notifications_min_spec(repo_root, manifests))
     msv_issues.extend(check_changelog_sections(repo_root, manifests))
     msv_issues.extend(check_react_changelog_section(repo_root))
     msv_issues.extend(check_unreleased_source_placement(repo_root, manifests))

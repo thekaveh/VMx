@@ -1016,6 +1016,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 - The `netstandard2.0` dependency floors move to the 10.0.14 servicing releases
   of `System.Text.Json`, `System.Collections.Immutable`, and
   `Microsoft.Bcl.AsyncInterfaces` (#519, #646).
+- Changed: the declared `MinSpecVersion` is 3.30.0, not 2.6.0. The package
+  implements `NOTIF-018` to `NOTIF-020`, which spec 3.30.0 added (#1812). The
+  value is assembly metadata, and the public API does not change.
 
 ## [VMx.Extensions.DependencyInjection 2.1.1] — unreleased source version
 

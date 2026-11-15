@@ -161,6 +161,85 @@ def test_csharp_companion_manifests_require_package_specific_tags_but_not_curren
     assert "csharp-dependency-injection-v2.1.0" in missing
 
 
+# ── check_notifications_min_spec ──────────────────────────────────────
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _write_notif_catalog(root: Path, headings: list[str]) -> None:
+    (root / "spec").mkdir(parents=True, exist_ok=True)
+    (root / "spec" / "12-conformance.md").write_text("\n\n".join(headings) + "\n", encoding="utf-8")
+
+
+def _notif_manifests(min_spec: str) -> dict[str, dict[str, str]]:
+    return {
+        "csharp/VMx.Notifications": {
+            "version": "1.2.0",
+            "min_spec_version": min_spec,
+            "require_current_spec": "false",
+        }
+    }
+
+
+def test_notifications_min_spec_flags_value_below_newest_notif_rule(tmp_path: Path) -> None:
+    _write_notif_catalog(
+        tmp_path,
+        [
+            "### NOTIF-017 — Hub dispose resolves in-flight waiters with `Pending` — spec v2.5.0",
+            "### NOTIF-018 — commands report `CanExecute == false` during VM disposal",
+            "### NOTIF-019 — remaining time stops at resolution or disposal — spec v3.30.0",
+        ],
+    )
+
+    issues = cvc.check_notifications_min_spec(tmp_path, _notif_manifests("2.6.0"))
+
+    assert len(issues) == 1
+    assert "'2.6.0' is below spec v3.30.0" in issues[0]
+
+
+def test_notifications_min_spec_accepts_value_at_or_above_newest_notif_rule(
+    tmp_path: Path,
+) -> None:
+    _write_notif_catalog(
+        tmp_path,
+        ["### NOTIF-011 — opacity decays — spec v2.1", "### NOTIF-019 — stops — spec v3.30.0"],
+    )
+
+    assert cvc.check_notifications_min_spec(tmp_path, _notif_manifests("3.30.0")) == []
+    assert cvc.check_notifications_min_spec(tmp_path, _notif_manifests("3.31.0")) == []
+
+
+def test_notifications_min_spec_compares_versions_numerically(tmp_path: Path) -> None:
+    _write_notif_catalog(
+        tmp_path,
+        ["### NOTIF-001 — rule — spec v3.9.0", "### NOTIF-002 — rule — spec v3.10.0"],
+    )
+
+    # A string comparison ranks "3.9.0" above "3.10.0" and would miss this issue.
+    assert len(cvc.check_notifications_min_spec(tmp_path, _notif_manifests("3.9.0"))) == 1
+    assert cvc.check_notifications_min_spec(tmp_path, _notif_manifests("3.10.0")) == []
+
+
+def test_notifications_min_spec_reads_two_part_suffix_as_x_y_0(tmp_path: Path) -> None:
+    _write_notif_catalog(tmp_path, ["### NOTIF-011 — opacity decays — spec v2.1"])
+
+    assert cvc.check_notifications_min_spec(tmp_path, _notif_manifests("2.1.0")) == []
+    assert len(cvc.check_notifications_min_spec(tmp_path, _notif_manifests("2.0.9"))) == 1
+
+
+def test_notifications_min_spec_skips_missing_catalog_or_companion(tmp_path: Path) -> None:
+    assert cvc.check_notifications_min_spec(tmp_path, _notif_manifests("2.6.0")) == []
+
+    _write_notif_catalog(tmp_path, ["### NOTIF-019 — stops — spec v3.30.0"])
+    assert cvc.check_notifications_min_spec(tmp_path, {}) == []
+
+
+def test_repository_notifications_min_spec_covers_newest_notif_rule() -> None:
+    manifests = cvc.collect_manifests(_REPO_ROOT)
+
+    assert cvc.check_notifications_min_spec(_REPO_ROOT, manifests) == []
+
+
 def test_active_pre_v2_manifest_tag_is_enforced_while_historical_row_is_informational() -> None:
     missing = {
         "csharp-notifications-v1.2.0": ["csharp/VMx.Notifications manifest version='1.2.0'"],
