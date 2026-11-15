@@ -68,8 +68,8 @@ npm run build       # builds local VMx and @thekaveh/vmx-react, then writes dist
 ```
 
 See [`react/notes-showcase/README.md`](react/notes-showcase/README.md) for
-the project layout, feature traceability, and keybindings (`Mod+N`, `Mod+S`,
-and others). The canonical scenario contract is at
+the project layout, feature traceability, and keybindings (`Mod+Alt+N`,
+`Mod+S`, and others). The canonical scenario contract is at
 [`../../spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../spec/proposals/2026-05-29-notes-showcase-scenario.md).
 
 ---

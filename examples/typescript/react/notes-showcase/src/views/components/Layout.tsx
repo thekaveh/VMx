@@ -45,10 +45,13 @@ export const Layout: React.FC<LayoutProps> = ({ ws, dialog }) => {
   });
   const save = useCommand(ws.noteForm.approveCommand);
 
-  // Hotkeys: Mod+N new note, Mod+Shift+N new notebook, Mod+E export, Mod+S save.
+  // Hotkeys: Mod+Alt+N new note, Mod+Alt+Shift+N new notebook, Mod+E export,
+  // Mod+S save. Alt avoids Ctrl+N and Ctrl+Shift+N, which Chromium reserves
+  // on Windows and Linux. KeyN matches the physical key, so Option on macOS
+  // still matches.
   useHotkeys({
-    "Mod+N": () => newNote.canExecute && newNote.execute(),
-    "Mod+Shift+N": () => newNotebook.canExecute && newNotebook.execute(),
+    "Mod+Alt+KeyN": () => newNote.canExecute && newNote.execute(),
+    "Mod+Alt+Shift+KeyN": () => newNotebook.canExecute && newNotebook.execute(),
     "Mod+E": () => exportCmd.canExecute && exportCmd.execute(),
     "Mod+S": () => save.canExecute && save.execute(),
   });
