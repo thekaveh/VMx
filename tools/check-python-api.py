@@ -8,7 +8,9 @@ such module and renders, for every name in its ``__all__``:
 
 * a class: its bases and each public member (methods with their signatures,
   properties, enum members, and attributes), including members inherited from
-  VMx classes that are not themselves exported;
+  VMx classes that are not themselves exported. An attribute is a class-level
+  annotation, or a public name that the class's own ``__init__`` assigns
+  through ``self``;
 * a function: its signature;
 * any other object: its type.
 
@@ -30,6 +32,7 @@ unified diff is printed), 2 on a usage or import error.
 from __future__ import annotations
 
 import argparse
+import ast
 import difflib
 import enum
 import importlib
@@ -37,6 +40,7 @@ import inspect
 import pkgutil
 import re
 import sys
+import textwrap
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -127,6 +131,40 @@ def _member_lines(name: str, value: Any, owner: type) -> list[str]:
     return [f"    attribute {name}: {type(value).__qualname__}"]
 
 
+def _init_attributes(owner: type) -> dict[str, str | None]:
+    """Return the public names that the owner's own ``__init__`` assigns through ``self``.
+
+    The value is the annotation as written, or None when the assignment has none.
+    An instance attribute is absent from the class dictionary, so the source is read.
+    """
+    init = vars(owner).get("__init__")
+    if not inspect.isfunction(init):
+        return {}
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(init)))
+    except (OSError, TypeError):
+        return {}  # for example a generated __init__ that has no source file
+    found: dict[str, str | None] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets, annotation = node.targets, None
+        elif isinstance(node, ast.AnnAssign):
+            targets, annotation = [node.target], node.annotation
+        else:
+            continue
+        for target in targets:
+            if (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "self"
+                and not target.attr.startswith("_")
+            ):
+                found.setdefault(
+                    target.attr, None if annotation is None else ast.unparse(annotation)
+                )
+    return found
+
+
 def render_class(cls: type, package_name: str, exported: set[int]) -> list[str]:
     bases = getattr(cls, "__orig_bases__", None) or cls.__bases__
     rendered_bases = ", ".join(
@@ -160,7 +198,22 @@ def render_class(cls: type, package_name: str, exported: set[int]) -> list[str]:
         for name in vars(owner).get("__annotations__", {}):
             if not name.startswith("_") and name not in members:
                 members[name] = (inspect.Parameter.empty, owner)
-    for name in sorted(members):
+    # Attributes that only __init__ assigns; a class member of the same name takes precedence.
+    assigned: dict[str, str] = {}
+    for owner in cls.__mro__:
+        if owner is not cls and (
+            not _is_package_class(owner, package_name) or id(owner) in exported
+        ):
+            continue
+        for name, annotation in _init_attributes(owner).items():
+            if name in members or name in assigned:
+                continue
+            suffix = "" if annotation is None else f": {annotation}"
+            assigned[name] = f"    attribute {name}{suffix}"
+    for name in sorted(members.keys() | assigned.keys()):
+        if name in assigned:
+            lines.append(assigned[name])
+            continue
         value, owner = members[name]
         if value is inspect.Parameter.empty:
             annotation = vars(owner)["__annotations__"][name]
