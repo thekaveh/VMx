@@ -436,6 +436,33 @@ final class LifecycleRaceTests: XCTestCase {
         XCTAssertEqual(vm.status, .constructed)
     }
 
+    /// LIFE-008 — a second `destruct()` invoked from the destruct hook, while the
+    /// VM is `.destructing`, raises a catchable `StatusTransitionError`.
+    func testLife008DestructReentryFromDestructHookRaises() throws {
+        var vm: ComponentVM!
+        var reentrantError: Error?
+        vm = ComponentVM(
+            name: "life008-destruct",
+            hub: MessageHub(),
+            dispatcher: ImmediateDispatcher.INSTANCE,
+            onDestruct: {
+                do {
+                    try vm.destruct()
+                } catch {
+                    reentrantError = error
+                }
+            }
+        )
+        try vm.construct()
+
+        try vm.destruct()
+
+        let error = try XCTUnwrap(reentrantError as? StatusTransitionError)
+        XCTAssertEqual(error.currentStatus, .destructing)
+        XCTAssertEqual(error.attemptedOperation, "destruct")
+        XCTAssertEqual(vm.status, .destructed)
+    }
+
     // MARK: - Real-thread stress
 
     /// VMX-002 regression: a background `construct()` whose `_setStatus(.constructed)`

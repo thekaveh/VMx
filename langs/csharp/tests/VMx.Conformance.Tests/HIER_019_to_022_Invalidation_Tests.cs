@@ -73,19 +73,28 @@ public class HIER_019_to_022_Invalidation_Tests
 
         root.InvalidateChildren();
 
-        calls.Should().Be(0);
+        calls.Should().Be(0, "invalidating an unmaterialized node invokes no factory");
+
+        _ = root.Children;
+
+        calls.Should().Be(1, "the next Children access still performs the first materialization");
     }
 
     [Fact, Trait("Conformance", "HIER-021")]
     public void HIER_021_InvalidateSubtree_Reloads_Materialized_Descendants()
     {
+        var rootCalls = 0;
         var grandchildCalls = 0;
         var child = new Node(_ =>
         {
             grandchildCalls++;
             return [new Node()];
         });
-        var root = new Node(_ => [child]);
+        var root = new Node(_ =>
+        {
+            rootCalls++;
+            return [child];
+        });
         _ = root.Children;
         var firstGrandchild = child.Children[0];
 
@@ -93,6 +102,7 @@ public class HIER_019_to_022_Invalidation_Tests
         var reloadedChild = root.Children[0];
         var secondGrandchild = reloadedChild.Children[0];
 
+        rootCalls.Should().Be(2, "the root's own child cache is dropped and re-invoked");
         grandchildCalls.Should().Be(2);
         secondGrandchild.Should().NotBeSameAs(firstGrandchild);
     }

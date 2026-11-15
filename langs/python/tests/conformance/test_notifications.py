@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 from threading import Barrier, Thread
+from typing import Any
 
 import pytest
 from reactivex.testing import TestScheduler
@@ -295,6 +296,18 @@ async def test_NOTIF_013_confirmation_vm_approve_and_reject_commands() -> None:
     sut_r.dispose()
 
 
+class _CountingNotificationVM(NotificationVM):
+    """NotificationVM that counts lifespan-timer expirations, then runs the base hook."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.expire_calls = 0
+        super().__init__(**kwargs)
+
+    def _on_expire(self) -> None:
+        self.expire_calls += 1
+        super()._on_expire()
+
+
 # ---------------------------------------------------------------------------
 # NOTIF-014 — Manual DismissCommand cancels the timer
 # ---------------------------------------------------------------------------
@@ -302,12 +315,12 @@ async def test_NOTIF_013_confirmation_vm_approve_and_reject_commands() -> None:
 
 @pytest.mark.conformance("NOTIF-014")
 async def test_NOTIF_014_manual_dismiss_cancels_timer() -> None:
-    """Manual dismiss_command cancels the timer; subsequent ticks no-op."""
+    """Manual dismiss_command cancels the lifespan timer; the expire hook never runs."""
     scheduler = TestScheduler()
     hub = NotificationHub()
     notification = Notification(NotificationType.NOTIFICATION, "dismiss me")
     hub.post(notification)
-    sut = NotificationVM(
+    sut = _CountingNotificationVM(
         notification=notification,
         hub=hub,
         scheduler=scheduler,
@@ -318,9 +331,10 @@ async def test_NOTIF_014_manual_dismiss_cancels_timer() -> None:
     sut.dismiss_command.execute()
     assert sut.is_resolved, "resolved by manual dismiss"
 
-    # Advance past lifespan — timer must not double-resolve
+    # Advance past lifespan — the cancelled timer must not run the expire hook
     scheduler.advance_by(20)  # well past lifespan
 
+    assert sut.expire_calls == 0, "manual dismiss cancels the lifespan timer"
     # Still resolved (idempotent), notification is out of pending
     assert sut.is_resolved
     pending_items: list[Notification] = []
@@ -341,7 +355,7 @@ async def test_NOTIF_015_hub_resolve_propagates_to_vm_is_resolved() -> None:
     hub = NotificationHub()
     notification = Notification(NotificationType.NOTIFICATION, "hub resolves")
     hub.post(notification)
-    sut = NotificationVM(
+    sut = _CountingNotificationVM(
         notification=notification,
         hub=hub,
         scheduler=scheduler,
@@ -357,6 +371,7 @@ async def test_NOTIF_015_hub_resolve_propagates_to_vm_is_resolved() -> None:
 
     # Advance past lifespan — timer must not re-fire
     scheduler.advance_by(60)
+    assert sut.expire_calls == 0, "hub resolve cancels the lifespan timer"
     assert sut.is_resolved, "still resolved after timer advance"
     sut.dispose()
 
@@ -373,7 +388,7 @@ async def test_NOTIF_016_deterministic_under_test_scheduler() -> None:
     hub = NotificationHub()
     notification = Notification(NotificationType.NOTIFICATION, "tick")
     hub.post(notification)
-    sut = NotificationVM(
+    sut = _CountingNotificationVM(
         notification=notification,
         hub=hub,
         scheduler=scheduler,
@@ -393,10 +408,13 @@ async def test_NOTIF_016_deterministic_under_test_scheduler() -> None:
     scheduler.advance_by(5)
     assert sut.is_resolved, "auto-dismissed exactly at lifespan"
     assert abs(sut.opacity) < 0.01
+    assert sut.remaining_time == timedelta(0), "remaining time is zero at the lifespan"
+    assert sut.expire_calls == 1, "the lifespan timer runs the expire hook exactly once"
 
-    # No double-resolve: advancing further does nothing
+    # No double-resolve: advancing further does nothing and fires no second expiry
     scheduler.advance_by(100)
     assert sut.is_resolved
+    assert sut.expire_calls == 1
     sut.dispose()
 
 

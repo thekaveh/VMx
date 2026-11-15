@@ -74,6 +74,26 @@ public class HIER_023_to_030_BatchAttachTests
     }
 
     [Fact]
+    [Trait("Conformance", "HIER-024")]
+    public void HIER_024_Root_Parent_Key_Attaches_Through_Non_Root_Node_To_Structural_Root()
+    {
+        var root = new Node("root");
+        var receiver = new Node("receiver");
+        root.AddChild(receiver);
+        var first = new Node("first");
+        var second = new Node("second");
+
+        var result = Attach(receiver, [first, second]);
+
+        result.Added.Should().Equal(first, second);
+        result.Rejections.Should().BeEmpty();
+        root.Children.Should().Equal(receiver, first, second);
+        first.HierarchicalParent.Should().BeSameAs(root);
+        second.HierarchicalParent.Should().BeSameAs(root);
+        receiver.Children.Should().BeEmpty();
+    }
+
+    [Fact]
     [Trait("Conformance", "HIER-025")]
     public void HIER_025_Duplicate_Keys_Never_Replace_First_Node()
     {
@@ -202,5 +222,9 @@ public class HIER_023_to_030_BatchAttachTests
         root.Dispose();
 
         root.ParkedAttachCount.Should().Be(0);
+
+        root.Dispose();
+
+        root.ParkedAttachCount.Should().Be(0, "repeated disposal keeps the parked count at zero");
     }
 }

@@ -95,11 +95,12 @@ public class NOTIF_011_to_016_RenderingVMs_Tests
         using var hub = new NotificationHub();
         var notification = new Notification(NotificationType.Notification, "dismiss me");
         _ = hub.Post(notification);
-        using var sut = new NotificationVM(notification, hub, scheduler, lifespan: TimeSpan.FromSeconds(10));
+        using var sut = new ExpiryCountingNotificationVM(notification, hub, scheduler, TimeSpan.FromSeconds(10));
 
         // Invoke DismissCommand manually at t=0.
         sut.DismissCommand.Execute(null);
         sut.IsResolved.Should().BeTrue("resolved by manual dismiss");
+        sut.ExpireCalls.Should().Be(0, "the manual dismiss cancels the timer before it can fire");
 
         // Track the latest Pending snapshot so we can confirm the notification
         // stays removed after the timer would have fired.
@@ -112,6 +113,7 @@ public class NOTIF_011_to_016_RenderingVMs_Tests
         // The manual dismiss resolved the notification exactly once; the timer
         // tick must not re-resolve it or re-add it to Pending.
         sut.IsResolved.Should().BeTrue("still resolved after timer tick");
+        sut.ExpireCalls.Should().Be(0, "the expire hook must not run after a manual dismiss");
         lastPending.Should().NotContain(notification, "notification was removed on dismiss");
     }
 
@@ -125,7 +127,7 @@ public class NOTIF_011_to_016_RenderingVMs_Tests
         using var hub = new NotificationHub();
         var notification = new Notification(NotificationType.Notification, "hub resolves");
         _ = hub.Post(notification);
-        using var sut = new NotificationVM(notification, hub, scheduler, lifespan: TimeSpan.FromSeconds(60));
+        using var sut = new ExpiryCountingNotificationVM(notification, hub, scheduler, TimeSpan.FromSeconds(60));
 
         sut.IsResolved.Should().BeFalse("not yet resolved");
 
@@ -133,10 +135,12 @@ public class NOTIF_011_to_016_RenderingVMs_Tests
         hub.Resolve(notification, NotificationReaction.Approve);
 
         sut.IsResolved.Should().BeTrue("IsResolved propagated from hub resolve");
+        sut.ExpireCalls.Should().Be(0, "the hub resolve cancels the timer before it can fire");
 
         // Advance past lifespan — timer must not fire again.
         scheduler.AdvanceBy(TimeSpan.FromSeconds(60).Ticks);
         sut.IsResolved.Should().BeTrue("still resolved after timer advance");
+        sut.ExpireCalls.Should().Be(0, "the expire hook must not run after a hub resolve");
     }
 
     // ── NOTIF-016 ─────────────────────────────────────────────────────────────
@@ -149,7 +153,7 @@ public class NOTIF_011_to_016_RenderingVMs_Tests
         using var hub = new NotificationHub();
         var notification = new Notification(NotificationType.Notification, "tick");
         _ = hub.Post(notification);
-        using var sut = new NotificationVM(notification, hub, scheduler, lifespan: TimeSpan.FromSeconds(10));
+        using var sut = new ExpiryCountingNotificationVM(notification, hub, scheduler, TimeSpan.FromSeconds(10));
 
         // At t=0: opacity 1.0, not resolved.
         sut.Opacity.Should().BeApproximately(1.0, 0.001);
@@ -164,10 +168,13 @@ public class NOTIF_011_to_016_RenderingVMs_Tests
         scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
         sut.IsResolved.Should().BeTrue("auto-dismissed exactly at lifespan");
         sut.Opacity.Should().BeApproximately(0.0, 0.01);
+        sut.RemainingTime.Should().Be(TimeSpan.Zero, "no time remains at the lifespan");
+        sut.ExpireCalls.Should().Be(1, "the expire hook runs exactly once, at the lifespan");
 
         // No double-resolve: advancing further does nothing.
         scheduler.AdvanceBy(TimeSpan.FromSeconds(100).Ticks);
         sut.IsResolved.Should().BeTrue();
+        sut.ExpireCalls.Should().Be(1, "advancing past the lifespan must not run the expire hook again");
     }
 
     // ── VMX-135: INotifyPropertyChanged on decaying state ─────────────────────
@@ -310,6 +317,27 @@ public class NOTIF_011_to_016_RenderingVMs_Tests
 
         hub.Resolve(notification, NotificationReaction.Pending);
         await completion;
+    }
+
+    /// <summary>Counts calls to the protected expire hook, then runs the base behavior.</summary>
+    private sealed class ExpiryCountingNotificationVM : NotificationVM
+    {
+        public ExpiryCountingNotificationVM(
+            Notification notification,
+            INotificationHub hub,
+            IScheduler scheduler,
+            TimeSpan lifespan)
+            : base(notification, hub, scheduler, lifespan: lifespan)
+        {
+        }
+
+        public int ExpireCalls { get; private set; }
+
+        protected override void OnExpire()
+        {
+            ExpireCalls++;
+            base.OnExpire();
+        }
     }
 
     private sealed class BlockingExpiryNotificationVM : NotificationVM

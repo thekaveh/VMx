@@ -244,7 +244,7 @@ public class MessageHubTests
             "second:completed");
     }
 
-    [Fact]
+    [Fact, Trait("Conformance", "HUB-013")]
     public async Task Opposing_Hub_Callbacks_Do_Not_Deadlock()
     {
         using var left = new MessageHub();
@@ -497,7 +497,7 @@ public class MessageHubTests
         delivered.Should().Equal("q0");
     }
 
-    [Fact]
+    [Fact, Trait("Conformance", "HUB-013")]
     public async Task Opposing_Hub_Callbacks_Can_Dispose_Each_Other_Without_Deadlock()
     {
         var left = new MessageHub();
@@ -542,7 +542,7 @@ public class MessageHubTests
         rightCompletions.Should().Be(1);
     }
 
-    [Fact]
+    [Fact, Trait("Conformance", "HUB-013")]
     public async Task Opposing_Hub_Callback_Batches_Do_Not_Deadlock_And_Defer_Delivery()
     {
         using var left = new MessageHub();
@@ -612,7 +612,7 @@ public class MessageHubTests
             "the target owner cannot drain until the borrowed batch body exits");
     }
 
-    [Theory]
+    [Theory, Trait("Conformance", "HUB-013")]
     [InlineData("send")]
     [InlineData("batch")]
     [InlineData("dispose")]

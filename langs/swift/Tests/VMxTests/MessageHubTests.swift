@@ -188,6 +188,7 @@ final class MessageHubTests: XCTestCase {
         cancellable.cancel()
     }
 
+    /// HUB-013 — a cross-hub dispose cycle completes without deadlock when the batch owner returns.
     func testCyclicDisposeCompletesWhenBatchOwnerReturns() {
         let batched = MessageHub()
         let source = MessageHub()
@@ -238,6 +239,7 @@ final class MessageHubTests: XCTestCase {
         sourceSubscription.cancel()
     }
 
+    /// HUB-013 — opposing cross-hub callbacks complete without deadlock.
     func testOpposingHubCallbacksDoNotDeadlock() {
         let left = MessageHub()
         let right = MessageHub()
@@ -286,6 +288,7 @@ final class MessageHubTests: XCTestCase {
         rightSubscription.cancel()
     }
 
+    /// HUB-013 — a callback sending to a busy unrelated hub waits for it and stays synchronous.
     func testUnrelatedHubCallbackWaitsForBusyTargetAndRemainsSynchronous() {
         let source = MessageHub()
         let target = MessageHub()
@@ -328,6 +331,7 @@ final class MessageHubTests: XCTestCase {
         targetSubscription.cancel()
     }
 
+    /// HUB-013 — opposing nested cross-hub batches borrow only the cycle edge.
     func testOpposingNestedBatchesBorrowOnlyTheCycleEdge() {
         let left = MessageHub()
         let right = MessageHub()

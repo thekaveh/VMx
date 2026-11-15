@@ -353,6 +353,26 @@ describe("LIFE-008", () => {
     vm.construct();
     expect(innerError).toBeInstanceOf(StatusTransitionError);
   });
+
+  it("destruct re-entry from the destruct hook raises", () => {
+    let innerError: unknown;
+    const vm = ComponentVM.builder()
+      .name("v")
+      .services(makeHub(), makeDisp())
+      .onDestruct(() => {
+        try {
+          vm.destruct();
+        } catch (e) {
+          innerError = e;
+        }
+      })
+      .build();
+    vm.construct();
+
+    vm.destruct();
+
+    expect(innerError).toBeInstanceOf(StatusTransitionError);
+  });
 });
 
 // ---------------------------------------------------------------------------

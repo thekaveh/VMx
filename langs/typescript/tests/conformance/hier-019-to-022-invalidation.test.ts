@@ -71,11 +71,15 @@ describe("HIER-020", () => {
     root.invalidateChildren();
 
     expect(calls).toBe(0);
+    // The next access still performs the first materialization.
+    expect(root.children).toEqual([]);
+    expect(calls).toBe(1);
   });
 });
 
 describe("HIER-021", () => {
   it("invalidateSubtree reloads materialized descendants", () => {
+    let rootCalls = 0;
     let grandchildCalls = 0;
     const child = new Node({
       childrenFactory: () => {
@@ -83,7 +87,12 @@ describe("HIER-021", () => {
         return [new Node()];
       },
     });
-    const root = new Node({ childrenFactory: () => [child] });
+    const root = new Node({
+      childrenFactory: () => {
+        rootCalls += 1;
+        return [child];
+      },
+    });
     void root.children;
     const firstGrandchild = child.children[0];
 
@@ -92,6 +101,7 @@ describe("HIER-021", () => {
     if (reloadedChild === undefined) throw new Error("expected reloaded child");
     const secondGrandchild = reloadedChild.children[0];
 
+    expect(rootCalls).toBe(2);
     expect(grandchildCalls).toBe(2);
     expect(secondGrandchild).not.toBe(firstGrandchild);
   });
