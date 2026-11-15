@@ -227,6 +227,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `connectReduxDevtools()` discovers the Redux DevTools global when the
+  extension installs it as a function with `connect`, as the browser extension
+  does. Before, discovery accepted only an object, so a default call sent
+  nothing and reported no error (#1916).
+
 - `RecordingMessageHub.batch` runs its body after `dispose()`, as
   `MessageHub.batch` does (spec/03 §3.3, ADR-0184, #1918). Before, it returned
   without calling the body, so a body that threw lost its error. Sends inside

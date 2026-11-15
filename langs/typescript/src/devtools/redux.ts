@@ -124,7 +124,9 @@ function discoverReduxDevtools(): ReduxDevtoolsExtension | undefined {
     const candidate = (globalThis as unknown as Record<string, unknown>)[
       "__REDUX_DEVTOOLS_EXTENSION__"
     ];
-    if (typeof candidate !== "object" || candidate === null) return undefined;
+    if (candidate === null || (typeof candidate !== "object" && typeof candidate !== "function")) {
+      return undefined;
+    }
     return typeof (candidate as { readonly connect?: unknown }).connect === "function"
       ? candidate as ReduxDevtoolsExtension
       : undefined;
