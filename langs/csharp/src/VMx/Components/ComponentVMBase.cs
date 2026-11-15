@@ -426,6 +426,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private protected readonly IDispatcher _dispatcher;
     private readonly bool _background;
 
+    /// <summary>
+    /// The dispatcher supplied at construction, read-only and <c>protected</c>
+    /// so subclasses in any assembly can schedule on it (ADR-0229). It is the
+    /// same object as <c>_dispatcher</c>.
+    /// </summary>
+    protected IDispatcher Dispatcher => _dispatcher;
+
     // ── Lifecycle state ─────────────────────────────────────────────────────
     // _gate atomically admits lifecycle state transitions and orders their
     // externally observable delivery against Dispose(). Observer callbacks are

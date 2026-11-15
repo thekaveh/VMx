@@ -28,3 +28,4 @@ VMx.Forwarding.ForwardingComponentVM<M>.NotifyPropertyChanged(string! propertyNa
 VMx.Forwarding.ForwardingComponentVM<M>.RaisePropertyChanged(string! propertyName) -> void
 VMx.Forwarding.ForwardingCompositeVM<VM>.NotifyPropertyChanged(string! propertyName) -> void
 VMx.Forwarding.ForwardingCompositeVM<VM>.RaisePropertyChanged(string! propertyName) -> void
+VMx.Components.ComponentVMBase.Dispatcher.get -> VMx.Services.IDispatcher!

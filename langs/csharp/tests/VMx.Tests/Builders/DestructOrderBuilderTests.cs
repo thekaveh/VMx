@@ -155,7 +155,7 @@ public class DestructOrderBuilderTests
 
     /// <summary>A child whose dispose records its name and throws for b and c.</summary>
     public sealed class ThrowingDisposeVM(string name, TestHub hub, List<string> disposed)
-        : ComponentVMBase(name, hub, Dispatcher)
+        : ComponentVMBase(name, hub, DestructOrderBuilderTests.Dispatcher)
     {
         /// <inheritdoc/>
         public override ViewModelType Type => ViewModelType.Component;

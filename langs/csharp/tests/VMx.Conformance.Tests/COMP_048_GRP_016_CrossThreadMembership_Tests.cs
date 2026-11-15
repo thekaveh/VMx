@@ -23,7 +23,8 @@ public class COMP_048_GRP_016_CrossThreadMembership_Tests
 
     /// <summary>A composite whose population a test can start.</summary>
     private sealed class PopulatingComposite(IMessageHub hub)
-        : CompositeVMBase<ComponentVM>("p", hub, Dispatcher, autoConstructOnAdd: true)
+        : CompositeVMBase<ComponentVM>(
+            "p", hub, COMP_048_GRP_016_CrossThreadMembership_Tests.Dispatcher, autoConstructOnAdd: true)
     {
         public override ViewModelType Type => ViewModelType.Composite;
 
@@ -32,7 +33,8 @@ public class COMP_048_GRP_016_CrossThreadMembership_Tests
 
     /// <summary>A group whose population a test can start.</summary>
     private sealed class PopulatingGroup(IMessageHub hub)
-        : GroupVMBase<ComponentVM>("g", hub, Dispatcher, autoConstructOnAdd: true)
+        : GroupVMBase<ComponentVM>(
+            "g", hub, COMP_048_GRP_016_CrossThreadMembership_Tests.Dispatcher, autoConstructOnAdd: true)
     {
         public override ViewModelType Type => ViewModelType.Group;
 
