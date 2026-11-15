@@ -203,8 +203,10 @@ def test_spec_discipline_enforces_develop_first_gitflow() -> None:
         in workflow
     )
     assert "release-please--branches--main--components--python" in workflow
-    assert "git diff --name-status" in workflow
-    assert "git ls-tree" in workflow
+    assert "git merge-base" in workflow
+    assert 'git diff --name-status --no-renames "$merge_base" "$HEAD_SHA"' in workflow
+    assert 'git ls-tree "$merge_base" -- "$path"' in workflow
+    assert 'git ls-tree "$BASE_SHA"' not in workflow
     for path in (
         ".release-please-manifest.json",
         "compatibility-matrix.md",
@@ -216,10 +218,22 @@ def test_spec_discipline_enforces_develop_first_gitflow() -> None:
 
 def test_spec_discipline_matches_only_the_exact_adr_bypass_label() -> None:
     workflow = (WORKFLOWS / "spec-discipline.yml").read_text(encoding="utf-8")
+    script = (REPO_ROOT / "tools" / "check-spec-adr.py").read_text(encoding="utf-8")
 
     assert "PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}" in workflow
-    assert "jq -e 'index(\"no-adr-needed\") != null'" in workflow
+    assert "run: python3 tools/check-spec-adr.py" in workflow
+    assert 'BYPASS_LABEL = "no-adr-needed"' in script
+    assert "if BYPASS_LABEL in labels:" in script
     assert "grep -q 'no-adr-needed'" not in workflow
+
+
+def test_spec_discipline_leaves_conformance_markers_to_the_coverage_tool() -> None:
+    workflow = (WORKFLOWS / "spec-discipline.yml").read_text(encoding="utf-8")
+    conformance = (WORKFLOWS / "conformance.yml").read_text(encoding="utf-8")
+
+    for marker in ("Trait", "pytest.mark", "scenario_prefixes"):
+        assert marker not in workflow
+    assert "tools/check-conformance-coverage.py --require csharp" in conformance
 
 
 def test_python_release_updates_the_compatibility_matrix() -> None:
@@ -488,11 +502,14 @@ def test_csharp_example_projects_are_format_checked_in_ci_and_pre_commit() -> No
     assert 'dotnet format "$project" --verify-no-changes --no-restore --include "$f"' in hook
 
 
-def test_spec_discipline_reads_the_scenario_prefixes_from_the_coverage_tool() -> None:
+def test_spec_discipline_holds_no_scenario_prefix_list_or_marker_regex() -> None:
+    # The conformance-stub step moved out of this workflow (#1833). The coverage
+    # tool owns the marker forms and the scenario prefixes.
     workflow = (WORKFLOWS / "spec-discipline.yml").read_text(encoding="utf-8")
 
-    assert "--print-scenario-prefixes" in workflow
-    assert "scenario_prefixes='" not in workflow
+    assert "scenario_prefixes" not in workflow
+    assert "--print-scenario-prefixes" not in workflow
+    assert "pytest.mark" not in workflow
 
 
 def test_examples_contract_runs_when_the_catalog_or_coverage_tool_changes() -> None:
