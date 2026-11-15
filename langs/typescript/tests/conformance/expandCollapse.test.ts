@@ -128,11 +128,10 @@ describe("EXP-005", () => {
     const root = new ExpandableComposite("root", [a, bCollapsed], true);
 
     const visited = [...walkExpanded(root)];
-    expect(visited).toContain(root);
-    expect(visited).toContain(a);
-    expect(visited).toContain(bCollapsed);
-    expect(visited).not.toContain(b1);
-    expect(visited).not.toContain(b2);
+    expect(visited).toHaveLength(3);
+    expect(visited[0]).toBe(root);
+    expect(visited[1]).toBe(a);
+    expect(visited[2]).toBe(bCollapsed);
   });
 });
 

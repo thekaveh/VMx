@@ -751,3 +751,35 @@ fn grp_013_nested_group_batch_publishes_one_reset() {
     peers.batch_update(|| peers.move_item(1, 1).unwrap());
     assert_eq!(delivered.changes(), vec![reset(id)]);
 }
+
+/// GRP-013 — the local Reset of an outermost batch precedes the one hub Reset
+#[test]
+fn grp_013_local_reset_precedes_hub_reset() {
+    let hub = MessageHub::new();
+    let peers = group(&hub, "peers");
+    let id = peers.id();
+    let log: Arc<Mutex<Vec<(&'static str, Change)>>> = Arc::new(Mutex::new(Vec::new()));
+    let local_log = Arc::clone(&log);
+    let _local = peers.collection_changed().subscribe(move |message| {
+        if let Some(change) = change_of(message) {
+            local_log.lock().unwrap().push(("local", change));
+        }
+    });
+    let hub_log = Arc::clone(&log);
+    let _hub = hub.subscribe(move |message| {
+        if let Some(change) = change_of(message) {
+            hub_log.lock().unwrap().push(("hub", change));
+        }
+    });
+
+    peers.batch_update(|| peers.add(child(&hub, "a")).unwrap());
+
+    let resets: Vec<&str> = log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, change)| *change == reset(id))
+        .map(|(source, _)| *source)
+        .collect();
+    assert_eq!(resets, vec!["local", "hub"]);
+}

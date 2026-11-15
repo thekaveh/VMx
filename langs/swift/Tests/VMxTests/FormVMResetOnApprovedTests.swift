@@ -118,7 +118,10 @@ final class FormVMResetOnApprovedTests: XCTestCase {
         try await form.approveAsync()
 
         XCTAssertEqual(calls, 2)
+        XCTAssertEqual(form.model, ResetModel(value: "", nested: ResetBox([1])))
+        XCTAssertEqual(form.snapshot, ResetModel(value: "", nested: ResetBox([1])))
         XCTAssertFalse(form.model.nested === form.snapshot.nested)
+        XCTAssertFalse(form.isDirty)
         XCTAssertEqual(form.fieldError("value"), "required")
         XCTAssertFalse(form.isValid)
         XCTAssertFalse(form.approveCommand.canExecute())

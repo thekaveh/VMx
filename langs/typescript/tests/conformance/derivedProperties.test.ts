@@ -207,6 +207,7 @@ const TRANSFORMS: Record<string, (...vs: unknown[]) => unknown> = {
 describe("DPROP-012", () => {
   it("derived-property scenarios match fixture", () => {
     const fixture = loadFixture<Fixture>("derived-properties.json");
+    expect(fixture.scenarios.length).toBeGreaterThan(0);
     for (const scenario of fixture.scenarios) {
       const transform = TRANSFORMS[scenario.transform]!;
       const subjects = scenario.sources_initial.map(

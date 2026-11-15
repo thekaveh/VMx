@@ -76,6 +76,7 @@ fn forwarding_component_delegates_to_inner() {
     );
 }
 
+/// FWD-001 — ForwardingComponentVM delegates every member to wrapped
 #[test]
 fn forwarding_component_is_a_transparent_container_child() {
     let inner = child("inner");

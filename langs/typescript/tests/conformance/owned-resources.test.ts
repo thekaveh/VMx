@@ -97,11 +97,25 @@ describe("DISP-011", () => {
   });
 });
 
+function findPropertyDescriptor(target: object, key: string): PropertyDescriptor | undefined {
+  let owner: object | null = target;
+  while (owner !== null) {
+    const descriptor = Object.getOwnPropertyDescriptor(owner, key);
+    if (descriptor !== undefined) return descriptor;
+    owner = Object.getPrototypeOf(owner) as object | null;
+  }
+  return undefined;
+}
+
 describe("DISP-012", () => {
   it("exposes the injected hub publicly and read-only", () => {
     const hub = new MessageHub();
     const vm = new ProbeVM(hub);
     expect(vm.hub).toBe(hub);
+    // The hub accessor is getter-only: no setter exists on the prototype chain.
+    const descriptor = findPropertyDescriptor(vm, "hub");
+    expect(descriptor).toBeDefined();
+    expect(descriptor?.set).toBeUndefined();
   });
 });
 

@@ -166,7 +166,7 @@ fn non_modal_set_abandons_history_including_same_key() {
     assert_eq!(vm_active_changed_record.messages().len(), change_count);
 }
 
-/// DISC-003 — arbitrary keys are valid and disposal makes later mutations inert.
+/// Arbitrary keys are valid, and disposal makes later mutations inert.
 #[test]
 fn arbitrary_keys_are_valid_and_disposal_is_terminal() {
     let vm = DiscriminatorVm::new("home");

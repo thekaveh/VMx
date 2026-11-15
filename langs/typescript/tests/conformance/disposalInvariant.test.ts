@@ -209,12 +209,18 @@ describe("DISP-005", () => {
     const source = new BehaviorSubject(7);
     const property = fromSources<number>([source], (value) => value as number);
     let completions = 0;
-    property.valueChanged.subscribe({ complete: () => (completions += 1) });
+    let values = 0;
+    property.valueChanged.subscribe({
+      next: () => (values += 1),
+      complete: () => (completions += 1),
+    });
+    const valuesBeforeDispose = values;
 
     property.dispose();
     property.dispose();
     source.next(8);
 
+    expect(values).toBe(valuesBeforeDispose);
     expect(property.value).toBe(7);
     expect(completions).toBe(1);
 

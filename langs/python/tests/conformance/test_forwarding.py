@@ -155,6 +155,7 @@ def test_FWD_001_no_override_delegates_every_member() -> None:
     inner.deselect.assert_called_once()
 
 
+@pytest.mark.conformance("FWD-001")
 def test_forwarding_component_is_a_transparent_container_child() -> None:
     inner = ComponentVMOfBuilder[str]().name("inner").model("model").with_null_services().build()
     forwarding = ForwardingComponentVM(inner)
