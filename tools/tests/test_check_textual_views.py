@@ -4,11 +4,168 @@ import textwrap
 from pathlib import Path
 
 import check_textual_views as ctv
+import pytest
 
 
 def _write(path: Path, body: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(textwrap.dedent(body), encoding="utf-8")
+
+
+def _widget_module(path: Path, method_src: str) -> None:
+    """Write a Widget class whose single method is ``method_src`` (already dedented)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = "from textual.widget import Widget\nclass MyView(Widget):\n"
+    path.write_text(body + textwrap.indent(textwrap.dedent(method_src), "    "), encoding="utf-8")
+
+
+# --- hub subscription forms -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "stmts",
+    [
+        "self._subs.append(self._vm.hub.messages.subscribe(cb))",
+        "self._vm.hub.messages.pipe(f).subscribe(cb)",
+        "messages = self._vm.hub.messages\nmessages.subscribe(cb)",
+        "resolve_hub(self._vm).messages.subscribe(cb)",
+    ],
+    ids=["nested-call-argument", "pipe-chain", "local-alias", "resolve-hub-call"],
+)
+def test_hub_rule_flags_subscription_forms(tmp_path: Path, stmts: str) -> None:
+    f = tmp_path / "view.py"
+    method = "def on_mount(self):\n" + textwrap.indent(stmts, "    ") + "\n"
+    _widget_module(f, method)
+    violations = ctv.check_module(f)
+    assert len(violations) == 1
+    assert "subscribes to the hub" in violations[0]
+
+
+def test_hub_rule_flags_subscription_nested_in_guarded_handler(tmp_path: Path) -> None:
+    f = tmp_path / "view.py"
+    _widget_module(
+        f,
+        """\
+        def on_button_pressed(self, event) -> None:
+            if event.button.id:
+                self._subs.append(self._vm.hub.messages.subscribe(cb))
+        """,
+    )
+    violations = ctv.check_module(f)
+    assert len(violations) == 1
+    assert "subscribes to the hub" in violations[0]
+
+
+# --- statements inside compound blocks count toward the thin-handler limit ---
+
+
+_COMPOUND_HANDLERS = [
+    pytest.param(
+        """\
+        def on_button_pressed(self, event) -> None:
+            with self._lock:
+                self.a()
+                self.b()
+                self.c()
+        """,
+        3,
+        id="with",
+    ),
+    pytest.param(
+        """\
+        async def on_button_pressed(self, event) -> None:
+            async with self._lock:
+                self.a()
+                self.b()
+                self.c()
+        """,
+        3,
+        id="async-with",
+    ),
+    pytest.param(
+        """\
+        def on_button_pressed(self, event) -> None:
+            for item in self._items:
+                self.a(item)
+                self.b(item)
+                self.c(item)
+        """,
+        3,
+        id="for",
+    ),
+    pytest.param(
+        """\
+        async def on_button_pressed(self, event) -> None:
+            async for item in self._stream:
+                self.a(item)
+                self.b(item)
+                self.c(item)
+        """,
+        3,
+        id="async-for",
+    ),
+    pytest.param(
+        """\
+        def on_button_pressed(self, event) -> None:
+            while self._pending:
+                self.a()
+                self.b()
+                self.c()
+        """,
+        3,
+        id="while",
+    ),
+    pytest.param(
+        """\
+        def on_button_pressed(self, event) -> None:
+            try:
+                self.a()
+                self.b()
+                self.c()
+            except ValueError:
+                self.d()
+        """,
+        4,
+        id="try-body-and-except",
+    ),
+    pytest.param(
+        """\
+        def on_button_pressed(self, event) -> None:
+            match event.button.id:
+                case "save":
+                    self.a()
+                    self.b()
+                    self.c()
+        """,
+        3,
+        id="match",
+    ),
+]
+
+
+@pytest.mark.parametrize(("handler_src", "count"), _COMPOUND_HANDLERS)
+def test_handler_statements_inside_compound_blocks_are_counted(
+    tmp_path: Path, handler_src: str, count: int
+) -> None:
+    f = tmp_path / "view.py"
+    _widget_module(f, handler_src)
+    violations = ctv.check_module(f)
+    assert len(violations) == 1
+    assert f"has {count} statements" in violations[0]
+    assert "max 1 for on_* event handlers" in violations[0]
+
+
+def test_single_call_inside_compound_block_still_counts_as_one(tmp_path: Path) -> None:
+    f = tmp_path / "view.py"
+    _widget_module(
+        f,
+        """\
+        def on_button_pressed(self, event) -> None:
+            with self._lock:
+                self.save_command.execute()
+        """,
+    )
+    assert ctv.check_module(f) == []
 
 
 def test_check_accepts_allowed_methods(tmp_path: Path) -> None:
