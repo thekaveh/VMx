@@ -18,7 +18,7 @@ uses `Idle` as the cancellation baseline.
 The rules differ when a discard reload starts from a value-less `Error`. C#,
 Python, TypeScript and Rust keep that `Error` as the baseline, so a cancel
 returns to `Error`. Swift resets the baseline to `Idle`, so a cancel returns to
-`Idle`. Heimdall's poll had to accept both outcomes. No ARES ID covered the
+`Idle`. One consumer's poll had to accept both outcomes. No ARES ID covered the
 case. ARES-007 covers a discard reload from `Ready`, where both rules give
 `Idle`.
 
@@ -42,7 +42,7 @@ change four flavors and the §5 and §7 text.
 - Swift resets the stable state to `Idle` only when a value is relinquished. A
   cancelled discard retry from `Error` now restores `Error`. The Swift
   CHANGELOG records this under Fixed.
-- Heimdall's poll rule (load in `Idle`, skip `Loading`, reload otherwise)
+- A consumer's poll rule (load in `Idle`, skip `Loading`, reload otherwise)
   stays correct, because a value-less `Error` reloads.
 - `ARES-013` covers the case with tests in all five flavors.
 - This ADR does not bump the spec version. The release version is the owner's

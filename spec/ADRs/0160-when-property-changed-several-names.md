@@ -9,7 +9,7 @@
 `whenPropertyChanged(hub, sender, propertyName)` (spec 03 §7.2, ADR-0050) takes
 one property name in C#, Python, TypeScript and Swift. A view model that reacts
 to two or three properties of one child therefore writes its own filter over
-the hub. Heimdall reports 18 such filters (#664). Rust has no such helper and
+the hub. One consumer reports 18 such filters (#664). Rust has no such helper and
 uses `MessageHub::subscribe`.
 
 ## 2. Decision
