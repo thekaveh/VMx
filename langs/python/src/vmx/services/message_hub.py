@@ -7,11 +7,12 @@ from collections import deque
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from threading import Condition, RLock, get_ident
-from typing import Generic, Protocol, TypeVar, runtime_checkable
+from typing import Generic, Protocol, runtime_checkable
 
 import reactivex as rx
 from reactivex.abc import DisposableBase, ObserverBase
 from reactivex.subject import Subject
+from typing_extensions import TypeVar
 
 from vmx._wait_for_graph import WAITS
 from vmx.messages.protocols import Message
@@ -19,7 +20,11 @@ from vmx.messages.protocols import Message
 _logger = logging.getLogger(__name__)
 
 
-TMessage = TypeVar("TMessage", bound=Message, contravariant=True)
+# ``default=Message`` (PEP 696) makes a bare ``MessageHub`` or ``MessageHubProto``
+# mean the ``Message`` parameterisation. Every type variable with a default uses
+# ``typing_extensions.TypeVar`` on all supported Python versions (3.10 to 3.14),
+# so one declaration covers them all; see ADR-0231.
+TMessage = TypeVar("TMessage", bound=Message, contravariant=True, default=Message)
 
 
 @runtime_checkable
@@ -49,7 +54,7 @@ class TransactionalMessageHubProto(MessageHubProto[TMessage], Protocol[TMessage]
         ...
 
 
-_THubMessage = TypeVar("_THubMessage", bound=Message)
+_THubMessage = TypeVar("_THubMessage", bound=Message, default=Message)
 
 
 class MessageHub(Generic[_THubMessage]):

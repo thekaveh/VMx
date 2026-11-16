@@ -158,6 +158,22 @@ below for them.
   collections and dictionaries keep their type name. `sender_name` is now a
   keyword-only field. When it is not given, it defaults to the sender's type
   name. An explicit empty name, such as a container named `""`, stays empty.
+- **BREAKING:** `MessageHub`, `MessageHubProto` and `TransactionalMessageHubProto`
+  declare `Message` as the default type argument (ADR-0231, #1903). This is a
+  narrow 3.x source break under ADR-0009. Under `mypy --strict`, a bare
+  `MessageHub` annotation, parameter or construction now means
+  `MessageHub[Message]`, so the annotation is optional. Explicit
+  parameterisations are unchanged. Under plain mypy, without
+  `disallow_any_generics`, a bare `MessageHub`, `MessageHubProto` or
+  `TransactionalMessageHubProto` parameter that accepted a hub of any message
+  type now rejects a hub of another message type, such as `MessageHub[MyMessage]`.
+  Migration: annotate `MessageHub[Any]` to keep the old acceptance. Under
+  `mypy --strict`, a bare parameter whose `type-arg` error was suppressed with
+  `# type: ignore[type-arg]` gets the same rejection, and an unannotated
+  `hub = MessageHub()` infers `MessageHub[Message]`, so sending a non-`Message`
+  to it is an error. The package now declares `typing-extensions>=4.12.0` as a
+  runtime dependency, the lowest release checked that creates the defaulted type
+  variables on Python 3.13 and 3.14.
 
 ### Fixed
 
