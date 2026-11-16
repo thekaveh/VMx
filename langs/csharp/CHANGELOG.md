@@ -256,6 +256,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- `SearchableState` releases its source-change subscription when the
+  constructor's post-subscribe reconcile throws. The caller still receives the
+  original failure, and a later signal no longer runs the item supplier or the
+  predicate of the unreachable helper (ADR-0232, #1881, `SRCH-010`).
+
 - `ModalVM<T>` claims the first dismissal under a lock. Two threads that
   dismiss or dispose at once no longer leave `Result` different from the
   awaited `Completion`, and `IsDismissed` is read under the same lock

@@ -748,8 +748,10 @@ a library channel reaches every attached subscriber once, even when an earlier
 one fails, and no failure detaches a subscriber or the library's own source
 subscription. A call-fed failure is rethrown in C# and Python after delivery,
 and a failing `SearchableState` predicate keeps the last snapshot (`HUB-007`,
-`DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069`). A failing local subscriber does
-not suppress the hub message (`COL-066`) and skips no later notification step
+`DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069`). A `SearchableState` whose
+post-subscribe reconcile fails releases its signal subscription before the
+failure reaches the caller (`SRCH-010`, ADR-0232). A failing local subscriber
+does not suppress the hub message (`COL-066`) and skips no later notification step
 of a committed collection change (`COL-072`). The subscribers of one
 `AggregateChangeStream` envelope receive it in subscription order, and the
 stream calls the source, the selector and subscriptions with no gate held
