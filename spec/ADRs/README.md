@@ -337,4 +337,5 @@ cell repeats the file's back-links without the date.
 
 ADR numbers are never reused. ADR-0181, ADR-0182 and ADR-0183 were reserved
 for parallel pull requests and never used, so the registry has no rows for
-them.
+them. ADR-0231 was held for open pull request #2087 when ADR-0232 was written,
+so the registry had no row for it at that time.

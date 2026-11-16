@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-15
-- **Spec version:** 3.30.0 (chapter 06 §8.2, `SRCH-010`)
+- **Spec version:** 3.30.0 (chapter 03 §3.6, chapter 06 §8.2, `SRCH-010`)
 - **Amends:** [ADR-0191](0191-subscriber-failures-do-not-stop-delivery-or-detach.md)
   Decision rules 2 and 6 (§2.3).
 - **Extends:** [ADR-0224](0224-failed-population-disposes-unowned-candidates.md)
@@ -108,10 +108,21 @@ in all five flavors wherever a flavor can fail.
 - In C#, Python and TypeScript, a `SearchableState` whose constructor fails
   holds no subscription on its signal. A later signal runs no consumer code.
 - Swift and Rust need no code change. Their behavior is pinned by `SRCH-010`.
+- Chapter 03 §3.6 rule 2 states the same exception that item 5 gives, so
+  chapter 03 and ADR-0191 agree. The exception is part of that rule, not a new
+  rule.
 - Chapter 06 §8.2 states the rule. Chapter 12 §20 defines `SRCH-010`, and
   chapter 06 §10 lists it.
 - ADR-0191 and ADR-0224 carry the back-links in their `Status` lines and
   registry cells.
+- Numbering. The literal next number at develop is ADR-0231, because the
+  highest registry row is ADR-0230. ADR-0231 is held by open pull request
+  #2087 (`spec/ADRs/0231-python-hub-type-parameter-default.md`). Taking 0231
+  here would give two open pull requests the same number, and one of them would
+  have to be renumbered at merge. This ADR therefore takes 0232 and leaves 0231
+  without a registry row (`spec/ADRs/README.md` §2.4). If #2087 merges, 0231 is
+  its number and no gap remains. If this ADR merges first, 0231 stays a reserved
+  gap until #2087 merges.
 - The public API does not change.
 
 ## 4. Rejected alternatives
