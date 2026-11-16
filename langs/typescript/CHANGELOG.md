@@ -231,6 +231,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `SearchableState` releases its `sourceChanges` subscription when the
+  constructor's post-subscribe reconcile throws. The caller still receives the
+  original error, and a later signal no longer runs the `items` callback or the
+  `predicate` of the unreachable helper (ADR-0232, #1881, `SRCH-010`).
+
 - Tree walks (`walk`, `walkExpanded`, `find`), `HierarchicalVM.depth` and
   path-cache invalidation no longer recurse once per level. A deep tree no
   longer raises `RangeError` (maximum call stack size exceeded). Walk order and

@@ -1,5 +1,9 @@
+using System.Reactive;
+using System.Reactive.Concurrency;
+using System.Reactive.Subjects;
 using FluentAssertions;
 using VMx.Aggregates;
+using VMx.Capabilities;
 using VMx.Components;
 using VMx.Composites;
 using VMx.Lifecycle;
@@ -223,5 +227,28 @@ public class FailedPopulationCleanupTests
 
         act.Should().Throw<ArgumentNullException>();
         source.Invoking(s => s.Add(Leaf("b"))).Should().NotThrow();
+    }
+
+    [Fact]
+    public void Failed_Searchable_Reconcile_Detaches_From_The_Source_Signal()
+    {
+        var reads = 0;
+        var signal = new Subject<Unit>();
+        Func<IEnumerable<string>> items = () =>
+        {
+            reads++;
+            if (reads == 2) throw new FactoryFailure();
+            return ["a", "b"];
+        };
+
+        var act = () => new SearchableState<string>(
+            items, (item, term) => item.Contains(term, StringComparison.Ordinal),
+            TimeSpan.Zero, ImmediateScheduler.Instance, signal);
+
+        act.Should().Throw<FactoryFailure>();
+        signal.HasObservers.Should().BeFalse();
+        reads = 0;
+        signal.OnNext(Unit.Default);
+        reads.Should().Be(0);
     }
 }

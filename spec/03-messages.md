@@ -227,7 +227,10 @@ trigger emission, a debounce timer, a `SearchableState` term change and a
    follows the same rule.
 1. **No detach.** A failure MUST NOT detach the failing subscriber, another
    subscriber or the library's own source subscription. Later deliveries reach
-   all of them.
+   all of them. One exception: when a `SearchableState` constructor's
+   post-subscribe reconciliation fails, the helper releases its subscription to
+   the source-change signal before the failure reaches the caller (chapter 06
+   §8.2, ADR-0232).
 1. **State first.** The library commits the state that a delivery announces
    before it delivers. A failure does not roll that state back.
 1. **Stream-fed route.** A stream-fed failure MUST NOT reach the upstream

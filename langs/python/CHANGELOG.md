@@ -161,6 +161,10 @@ below for them.
 
 ### Fixed
 
+- `SearchableState` releases its source_changes subscription when the
+  constructor's post-subscribe reconcile raises. The caller still receives the
+  original exception, and a later signal no longer runs the items callable or
+  the predicate of the unreachable helper (ADR-0232, #1881, `SRCH-010`).
 - Tree walks (`walk`, `walk_expanded`, `find`), `HierarchicalVM.depth` and
   path-cache invalidation no longer recurse once per level. A tree deeper than
   the interpreter recursion limit (about 1,000 levels) no longer raises
