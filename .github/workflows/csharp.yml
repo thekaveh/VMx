@@ -194,8 +194,8 @@ jobs:
             exit 1
           }
           # The switch must reach the restore: NuGet ignores SetTargetFramework,
-          # so this restore adds the packages the netstandard2.0 build needs
-          # (ADR-0231). Its graph has no committed lock file.
+          # so this restore adds the packages the netstandard2.0 build needs.
+          # Its graph has no committed lock file; the restore writes one under obj/.
           dotnet restore tests/VMx.Conformance.Tests/VMx.Conformance.Tests.csproj -p:VMxLibraryFramework=netstandard2.0
 
       - name: Build the netstandard2.0 library build
