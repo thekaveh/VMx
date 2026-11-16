@@ -45,6 +45,15 @@ ADR-0006 and require no further action:
 | LINQ utility helpers (`CartesianProduct`, `Sample`, `Product`) | Removed by ADR-0052 in v3.0.0 (was the `LinqHelpers` static class in `VMx.Extensions`) | Not provided (use `itertools.product`, slice-with-step, `math.prod`)                        | Not provided (consumer uses `flatMap`/`filter`+modulo/`reduce`)          | Python and TypeScript cover these natively; adding wrappers would duplicate built-ins. Per ADR-0033. ADR-0052 later removed the C# helpers, so no flavor ships them now.                                                                                                                                                |
 | Collection `insert` out-of-range handling                      | `ArgumentOutOfRangeException` (BCL `List<T>.Insert`)                                   | Clamps + normalizes negatives per stdlib `list.insert`, payload carries the effective index | `RangeError` (matching `removeAt`/`replace`)                             | C# and Python mirror their native list's insert contract; TS deliberately rejects out-of-range (native `splice` clamps, but `removeAt`/`replace` already throw `RangeError`, so `insert` matches its siblings). spec/21 §3.2 only mandates the emitted payload carry the actual insertion index, which all three honor. |
 
+The `MessageHub` parameterisation row has one 3.x exception. Python 3.30.0 ships
+a narrow source break in a minor version (ADR-0231, decision 12). Under plain
+mypy, a bare `MessageHub`, `MessageHubProto` or `TransactionalMessageHubProto`
+annotation now means the `Message` parameterisation and rejects a hub of another
+message type. Under `mypy --strict`, a `type-arg` error suppressed on such an
+annotation gets the same rejection. Explicit parameterisations and runtime
+behavior are unchanged. The Python CHANGELOG lists the change as
+`**BREAKING:**`, and the migration is `MessageHub[Any]`.
+
 ### 2.1 `IMessage` sender field name (post-v3.0.0, ADR-0054)
 
 - **Spec / canonical**: every message carries one sender identity and one
