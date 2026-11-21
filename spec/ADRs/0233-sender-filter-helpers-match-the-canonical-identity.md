@@ -48,7 +48,13 @@ below, and each choice has its reason here.
    - C# uses the internal `GetOwnershipIdentity()`, which `ComponentVMBase` and the
      decorators already provide, through the new internal `SenderIdentity.Of`.
    - Python uses `_ownership_identity`, through the new internal
-     `canonical_sender`.
+     `canonical_sender`. The function reads the object's type, not its attributes:
+     it resolves the identity only when `type(sender)` is a subclass of the internal
+     `_ComponentVMBase`, which covers the VMx components and the forwarding
+     decorators. An attribute lookup (`getattr`) is not used, because a
+     `unittest.mock` object synthesizes every attribute and would get a false
+     identity. Such an object is its own identity, as this rule states. A type
+     check, unlike `isinstance`, is not fooled by a mock's `spec`.
    - TypeScript walks the public `wrappedBase` chain to its last VM, through the new
      internal `canonicalSender`. This is the chain that `useVm` already follows
      (ADR-0213). The walk stops at a VM with no `wrappedBase`, and at a getter that
@@ -132,19 +138,27 @@ below, and each choice has its reason here.
 
 ## 5. Mutation evidence
 
-Each new test was run against a library mutation before it was committed. The
-library was then restored, and each restoration was checked.
+Each new test was run against a library mutation, then the library was restored
+from a backup copy, and the restored file was compared with that copy. The
+library diff of each flavor was empty after the restore, apart from the intended
+Python change.
 
-- **M1, the pre-fix comparison.** The helper compares the sender with the object
-  it was given. Python, TypeScript and Swift ran the new tests on the unchanged
-  library before the fix, and the two-layer tests failed there. C# ran the test
-  under M1 after the fix. Its two-layer test failed, and the other-VM guard passed,
-  because the sender filter still holds.
-- **M2, one wrapping level only.** The helper resolves only the first wrapped VM.
-  The Python two-layer case and the TypeScript two-layer test fail, and the
-  Python one-layer case passes.
-- **M3, the sender filter removed.** The helper accepts every sender. The other-VM
-  guard fails in Python, TypeScript and Swift.
+- **M1, the pre-fix comparison (identity is the given object).** Applied to the
+  identity resolver of each flavor: Python `canonical_sender` returns its
+  argument, C# `SenderIdentity.Of` returns its argument, TypeScript
+  `canonicalSender` returns its argument, and Swift `canonicalSenderIdentity`
+  skips its component branch. In each flavor the three positive tests (one per
+  helper) fail, and the other-VM guard passes, because the sender filter still
+  holds. Python fails 6 of 11 cases, the one-layer and two-layer cases of each
+  helper. C# fails 3 of 4 tests, TypeScript 3 of 4, and Swift 3 of 4 tests (six
+  assertions).
 - **M4, the Rust decorator id.** `ForwardingComponentVm::id()` returns the wrapped
-  id plus one. The Rust `FWD-007` test fails, which shows that it depends on the
-  canonical id.
+  id plus one. The Rust `FWD-007` test fails at `tests/conformance/forwarding.rs`
+  L564, which shows that it depends on the canonical id.
+- **M5, duck-typed identity (Python).** `canonical_sender` uses
+  `getattr(sender, "_ownership_identity", sender)`. The mock test fails, because a
+  `Mock(spec=ComponentVMOf)` sender then reports a synthesized identity. The type
+  check in section 2, decision 1 is the fix for this case.
+
+The earlier mutation runs M2 (one wrapping level) and M3 (sender filter removed)
+were not repeated for this revision, and no result is claimed for them here.

@@ -573,7 +573,9 @@ synchronization rather than a mutation hook. Setup is not an atomic transaction
 with unrelated concurrent producers.
 
 C#, Python, TypeScript, and Swift accept only `PropertyChangedMessage` events
-whose sender is object-identical to `source`. Rust accepts only the property
+whose sender is the canonical ownership identity of `source` (chapter 09 §1,
+ADR-0233, `FWD-007`). A forwarding decorator through any number of layers therefore
+receives the messages of the VM it wraps. Rust accepts only the property
 message variant for which `message.sender_id == sender_id` on the supplied hub.
 Messages from other senders and non-property message families do not evaluate
 the selector.

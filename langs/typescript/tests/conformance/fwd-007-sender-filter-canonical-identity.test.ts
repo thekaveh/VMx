@@ -18,46 +18,59 @@ import {
 
 class Layer extends ForwardingComponentVM<string> {}
 
+function twoLayerStack() {
+  const hub = new MessageHub();
+  const inner = ComponentVMOf.builder<string>()
+    .name("inner")
+    .model("m")
+    .services(hub, RxDispatcher.immediate())
+    .build();
+  const outer = new Layer(new Layer(inner));
+  return { hub, inner, outer };
+}
+
 describe("FWD-007", () => {
-  it("helpers given a two-layer decorator match the wrapped VM's model write", () => {
-    const hub = new MessageHub();
-    const inner = ComponentVMOf.builder<string>()
-      .name("inner")
-      .model("m")
-      .services(hub, RxDispatcher.immediate())
-      .build();
-    const outer = new Layer(new Layer(inner));
+  it("whenPropertyChanged given a two-layer decorator emits the wrapped VM's model write", () => {
+    const { hub, inner, outer } = twoLayerStack();
     const messages: PropertyChangedMessage<unknown>[] = [];
-    const values: unknown[] = [];
-    const selected: [string, string][] = [];
-    const subscriptions = [
-      whenPropertyChanged(hub, outer, "model").subscribe((m) => messages.push(m)),
-      propertyValueChangedMessagesFor(hub, outer, "model").subscribe((v) => values.push(v)),
-      subscribeValue(outer, (vm) => vm.model, (current, previous) => selected.push([current, previous])),
-    ];
+    const subscription = whenPropertyChanged(hub, outer, "model").subscribe((m) => messages.push(m));
 
     outer.model = "updated";
 
     expect(messages).toHaveLength(1);
     expect(messages[0]!.sender).toBe(inner);
+    subscription.unsubscribe();
+  });
+
+  it("propertyValueChangedMessagesFor given a two-layer decorator emits the wrapped VM's value", () => {
+    const { hub, outer } = twoLayerStack();
+    const values: unknown[] = [];
+    const subscription = propertyValueChangedMessagesFor(hub, outer, "model").subscribe((v) => values.push(v));
+
+    outer.model = "updated";
+
     expect(values).toEqual(["updated"]);
+    subscription.unsubscribe();
+  });
+
+  it("subscribeValue given a two-layer decorator calls back for the wrapped VM's model write", () => {
+    const { outer } = twoLayerStack();
+    const selected: [string, string][] = [];
+    const subscription = subscribeValue(outer, (vm) => vm.model, (current, previous) => selected.push([current, previous]));
+
+    outer.model = "updated";
+
     expect(selected).toEqual([["updated", "m"]]);
-    for (const subscription of subscriptions) subscription.unsubscribe();
+    subscription.unsubscribe();
   });
 
   it("helpers given a two-layer decorator ignore other VMs on the hub", () => {
-    const hub = new MessageHub();
-    const inner = ComponentVMOf.builder<string>()
-      .name("inner")
-      .model("m")
-      .services(hub, RxDispatcher.immediate())
-      .build();
+    const { hub, outer } = twoLayerStack();
     const other = ComponentVMOf.builder<string>()
       .name("other")
       .model("m")
       .services(hub, RxDispatcher.immediate())
       .build();
-    const outer = new Layer(new Layer(inner));
     const messages: PropertyChangedMessage<unknown>[] = [];
     const values: unknown[] = [];
     const selected: [string, string][] = [];

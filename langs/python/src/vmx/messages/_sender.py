@@ -11,11 +11,19 @@ from __future__ import annotations
 
 from typing import Any
 
+from vmx.components.base import _ComponentVMBase
+
 
 def canonical_sender(sender: Any) -> Any:
     """Return the canonical ownership identity of *sender*.
 
-    An object without an ownership identity, such as a plain VM or any other
-    object, is its own identity. Each helper calls this once, when it subscribes.
+    Only a VMx component (a :class:`_ComponentVMBase` subclass, which includes the
+    forwarding decorators) can have an identity other than itself. The check reads
+    the object's type, not its attributes: a ``unittest.mock`` object, or any other
+    duck-typed object, synthesizes every attribute, so an attribute lookup would
+    report a false identity. Such an object is its own identity. Each helper calls
+    this once, when it subscribes.
     """
-    return getattr(sender, "_ownership_identity", sender)
+    if issubclass(type(sender), _ComponentVMBase):
+        return sender._ownership_identity
+    return sender

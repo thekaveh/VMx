@@ -654,10 +654,9 @@ final class ForwardingTests: XCTestCase {
         assertHelpersPublishThroughWrapped(inner: inner, decorator: decorator, hub: hub)
     }
 
-    /// FWD-007 — The hub helpers given a two-layer decorator match the wrapped
-    /// VM's write: one message with the wrapped VM as sender, one value, and one
-    /// selected change (ADR-0233, ADR-0221, ADR-0124).
-    func testSenderFilterHelpersMatchTwoLayerDecoratorByCanonicalIdentity() throws {
+    /// FWD-007 — `whenPropertyChanged` given a two-layer decorator emits the
+    /// wrapped VM's write, with the wrapped VM as sender (ADR-0233, ADR-0221).
+    func testFWD007WhenPropertyChangedMatchesTwoLayerDecorator() throws {
         let hub = MessageHub()
         let inner = try ComponentVMOf<String>.builder()
             .name("inner")
@@ -666,13 +665,48 @@ final class ForwardingTests: XCTestCase {
             .build()
         let outer = NoopForwardingComponent(NoopForwardingComponent(inner))
         var messages: [PropertyChangedMessage] = []
-        var values: [String] = []
-        var selected: [(String, String)] = []
         let whenCancel = hub.whenPropertyChanged(outer, "model")
             .sink { messages.append($0) }
+
+        outer.model = "updated"
+
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertTrue(messages.first?.sender === inner)
+        whenCancel.cancel()
+    }
+
+    /// FWD-007 — `propertyValueChangedMessagesFor` given a two-layer decorator
+    /// emits the wrapped VM's new value (ADR-0233, ADR-0221).
+    func testFWD007PropertyValueChangedMatchesTwoLayerDecorator() throws {
+        let hub = MessageHub()
+        let inner = try ComponentVMOf<String>.builder()
+            .name("inner")
+            .model("m")
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        let outer = NoopForwardingComponent(NoopForwardingComponent(inner))
+        var values: [String] = []
         let valueCancel = hub.propertyValueChangedMessagesFor(
             outer, "model", getter: { outer.model }
         ).sink { values.append($0) }
+
+        outer.model = "updated"
+
+        XCTAssertEqual(values, ["updated"])
+        valueCancel.cancel()
+    }
+
+    /// FWD-007 — `subscribeValue` given a two-layer decorator calls back once for
+    /// the wrapped VM's write, with the selected value (ADR-0233, ADR-0221).
+    func testFWD007SubscribeValueMatchesTwoLayerDecorator() throws {
+        let hub = MessageHub()
+        let inner = try ComponentVMOf<String>.builder()
+            .name("inner")
+            .model("m")
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        let outer = NoopForwardingComponent(NoopForwardingComponent(inner))
+        var selected: [(String, String)] = []
         let selectCancel = try subscribeValue(
             outer,
             selector: { $0.model },
@@ -681,14 +715,9 @@ final class ForwardingTests: XCTestCase {
 
         outer.model = "updated"
 
-        XCTAssertEqual(messages.count, 1)
-        XCTAssertTrue(messages.first?.sender === inner)
-        XCTAssertEqual(values, ["updated"])
         XCTAssertEqual(selected.count, 1)
         XCTAssertEqual(selected.first?.0, "updated")
         XCTAssertEqual(selected.first?.1, "m")
-        whenCancel.cancel()
-        valueCancel.cancel()
         selectCancel.cancel()
     }
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -20,6 +21,8 @@ from vmx.forwarding.component import ForwardingComponentVM
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.property_value_changed import property_value_changed_messages_for
 from vmx.messages.when_property_changed import when_property_changed
+
+LAYERS = pytest.mark.parametrize("layers", [0, 1, 2], ids=["plain", "one_layer", "two_layers"])
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,16 +49,43 @@ def _stack(hub: MessageHub[Message], layers: int) -> tuple[Any, Any]:
 
 
 @pytest.mark.conformance("FWD-007")
-@pytest.mark.parametrize("layers", [0, 1, 2], ids=["plain", "one_layer", "two_layers"])
-def test_helpers_given_a_decorator_match_the_wrapped_vm_writes(layers: int) -> None:
+@LAYERS
+def test_when_property_changed_given_a_decorator_emits_the_wrapped_vm_write(layers: int) -> None:
     hub: MessageHub[Message] = MessageHub()
     inner, given = _stack(hub, layers)
     messages: list[PropertyChangedMessage[Any]] = []
+    subscription = when_property_changed(hub, given, "model").subscribe(messages.append)
+
+    given.model = _Model(1)
+
+    assert len(messages) == 1
+    assert messages[0].sender is inner
+    subscription.dispose()
+
+
+@pytest.mark.conformance("FWD-007")
+@LAYERS
+def test_property_value_changed_messages_for_given_a_decorator_emits_the_wrapped_vm_value(
+    layers: int,
+) -> None:
+    hub: MessageHub[Message] = MessageHub()
+    _inner, given = _stack(hub, layers)
     values: list[Any] = []
+    subscription = property_value_changed_messages_for(hub, given, "model").subscribe(values.append)
+
+    given.model = _Model(1)
+
+    assert values == [_Model(1)]
+    subscription.dispose()
+
+
+@pytest.mark.conformance("FWD-007")
+@LAYERS
+def test_subscribe_value_given_a_decorator_calls_back_for_the_wrapped_vm_write(layers: int) -> None:
+    hub: MessageHub[Message] = MessageHub()
+    _inner, given = _stack(hub, layers)
     selected: list[tuple[int, int]] = []
-    when_sub = when_property_changed(hub, given, "model").subscribe(messages.append)
-    value_sub = property_value_changed_messages_for(hub, given, "model").subscribe(values.append)
-    select_sub = subscribe_value(
+    subscription = subscribe_value(
         given,
         lambda vm: vm.model.value,
         lambda current, previous: selected.append((current, previous)),
@@ -63,14 +93,8 @@ def test_helpers_given_a_decorator_match_the_wrapped_vm_writes(layers: int) -> N
 
     given.model = _Model(1)
 
-    assert len(messages) == 1
-    assert messages[0].sender is inner
-    assert values == [_Model(1)]
     assert selected == [(1, 0)]
-
-    when_sub.dispose()
-    value_sub.dispose()
-    select_sub.dispose()
+    subscription.dispose()
 
 
 @pytest.mark.conformance("FWD-007")
@@ -98,3 +122,19 @@ def test_helpers_given_a_two_layer_decorator_ignore_other_vms_on_the_hub() -> No
     when_sub.dispose()
     value_sub.dispose()
     select_sub.dispose()
+
+
+@pytest.mark.conformance("FWD-007")
+def test_when_property_changed_given_a_mock_matches_only_its_own_messages() -> None:
+    # A mock synthesizes every attribute. The helper must still treat it as its own
+    # identity (ADR-0233 decision 1: only a VMx component has another identity).
+    hub: MessageHub[Message] = MessageHub()
+    sender: Any = Mock(spec=ComponentVMOf)
+    messages: list[PropertyChangedMessage[Any]] = []
+    subscription = when_property_changed(hub, sender, "model").subscribe(messages.append)
+
+    hub.send(PropertyChangedMessage(sender=sender, sender_name="mock", property_name="model"))
+
+    assert len(messages) == 1
+    assert messages[0].sender is sender
+    subscription.dispose()
