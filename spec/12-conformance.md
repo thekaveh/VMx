@@ -869,8 +869,11 @@ reading `CanExecute` when it fires
 **And** a subscriber to `C.SelectCommand` `CanExecuteChanged`, reading `CanExecute` when it fires
 **When** `P.add(C)` is called
 **Then** `C.SelectCommand` notifies, and its subscriber reads `true`
+**And** the subscriber can read or change `P` while it runs, because no membership gate or
+transaction of `P` is held (ADR-0242)
 **When** `P.remove(C)` is called
 **Then** `C.SelectCommand` notifies, and its subscriber reads `false`
+**And** the subscriber can read or change `P` while it runs, as above
 
 ______________________________________________________________________
 

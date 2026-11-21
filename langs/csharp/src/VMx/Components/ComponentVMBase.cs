@@ -1092,13 +1092,21 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     }
 
     /// <summary>
-    /// Re-raises <c>CanExecuteChanged</c> of Select and Deselect (ADR-0242).
-    /// The check runs under <c>_gate</c>. The emission runs outside it, so no
-    /// consumer callback runs under the state guard. After teardown the
-    /// selection subject is completed and never disposed, so an emission that
-    /// races teardown is a silent no-op rather than a disposed-subject fault.
+    /// Queues the Select and Deselect notification (ADR-0242). It is emitted
+    /// when the outermost <see cref="SelectionInputScope"/> on this thread
+    /// closes, after every container lock is released, or at once when no
+    /// scope is open.
     /// </summary>
-    private void RaiseSelectionInputsChanged()
+    private void RaiseSelectionInputsChanged() => SelectionInputScope.Queue(this);
+
+    /// <summary>
+    /// Emits the Select and Deselect notification (ADR-0242). The check runs
+    /// under <c>_gate</c>. The emission runs outside it, so no consumer callback
+    /// runs under the state guard. After teardown the selection subject is
+    /// completed and never disposed, so an emission that races teardown is a
+    /// silent no-op rather than a disposed-subject fault.
+    /// </summary>
+    internal void EmitSelectionInputs()
     {
         bool live;
         lock (_gate) live = !_triggerDisposed;

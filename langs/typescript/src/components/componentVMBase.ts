@@ -24,6 +24,7 @@ import type { IDispatcher } from "../services/dispatcher.js";
 import { reportUnhandled } from "../services/reportUnhandled.js";
 import { declareCapabilities } from "../capabilities/registry.js";
 import { disposeBestEffort } from "./disposal.js";
+import { queueSelectionInputs } from "./selectionInputScope.js";
 import { setRunWhenReleased, type ParentTransfer } from "./parentTransfer.js";
 import {
   countedActionsOf,
@@ -340,6 +341,15 @@ export abstract class ComponentVMBase {
    * once teardown has started, since a completed Subject must not be fed.
    */
   #raiseSelectionInputsChanged(): void {
+    queueSelectionInputs(() => this.#emitSelectionInputs());
+  }
+
+  /**
+   * Emits the Select and Deselect notification (ADR-0242). It runs when the
+   * outermost selection-input scope closes, after the container finishes its
+   * membership change.
+   */
+  #emitSelectionInputs(): void {
     if (!this.#triggersDisposed) {
       this.#selectionTrigger.next();
     }
@@ -1037,6 +1047,7 @@ export abstract class ComponentVMBase {
         if (!this.#triggersDisposed) {
           this.#triggersDisposed = true;
           this.#statusTrigger.complete();
+          // Completed, never disposed (ADR-0242): see #emitSelectionInputs.
           this.#selectionTrigger.complete();
           if (this.#activePropertyNotifications === 0) {
             this.#propertyChangedSubject.complete();

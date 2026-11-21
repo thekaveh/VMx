@@ -203,6 +203,9 @@ public class ComponentVMConformanceTests
     /// <summary>
     /// CVM-011: select, the old child's deselect, add and remove each re-raise
     /// the selection commands, and each subscriber reads the new CanExecute.
+    /// A subscriber that reads its container from another thread sees the
+    /// committed membership, so the notification runs with no container lock
+    /// held (ADR-0242).
     /// </summary>
     [Fact, Trait("Conformance", "CVM-011")]
     public void CVM_011_Selection_Commands_Renotify_On_Selection_Inputs()
@@ -234,14 +237,33 @@ public class ComponentVMConformanceTests
         var c = ComponentVM.Builder().Name("c").Services(hub, dispatcher).Build();
         c.Construct();
         var addedSeen = new List<bool>();
-        c.SelectCommand.CanExecuteChanged += (_, _) => addedSeen.Add(c.SelectCommand.CanExecute(null));
+        var countSeen = new List<int?>();
+        c.SelectCommand.CanExecuteChanged += (_, _) =>
+        {
+            addedSeen.Add(c.SelectCommand.CanExecute(null));
+            countSeen.Add(ReadCountFromAnotherThread(() => parent.Count));
+        };
 
         parent.Add(c);
         addedSeen.Should().Equal(true);
+        countSeen.Should().Equal(new int?[] { 3 });
         addedSeen.Clear();
+        countSeen.Clear();
 
         parent.Remove(c);
         addedSeen.Should().Equal(false);
+        countSeen.Should().Equal(new int?[] { 2 });
+    }
+
+    /// <summary>
+    /// Reads <paramref name="read"/> on a thread pool thread. Returns null when
+    /// the read does not finish, which happens while the calling thread holds
+    /// the container's membership gate.
+    /// </summary>
+    private static int? ReadCountFromAnotherThread(Func<int> read)
+    {
+        var task = Task.Run(read);
+        return task.Wait(TimeSpan.FromSeconds(5)) ? task.Result : null;
     }
 
     [Fact, Trait("Conformance", "CVM-007")]

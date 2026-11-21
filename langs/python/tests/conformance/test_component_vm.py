@@ -7,6 +7,9 @@ longer hosts duplicate (double-counted) copies of them (VMX-055).
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Callable
+
 import pytest
 
 from vmx.commands.relay_command import RelayCommand
@@ -605,9 +608,26 @@ def test_CVM_010_modeled_components_explicitly_republish_retained_model() -> Non
 # ===========================================================================
 
 
+def _count_from_another_thread(read: Callable[[], int]) -> int | None:
+    """Read on another thread. None when the read does not finish within five seconds.
+
+    A read blocks while the calling thread holds the container's membership gate,
+    so None means the subscriber ran under that gate (ADR-0242).
+    """
+    result: list[int] = []
+    worker = threading.Thread(target=lambda: result.append(read()), daemon=True)
+    worker.start()
+    worker.join(timeout=5)
+    return result[0] if result else None
+
+
 @pytest.mark.conformance("CVM-011")
 def test_CVM_011_selection_commands_renotify_on_selection_inputs() -> None:
-    """CVM-011: select, the old child's deselect, add and remove re-raise the commands."""
+    """CVM-011: select, the old child's deselect, add and remove re-raise the commands.
+
+    A subscriber that reads its container from another thread sees the committed
+    membership, so the notification runs with no container lock held (ADR-0242).
+    """
     hub = _hub()
     dispatcher = _dispatcher()
     a = ComponentVMBuilder().name("a").services(hub, dispatcher).build()
@@ -638,9 +658,22 @@ def test_CVM_011_selection_commands_renotify_on_selection_inputs() -> None:
     c = ComponentVMBuilder().name("c").services(hub, dispatcher).build()
     c.construct()
     added_seen = record(c.select_command)
+    count_seen: list[int | None] = []
+    c.select_command.can_execute_changed.subscribe(
+        lambda _: count_seen.append(_count_from_another_thread(lambda: parent.count))
+    )
     parent.add(c)
     assert added_seen == [True]
+    assert count_seen == [3]
     added_seen.clear()
+    count_seen.clear()
 
     parent.remove(c)
     assert added_seen == [False]
+    assert count_seen == [2]
+
+    # Teardown completes the selection subject and never disposes it, so a
+    # racing emission is a silent no-op (ADR-0242 section 2.4).
+    c.dispose()
+    assert c._selection_trigger.is_disposed is False
+    c._emit_selection_inputs()

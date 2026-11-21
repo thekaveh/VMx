@@ -1308,10 +1308,19 @@ open class ComponentVMBase {
         _raiseSelectionInputsChanged()
     }
 
-    /// Re-raises `canExecuteChanged` of select and deselect (ADR-0242). It runs
-    /// after the state and link locks are released, and sends nothing once the
-    /// VM is disposing or disposed.
+    /// Queues the re-raise of `canExecuteChanged` of select and deselect
+    /// (ADR-0242). The emission runs when the outermost selection-input scope on
+    /// this thread closes, after every container lock is released, or at once
+    /// when no scope is open.
     private func _raiseSelectionInputsChanged() {
+        SelectionInputScope.queue { [weak self] in
+            self?._emitSelectionInputs()
+        }
+    }
+
+    /// Emits the select and deselect notification (ADR-0242). It sends nothing
+    /// once the VM is disposing or disposed.
+    private func _emitSelectionInputs() {
         lifecycleLock.lock()
         let live = !disposalRequested && !triggersDisposed && _status != .disposed
         lifecycleLock.unlock()

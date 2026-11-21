@@ -19,6 +19,7 @@ from vmx.components.base import (
     _exclusive_ownership_reservation_batch,
     _ParentCompositeVM,
     _ParentTransfer,
+    _selection_input_scope,
 )
 from vmx.components.protocols import ComponentVMProto, ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
@@ -146,6 +147,15 @@ class _AggregateVMBase(_ComponentVMBase):
                 child._set_parent(self._aggregate_parent)
 
     def _replace_slots(
+        self,
+        slot_names: tuple[str, ...],
+        new_slots: tuple[ComponentVMProto, ...],
+    ) -> bool:
+        """Replace the slots. The slot lock is released before the scope closes (ADR-0242)."""
+        with _selection_input_scope():
+            return self._replace_slots_under_scope(slot_names, new_slots)
+
+    def _replace_slots_under_scope(
         self,
         slot_names: tuple[str, ...],
         new_slots: tuple[ComponentVMProto, ...],

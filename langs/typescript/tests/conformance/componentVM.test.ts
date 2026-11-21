@@ -208,10 +208,26 @@ describe("CVM-011", () => {
     const c = ComponentVM.builder().name("c").services(hub, disp).build();
     c.construct();
     const addedSeen: boolean[] = [];
-    c.selectCommand.canExecuteChanged.subscribe(() => addedSeen.push(c.selectCommand.canExecute()));
+    const nestedAddOk: boolean[] = [];
+    const extra = ComponentVM.builder().name("extra").services(hub, disp).build();
+    extra.construct();
+    c.selectCommand.canExecuteChanged.subscribe(() => {
+      addedSeen.push(c.selectCommand.canExecute());
+      if (nestedAddOk.length === 0) {
+        // The notification runs after the membership change (ADR-0242), so no
+        // transaction is open and a subscriber may start another change.
+        try {
+          parent.add(extra);
+          nestedAddOk.push(true);
+        } catch {
+          nestedAddOk.push(false);
+        }
+      }
+    });
 
     parent.add(c);
     expect(addedSeen).toEqual([true]);
+    expect(nestedAddOk).toEqual([true]);
     addedSeen.length = 0;
 
     parent.remove(c);

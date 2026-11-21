@@ -54,29 +54,60 @@ the five built-in commands.
   change is the source. A commit that changes nothing does not fire.
 - It fires once per write of the `Parent` link that changes the link. A write that names the
   same container does not fire.
-- It fires after the child's own state guard, and after its link lock, are released
-  (chapter 02 §2.4). No consumer callback runs under those locks.
+- It is queued in the selection-input scope of §2.4 when the change happens inside a
+  container membership change (a membership transaction or a membership gate section) or
+  inside an aggregate slot replacement. The outermost scope on the thread emits every queued
+  notification when it closes. A close runs after the container has released its membership
+  gate and ended its transaction, so no `CanExecuteChanged` subscriber runs under a container
+  lock or inside an open membership change (chapter 06 §4.3). A change made outside every
+  scope emits at once, after the child's own state guard and link lock are released
+  (chapter 02 §2.4).
 - It does not fire once the child's teardown has begun. C#, Python and TypeScript check the
   same teardown flag that the status trigger checks. Swift checks its teardown flags and that
-  `Status` is not `Disposed`. Rust checks that `Status` is not `Disposed`. The subject is
-  completed at teardown.
+  `Status` is not `Disposed`. Rust checks that `Status` is not `Disposed`. Every flavor
+  completes the subject at teardown and never disposes it (§2.4).
 - The notification reaches subscribers through the existing `CanExecuteChanged` channel. It
   adds no `PropertyChangedMessage` and no `ConstructionStatusChangedMessage`.
 
 ### 2.4 How each flavor carries the trigger
 
-- C#, Python and TypeScript keep a private selection subject beside the status subject. Both
-  commands take it as a second trigger. C# checks the disposal flag under the lifecycle gate
-  and emits outside it. The subject is completed at teardown and never disposed, so an
-  emission that races teardown is a silent no-op, not a fault on a disposed subject.
-- Swift keeps a private `VMxConcurrentSubject` beside the status subject (ADR-0174). A
-  composite thread sends it, and `PassthroughSubject` is not designed for concurrent sends.
-  The two commands take it as a second trigger.
-- Rust keeps a private `MessageHub` in each component core. It carries a `Message::Custom`
-  named `selection_inputs`. The public hub is not used, and `Message` gets no new variant.
-  `Message` is public and has no `#[non_exhaustive]` attribute, so a new variant would be a
-  breaking change. Containers build their select and deselect commands through
+Each flavor has two parts: a private selection subject per VM, and a selection-input scope
+that holds the notification back while a container change is open.
+
+- The subject. C#, Python and TypeScript keep a private selection subject beside the status
+  subject, and both commands take it as a second trigger. C# checks the disposal flag under the
+  lifecycle gate and emits outside it. Swift keeps a private `VMxConcurrentSubject` beside the
+  status subject (ADR-0174), because a composite thread sends it. Rust keeps a private
+  `MessageHub` in each component core, which carries a `Message::Custom` named
+  `selection_inputs`. The public hub is not used, and `Message` gets no new variant. It is
+  public and has no `#[non_exhaustive]` attribute, so a new variant would be a breaking change.
+  Containers build their select and deselect commands through
   `ComponentCommands::with_liveness`, so containers take the same trigger.
+- The scope. It is a per-thread depth count and a queue of pending notifications. The
+  thread-local state is
+  `[ThreadStatic]` in `SelectionInputScope` (C#), `threading.local()` in `components/base.py`
+  (Python), module state in `components/selectionInputScope.ts` (TypeScript, which runs on one
+  thread), a thread-dictionary entry in `Lifecycle/SelectionInputScope.swift` (Swift) and
+  `thread_local!` in `selection_inputs.rs` (Rust). A child whose inputs changed queues its
+  emission while the depth is above zero, and emits at once when it is zero.
+- Where a scope opens and closes. A container membership transaction opens a scope when it
+  begins, and a join of an open transaction opens one too (Python and Swift). The scope closes
+  when the transaction ends, after the membership gate is released. Rust opens the scope in
+  `begin_membership_transaction` and closes it when the transaction finishes. Each container
+  gate section (`membership_section`, which replaces `lock(&membership_gate)` in the composite
+  and group files) also opens a scope, and it closes when the gate guard drops. An aggregate
+  slot replacement opens a scope around its slot lock: C# in each `OnConstruct`, Python in
+  `_replace_slots`, TypeScript in `replaceAggregateSlots`, and Swift in
+  `AggregateParent.withTransaction`. In Rust the aggregate reaches the scope through its
+  transaction.
+- Why the outermost close emits. The scope is per thread and counts nesting. A notification
+  queued by an inner container change therefore runs only when the outermost change on the
+  thread has ended, so it never runs under any container's gate, including a gate held by an
+  enclosing call.
+- Teardown. Each flavor completes its selection subject at teardown and never disposes it. The
+  Python flavor disposed the subject before this ADR, so a racing emission could raise
+  `DisposedException`. It now completes the subject, as the other flavors do, and a racing
+  emission on a completed subject is a silent no-op.
 
 ### 2.5 Conformance
 
@@ -88,6 +119,13 @@ the five built-in commands.
 1. Adding a constructed child `c` notifies `c.SelectCommand`.
 1. Removing `c` notifies `c.SelectCommand` again.
 
+It pins a fifth property for the notifications of cases 3 and 4: the subscriber runs with no
+container membership change open. C#, Python and Swift read the composite's count from a second
+thread while the subscriber runs, and the read completes. Rust starts a membership change of
+the composite from a second thread, and it is admitted. TypeScript starts a second `add` from
+the subscriber, and it is admitted. A notification that ran under the gate would block the
+read, or refuse the change.
+
 Each flavor carries a marker for `CVM-011`. Each subscriber reads `CanExecute` inside its
 notification handler.
 
@@ -98,20 +136,36 @@ notification handler.
   The predicate values are unchanged. The status-driven notifications of all five commands
   are unchanged.
 - The public API does not change. Each flavor adds only private members.
-- A container writes the `Parent` link inside its own membership section. That section is
-  the container's gate in C# and Python, and the composite's membership lock in the other
-  flavors. So the link notification can run while that container section is still held, and
-  a consumer's `CanExecuteChanged` handler can run there. The container's own
-  `CollectionChanged` publication still runs after the section. Chapter 06 §4.3 rule 1
-  covers the selection paths, not the link write. Removing this residual means moving the
-  link notification to each container's publication step, which touches about forty write
-  sites per flavor. That change is not made here.
+- A notification of a container change runs when that change has ended, before the mutating
+  call returns. It does not run inside the change, so a subscriber sees the committed
+  membership, and no container lock is held while it runs. The cost is one scope count per
+  membership transaction or gate section, and one queue entry per changed child.
+- A subscriber that throws no longer rolls back the change it was notified of. The notification
+  runs after the change has committed, so the exception reaches the caller of the mutating call
+  with the change in place. The first version of this ADR notified inside the change, so the
+  same exception was handled by its rollback. The deferred form is the one that is kept.
+- Every `Parent` write of a container is inside a scope. The write sites are the membership
+  transactions, the Rust membership sections, the aggregate slot replacements, and the link
+  writes of the transfer commit and rollback. The container needs no publication step per write
+  site, so the earlier residual, which needed about forty such steps per flavor, is gone. A link
+  write made outside every scope emits at once. The `CVM-011` probes catch a write that emits
+  under a gate.
 
 ## 4. Rejected alternatives
 
 - Emit from each container's publication step. That needs a call on every add, remove,
   transfer, clear and population path in each flavor. A missed path would keep the stale
-  state silently, and each path would need its own test.
+  state silently, and each path would need its own test. The scope of §2.4 opens once per
+  membership change instead, so no call is needed per path.
+- Emit at the link write, under the membership gate. This was the first version of this ADR. A
+  subscriber then ran under the gate, and another thread's read of the container waited for it.
+  In Rust the gate is a non-reentrant mutex, which chapter 06 §4.3 forbids consumer code to
+  hold, so a subscriber that reached a gate section on the same thread would block.
+- Queue per container and flush at that container's own end. A flush of one container can run
+  inside another container's section, so a subscriber could run under the outer gate. A
+  per-thread outermost close runs only after every section on the thread has ended.
+- Dispatch the notification through the dispatcher. A subscriber would run after the membership
+  call returned, and `CVM-011` requires the notification before the call returns.
 - Add a `Message` variant for the selection inputs in Rust. `Message` is public and has no
   `#[non_exhaustive]`, so the variant would break the public API.
 - Subscribe the commands to the parent's `OnCurrentChanged` stream. That stream does not cover

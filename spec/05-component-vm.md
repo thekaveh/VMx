@@ -333,7 +333,9 @@ back-reference declared on the `IComponentVM` baseline (`01-concepts.md` §1.3):
 - A write of `Parent` that changes the link re-raises `CanExecuteChanged` of
   `SelectCommand` and `DeselectCommand` (§5), because the link is an input of both
   predicates. A change of `IsCurrent` re-raises them in the same way. The `Parent`
-  write itself still emits no `PropertyChangedMessage`. ADR-0242 records the rule.
+  write itself still emits no `PropertyChangedMessage`. The re-raise runs after the
+  container's membership change has ended, with no container lock held (chapter 06
+  §4.3). ADR-0242 records the rule.
 
 The set-on-add / clear-on-remove wiring is conformance-tested by `COMP-027`.
 Atomic ownership and transfer are covered by `COMP-038` through `COMP-041`.

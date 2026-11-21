@@ -175,6 +175,68 @@ def _lifecycle_hook_is_running() -> bool:
     return bool(_lifecycle_hook_owners())
 
 
+# The per-thread selection-input scope (ADR-0242). A container membership
+# transaction, and an aggregate slot replacement, enter it. While it is open, a
+# child whose selection inputs changed is queued, not notified. The outermost
+# scope on the thread emits the queue after every container lock is released,
+# so no CanExecuteChanged subscriber runs under a membership gate (spec/06 §4.3).
+_selection_scope = threading.local()
+
+
+def _selection_depth() -> int:
+    depth: int = getattr(_selection_scope, "depth", 0)
+    return depth
+
+
+def _enter_selection_scope() -> None:
+    _selection_scope.depth = _selection_depth() + 1
+
+
+def _leave_selection_scope() -> None:
+    """Close one scope. The outermost close emits the queued children."""
+    depth = _selection_depth()
+    if depth > 0:
+        depth -= 1
+    _selection_scope.depth = depth
+    if depth > 0:
+        return
+    pending: list[_ComponentVMBase] | None = getattr(_selection_scope, "pending", None)
+    _selection_scope.pending = None
+    if not pending:
+        return
+    first_error: BaseException | None = None
+    for child in pending:
+        try:
+            child._emit_selection_inputs()
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+    if first_error is not None:
+        raise first_error
+
+
+def _queue_selection_inputs(child: _ComponentVMBase) -> None:
+    """Queue a child for the open scope, or emit at once when no scope is open."""
+    if _selection_depth() == 0:
+        child._emit_selection_inputs()
+        return
+    pending: list[_ComponentVMBase] | None = getattr(_selection_scope, "pending", None)
+    if pending is None:
+        pending = []
+        _selection_scope.pending = pending
+    pending.append(child)
+
+
+@contextmanager
+def _selection_input_scope() -> Iterator[None]:
+    """Hold a selection-input scope for the body (ADR-0242)."""
+    _enter_selection_scope()
+    try:
+        yield
+    finally:
+        _leave_selection_scope()
+
+
 @contextmanager
 def _lifecycle_hook_scope(owner: _ComponentVMBase) -> Iterator[None]:
     owners = _lifecycle_hook_owners()
@@ -610,10 +672,20 @@ class _ComponentVMBase(ABC):
         self._raise_selection_inputs_changed()
 
     def _raise_selection_inputs_changed(self) -> None:
-        """Re-raise CanExecuteChanged of select and deselect (ADR-0242).
+        """Queue the re-raise of CanExecuteChanged of select and deselect (ADR-0242).
 
-        Skipped once the terminal publication has finished, because a ReactiveX
-        subject raises on use after disposal.
+        The notification is emitted when the outermost selection-input scope on
+        this thread closes, after every container lock is released, or at once
+        when no scope is open.
+        """
+        _queue_selection_inputs(self)
+
+    def _emit_selection_inputs(self) -> None:
+        """Emit the select and deselect notification (ADR-0242).
+
+        Skipped once the terminal publication has finished. The selection subject
+        is completed at teardown and never disposed, so an emission that races
+        teardown is a silent no-op rather than a disposed-subject fault.
         """
         if not self._trigger_disposed:
             self._selection_trigger.on_next(None)
@@ -2271,12 +2343,10 @@ class _ComponentVMBase(ABC):
             self._status_trigger.dispose()
         except BaseException:
             pass
+        # Completed, never disposed (ADR-0242): a racing emission is then a
+        # silent no-op, not a DisposedException from a disposed subject.
         try:
             self._selection_trigger.on_completed()
-        except BaseException:
-            pass
-        try:
-            self._selection_trigger.dispose()
         except BaseException:
             pass
         if active_property_notifications == 0:

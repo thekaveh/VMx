@@ -590,7 +590,11 @@ impl MembershipTransactionGuard {
 
     pub(crate) fn finish(mut self) -> VmxResult<()> {
         self.release = false;
-        self.control.finish(&self.active)
+        let result = self.control.finish(&self.active);
+        // The transaction has ended: the selection-input scope it opened closes
+        // now, so a queued notification runs with no membership change open (ADR-0242).
+        crate::selection_inputs::leave();
+        result
     }
 }
 
@@ -598,6 +602,7 @@ impl Drop for MembershipTransactionGuard {
     fn drop(&mut self) {
         if self.release {
             let _ = self.control.finish(&self.active);
+            crate::selection_inputs::leave_from_drop();
         }
     }
 }
@@ -610,6 +615,8 @@ pub(crate) fn begin_membership_transaction(
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .map_err(|_| VmxError::OwnershipTransactionInProgress)?;
     control.begin();
+    // The transaction is a selection-input scope (ADR-0242). Its finish closes it.
+    crate::selection_inputs::enter();
     Ok(MembershipTransactionGuard {
         active: Arc::clone(active),
         control: Arc::clone(control),
@@ -5872,11 +5879,13 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
             (inner.id, inner.name.clone(), inner.selection_inputs.clone())
         };
-        hub.send(Message::Custom {
-            sender_id,
-            sender_name,
-            name: "selection_inputs".to_string(),
-        });
+        crate::selection_inputs::queue(Box::new(move || {
+            hub.send(Message::Custom {
+                sender_id,
+                sender_name,
+                name: "selection_inputs".to_string(),
+            });
+        }));
     }
 
     pub(crate) fn parent_handle(&self) -> Option<ParentHandle> {

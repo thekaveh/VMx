@@ -310,7 +310,9 @@ fn select_command_can_execute_reflects_selection_state() {
 }
 
 /// CVM-011 — Select, the old child's deselect, add and remove re-raise the
-/// selection commands, and each subscriber reads the new `can_execute()`.
+/// selection commands, and each subscriber reads the new `can_execute()`. A
+/// subscriber that starts a membership change from another thread is admitted,
+/// so the notification runs with no membership transaction open (ADR-0242).
 #[test]
 fn selection_commands_renotify_on_selection_inputs() {
     let composite = vmx::CompositeVm::new("root");
@@ -340,12 +342,45 @@ fn selection_commands_renotify_on_selection_inputs() {
     let c = ComponentVm::new("c");
     c.construct().unwrap();
     let (added_seen, _added_subscription) = record_can_execute(&c.select_command());
+    let admitted_seen = Arc::new(Mutex::new(Vec::new()));
+    let admitted_sink = Arc::clone(&admitted_seen);
+    let probe_parent = composite.clone();
+    let absent = ComponentVm::new("absent");
+    let _admitted_subscription = c
+        .select_command()
+        .can_execute_changed()
+        .subscribe(move |_| {
+            admitted_sink
+                .lock()
+                .unwrap()
+                .push(change_admitted_from_another_thread(&probe_parent, &absent));
+        });
     composite.add(c.clone()).unwrap();
     assert_eq!(*added_seen.lock().unwrap(), vec![true]);
+    assert_eq!(*admitted_seen.lock().unwrap(), vec![Some(true)]);
     added_seen.lock().unwrap().clear();
+    admitted_seen.lock().unwrap().clear();
 
     composite.remove(&c).unwrap();
     assert_eq!(*added_seen.lock().unwrap(), vec![false]);
+    assert_eq!(*admitted_seen.lock().unwrap(), vec![Some(true)]);
+}
+
+/// Starts a membership change of `composite` on another thread: a removal of a
+/// child it does not hold, which changes nothing. Returns whether the change was
+/// admitted, or `None` when it did not finish within five seconds. A change is
+/// refused while the calling thread still has a membership transaction open.
+fn change_admitted_from_another_thread(
+    composite: &vmx::CompositeVm<ComponentVm>,
+    absent: &ComponentVm,
+) -> Option<bool> {
+    let (sender, receiver) = mpsc::channel();
+    let probe = composite.clone();
+    let absent = absent.clone();
+    std::thread::spawn(move || {
+        let _ = sender.send(probe.remove(&absent).is_ok());
+    });
+    receiver.recv_timeout(Duration::from_secs(5)).ok()
 }
 
 /// Records `can_execute()` each time the command raises `can_execute_changed`.
