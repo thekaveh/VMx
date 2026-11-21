@@ -238,12 +238,18 @@ def test_DPROP_012_fixture_scenarios() -> None:
         initial = scenario["sources_initial"]
         subjects = [BehaviorSubject(v) for v in initial]
         dp: DerivedProperty[Any] = from_sources(*subjects, transform=transform)
+        emissions: list[Any] = []
+        dp.value_changed.subscribe(on_next=emissions.append)
         actuals: list[Any] = [dp.value]
         for src_idx, new_val in scenario["mutations"]:
             subjects[src_idx].on_next(new_val)
             actuals.append(dp.value)
         assert actuals == scenario["expected_values"], (
             f"scenario {scenario['name']!r}: got {actuals}, expected {scenario['expected_values']}"
+        )
+        assert emissions == scenario["expected_emissions"], (
+            f"scenario {scenario['name']!r}: emitted {emissions}, "
+            f"expected {scenario['expected_emissions']}"
         )
         dp.dispose()
 

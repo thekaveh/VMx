@@ -1673,9 +1673,12 @@ to `ValueChanged` that records completion
 
 **Given** the JSON fixture `spec/fixtures/derived-properties.json`
 **When** each scenario is exercised — initial values populate sources, the
-named transform is resolved, and the mutation sequence is replayed
+named transform is resolved, a subscriber to `ValueChanged` is attached before
+the first mutation, and the mutation sequence is replayed
 **Then** the sequence of `Value` reads (one initial, one after each mutation)
 matches `expected_values` exactly
+**And** the sequence of values published on `ValueChanged` matches
+`expected_emissions` exactly
 
 ### DPROP-013 — a failing `ValueChanged` subscriber stops neither the property nor the other subscribers
 
