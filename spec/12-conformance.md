@@ -3845,7 +3845,7 @@ property notifications and the command re-signal
 Swift and Rust return normally, and Swift, whose subscribers cannot fail, asserts
 that structure
 
-> Spec: `21-collections.md` §6.2, §8, `03-messages.md` §3.6, ADR-0234.
+> Spec: `21-collections.md` §6.2, §8, `03-messages.md` §3.6, ADR-0239.
 
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 

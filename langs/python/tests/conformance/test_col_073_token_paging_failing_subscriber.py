@@ -1,5 +1,5 @@
 """COL-073 — a failing subscriber of a token-paging notification step skips no
-later step of the committed load or refresh (spec/21 §6.2, ADR-0234, extends
+later step of the committed load or refresh (spec/21 §6.2, ADR-0239, extends
 ADR-0220).
 
 The steps are the ``Reset`` event, the ``items``, ``current_token`` and

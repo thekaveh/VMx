@@ -213,7 +213,7 @@ These rules apply to the hub and to the library channels below (ADR-0191):
   ADR-0220);
 - the `Reset` event, the `Items`, `CurrentToken` and `HasMore` property
   notifications, and the command re-signal of `TokenPagedComposition`, including
-  its `PropertyChanged` handlers (chapter 21 §6.2, ADR-0234).
+  its `PropertyChanged` handlers (chapter 21 §6.2, ADR-0239).
 
 Only these deliveries are *call-fed*:
 

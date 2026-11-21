@@ -1,6 +1,6 @@
 # ADR 0220 — A failing subscriber skips no later notification step of a collection change
 
-- **Status:** Accepted (extended by ADR-0234)
+- **Status:** Accepted (extended by ADR-0239)
 - **Date:** 2026-11-09
 - **Spec version:** 3.30.0 (chapter 03 §3.6, chapter 21 §2.5, §3.3, §3.5,
   §4.6 and `COL-072`)

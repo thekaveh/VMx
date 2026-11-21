@@ -1,6 +1,6 @@
 //! COL-073 — a failing subscriber of a token-paging notification step skips no
 //! later step of the committed load or refresh (spec/21-collections.md §6.2,
-//! ADR-0234, extends ADR-0220).
+//! ADR-0239, extends ADR-0220).
 //!
 //! Rust `MessageHub` runs each subscriber inside `catch_unwind` and returns
 //! normally, so a panicking `Reset` or property subscriber skips no later

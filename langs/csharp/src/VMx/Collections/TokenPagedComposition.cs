@@ -220,7 +220,7 @@ public sealed class TokenPagedComposition<TVM, TToken> :
     }
 
     // Each step runs every handler it reaches, even when one throws, so a failing
-    // subscriber skips no later step (spec/21 §6.2, ADR-0234, ADR-0220 rule 1). The
+    // subscriber skips no later step (spec/21 §6.2, ADR-0239, ADR-0220 rule 1). The
     // first failure is rethrown after the last step (ADR-0191 rule 5).
     private void NotifyResetIfLive()
     {

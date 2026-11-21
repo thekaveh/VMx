@@ -5,7 +5,7 @@
 //
 // COL-073 requires that a failing subscriber of a token-paging notification step
 // skips no later step of the committed load or refresh (spec/21-collections.md
-// §6.2, ADR-0234, extends ADR-0220). In Swift a subscriber cannot fail: every
+// §6.2, ADR-0239, extends ADR-0220). In Swift a subscriber cannot fail: every
 // `TokenPagedComposition` publisher has the failure type `Never`, and a Combine
 // `sink` closure cannot throw. These tests pin that structure, check that each
 // load or refresh runs every later step once and in order, and check that a

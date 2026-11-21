@@ -150,7 +150,7 @@ class TokenPagedComposition(Generic[TVM, TToken]):
                 item.construct()
 
     # Each step runs even when an earlier subscriber raises, so a failing subscriber
-    # skips no later step (spec/21 §6.2, ADR-0234, ADR-0220 rule 1). The first
+    # skips no later step (spec/21 §6.2, ADR-0239, ADR-0220 rule 1). The first
     # failure is re-raised after the last step (ADR-0191 rule 5). A subscriber that
     # disposes the composition stops the later steps.
     def _notify_reset(self) -> None:

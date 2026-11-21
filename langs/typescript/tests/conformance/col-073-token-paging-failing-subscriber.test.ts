@@ -1,6 +1,6 @@
 // Conformance tests: COL-073 — a failing subscriber of a token-paging
 // notification step skips no later step of the committed load or refresh
-// (spec/21 §6.2, ADR-0234, extends ADR-0220). rxjs reports each subscriber error
+// (spec/21 §6.2, ADR-0239, extends ADR-0220). rxjs reports each subscriber error
 // through config.onUnhandledError, so the load or refresh returns normally and
 // every later step still runs.
 

@@ -9,7 +9,7 @@ namespace VMx.Conformance.Tests;
 /// <summary>
 /// COL-073: a failing subscriber of a token-paging notification step skips no
 /// later step of the committed load or refresh (spec/21-collections.md §6.2,
-/// ADR-0234, extends ADR-0220). The first failure reaches the caller after the
+/// ADR-0239, extends ADR-0220). The first failure reaches the caller after the
 /// last step.
 /// </summary>
 public class COL_073_TokenPagingFailingSubscriber_Tests
