@@ -161,6 +161,10 @@ below for them.
 
 ### Fixed
 
+- `select_command` and `deselect_command` re-raise `can_execute_changed` when the VM's
+  `is_current` flag or its `Parent` link changes. A select, a move of `Current`, or a
+  container add or remove used to leave a bound control with a stale `can_execute()`
+  until the next lifecycle transition (ADR-0242, #1755, `CVM-011`).
 - `TokenPagedComposition` runs every notification step of a committed load or
   refresh, even when a subscriber fails. A failing `on_collection_changed` or
   `on_property_changed` subscriber used to stop the later steps, so `items`,

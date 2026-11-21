@@ -2,6 +2,7 @@ using System.Reflection;
 using System.ComponentModel;
 using FluentAssertions;
 using VMx.Components;
+using VMx.Composites;
 using VMx.Forwarding;
 using VMx.Lifecycle;
 using VMx.Messages;
@@ -195,6 +196,52 @@ public class ComponentVMConformanceTests
         // The trigger fires asynchronously based on status changes, but for selection
         // the predicate is evaluated on-demand via CanExecute().
         vm.SelectCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    // ── CVM-011 — Selection commands re-raise CanExecuteChanged on selection inputs ──
+
+    /// <summary>
+    /// CVM-011: select, the old child's deselect, add and remove each re-raise
+    /// the selection commands, and each subscriber reads the new CanExecute.
+    /// </summary>
+    [Fact, Trait("Conformance", "CVM-011")]
+    public void CVM_011_Selection_Commands_Renotify_On_Selection_Inputs()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var a = ComponentVM.Builder().Name("a").Services(hub, dispatcher).Build();
+        var b = ComponentVM.Builder().Name("b").Services(hub, dispatcher).Build();
+        var parent = CompositeVM<ComponentVM>.Builder().Name("p").Services(hub, dispatcher)
+            .Children(() => new[] { a, b }).Build();
+        parent.Construct();
+
+        var selectSeen = new List<bool>();
+        var deselectSeen = new List<bool>();
+        a.SelectCommand.CanExecuteChanged += (_, _) => selectSeen.Add(a.SelectCommand.CanExecute(null));
+        a.DeselectCommand.CanExecuteChanged += (_, _) => deselectSeen.Add(a.DeselectCommand.CanExecute(null));
+
+        a.Select();
+        selectSeen.Should().Equal(false);
+        deselectSeen.Should().Equal(true);
+        selectSeen.Clear();
+        deselectSeen.Clear();
+
+        // The old child's DeselectCommand notifies, and its SelectCommand becomes enabled.
+        b.Select();
+        deselectSeen.Should().Equal(false);
+        selectSeen.Should().Equal(true);
+
+        var c = ComponentVM.Builder().Name("c").Services(hub, dispatcher).Build();
+        c.Construct();
+        var addedSeen = new List<bool>();
+        c.SelectCommand.CanExecuteChanged += (_, _) => addedSeen.Add(c.SelectCommand.CanExecute(null));
+
+        parent.Add(c);
+        addedSeen.Should().Equal(true);
+        addedSeen.Clear();
+
+        parent.Remove(c);
+        addedSeen.Should().Equal(false);
     }
 
     [Fact, Trait("Conformance", "CVM-007")]

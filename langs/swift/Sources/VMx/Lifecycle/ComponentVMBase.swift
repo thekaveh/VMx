@@ -1003,33 +1003,43 @@ open class ComponentVMBase {
     /// Makes `parent` both the selection parent and the ownership parent, as
     /// one step under the link lock.
     func _linkParent(_ parent: ParentVM & OwnershipParentVM) {
-        parentLinkLock.withLock {
+        // The selection commands re-raise after the link lock is released (ADR-0242).
+        let changed = parentLinkLock.withLock { () -> Bool in
+            let changed = parentStorage !== parent
             parentStorage = parent
             ownershipParentStorage = parent
             ownershipParentID = ObjectIdentifier(parent)
             _ownershipParentDidChange(to: parent)
+            return changed
         }
+        if changed { _raiseSelectionInputsChanged() }
     }
 
     /// Clears both parent links, as one step under the link lock.
     func _unlinkParent() {
-        parentLinkLock.withLock { _clearParentLinkLocked() }
+        let changed = parentLinkLock.withLock { _clearParentLinkLocked() }
+        if changed { _raiseSelectionInputsChanged() }
     }
 
     /// Clears both parent links when `owner` is the ownership parent, with
     /// the check and the clear as one step under the link lock.
     func _unlinkParent(ifOwnedBy owner: OwnershipParentVM) {
         let id = ObjectIdentifier(owner)
-        parentLinkLock.withLock {
-            if ownershipParentID == id { _clearParentLinkLocked() }
+        let changed = parentLinkLock.withLock { () -> Bool in
+            guard ownershipParentID == id else { return false }
+            return _clearParentLinkLocked()
         }
+        if changed { _raiseSelectionInputsChanged() }
     }
 
-    private func _clearParentLinkLocked() {
+    /// Clears both links and reports whether a selection parent was present.
+    private func _clearParentLinkLocked() -> Bool {
+        let hadParent = parentStorage != nil
         parentStorage = nil
         ownershipParentStorage = nil
         ownershipParentID = nil
         _ownershipParentDidChange(to: nil)
+        return hadParent
     }
 
     /// Sets `_forwardingOwner` when `owner` is non-nil; clears it when it is
@@ -1071,6 +1081,9 @@ open class ComponentVMBase {
 
     private let propertyChangedSubject = VMxConcurrentSubject<String, Never>()
     private let statusTriggerSubject = PassthroughSubject<Void, Never>()
+    /// Fires when IsCurrent or the Parent link changes (ADR-0242). It is a
+    /// `VMxConcurrentSubject` because a composite thread sends it (ADR-0174).
+    private let selectionTriggerSubject = VMxConcurrentSubject<Void, Never>()
     private var triggersDisposed = false
     private var activePropertyNotifications = 0
     private var propertyNotificationTeardownPending = false
@@ -1194,6 +1207,7 @@ open class ComponentVMBase {
         // Capture the trigger publisher up front so it doesn't depend on
         // `self` capture order during init.
         let trigger = statusTriggerSubject.eraseToAnyPublisher()
+        let selectionTrigger = selectionTriggerSubject.eraseToAnyPublisher()
 
         // Placeholders so phase-1 initialization completes; the real
         // self-capturing commands are assigned immediately below.
@@ -1207,7 +1221,7 @@ open class ComponentVMBase {
         )
         self.reconstructCommand = RelayCommand(task: nil, predicate: nil, triggers: [])
 
-        _rewireBuiltinCommands(trigger: trigger)
+        _rewireBuiltinCommands(trigger: trigger, selectionTrigger: selectionTrigger)
     }
 
     /// Replaces the placeholder commands with real ones wired to the
@@ -1216,16 +1230,19 @@ open class ComponentVMBase {
     /// `selectPrevious` keep permanently-false predicates — canonical
     /// parity with the other flavors, which expose them without parent
     /// enumeration in the baseline surface.
-    private func _rewireBuiltinCommands(trigger: AnyPublisher<Void, Never>) {
+    private func _rewireBuiltinCommands(
+        trigger: AnyPublisher<Void, Never>,
+        selectionTrigger: AnyPublisher<Void, Never>
+    ) {
         selectCommand = RelayCommand(
             task: { [weak self] in self?.select() },
             predicate: { [weak self] in self?.canSelect() ?? false },
-            triggers: [trigger]
+            triggers: [trigger, selectionTrigger]
         )
         deselectCommand = RelayCommand(
             task: { [weak self] in self?.deselect() },
             predicate: { [weak self] in self?.canDeselect() ?? false },
-            triggers: [trigger]
+            triggers: [trigger, selectionTrigger]
         )
         selectNextCommand = RelayCommand(
             task: nil, predicate: { false }, triggers: [trigger]
@@ -1284,9 +1301,21 @@ open class ComponentVMBase {
         return true
     }
 
-    /// Delivers one notification reserved by `_commitIsCurrent`.
+    /// Delivers one notification reserved by `_commitIsCurrent`, then re-raises
+    /// the selection commands (ADR-0242).
     func _publishIsCurrent() {
         _publishAdmittedPropertyChanged("isCurrent")
+        _raiseSelectionInputsChanged()
+    }
+
+    /// Re-raises `canExecuteChanged` of select and deselect (ADR-0242). It runs
+    /// after the state and link locks are released, and sends nothing once the
+    /// VM is disposing or disposed.
+    private func _raiseSelectionInputsChanged() {
+        lifecycleLock.lock()
+        let live = !disposalRequested && !triggersDisposed && _status != .disposed
+        lifecycleLock.unlock()
+        if live { selectionTriggerSubject.send(()) }
     }
 
     // ── propertyChanged publisher ───────────────────────────────────────
@@ -2624,6 +2653,7 @@ open class ComponentVMBase {
 
         if shouldComplete {
             statusTriggerSubject.send(completion: .finished)
+            selectionTriggerSubject.send(completion: .finished)
             if shouldCompleteProperties {
                 propertyChangedSubject.send(completion: .finished)
             }

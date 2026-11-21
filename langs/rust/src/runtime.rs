@@ -3525,6 +3525,9 @@ struct ComponentCoreInner<D: Dispatcher> {
     parent: Option<ParentHandle>,
     legacy_parent_id: Option<usize>,
     hub: MessageHub,
+    /// Private hub for the selection-input notification (ADR-0242). It is not
+    /// the public hub, so it adds no `Message` variant.
+    selection_inputs: MessageHub,
     property_changed: PropertyChangedStream,
     background_errors: LifecycleErrorStream,
     foreground: D,
@@ -3609,6 +3612,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 parent: None,
                 legacy_parent_id: None,
                 hub,
+                selection_inputs: MessageHub::new(),
                 property_changed: PropertyChangedStream::default(),
                 background_errors: LifecycleErrorStream::new(),
                 foreground: dispatcher,
@@ -5831,9 +5835,48 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     pub(crate) fn set_parent_handle(&self, parent: Option<ParentHandle>) {
-        let mut inner = lock(&self.inner);
-        inner.parent = parent;
-        inner.legacy_parent_id = None;
+        let changed = {
+            let mut inner = lock(&self.inner);
+            let changed = !Self::same_parent(inner.parent.as_ref(), parent.as_ref());
+            inner.parent = parent;
+            inner.legacy_parent_id = None;
+            changed
+        };
+        // A changed link re-raises the selection commands after the lock is free (ADR-0242).
+        if changed {
+            self.raise_selection_inputs();
+        }
+    }
+
+    fn same_parent(left: Option<&ParentHandle>, right: Option<&ParentHandle>) -> bool {
+        match (left, right) {
+            (None, None) => true,
+            (Some(left), Some(right)) => Weak::ptr_eq(&left.inner, &right.inner),
+            _ => false,
+        }
+    }
+
+    /// The private hub that carries the selection-input notification (ADR-0242).
+    pub(crate) fn selection_inputs_hub(&self) -> MessageHub {
+        lock(&self.inner).selection_inputs.clone()
+    }
+
+    /// Sends one selection-input notification to the selection commands. It
+    /// runs after the core lock is released, and sends nothing once the VM is
+    /// disposed (ADR-0242).
+    fn raise_selection_inputs(&self) {
+        let (sender_id, sender_name, hub) = {
+            let inner = lock(&self.inner);
+            if inner.status == ConstructionStatus::Disposed {
+                return;
+            }
+            (inner.id, inner.name.clone(), inner.selection_inputs.clone())
+        };
+        hub.send(Message::Custom {
+            sender_id,
+            sender_name,
+            name: "selection_inputs".to_string(),
+        });
     }
 
     pub(crate) fn parent_handle(&self) -> Option<ParentHandle> {
@@ -5969,12 +6012,14 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// Publishes the change of a flag that `commit_current_flag` committed.
     pub(crate) fn publish_current_flag(&self) {
         self.notify_property_changed("is_current");
+        self.raise_selection_inputs();
     }
 
     pub(crate) fn set_current_flag(&self, selected: bool) {
         let changed = Self::commit_selected(&mut lock(&self.inner), selected);
         if changed {
             self.notify_property_changed("is_current");
+            self.raise_selection_inputs();
         }
     }
 

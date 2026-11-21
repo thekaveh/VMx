@@ -512,6 +512,10 @@ class _ComponentVMBase(ABC):
 
         # ── Status-change trigger (drives command CanExecute re-eval) ────────
         self._status_trigger: Subject[None] = Subject()
+        # ── Selection-input trigger (ADR-0242) ───────────────────────────────
+        # Fires when IsCurrent or the Parent link changes. Only the select and
+        # deselect commands subscribe to it, next to the status trigger.
+        self._selection_trigger: Subject[None] = Subject()
 
         # ── Built-in commands (lazily built on first access) ─────────────────
         # Building all five RelayCommands eagerly here allocated five commands
@@ -589,11 +593,30 @@ class _ComponentVMBase(ABC):
 
     def _publish_is_current(self) -> None:
         """Publish a current-flag commit after container coordination is released."""
-        self._notify_property_changed("is_current")
+        try:
+            self._notify_property_changed("is_current")
+        finally:
+            self._raise_selection_inputs_changed()
 
     def _set_parent(self, parent: _ParentCompositeVM | None) -> None:
-        """Called by CompositeVMBase when this child is added/removed."""
+        """Called by CompositeVMBase when this child is added/removed.
+
+        A link that changes re-raises CanExecuteChanged of select and deselect
+        (ADR-0242). The link emits no PropertyChangedMessage (spec/05 §6.1).
+        """
+        if self._parent is parent:
+            return
         self._parent = parent
+        self._raise_selection_inputs_changed()
+
+    def _raise_selection_inputs_changed(self) -> None:
+        """Re-raise CanExecuteChanged of select and deselect (ADR-0242).
+
+        Skipped once the terminal publication has finished, because a ReactiveX
+        subject raises on use after disposal.
+        """
+        if not self._trigger_disposed:
+            self._selection_trigger.on_next(None)
 
     @property
     def _ownership_identity(self) -> _ComponentVMBase:
@@ -663,30 +686,40 @@ class _ComponentVMBase(ABC):
         self,
         predicate: Callable[[], bool],
         task: Callable[[], None],
+        *,
+        selection_inputs: bool = False,
     ) -> RelayCommand:
         """Build a built-in RelayCommand, wiring the status trigger when live.
 
         The status trigger re-fires ``can_execute_changed`` on every lifecycle
         transition (VMX-104).  After the VM is disposed the trigger Subject is
         completed/disposed, so a command built post-dispose is built without it
-        rather than subscribing to a disposed Subject.
+        rather than subscribing to a disposed Subject.  ``selection_inputs``
+        adds the selection trigger for select and deselect (ADR-0242).
         """
         builder = RelayCommand.builder().predicate(predicate).task(task)
         if not self._trigger_disposed:
             trigger_obs: rx.Observable[object] = self._status_trigger
             builder = builder.triggers(trigger_obs)
+            if selection_inputs:
+                selection_obs: rx.Observable[object] = self._selection_trigger
+                builder = builder.triggers(selection_obs)
         return builder.build()
 
     @property
     def select_command(self) -> RelayCommand:
         if self._select_command is None:
-            self._select_command = self._build_command(self.can_select, self.select)
+            self._select_command = self._build_command(
+                self.can_select, self.select, selection_inputs=True
+            )
         return self._select_command
 
     @property
     def deselect_command(self) -> RelayCommand:
         if self._deselect_command is None:
-            self._deselect_command = self._build_command(self.can_deselect, self.deselect)
+            self._deselect_command = self._build_command(
+                self.can_deselect, self.deselect, selection_inputs=True
+            )
         return self._deselect_command
 
     @property
@@ -2236,6 +2269,14 @@ class _ComponentVMBase(ABC):
             pass
         try:
             self._status_trigger.dispose()
+        except BaseException:
+            pass
+        try:
+            self._selection_trigger.on_completed()
+        except BaseException:
+            pass
+        try:
+            self._selection_trigger.dispose()
         except BaseException:
             pass
         if active_property_notifications == 0:

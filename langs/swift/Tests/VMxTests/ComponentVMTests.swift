@@ -1,7 +1,7 @@
 //
 // ComponentVM conformance tests.
 //
-// Claimed IDs: CVM-001..010 (CVM-003's "no setter" is compiler-shaped in
+// Claimed IDs: CVM-001..011 (CVM-003's "no setter" is compiler-shaped in
 // Swift — external writes trap per ADR-0037; the test verifies the
 // readonly builder and internal update path).
 //
@@ -18,6 +18,18 @@ private struct Tab: Equatable {
 private final class RefModel {
     let n: Int
     init(_ n: Int) { self.n = n }
+}
+
+/// Records `canExecute()` each time `canExecuteChanged` of a command fires.
+private final class CanExecuteRecorder {
+    var values: [Bool] = []
+    private var subscription: AnyCancellable?
+
+    init(_ command: RelayCommand) {
+        subscription = command.canExecuteChanged.sink { [weak self] in
+            self?.values.append(command.canExecute())
+        }
+    }
 }
 
 private final class NotificationProbeVM: ComponentVMBase {
@@ -176,6 +188,44 @@ final class ComponentVMTests: XCTestCase {
         XCTAssertTrue(comp.current === child)
         XCTAssertFalse(child.selectCommand.canExecute(), "already current")
         XCTAssertTrue(child.deselectCommand.canExecute())
+    }
+
+    /// CVM-011 — Select, the old child's deselect, add and remove re-raise the
+    /// selection commands, and each subscriber reads the new `canExecute()`.
+    func testCvm011SelectionCommandsRenotifyOnSelectionInputs() throws {
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+        let a = try ComponentVM.builder()
+            .name("a").services(hub: hub, dispatcher: dispatcher).build()
+        let b = try ComponentVM.builder()
+            .name("b").services(hub: hub, dispatcher: dispatcher).build()
+        let parent = try CompositeVM<ComponentVM>.builder()
+            .name("p").services(hub: hub, dispatcher: dispatcher)
+            .children { [a, b] }.build()
+        try parent.construct()
+
+        let selectSeen = CanExecuteRecorder(a.selectCommand)
+        let deselectSeen = CanExecuteRecorder(a.deselectCommand)
+        a.select()
+        XCTAssertEqual(selectSeen.values, [false])
+        XCTAssertEqual(deselectSeen.values, [true])
+        selectSeen.values.removeAll()
+        deselectSeen.values.removeAll()
+
+        b.select()
+        XCTAssertEqual(deselectSeen.values, [false], "the old child's DeselectCommand notifies")
+        XCTAssertEqual(selectSeen.values, [true])
+
+        let c = try ComponentVM.builder()
+            .name("c").services(hub: hub, dispatcher: dispatcher).build()
+        try c.construct()
+        let addedSeen = CanExecuteRecorder(c.selectCommand)
+        parent.add(c)
+        XCTAssertEqual(addedSeen.values, [true])
+        addedSeen.values.removeAll()
+
+        _ = parent.remove(c)
+        XCTAssertEqual(addedSeen.values, [false])
     }
 
     /// CVM-007 — helper emits one hub notification before one local notification.

@@ -853,6 +853,25 @@ the existing iterative hub queue without recursive loss
 **And** ordinary equal assignment remains silent while ordinary unequal
 assignment retains its existing behavior
 
+### CVM-011 — Selection commands re-raise CanExecuteChanged on selection inputs
+
+Per spec/05-component-vm.md §5 and §6.1, and ADR-0242.
+
+**Given** a composite `P` with constructed children `A` and `B`, and `P.Current` is null
+**And** subscribers to `A.SelectCommand` and `A.DeselectCommand` `CanExecuteChanged`, each
+reading `CanExecute` when it fires
+**When** `A.select()` is called
+**Then** both commands notify
+**And** the `SelectCommand` subscriber reads `false`, and the `DeselectCommand` subscriber reads `true`
+**When** `Current` moves to `B` (`B.select()`)
+**Then** `A.DeselectCommand` notifies, and its subscriber reads `false`
+**Given** a constructed component `C` that is in no container
+**And** a subscriber to `C.SelectCommand` `CanExecuteChanged`, reading `CanExecute` when it fires
+**When** `P.add(C)` is called
+**Then** `C.SelectCommand` notifies, and its subscriber reads `true`
+**When** `P.remove(C)` is called
+**Then** `C.SelectCommand` notifies, and its subscriber reads `false`
+
 ______________________________________________________________________
 
 ## 8. CompositeVM (`COMP-NNN`)

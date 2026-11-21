@@ -1,4 +1,4 @@
-"""Conformance tests: CVM-001..010.
+"""Conformance tests: CVM-001..011.
 
 The LIFE-001..010, 012 and PROP-001..004 ids each own a single self-contained
 test in test_lifecycle.py / test_property_change.py respectively; this file no
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from vmx.commands.relay_command import RelayCommand
 from vmx.components.base import _ComponentVMBase
 from vmx.components.builders import (
     ComponentVMBuilder,
@@ -16,6 +17,7 @@ from vmx.components.builders import (
     ReadonlyComponentVMOfBuilder,
 )
 from vmx.components.protocols import ViewModelType
+from vmx.composites.builders import CompositeVMBuilder
 from vmx.forwarding.component import ForwardingComponentVM
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
@@ -596,3 +598,49 @@ def test_CVM_010_modeled_components_explicitly_republish_retained_model() -> Non
     reentrant_vm.republish_model()
 
     assert reentrant_trace == ["hub:model", "local:model", "hub:model", "local:model"]
+
+
+# ===========================================================================
+# CVM-011 — Selection commands re-raise CanExecuteChanged on selection inputs
+# ===========================================================================
+
+
+@pytest.mark.conformance("CVM-011")
+def test_CVM_011_selection_commands_renotify_on_selection_inputs() -> None:
+    """CVM-011: select, the old child's deselect, add and remove re-raise the commands."""
+    hub = _hub()
+    dispatcher = _dispatcher()
+    a = ComponentVMBuilder().name("a").services(hub, dispatcher).build()
+    b = ComponentVMBuilder().name("b").services(hub, dispatcher).build()
+    parent = (
+        CompositeVMBuilder().name("p").services(hub, dispatcher).children(lambda: [a, b]).build()
+    )
+    parent.construct()
+
+    def record(command: RelayCommand) -> list[bool]:
+        seen: list[bool] = []
+        command.can_execute_changed.subscribe(lambda _: seen.append(command.can_execute()))
+        return seen
+
+    select_seen = record(a.select_command)
+    deselect_seen = record(a.deselect_command)
+
+    a.select()
+    assert select_seen == [False]
+    assert deselect_seen == [True]
+    select_seen.clear()
+    deselect_seen.clear()
+
+    b.select()
+    assert deselect_seen == [False]
+    assert select_seen == [True]
+
+    c = ComponentVMBuilder().name("c").services(hub, dispatcher).build()
+    c.construct()
+    added_seen = record(c.select_command)
+    parent.add(c)
+    assert added_seen == [True]
+    added_seen.clear()
+
+    parent.remove(c)
+    assert added_seen == [False]

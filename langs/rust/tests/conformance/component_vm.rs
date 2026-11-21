@@ -309,6 +309,56 @@ fn select_command_can_execute_reflects_selection_state() {
     assert!(!command.can_execute());
 }
 
+/// CVM-011 — Select, the old child's deselect, add and remove re-raise the
+/// selection commands, and each subscriber reads the new `can_execute()`.
+#[test]
+fn selection_commands_renotify_on_selection_inputs() {
+    let composite = vmx::CompositeVm::new("root");
+    let a = ComponentVm::new("a");
+    let b = ComponentVm::new("b");
+    composite.add(a.clone()).unwrap();
+    composite.add(b.clone()).unwrap();
+    a.construct().unwrap();
+    b.construct().unwrap();
+
+    let (select_seen, _select_subscription) = record_can_execute(&a.select_command());
+    let (deselect_seen, _deselect_subscription) = record_can_execute(&a.deselect_command());
+    a.select();
+    assert_eq!(*select_seen.lock().unwrap(), vec![false]);
+    assert_eq!(*deselect_seen.lock().unwrap(), vec![true]);
+    select_seen.lock().unwrap().clear();
+    deselect_seen.lock().unwrap().clear();
+
+    b.select();
+    assert_eq!(
+        *deselect_seen.lock().unwrap(),
+        vec![false],
+        "the old child's DeselectCommand notifies"
+    );
+    assert_eq!(*select_seen.lock().unwrap(), vec![true]);
+
+    let c = ComponentVm::new("c");
+    c.construct().unwrap();
+    let (added_seen, _added_subscription) = record_can_execute(&c.select_command());
+    composite.add(c.clone()).unwrap();
+    assert_eq!(*added_seen.lock().unwrap(), vec![true]);
+    added_seen.lock().unwrap().clear();
+
+    composite.remove(&c).unwrap();
+    assert_eq!(*added_seen.lock().unwrap(), vec![false]);
+}
+
+/// Records `can_execute()` each time the command raises `can_execute_changed`.
+fn record_can_execute(command: &vmx::RelayCommand) -> (Arc<Mutex<Vec<bool>>>, vmx::Subscription) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    let probe = command.clone();
+    let subscription = command.can_execute_changed().subscribe(move |_| {
+        sink.lock().unwrap().push(probe.can_execute());
+    });
+    (seen, subscription)
+}
+
 #[test]
 fn baseline_selection_commands_delegate_and_keep_stable_identity() {
     let composite = vmx::CompositeVm::new("root");

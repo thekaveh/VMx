@@ -552,6 +552,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private readonly Subject<Unit> _statusTrigger = new();
     private bool _triggerDisposed;
 
+    // ── Selection-input trigger (ADR-0242) ──────────────────────────────────
+    // Fires when IsCurrent or the Parent link changes. Only SelectCommand and
+    // DeselectCommand subscribe to it, next to the status trigger.
+    private readonly Subject<Unit> _selectionTrigger = new();
+
     // ── Commands (lazily built on first access — VMX-018) ───────────────────
     private ICommand? _selectCommand;
     private ICommand? _deselectCommand;
@@ -990,7 +995,23 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     protected virtual void OnDispose() { }
 
     // ── Parent (set by CompositeVM when a child is added) ───────────────────
-    internal IParentCompositeVM? Parent { get; set; }
+    private IParentCompositeVM? _parent;
+
+    /// <summary>
+    /// Written by the container. A link that changes re-raises
+    /// <c>CanExecuteChanged</c> of Select and Deselect (ADR-0242). The link
+    /// emits no <c>PropertyChangedMessage</c> (spec/05 §6.1).
+    /// </summary>
+    internal IParentCompositeVM? Parent
+    {
+        get => _parent;
+        set
+        {
+            if (ReferenceEquals(_parent, value)) return;
+            _parent = value;
+            RaiseSelectionInputsChanged();
+        }
+    }
 
     // ── IComponentVMInternals explicit implementation ─────────────────────────
     IParentCompositeVM? IComponentVMInternals.Parent => Parent;
@@ -998,7 +1019,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     void IComponentVMInternals.SetParent(IParentCompositeVM? parent) => Parent = parent;
     void IComponentVMInternals.SetIsCurrent(bool value) => IsCurrent = value;
     bool IComponentVMInternals.CommitIsCurrent(bool value) => CommitIsCurrent(value);
-    void IComponentVMInternals.PublishIsCurrent() => NotifyPropertyChanged(nameof(IsCurrent));
+    void IComponentVMInternals.PublishIsCurrent() => PublishIsCurrentFlag();
     Task IComponentVMInternals.ConstructOrJoinAsync() => ConstructOrJoinAsync();
     Task IComponentVMInternals.JoinConstructAsync() => JoinConstructAsync();
 
@@ -1028,7 +1049,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         get => _isCurrent;
         internal set
         {
-            if (CommitIsCurrent(value)) NotifyPropertyChanged(nameof(IsCurrent));
+            if (CommitIsCurrent(value)) PublishIsCurrentFlag();
         }
     }
 
@@ -1054,12 +1075,44 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         return true;
     }
 
+    /// <summary>
+    /// Publishes a committed <c>IsCurrent</c> change, then re-raises the
+    /// selection commands (ADR-0242). Runs after the state guard is released.
+    /// </summary>
+    private void PublishIsCurrentFlag()
+    {
+        try
+        {
+            NotifyPropertyChanged(nameof(IsCurrent));
+        }
+        finally
+        {
+            RaiseSelectionInputsChanged();
+        }
+    }
+
+    /// <summary>
+    /// Re-raises <c>CanExecuteChanged</c> of Select and Deselect (ADR-0242).
+    /// The check runs under <c>_gate</c>. The emission runs outside it, so no
+    /// consumer callback runs under the state guard. After teardown the
+    /// selection subject is completed and never disposed, so an emission that
+    /// races teardown is a silent no-op rather than a disposed-subject fault.
+    /// </summary>
+    private void RaiseSelectionInputsChanged()
+    {
+        bool live;
+        lock (_gate) live = !_triggerDisposed;
+        if (live) _selectionTrigger.OnNext(Unit.Default);
+    }
+
     // ── IComponentVM: commands (lazily built + cached — VMX-018) ────────────
     /// <inheritdoc/>
-    public ICommand SelectCommand => _selectCommand ??= BuildCommand(CanSelect, Select);
+    public ICommand SelectCommand =>
+        _selectCommand ??= BuildCommand(CanSelect, Select, selectionInputs: true);
 
     /// <inheritdoc/>
-    public ICommand DeselectCommand => _deselectCommand ??= BuildCommand(CanDeselect, Deselect);
+    public ICommand DeselectCommand =>
+        _deselectCommand ??= BuildCommand(CanDeselect, Deselect, selectionInputs: true);
 
     /// <inheritdoc/>
     public ICommand SelectNextCommand =>
@@ -1124,13 +1177,18 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <c>CanExecuteChanged</c> re-fires on every lifecycle transition (VMX-104).
     /// After disposal the trigger Subject is completed/disposed, so a command
     /// built post-dispose is built without it rather than subscribing to a
-    /// disposed Subject.
+    /// disposed Subject. <paramref name="selectionInputs"/> adds the selection
+    /// trigger for Select and Deselect (ADR-0242).
     /// </summary>
-    private RelayCommand BuildCommand(Func<bool> predicate, Action task)
+    private RelayCommand BuildCommand(Func<bool> predicate, Action task, bool selectionInputs = false)
     {
         var builder = RelayCommand.Builder().Predicate(predicate).Task(task);
         if (!_triggerDisposed)
+        {
             builder = builder.Triggers(_statusTrigger);
+            if (selectionInputs)
+                builder = builder.Triggers(_selectionTrigger);
+        }
         return builder.Build();
     }
 
@@ -1940,6 +1998,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     {
                         FirstFailure.Capture(ref firstError, _statusTrigger.OnCompleted);
                         FirstFailure.Capture(ref firstError, _statusTrigger.Dispose);
+                        // Completed, never disposed (ADR-0242): see RaiseSelectionInputsChanged.
+                        FirstFailure.Capture(ref firstError, _selectionTrigger.OnCompleted);
                     }, out shouldDrain);
                 }
                 else
