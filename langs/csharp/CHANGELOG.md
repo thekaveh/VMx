@@ -256,6 +256,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- `SelectCommand` and `DeselectCommand` re-raise `CanExecuteChanged` when the VM's
+  `IsCurrent` flag or its `Parent` link changes. A select, a move of `Current`, or a
+  container add or remove used to leave a bound control with a stale `CanExecute`
+  until the next lifecycle transition (ADR-0242, #1755, `CVM-011`).
+
 - `TokenPagedComposition` runs every notification step of a committed load or
   refresh, even when a subscriber fails. A failing `Reset` or `PropertyChanged`
   handler used to stop the later steps, so `Items`, `CurrentToken`, `HasMore` and
