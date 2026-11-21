@@ -8,10 +8,20 @@
   -->
   <PropertyGroup Condition="'$(VMxLibraryFramework)' == 'netstandard2.0'">
     <DefineConstants>$(DefineConstants);VMX_LIBRARY_NETSTANDARD2_0</DefineConstants>
+    <!-- The switched graph is not committed. Its lock file goes to obj/, so the
+         committed packages.lock.json files keep the default graph, which the
+         build job checks in locked mode. -->
+    <NuGetLockFilePath>$(MSBuildProjectDirectory)/obj/packages.netstandard2.0.lock.json</NuGetLockFilePath>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(VMxLibraryFramework)' == 'netstandard2.0'">
     <ProjectReference Update="..\..\src\VMx\VMx.csproj;..\..\src\VMx.Notifications\VMx.Notifications.csproj;..\..\src\VMx.Extensions.DependencyInjection\VMx.Extensions.DependencyInjection.csproj"
                       SetTargetFramework="TargetFramework=netstandard2.0" />
+    <!-- The netstandard2.0 build of VMx declares these two packages (src/VMx/VMx.csproj).
+         NuGet restore ignores SetTargetFramework, so the restored test graph has
+         to name them here. Without System.Text.Json the net8.0 test host loads
+         the framework's copy and fails with FileNotFoundException (#1863). -->
+    <PackageReference Include="System.Text.Json" />
+    <PackageReference Include="System.Collections.Immutable" />
   </ItemGroup>
 </Project>
