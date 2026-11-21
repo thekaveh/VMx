@@ -70,8 +70,17 @@ the fourth path without reproducing it, and the test now reproduces it.
 
 1. **Rule 4 is amended for TypeScript.** The sentence "TypeScript runs on one
    thread and needs no change" is replaced. One thread still re-enters from
-   call-outs, so TypeScript checks the open state after each call-out, as the
-   other flavors do. The C#, Python, Swift and Rust text of rule 4 is unchanged.
+   call-outs, so TypeScript checks the open state after each call-out, and it
+   commits nothing once the aggregate has closed. This is stricter than the
+   other four flavors. Their code checks the open state at the top of the
+   reconciliation loop and at the commit point only. Their staging loops call
+   the selector and subscribe for each staged member with no check in between:
+   C# `SubscribeEntry` in `langs/csharp/src/VMx/Collections/AggregateChangeStream.cs`,
+   Python `_subscribe_entry` in `langs/python/src/vmx/collections/aggregate_change_stream.py`,
+   the staging loop in `langs/swift/Sources/VMx/Collections/AggregateChangeStream.swift`,
+   and the staging loop in `langs/rust/src/aggregate_change_stream.rs`. Their
+   staged subscriptions are released at the commit point. The C#, Python, Swift
+   and Rust text of rule 4 is unchanged, and this ADR changes none of their code.
    ADR-0214 carries the back-link in its Status line and its registry cell.
 
 1. **No new conformance ID.** The four tests sit in the existing
@@ -88,7 +97,16 @@ the fourth path without reproducing it, and the test now reproduces it.
    did not commit. The normative text already covers the fix.
 
 1. **Other flavors are unchanged.** ADR-0214 rule 4 already requires the open
-   check in C#, Python, Swift and Rust, and this change does not touch them.
+   check in C#, Python, Swift and Rust at the commit point, and this change does
+   not touch them. Section 9.7 says that a staged subscription "can stay live
+   after explicit disposal returns" until the reconciliation releases it. The
+   commit-point check of those four flavors meets that sentence. The text does
+   not say whether a reconciliation may still call the selector or subscribe for
+   later members after disposal. TypeScript takes the stricter reading, and the
+   other four take the looser one. This is a known cross-flavor divergence
+   (CLAUDE.md §1), and it is not a defect of #1914. Owner item: decide whether
+   §9.7 should state the rule, and if the stricter reading is wanted, align the
+   other four flavors in a follow-up.
 
 1. **No version bump and no API change.** `spec/VERSION` stays 3.30.0, because no
    `spec-v3.30.0` tag exists. The TypeScript package stays at its unreleased
@@ -118,17 +136,22 @@ the fourth path without reproducing it, and the test now reproduces it.
   structural pulse still queues one `Membership`, and a pulse during staging
   still repeats the reconciliation.
 - The added checks are reads of two fields. The public API is unchanged.
+- The other four flavors keep a staged subscription live until their commit
+  point, which §9.7 permits. The TypeScript flavor releases it at the next
+  call-out check. The difference is recorded in decision 4 and decision 8.
 - The construction-time checks cannot be reached through the public API. A
   reader should not expect a test for them.
 
 ## 4. Rejected alternatives
 
-- **One check before the commit.** This releases the staged subscriptions, but
-  it still calls the selector and subscribes to later members after the
-  aggregate is disposed. Section 9.7 forbids that, because disposal detaches
-  every subscription the aggregate owns. A check before the commit also misses
-  the removal-teardown case. The teardown runs inside the commit, after that
-  check.
+- **One check before the commit, as C#, Python, Swift and Rust use.** This
+  releases the staged subscriptions, which §9.7 allows. It still calls the
+  selector and subscribes to later members after the aggregate is disposed,
+  which does work the aggregate no longer needs. Section 9.7 does not forbid
+  that work, so the stricter form is a TypeScript choice, not a spec
+  requirement. A check before the commit also misses the removal-teardown case.
+  In TypeScript the teardown calls `unsubscribe` inside the commit, so a
+  disposal from that call-out happens after the check.
 - **Track staged entries on the instance, so that `dispose()` releases them.**
   The reconciliation already holds its plan. A second owner of staged
   subscriptions would need its own ordering rules.
