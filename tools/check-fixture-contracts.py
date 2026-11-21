@@ -66,7 +66,14 @@ COMMAND_FIELDS = {
     "execute_invokes_task",
     "can_execute_changed_fires",
 }
-DERIVED_FIELDS = {"name", "sources_initial", "transform", "mutations", "expected_values"}
+DERIVED_FIELDS = {
+    "name",
+    "sources_initial",
+    "transform",
+    "mutations",
+    "expected_values",
+    "expected_emissions",
+}
 MESSAGE_FIELDS = {
     "single-producer-fifo": {"id", "description", "producer_sends", "expected_observed"},
     "late-subscribe-no-replay": {
@@ -229,6 +236,7 @@ def validate_fixture(path: Path) -> list[str]:
             or not isinstance(row.get("transform"), str)
             or not isinstance(row.get("mutations"), list)
             or not isinstance(row.get("expected_values"), list)
+            or not isinstance(row.get("expected_emissions"), list)
             or any(
                 not isinstance(mutation, list)
                 or len(mutation) != 2
