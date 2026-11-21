@@ -161,6 +161,11 @@ below for them.
 
 ### Fixed
 
+- `when_property_changed`, `property_value_changed_messages_for` and
+  `subscribe_value` match a forwarding decorator by its canonical ownership
+  identity, through nested decorators. A helper given a decorator used to match
+  no message, and its subscription stayed empty. The signatures are unchanged
+  (ADR-0233, #1911, `FWD-007`).
 - `SearchableState` releases its source_changes subscription when the
   constructor's post-subscribe reconcile raises. The caller still receives the
   original exception, and a later signal no longer runs the items callable or
