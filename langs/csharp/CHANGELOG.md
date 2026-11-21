@@ -256,6 +256,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- `WhenPropertyChanged`, `PropertyValueChangedMessagesFor` and `SubscribeValue`
+  match a forwarding decorator by its canonical ownership identity, through
+  nested decorators. A helper given a decorator used to match no message, and
+  its subscription stayed empty. The signatures are unchanged (ADR-0233, #1911,
+  `FWD-007`).
+
 - `SearchableState` releases its source-change subscription when the
   constructor's post-subscribe reconcile throws. The caller still receives the
   original failure, and a later signal no longer runs the item supplier or the

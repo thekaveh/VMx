@@ -209,6 +209,12 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Fixed
 
+- `whenPropertyChanged`, `propertyValueChangedMessagesFor` and `subscribeValue`
+  match a forwarding decorator by its canonical ownership identity, through
+  nested decorators. A helper given a decorator used to match no message, and
+  its subscription stayed empty. The signatures are unchanged (ADR-0233, #1911,
+  `FWD-007`).
+
 - A discard-mode retry cancelled from a value-less `Error` restores
   `Error`, not `Idle`, as the other flavors do (ADR-0228, #671).
 
