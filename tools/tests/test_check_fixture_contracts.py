@@ -100,6 +100,10 @@ def test_rejects_missing_required_field(tmp_path: Path) -> None:
             lambda value: value["scenarios"][1].__setitem__("mutations", [[9, 20]]),
         ),
         (
+            "derived-properties.json",
+            lambda value: value["scenarios"][4].__setitem__("expected_emissions", "8,10"),
+        ),
+        (
             "message-ordering.json",
             lambda value: value["scenarios"][0].__setitem__("producer_sends", "ABC"),
         ),
