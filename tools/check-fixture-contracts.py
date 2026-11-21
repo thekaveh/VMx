@@ -14,10 +14,15 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import SchemaError
+if TYPE_CHECKING:
+    from jsonschema import Draft202012Validator
+
+# jsonschema is imported inside the functions that use it, not at module top.
+# tools/tests/conftest.py pre-loads every check-*.py script, and the docs job runs
+# that conftest with docs/requirements.txt, which does not install jsonschema.
+# A top-level import would abort that job before any test runs (ADR-0243).
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCHEMAS = ROOT / "spec" / "schemas" / "fixtures"
@@ -79,6 +84,8 @@ LIFECYCLE_KEYS = {
 
 
 def _schema(path: Path) -> Draft202012Validator:
+    from jsonschema import Draft202012Validator
+
     schema = json.loads(path.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
     return Draft202012Validator(schema)
@@ -117,6 +124,8 @@ def _inventory_errors(name: str, value: dict[str, Any]) -> list[str]:
 
 def validate_fixture(path: Path, schemas: Path = DEFAULT_SCHEMAS) -> list[str]:
     """Return all contract errors for one canonical fixture."""
+    from jsonschema.exceptions import SchemaError
+
     schema_path = schemas / FIXTURE_SCHEMAS[path.name]
     try:
         validator = _schema(schema_path)

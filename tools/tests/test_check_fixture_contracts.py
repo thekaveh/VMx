@@ -2,6 +2,8 @@
 
 import copy
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import check_fixture_contracts as cfc
@@ -260,3 +262,30 @@ def test_rejects_fixture_with_no_contract_entry(tmp_path: Path, capsys) -> None:
 
     assert cfc.main(["--fixtures", str(fixtures)]) == 1
     assert "probe.json: no contract entry" in capsys.readouterr().err
+
+
+def test_checker_loads_without_jsonschema() -> None:
+    """The docs job pre-loads this script with no jsonschema installed (ADR-0243).
+
+    A probe process blocks the jsonschema import, then executes the script the
+    way tools/tests/conftest.py does. A top-level jsonschema import fails here.
+    """
+    script = ROOT / "tools" / "check-fixture-contracts.py"
+    probe = (
+        "import importlib.util, sys\n"
+        "sys.modules['jsonschema'] = None\n"
+        f"spec = importlib.util.spec_from_file_location('probe', {str(script)!r})\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(module)\n"
+        "print('loaded')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "loaded"
