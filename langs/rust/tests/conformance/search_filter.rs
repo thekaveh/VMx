@@ -541,6 +541,37 @@ fn failing_predicate_or_filtered_subscriber_keeps_helper_live() {
     assert_eq!(*counts.lock().unwrap(), [3, 3]);
 }
 
+/// SRCH-010 — a failed post-subscribe reconcile reaches the caller, and a later source signal reads nothing
+#[test]
+fn failed_reconcile_reaches_caller_and_later_signals_read_nothing() {
+    let reads = Arc::new(Mutex::new(0_usize));
+    let supplier_reads = reads.clone();
+    let source_changes = MessageHub::new();
+    let constructed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        SearchableState::from_items_with_changes(
+            move || {
+                let read = {
+                    let mut count = supplier_reads.lock().unwrap();
+                    *count += 1;
+                    *count
+                };
+                assert!(read != 2, "reconcile failed");
+                vec!["a", "b"]
+            },
+            contains,
+            source_changes.clone(),
+        )
+    }));
+    assert!(
+        constructed.is_err(),
+        "the reconcile panic must reach the caller"
+    );
+
+    *reads.lock().unwrap() = 0;
+    pulse(&source_changes);
+    assert_eq!(*reads.lock().unwrap(), 0);
+}
+
 #[test]
 fn term_debounce_defaults_to_one_second() {
     let scheduler = VirtualTimeScheduler::new();

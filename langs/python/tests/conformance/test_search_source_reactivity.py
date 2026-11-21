@@ -1,4 +1,4 @@
-"""Conformance tests for SearchableState source reactivity (SRCH-001..009)."""
+"""Conformance tests for SearchableState source reactivity (SRCH-001..010)."""
 
 from __future__ import annotations
 
@@ -262,6 +262,10 @@ class FilteredSubscriberError(Exception):
     """Raised by the failing ``filtered`` subscriber."""
 
 
+class FailedReconcileError(Exception):
+    """Raised by the item supplier on its second read."""
+
+
 @pytest.mark.conformance("SRCH-009")
 def test_SRCH_009_failing_predicate_or_filtered_subscriber_keeps_helper_live(
     caplog: pytest.LogCaptureFixture,
@@ -305,3 +309,28 @@ def test_SRCH_009_failing_predicate_or_filtered_subscriber_keeps_helper_live(
     assert any(isinstance(error, PredicateError) for error in failures)
     assert any(isinstance(error, FilteredSubscriberError) for error in failures)
     state.dispose()
+
+
+@pytest.mark.conformance("SRCH-010")
+def test_SRCH_010_failed_reconcile_releases_the_source_signal() -> None:
+    reads: list[str] = []
+
+    def items() -> list[str]:
+        reads.append("read")
+        if len(reads) == 2:
+            raise FailedReconcileError
+        return ["a", "b"]
+
+    signal: Subject[object] = Subject()
+    with pytest.raises(FailedReconcileError):
+        SearchableState(
+            items=items,
+            predicate=lambda item, term: term in item,
+            debounce_seconds=0,
+            source_changes=signal,
+        )
+
+    assert signal.observers == []
+    reads.clear()
+    signal.on_next(object())
+    assert reads == []

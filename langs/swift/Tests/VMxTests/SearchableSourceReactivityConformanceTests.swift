@@ -341,5 +341,31 @@ final class SearchableSourceReactivityConformanceTests: XCTestCase {
         sut.dispose()
     }
 
+    /// SRCH-010 — structural: the post-subscribe reconcile calls non-throwing
+    /// closures, so it has no failure path that could leave the signal attached.
+    /// A released helper cancels its source-change subscription, and a later
+    /// signal reads nothing.
+    func testSRCH010ReleasedHelperDetachesFromSourceSignal() {
+        let reads = SearchEvents()
+        let signal = PassthroughSubject<Void, Never>()
+        var sut: SearchableState<String>? = SearchableState<String>(
+            items: {
+                reads.read()
+                return ["a", "b"]
+            },
+            predicate: searchMatches,
+            debounce: .milliseconds(0),
+            sourceChanges: signal.eraseToAnyPublisher()
+        )
+        XCTAssertTrue(failureType(of: sut!.filtered) == Never.self)
+        weak var released = sut
+        sut = nil
+        XCTAssertNil(released)
+
+        let before = reads.reads
+        signal.send(())
+        XCTAssertEqual(reads.reads, before)
+    }
+
     private func failureType<P: Publisher>(of _: P) -> Any.Type { P.Failure.self }
 }
