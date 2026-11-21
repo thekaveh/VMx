@@ -125,16 +125,11 @@ a token-paging load or refresh.
 - TypeScript, Swift and Rust do not change behavior.
 - The public API does not change.
 - The catalog gains `COL-073`.
-- Numbering. The literal next number at develop is ADR-0234, because the highest
-  registry row is ADR-0233. ADR-0234 to ADR-0238 are held by open pull request
-  #2109 (`docs/registered-reactive-state-decisions`, which adds
-  `spec/ADRs/0234-registered-reactive-state-with-tracked-dependencies.md` and
-  four more). Taking 0234 here would give two open pull requests the same
-  number, and one of them would have to be renumbered at merge. This ADR
-  therefore takes 0239 and leaves 0234 to 0238 without registry rows
-  (`spec/ADRs/README.md` §2.4). If #2109 merges first, its five numbers are
-  their own and no gap remains. If this ADR merges first, 0234 to 0238 stay a
-  reserved gap until #2109 merges.
+- Numbering. ADR-0234 to ADR-0238 are on develop from PR #2109, which merged
+  at develop `45971e65`. This ADR follows them at 0239. It was first drafted as
+  ADR-0234 and renumbered to 0239 while #2109 was still open, so the two pull
+  requests never shared a number. No gap remains, and the registry has no
+  reserved rows.
 
 ## 4. Rejected alternatives
 
