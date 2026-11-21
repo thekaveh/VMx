@@ -231,6 +231,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `AggregateChangeStream` disposed from a call-out of a reconciliation (a
+  selected `subscribe`, a selector, `source.snapshot()`, or the teardown of a
+  removed member) releases the subscriptions it staged and delivers only
+  `complete`. Before, a staged subscription stayed live and a `Membership` change
+  arrived after `complete`. The signatures are unchanged (ADR-0240, #1914,
+  `AGCH-012`).
+
 - `whenPropertyChanged`, `propertyValueChangedMessagesFor` and `subscribeValue`
   match a forwarding decorator by its canonical identity, through nested
   decorators: the identity is the innermost VM on the `wrappedBase` chain. A
