@@ -702,6 +702,9 @@ describe("AGCH-011", () => {
 // subscriptions with no gate held. TypeScript runs on one thread, so it has no
 // lock cycle; these tests pin the single-thread analog. The source raises its
 // structural callback from inside a selector call and from inside dispose.
+// A call-out can also dispose the aggregate: the snapshot, the selector, a
+// selected subscribe, or the teardown of a removed member. The reconciliation
+// then releases what it staged and delivers only completion (ADR-0240).
 describe("AGCH-012", () => {
   it("admits a member that the source adds while the selector runs during setup", () => {
     const first = new Item("first");
@@ -767,5 +770,131 @@ describe("AGCH-012", () => {
     expect(completed).toBe(true);
     expect(changes).toEqual([]);
     expect(source.handlers).toHaveLength(1);
+  });
+
+  it("releases a staged subscription and delivers only completion when a selected subscribe disposes", () => {
+    const source = new TestSource<Item>();
+    let subscribeCount = 0;
+    let teardownCount = 0;
+    const sut: AggregateChangeStream<Item> = new AggregateChangeStream<Item>(
+      source,
+      () =>
+        new Observable<void>(() => {
+          subscribeCount++;
+          sut.dispose();
+          return () => {
+            teardownCount++;
+          };
+        }),
+    );
+    const changes: AggregateChange<Item>[] = [];
+    let completed = false;
+    sut.observe().subscribe({
+      next: (change) => changes.push(change),
+      complete: () => {
+        completed = true;
+      },
+    });
+
+    source.add(new Item("item"));
+
+    expect(subscribeCount).toBe(1);
+    expect(subscribeCount - teardownCount).toBe(0);
+    expect(reasons(changes)).toEqual([]);
+    expect(completed).toBe(true);
+  });
+
+  it("stops staging when a selector disposes the aggregate", () => {
+    const first = new Item("first");
+    const second = new Item("second");
+    const source = new TestSource<Item>();
+    let selectorCalls = 0;
+    const sut: AggregateChangeStream<Item> = new AggregateChangeStream<Item>(
+      source,
+      (item) => {
+        selectorCalls++;
+        if (selectorCalls === 1) sut.dispose();
+        return item.changes.observable;
+      },
+    );
+    const changes: AggregateChange<Item>[] = [];
+    let completed = false;
+    sut.observe().subscribe({
+      next: (change) => changes.push(change),
+      complete: () => {
+        completed = true;
+      },
+    });
+
+    source.items.push(first, second);
+    source.pulse();
+
+    expect(selectorCalls).toBe(1);
+    expect(first.changes.subscribeCount).toBe(0);
+    expect(second.changes.subscribeCount).toBe(0);
+    expect(reasons(changes)).toEqual([]);
+    expect(completed).toBe(true);
+  });
+
+  it("stages no entry when the source snapshot disposes the aggregate", () => {
+    const first = new Item("first");
+    const source = new TestSource<Item>();
+    let selectorCalls = 0;
+    const sut = new AggregateChangeStream<Item>(source, (item) => {
+      selectorCalls++;
+      return item.changes.observable;
+    });
+    const changes: AggregateChange<Item>[] = [];
+    let completed = false;
+    sut.observe().subscribe({
+      next: (change) => changes.push(change),
+      complete: () => {
+        completed = true;
+      },
+    });
+    source.snapshotOverride = () => {
+      sut.dispose();
+      return [first];
+    };
+
+    source.pulse();
+
+    expect(selectorCalls).toBe(0);
+    expect(first.changes.subscribeCount).toBe(0);
+    expect(reasons(changes)).toEqual([]);
+    expect(completed).toBe(true);
+  });
+
+  it("admits no staged entry when a removed member's teardown disposes the aggregate", () => {
+    const first = new Item("first");
+    const second = new Item("second");
+    const source = new TestSource<Item>(first);
+    let firstTeardowns = 0;
+    const sut: AggregateChangeStream<Item> = new AggregateChangeStream<Item>(
+      source,
+      (item) => {
+        if (item !== first) return item.changes.observable;
+        return new Observable<void>(() => () => {
+          firstTeardowns++;
+          sut.dispose();
+        });
+      },
+    );
+    const changes: AggregateChange<Item>[] = [];
+    let completed = false;
+    sut.observe().subscribe({
+      next: (change) => changes.push(change),
+      complete: () => {
+        completed = true;
+      },
+    });
+
+    source.items.splice(0, 1, second);
+    source.pulse();
+
+    expect(firstTeardowns).toBe(1);
+    expect(second.changes.subscribeCount - second.changes.unsubscribeCount).toBe(0);
+    expect(reasons(changes)).toEqual([]);
+    expect(completed).toBe(true);
   });
 });

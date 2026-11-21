@@ -5575,8 +5575,11 @@ and then raises the structural callback
 take the source lock in its unsubscribe
 **And** TypeScript, which runs on one thread, checks the same sequences on one
 thread: a selector that adds a member during setup, a selector that adds a
-member during a drain, and a structural callback that the source raises after
-disposal began
+member during a drain, a structural callback that the source raises after
+disposal began, and a call-out that disposes the aggregate during a
+reconciliation (a selected `subscribe`, a selector, the source snapshot, or the
+teardown of a removed member). The reconciliation then releases what it staged
+and delivers only completion (ADR-0240)
 
 ## 32. Async resource viewmodel (`ARES-NNN`) — spec v3.20
 
