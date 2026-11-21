@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vmx:fixture:derived-properties:1.0.0",
+  "$comment": "Non-normative structural contract for spec/fixtures/derived-properties.json (ADR-0243). tools/check-fixture-contracts.py applies this schema and keeps the rules a schema cannot express: each scenario name is in the expected set once, a scenario's transform names a key of transforms, expected_values covers the initial value and each mutation, and each mutation index names an existing source.",
+  "title": "VMx derived-properties fixture v1",
+  "type": "object",
+  "required": ["$schema-version", "transforms", "scenarios"],
+  "properties": {
+    "$schema-version": {
+      "const": "1.0.0"
+    },
+    "transforms": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/scenario"
+      }
+    }
+  },
+  "$defs": {
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "sources_initial",
+        "transform",
+        "mutations",
+        "expected_values",
+        "expected_emissions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "sources_initial": {
+          "type": "array",
+          "minItems": 1
+        },
+        "transform": {
+          "type": "string"
+        },
+        "mutations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mutation"
+          }
+        },
+        "expected_values": {
+          "type": "array"
+        },
+        "expected_emissions": {
+          "type": "array"
+        }
+      }
+    },
+    "mutation": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {}
+      ]
+    }
+  }
+}

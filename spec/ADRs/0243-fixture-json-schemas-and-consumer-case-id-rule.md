@@ -1,0 +1,43 @@
+# ADR 0243 — Fixture JSON schemas and the consumer case-ID rule
+
+- **Status:** Accepted
+- **Date:** 2026-11-21
+- **Spec version:** 3.30.0 (supporting schemas and checker; no chapter or conformance ID)
+- **Clarifies:** [ADR-0102](0102-consumer-conformance-adapter-schema.md) §2.1 (case IDs are unique within a suite). Related: [ADR-0241](0241-derived-property-fixture-records-emissions.md), #374, #1716, #1785, #1788, #1835.
+
+## 1. Context
+
+ADR-0102 §2.1 requires that case IDs are unique within a consumer conformance suite. The consumer schema, `spec/schemas/consumer-conformance-v1.schema.json`, types a case `id` only as a non-empty string. The TypeScript runner enforces uniqueness in code, after Ajv validation, in `parseConsumerConformance`. A runner written from the schema alone would accept duplicate IDs.
+
+The four canonical fixtures in `spec/fixtures/` each declare `$schema-version` `1.0.0`, and no schema describes them. Their field contract exists only as Python literals in `tools/check-fixture-contracts.py`. A new flavor cannot generate or check a fixture decoder from machine-readable data.
+
+## 2. Decision
+
+1. **The case-ID rule is stated in the schema.** The `id` property of `$defs/case` in `consumer-conformance-v1.schema.json` gains a `$comment`. It says that IDs are unique within a suite and that a runner MUST reject a duplicate (ADR-0102 §2.1). The `$id` stays `urn:vmx:consumer-conformance:1.0.0`, and `$schema-version` stays `1.0.0`. The comment makes no suite invalid that was valid before, so no schema version changes.
+1. **The rule stays a comment, not a constraint.** JSON Schema 2020-12 has no keyword that compares one property across the items of an array. `uniqueItems` compares whole items, so two cases with the same `id` but different steps pass it. A runner must therefore enforce the rule. The `$comment` records this for a reader of the schema alone.
+1. **One schema per fixture, in `spec/schemas/fixtures/`.** The four files are `command-truthtable-v1.schema.json`, `derived-properties-v1.schema.json`, `lifecycle-transitions-v1.schema.json` and `message-ordering-v1.schema.json`. Each is draft 2020-12, has `$id` `urn:vmx:fixture:<stem>:1.0.0`, and fixes `$schema-version` to `const` `1.0.0`. The `-v1` suffix names the `$schema-version` major, as the consumer schema does. **Reason for the subdirectory:** `langs/typescript/scripts/sync-fixtures.mjs` and `tools/check-typescript-schema-sync.py` copy and compare only the top-level `spec/schemas/*.json` files. The fixture schemas therefore stay out of the npm package, and neither the package nor the sync check changes.
+1. **Validator and CI wiring.** `tools/check-fixture-contracts.py` checks each schema with `Draft202012Validator.check_schema`, then validates each fixture against it. The validator is `jsonschema==4.26.0`, an exact pin in the `tools` extra of `langs/python/pyproject.toml`, released 2026-01-07. The existing CI step "Validate canonical fixture contracts" runs the checker, so CI runs the schema check with no new step. **Reason for Python:** the conformance job that runs the checker sets up uv and Python and has no Node step, so the checker needs no Node runtime. The lock was regenerated with uv 0.11.28, the version CI pins.
+1. **The checker keeps only what the schemas cannot express.** The checker keeps two kinds of rule. The first is the inventory: each case, scenario or transition key appears exactly once, and the 20 lifecycle (state, operation) pairs each appear once. The second is the derived-property cross-field rules: a scenario's `transform` names a key of `transforms`, `expected_values` has one more entry than `mutations`, and each mutation index names an existing entry of `sources_initial`. Every other rule moved to the schemas: exact field sets (`additionalProperties: false` with `required`), value domains, the lifecycle fixed values (`states`, `initial_state` and `terminal_states` as `const`, `legal` with `if`/`then` for the target states), and the per-scenario field sets of `message-ordering.json`, one `oneOf` branch per scenario `id`. The derived-properties schema requires `expected_emissions`, as ADR-0241 requires.
+1. **Behavior of the checker.** Its exit code, its "no contract entry" message and its `--fixtures` option are unchanged. A schema violation prints the fixture name, a JSON path such as `$.scenarios[4]`, and the validator's message. A missing or invalid schema fails the check, and so does a published fixture schema with no fixture. The new `--schemas` option defaults to `spec/schemas/fixtures`.
+1. **Versions.** `spec/VERSION` stays at 3.30.0, and no `spec-v3.30.0` tag exists. Each flavor's package version stays unchanged, since no library API changes. The packaged TypeScript schema copy changes only in its `$comment`, so `langs/typescript/CHANGELOG.md` gets one `Changed` entry under `unreleased source version`. No fixture content changes.
+
+Choices the issue left open, each chosen because it is uniform across the five flavors:
+
+- **Validator in Python, not in a flavor.** No flavor reads the fixture schemas in this change, and the checker is a CI tool. Each flavor keeps its own fixture decoder.
+- **Inline `$comment` on the case `id`.** No new keyword and no new schema version. This follows the issue's proposed approach.
+- **Root `additionalProperties` left open on the fixture schemas.** The previous checker read only the named root keys, so the schemas require those keys and do not forbid other root keys.
+
+## 3. Consequences
+
+- The TypeScript runner keeps its duplicate check unchanged. The `$comment` changes no runtime behavior, and the packaged copy stays byte-identical to `spec/schemas/consumer-conformance-v1.schema.json`.
+- A flavor can now generate or check a fixture decoder from the four schemas. No flavor does so in this change.
+- A change to a fixture field now starts in the schema. The checker changes only for a new inventory or cross-field rule.
+- The `tools` extra gains one dependency and its transitive dependencies in `langs/python/uv.lock`. The conformance job, which installs with `--all-extras`, and the release job, which installs with `--extra tools`, both install it. The four example locks that record the editable `vmx` metadata (`examples/python/uv.lock`, `examples/python/nicegui/notes_showcase/uv.lock`, `examples/python/textual/inspector/uv.lock` and `examples/python/textual/notes_showcase/uv.lock`) list the `tools` extra too, so they were regenerated with uv 0.11.28. Their diffs add the `jsonschema` requirement and the marker changes that the new transitive dependencies cause.
+- The schema rules were checked by mutation. Dropping `expected_emissions` from the derived schema's `required` fails two tests. Skipping the schema step of the checker fails 13 tests. Removing each kept rule fails its test: the `expected_values` count, the unknown `transform`, the lifecycle duplicate key, and the mutation index. Each mutation was applied and reverted before the commit.
+
+## 4. Rejected alternatives
+
+- **Ajv in the TypeScript package as the fixture validator.** The checker runs in Python in the conformance job, which has no Node step. Running Ajv there would add a Node setup to the job and a build step to validate spec files. Rejected.
+- **Fixture schemas at the top level of `spec/schemas/`.** The TypeScript sync copies every top-level JSON file into the package, so the schemas would ship in the npm package and the sync check would need four more tracked copies. Rejected.
+- **Closed inventories as schema constraints.** A closed key set can be checked in 2020-12 with `minItems` and `maxItems` equal to its size, an `enum` on each `id`, and one `contains` per expected key. The lifecycle inventory would need 20 `contains` clauses, and each failure would read as a generic "does not contain" message. The issue assigns inventories to the checker, and this change follows it. The rule that no schema can express is uniqueness across an open set, such as consumer case IDs, and that is what the runner enforces.
+- **A new schema version for the case-ID rule.** The comment invalidates no accepted suite, so the versioning rule of ADR-0102 §2.1 does not require a new version.
