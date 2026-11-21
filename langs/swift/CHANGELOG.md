@@ -209,6 +209,11 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Fixed
 
+- `selectCommand` and `deselectCommand` re-raise `canExecuteChanged` when the VM's
+  `isCurrent` flag or its parent link changes. A select, a move of `Current`, or a
+  container add or remove used to leave a bound control with a stale `canExecute()`
+  until the next lifecycle transition (ADR-0242, #1755, `CVM-011`).
+
 - `whenPropertyChanged`, `propertyValueChangedMessagesFor` and `subscribeValue`
   match a forwarding decorator by its canonical ownership identity, through
   nested decorators. A helper given a decorator used to match no message, and

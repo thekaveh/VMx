@@ -13,6 +13,7 @@ use super::{
     RelayCommand, StartAttempt, TreeNode, TreeNodeRef, ViewModelType, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
+use crate::selection_inputs::membership_section;
 use crate::{Message, Subscription, ValueStream};
 use std::thread::{self, ThreadId};
 
@@ -619,7 +620,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 move |child_id, owner_handle| {
                     let transaction =
                         begin_membership_transaction(&detach_transaction, &detach_control)?;
-                    let _gate = lock(&detach_gate);
+                    let _gate = membership_section(&detach_gate);
                     if detach_disposed.load(Ordering::Acquire) || detach_control.disposal_deferred()
                     {
                         return Err(VmxError::Disposed);
@@ -681,7 +682,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                                 rollback_transaction,
                                 rollback_control,
                             );
-                            let _gate = lock(&rollback_gate);
+                            let _gate = membership_section(&rollback_gate);
                             lock(&rollback_selection.uncommitted).end_detach();
                             if rollback_disposed.load(Ordering::Acquire) {
                                 removed.set_parent_handle(None);
@@ -949,7 +950,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let mut late_start;
         let mut staged = self.selection.staging();
         let index = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 if let Some(transfer) = transfer {
                     let _ = transfer.rollback();
@@ -975,7 +976,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
             });
         if let Err(error) = admission {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if let Some(start) = late_start.as_mut() {
                 start.forget();
             }
@@ -1014,7 +1015,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         // Admitted: selectable from here on, also by a `CollectionChanged`
         // subscriber on this thread (spec/06 §4.3 rules 2 and 4).
         {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             staged.admit();
         }
         self.items.publish_add(index);
@@ -1051,7 +1052,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 original_statuses.push(child.status());
             }
             {
-                let _gate = lock(&self.membership_gate);
+                let _gate = membership_section(&self.membership_gate);
                 if self.disposal_pending() {
                     return Err(VmxError::Disposed);
                 }
@@ -1078,7 +1079,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         })();
         if let Err(error) = result {
             let mut compensation_error = None;
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             for child in candidates.iter().rev() {
                 if let Some(index) = self.items().iter().position(|item| item.id() == child.id()) {
                     let _ = self.items.remove_at_silent(index);
@@ -1116,7 +1117,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
         }
         {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             staged.admit();
         }
         on_committed();
@@ -1148,7 +1149,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let mut late_start;
         let mut staged = self.selection.staging();
         {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 if let Some(transfer) = transfer {
                     let _ = transfer.rollback();
@@ -1176,7 +1177,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
             });
         if let Err(error) = admission {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if let Some(start) = late_start.as_mut() {
                 start.forget();
             }
@@ -1215,7 +1216,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         // Admitted: selectable from here on, also by a `CollectionChanged`
         // subscriber on this thread (spec/06 §4.3 rules 2 and 4).
         {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             staged.admit();
         }
         self.items.publish_add(index);
@@ -1236,7 +1237,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             &self.membership_transaction_control,
         )?;
         let removed = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             self.items()
                 .iter()
                 .position(|candidate| same_node(candidate, item))
@@ -1268,7 +1269,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             &self.membership_transaction_control,
         )?;
         let (removed, cleared) = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             let removed = self
                 .items
                 .remove_at_silent(index)
@@ -1299,7 +1300,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let mut late_start;
         let mut staged = self.selection.staging();
         let old = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() {
                 if let Some(transfer) = transfer {
                     let _ = transfer.rollback();
@@ -1333,7 +1334,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
             });
         if let Err(error) = admission {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if let Some(start) = late_start.as_mut() {
                 start.forget();
             }
@@ -1364,7 +1365,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
         }
         let cleared = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             staged.admit();
             self.selection.clear_if_current_locked(&old)
         };
@@ -1398,7 +1399,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             &self.membership_transaction_control,
         )?;
         let changed = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 return Err(VmxError::Disposed);
             }
@@ -1423,7 +1424,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             &self.membership_transaction_control,
         )?;
         let (removed, cleared) = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             for item in self.items() {
                 if item
                     .parent_handle()
@@ -1645,7 +1646,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     pub fn dispose(&self) -> VmxResult<()> {
         self.core.abandon_child_settle();
         let snapshot = loop {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             match self.membership_transaction_control.dispose_disposition() {
                 // A disposal from a selection's own publication returns at
                 // once, before any wait (spec/06 §4.3 rule 5).

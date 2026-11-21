@@ -34,6 +34,7 @@ import {
 } from "../components/vmContainer.js";
 import { ViewModelType } from "../components/types.js";
 import type { ChildOrder } from "../components/types.js";
+import { enterSelectionScope, leaveSelectionScope } from "../components/selectionInputScope.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
@@ -722,6 +723,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   #beginMembershipTransaction(): void {
     this.#requireChildAdmission();
     this.#membershipTransactionActive = true;
+    // The transaction is a selection-input scope (ADR-0242). Its end closes it.
+    enterSelectionScope();
   }
 
   #requireTransactionCanContinue(): void {
@@ -732,8 +735,14 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   #endMembershipTransaction(propagateDisposeFailure = true): void {
     this.#membershipTransactionActive = false;
-    if (this.#disposeDeferred && this.#activeCurrentPublications === 0) {
-      this.#runDeferredDispose(propagateDisposeFailure);
+    // Closes the scope after the membership change: a queued Select and
+    // Deselect notification runs with no membership change in progress (ADR-0242).
+    try {
+      leaveSelectionScope();
+    } finally {
+      if (this.#disposeDeferred && this.#activeCurrentPublications === 0) {
+        this.#runDeferredDispose(propagateDisposeFailure);
+      }
     }
   }
 

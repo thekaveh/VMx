@@ -156,6 +156,8 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
             if (index < 0 || vm is not VM typed)
             {
                 ReleaseMembershipTransactionLocked();
+                // No link was written, so this close queues nothing (ADR-0242).
+                SelectionInputScope.Leave();
                 throw new InvalidOperationException("The recorded parent does not contain the child identity.");
             }
             child = typed;
@@ -830,6 +832,8 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         // Recorded so a disposal that waits for this transaction can see a
         // wait-for cycle (#717).
         WaitForGraph.Shared.Acquire(_membershipGate, _membershipTransactionOwnerThreadId);
+        // The transaction is a selection-input scope (ADR-0242). Its end closes it.
+        SelectionInputScope.Enter();
     }
 
     private void ReleaseMembershipTransactionLocked()
@@ -863,10 +867,16 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
             // Dispose (#1153, the CompositeVM twin of #1064).
             dispose = _disposeDeferred;
         }
-        if (dispose)
+        // Closes the scope after the gate is released: a queued Select and
+        // Deselect notification runs with no container lock held (ADR-0242).
+        try { SelectionInputScope.Leave(); }
+        finally
         {
-            try { Dispose(); }
-            catch when (!propagateDisposeFailure) { }
+            if (dispose)
+            {
+                try { Dispose(); }
+                catch when (!propagateDisposeFailure) { }
+            }
         }
     }
 

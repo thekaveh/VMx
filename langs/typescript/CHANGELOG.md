@@ -231,6 +231,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `selectCommand` and `deselectCommand` re-raise `canExecuteChanged` when the VM's
+  `isCurrent` flag or its parent link changes. A select, a move of `Current`, or a
+  container add or remove used to leave a bound control with a stale `canExecute()`
+  until the next lifecycle transition (ADR-0242, #1755, `CVM-011`).
+
 - `AggregateChangeStream` disposed from a call-out of a reconciliation (a
   selected `subscribe`, a selector, `source.snapshot()`, or the teardown of a
   removed member) releases the subscriptions it staged and delivers only

@@ -55,6 +55,9 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
+        // The slot replacement is a selection-input scope (ADR-0242): the scope
+        // closes after the slot lock below is released.
+        using var selectionScope = SelectionInputScope.Open();
         lock (_aggregateParent)
         {
             var next1 = _factory1();
