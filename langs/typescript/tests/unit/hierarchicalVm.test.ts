@@ -320,6 +320,9 @@ function deepChain(levels: number, hub: IMessageHub, dispatcher: RxDispatcher): 
   return build(0);
 }
 
+// The 10,000-level chains are slow on the CI runners: the walk test takes about
+// 5.5 s, over vitest's 5,000 ms default. The 30 s budget covers that CI cost of
+// the iterative walk test added for issue #1912. It changes no assertion.
 describe("DeepChain", () => {
   it("deep chain: walk, walkExpanded, find and depth reach the last level", () => {
     const root = deepChain(DEEP_CHAIN_LEVELS, makeHub(), RxDispatcher.immediate());
@@ -332,7 +335,7 @@ describe("DeepChain", () => {
     expect(last.path).toHaveLength(DEEP_CHAIN_LEVELS);
     expect([...walkExpanded(root)]).toHaveLength(DEEP_CHAIN_LEVELS);
     expect(find(root, (vm) => vm === last)).toBe(last);
-  });
+  }, 30_000);
 
   it("deep chain: a materialized chain moves under a new parent", () => {
     const hub = makeHub();
@@ -349,7 +352,7 @@ describe("DeepChain", () => {
     expect(last.depth).toBe(DEEP_CHAIN_LEVELS);
     expect(last.path[0]).toBe(newRoot);
     expect(last.path[1]).toBe(root);
-  });
+  }, 30_000);
 });
 
 describe("WalkOrder", () => {
