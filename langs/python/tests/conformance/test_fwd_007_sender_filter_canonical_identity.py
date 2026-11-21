@@ -10,6 +10,7 @@ spec/09-forwarding.md §1 and ADR-0233.
 
 from __future__ import annotations
 
+import types
 from dataclasses import dataclass
 from typing import Any
 from unittest.mock import Mock
@@ -138,3 +139,33 @@ def test_when_property_changed_given_a_mock_matches_only_its_own_messages() -> N
     assert len(messages) == 1
     assert messages[0].sender is sender
     subscription.dispose()
+
+
+@pytest.mark.conformance("FWD-007")
+def test_helpers_given_a_decorator_over_a_plain_object_subscribe_without_error() -> None:
+    # A decorator may wrap an object that is not a VM (spec/09-forwarding.md §1). That
+    # object is the canonical identity, so the helpers match no message and do not fail.
+    hub: MessageHub[Message] = MessageHub()
+    plain: Any = types.SimpleNamespace(name="plain", hint="h", model=_Model(1), hub=hub)
+    given: Any = ForwardingComponentVM(plain)
+    other = _make_vm(hub, "other")
+    messages: list[PropertyChangedMessage[Any]] = []
+    values: list[Any] = []
+    selected: list[tuple[int, int]] = []
+    when_sub = when_property_changed(hub, given, "model").subscribe(messages.append)
+    value_sub = property_value_changed_messages_for(hub, given, "model").subscribe(values.append)
+    select_sub = subscribe_value(
+        given,
+        lambda vm: vm.model.value,
+        lambda current, previous: selected.append((current, previous)),
+    )
+
+    other.model = _Model(9)
+
+    assert messages == []
+    assert values == []
+    assert selected == []
+
+    when_sub.dispose()
+    value_sub.dispose()
+    select_sub.dispose()

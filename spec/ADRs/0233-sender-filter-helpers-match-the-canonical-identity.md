@@ -3,10 +3,12 @@
 - **Status:** Accepted
 - **Date:** 2026-11-21
 - **Spec version:** 3.30.0 (chapter 03 §7.1, §7.2, §7.4 and §8, chapter 09 §1 and §3, `FWD-007`)
-- **Amends:** [ADR-0032](0032-property-value-changed-messages.md) and
-  [ADR-0050](0050-v3-parent-member-messaging-and-selection-clarifications.md) §2.1,
-  for the statement that §7.1 and §7.2 carry no conformance ID. Only their sender
-  rule is tested, by `FWD-007`.
+- **Amends:** [ADR-0032](0032-property-value-changed-messages.md) for its sender
+  identity check; [ADR-0050](0050-v3-parent-member-messaging-and-selection-clarifications.md)
+  §2.1 for its sender rule and for the statement that §7.1 and §7.2 carry no
+  conformance ID; and [ADR-0095](0095-cross-flavor-subscribe-value.md) §2 rule 1 for
+  the sender match of `subscribeValue`. Only the sender rules change, and `FWD-007`
+  tests them.
 - **Extends:** [ADR-0124](0124-canonicalize-forwarding-ownership-and-callback-boundaries.md)
   (the canonical ownership identity) and
   [ADR-0221](0221-forwarding-decorators-notify-through-the-wrapped-component.md)
@@ -54,7 +56,12 @@ below, and each choice has its reason here.
      decorators. An attribute lookup (`getattr`) is not used, because a
      `unittest.mock` object synthesizes every attribute and would get a false
      identity. Such an object is its own identity, as this rule states. A type
-     check, unlike `isinstance`, is not fooled by a mock's `spec`.
+     check, unlike `isinstance`, is not fooled by a mock's `spec`. A forwarding
+     decorator resolves through its wrapped component, one layer at a time. So a
+     decorator over an object that is not a VM has that object as its identity,
+     which spec/09-forwarding.md §1 allows. The helpers then match no message and
+     do not fail. Without this step the helpers raised `AttributeError` at
+     subscribe time, while TypeScript returned a subscription.
    - TypeScript walks the public `wrappedBase` chain to its last VM, through the new
      internal `canonicalSender`. This is the chain that `useVm` already follows
      (ADR-0213). The walk stops at a VM with no `wrappedBase`, and at a getter that
@@ -74,13 +81,17 @@ below, and each choice has its reason here.
    They pin the normative `subscribeValue` state machine, and this rule changes
    only the sender that the state machine names. The ID is the next free `FWD`
    number. The issue's dependency section names no ID for this rule.
-1. **The amendments and extensions.** This ADR amends ADR-0032 and ADR-0050 §2.1 for
-   the statement that §7.1 and §7.2 carry no conformance ID. The sender rule of
-   §7.1 and §7.2 is now tested. Every other rule of those sections stays
-   informative. This ADR extends ADR-0124 and ADR-0221 by applying their identity
-   and sender rules to the §7 helpers. Neither earlier rule changes. The back-links
-   are in the `Status` lines and registry cells of ADR-0032, ADR-0050, ADR-0124 and
-   ADR-0221 (`spec/ADRs/README.md` §2.2 and §2.3).
+1. **The amendments and extensions.** This ADR amends three earlier sender rules.
+   ADR-0032 gives the sender identity check of the value helper. ADR-0050 §2.1 gives
+   the reference-equal sender of the `whenPropertyChanged` helper, and its statement
+   that §7.1 and §7.2 carry no conformance ID. ADR-0095 §2 rule 1 gives the
+   object-identity match of `subscribeValue`. Each of those sender rules now names
+   the canonical ownership identity, and the sender rule of §7.1 and §7.2 is tested
+   by `FWD-007`. Every other rule of those sections and ADRs stays as it was. This
+   ADR extends ADR-0124 and ADR-0221 by applying their identity and sender rules to
+   the §7 helpers. Neither earlier rule changes. The back-links are in the `Status`
+   lines and registry cells of ADR-0032, ADR-0050, ADR-0095, ADR-0124 and ADR-0221
+   (`spec/ADRs/README.md` §2.2 and §2.3).
 1. **Rust: no library change.** The helper is `MessageHub::subscribe_value` at
    `langs/rust/src/runtime.rs` L1196-L1216. It compares `change.sender_id` with the
    `sender_id` argument, which the caller supplies. A `ForwardingComponentVm` nests
@@ -113,6 +124,8 @@ below, and each choice has its reason here.
   of the wrapped VM in C#, Python, TypeScript and Swift. In Rust it already did.
 - A helper given a plain VM behaves as before. A raw `Messages` filter behaves as
   before.
+- A helper given a decorator over an object that is not a VM subscribes without
+  error and matches no message. Python now behaves as TypeScript does.
 - The `FWD-007` tests fail on the pre-fix code in each of the four changed flavors,
   and pass after the fix. The Rust test passes on both.
 - The chapter 03 §7 and chapter 09 §1 text names the rule. The chapter 03 §8 and
@@ -149,8 +162,9 @@ Python change.
   `canonicalSender` returns its argument, and Swift `canonicalSenderIdentity`
   skips its component branch. In each flavor the three positive tests (one per
   helper) fail, and the other-VM guard passes, because the sender filter still
-  holds. Python fails 6 of 11 cases, the one-layer and two-layer cases of each
-  helper. C# fails 3 of 4 tests, TypeScript 3 of 4, and Swift 3 of 4 tests (six
+  holds. Python fails 6 of 12 cases, the one-layer and two-layer cases of each
+  helper; the plain-VM cases and the decorator-over-plain-object test pass.
+  C# fails 3 of 4 tests, TypeScript 3 of 4, and Swift 3 of 4 tests (six
   assertions).
 - **M4, the Rust decorator id.** `ForwardingComponentVm::id()` returns the wrapped
   id plus one. The Rust `FWD-007` test fails at `tests/conformance/forwarding.rs`
@@ -159,6 +173,10 @@ Python change.
   `getattr(sender, "_ownership_identity", sender)`. The mock test fails, because a
   `Mock(spec=ComponentVMOf)` sender then reports a synthesized identity. The type
   check in section 2, decision 1 is the fix for this case.
+- **M6, no decorator walk (Python).** `canonical_sender` returns
+  `sender._ownership_identity` for every VMx component, without the step through
+  the wrapped component. The decorator-over-plain-object test fails with
+  `AttributeError`, and the other eleven Python cases pass.
 
 The earlier mutation runs M2 (one wrapping level) and M3 (sender filter removed)
 were not repeated for this revision, and no result is claimed for them here.

@@ -1,6 +1,6 @@
 # ADR 0032 — `PropertyValueChangedMessages` helper (informative)
 
-**Status:** Accepted (2026-05-28; amended by ADR-0233)
+**Status:** Accepted (2026-05-28; sender identity amended by ADR-0233)
 **Spec version:** introduced in 2.1.0
 
 ## 1. Context

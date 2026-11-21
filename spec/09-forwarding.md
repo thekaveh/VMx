@@ -91,7 +91,8 @@ act on the canonical ownership identity (ADR-0221):
 The hub subscription helpers of `03-messages.md` §7 follow the same identity. Their
 sender filter compares the canonical ownership identity of the VM that they are
 given, so a decorator, through any number of layers, matches the messages of the
-wrapped component (`FWD-007`, ADR-0233).
+wrapped component (`FWD-007`, ADR-0233). A decorator over an object that is not a
+VM has that object as its identity, so the helpers match no message and do not fail.
 
 C# decorators expose the helpers as protected `NotifyPropertyChanged` and
 `RaisePropertyChanged`. In C#, Python, and TypeScript, a decorator can wrap a
