@@ -653,4 +653,81 @@ final class ForwardingTests: XCTestCase {
         let decorator = NoopForwardingComposite(inner)
         assertHelpersPublishThroughWrapped(inner: inner, decorator: decorator, hub: hub)
     }
+
+    /// FWD-007 — The hub helpers given a two-layer decorator match the wrapped
+    /// VM's write: one message with the wrapped VM as sender, one value, and one
+    /// selected change (ADR-0233, ADR-0221, ADR-0124).
+    func testSenderFilterHelpersMatchTwoLayerDecoratorByCanonicalIdentity() throws {
+        let hub = MessageHub()
+        let inner = try ComponentVMOf<String>.builder()
+            .name("inner")
+            .model("m")
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        let outer = NoopForwardingComponent(NoopForwardingComponent(inner))
+        var messages: [PropertyChangedMessage] = []
+        var values: [String] = []
+        var selected: [(String, String)] = []
+        let whenCancel = hub.whenPropertyChanged(outer, "model")
+            .sink { messages.append($0) }
+        let valueCancel = hub.propertyValueChangedMessagesFor(
+            outer, "model", getter: { outer.model }
+        ).sink { values.append($0) }
+        let selectCancel = try subscribeValue(
+            outer,
+            selector: { $0.model },
+            callback: { selected.append(($0, $1)) }
+        )
+
+        outer.model = "updated"
+
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertTrue(messages.first?.sender === inner)
+        XCTAssertEqual(values, ["updated"])
+        XCTAssertEqual(selected.count, 1)
+        XCTAssertEqual(selected.first?.0, "updated")
+        XCTAssertEqual(selected.first?.1, "m")
+        whenCancel.cancel()
+        valueCancel.cancel()
+        selectCancel.cancel()
+    }
+
+    /// FWD-007 — The same helpers given a two-layer decorator ignore a write by
+    /// another VM on the same hub (ADR-0233).
+    func testSenderFilterHelpersIgnoreOtherVMsForTwoLayerDecorator() throws {
+        let hub = MessageHub()
+        let inner = try ComponentVMOf<String>.builder()
+            .name("inner")
+            .model("m")
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        let other = try ComponentVMOf<String>.builder()
+            .name("other")
+            .model("m")
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        let outer = NoopForwardingComponent(NoopForwardingComponent(inner))
+        var messages: [PropertyChangedMessage] = []
+        var values: [String] = []
+        var selected: [(String, String)] = []
+        let whenCancel = hub.whenPropertyChanged(outer, "model")
+            .sink { messages.append($0) }
+        let valueCancel = hub.propertyValueChangedMessagesFor(
+            outer, "model", getter: { outer.model }
+        ).sink { values.append($0) }
+        let selectCancel = try subscribeValue(
+            outer,
+            selector: { $0.model },
+            callback: { selected.append(($0, $1)) }
+        )
+
+        other.model = "other-updated"
+
+        XCTAssertTrue(messages.isEmpty)
+        XCTAssertTrue(values.isEmpty)
+        XCTAssertTrue(selected.isEmpty)
+        whenCancel.cancel()
+        valueCancel.cancel()
+        selectCancel.cancel()
+    }
 }

@@ -1202,6 +1202,21 @@ receives no message
 and the local-only raise primitive again
 **Then** neither channel emits
 
+### FWD-007 — Sender-filter helpers match a decorator by its canonical identity
+
+Per spec/03-messages.md §7.1, §7.2 and §7.4, spec/09-forwarding.md §1 and ADR-0233.
+
+**Given** a component `inner` with a hub, a decorator `first` around `inner`, and a
+decorator `outer` around `first`, and a second component `other` on the same hub
+**When** the model of `outer` is written
+**Then** each hub subscription helper given `outer` (`whenPropertyChanged`,
+`PropertyValueChangedMessagesFor` and `subscribeValue`) emits once: the message
+names `inner` as its sender, the property value is the new value, and the selected
+value calls back once with the new value (Rust: `subscribe_value` given `outer`'s
+`id()` calls back once)
+**When** the model of `other` is written
+**Then** no helper given `outer` emits for that message
+
 ______________________________________________________________________
 
 ## 12. Builders (`BLD-NNN`)

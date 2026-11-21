@@ -231,6 +231,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `whenPropertyChanged`, `propertyValueChangedMessagesFor` and `subscribeValue`
+  match a forwarding decorator by its canonical identity, through nested
+  decorators: the identity is the innermost VM on the `wrappedBase` chain. A
+  helper given a decorator used to match no message, and its subscription stayed
+  empty. The signatures are unchanged (ADR-0233, #1911, `FWD-007`).
+
 - `SearchableState` releases its `sourceChanges` subscription when the
   constructor's post-subscribe reconcile throws. The caller still receives the
   original error, and a later signal no longer runs the `items` callback or the

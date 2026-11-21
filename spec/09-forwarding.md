@@ -88,6 +88,11 @@ act on the canonical ownership identity (ADR-0221):
 - After the wrapped component is disposed, neither helper emits on any
   channel (`05-component-vm.md` §2.3, ADR-0223).
 
+The hub subscription helpers of `03-messages.md` §7 follow the same identity. Their
+sender filter compares the canonical ownership identity of the VM that they are
+given, so a decorator, through any number of layers, matches the messages of the
+wrapped component (`FWD-007`, ADR-0233).
+
 C# decorators expose the helpers as protected `NotifyPropertyChanged` and
 `RaisePropertyChanged`. In C#, Python, and TypeScript, a decorator can wrap a
 component that does not derive from the VMx base class; such a decorator cannot
@@ -132,4 +137,5 @@ chapter, and chapter 12 states the behavior of each ID.
 | `FWD-003`            | §2 `ForwardingCompositeVM<VM>`                        |
 | `FWD-004`, `FWD-005` | §1 ownership identity and owned resources             |
 | `FWD-006`            | §1 notification helpers (ADR-0221, ADR-0223)          |
+| `FWD-007`            | §1 hub subscription helpers (ADR-0233)                |
 | `DISP-001`           | §2 forwarded disposal (chapter 01 §4)                 |

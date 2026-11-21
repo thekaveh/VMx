@@ -36,9 +36,10 @@ public static class MessageHubExtensions
         ThrowHelper.ThrowIfNull(sender, nameof(sender));
         ThrowHelper.ThrowIfNull(propertyName, nameof(propertyName));
 
+        var identity = SenderIdentity.Of(sender);
         return new IsolatedObservable<IPropertyChangedMessage<object>>(hub.Messages
             .OfType<IPropertyChangedMessage<object>>()
-            .Where(m => ReferenceEquals(m.SenderObject, sender)
+            .Where(m => ReferenceEquals(m.SenderObject, identity)
                 && string.Equals(m.PropertyName, propertyName, StringComparison.Ordinal)));
     }
 
@@ -88,8 +89,9 @@ public static class MessageHubExtensions
             names.Add(name);
         }
 
+        var identity = SenderIdentity.Of(sender);
         return new IsolatedObservable<IPropertyChangedMessage<object>>(hub.Messages
             .OfType<IPropertyChangedMessage<object>>()
-            .Where(m => ReferenceEquals(m.SenderObject, sender) && names.Contains(m.PropertyName)));
+            .Where(m => ReferenceEquals(m.SenderObject, identity) && names.Contains(m.PropertyName)));
     }
 }
