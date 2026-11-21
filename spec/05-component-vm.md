@@ -130,9 +130,19 @@ A call of the local-only primitive that begins after VM disposal is also a
 no-op (ADR-0223). The library's own terminal `Status` and `IsConstructed`
 notifications are part of disposal and still reach local observers.
 
-This is the only property-authoring convenience added by VMx. Per ADR-0040,
-VMx does not provide `IProperty` wrappers, decorators, implicit accessors,
-mutation history, or automatic equality/old-value tracking.
+Today this helper is the only property-authoring convenience in VMx. No flavor
+provides `IProperty` wrappers, decorators, implicit accessors, mutation history,
+or automatic equality/old-value tracking (ADR-0040). ADR-0234 adopts registered
+reactive state as the direction for view-model properties. No flavor
+implements it yet. Under that direction a class will register its published
+state and its computed properties once, VMx will track their dependencies, and
+each accepted change will call this helper once per changed name, after the
+equality check that the registered state owns. The helper keeps the contract
+of this section: it neither compares nor assigns (ADR-0083 §4.4). Chapter 24
+will define the normative rules when the flavors implement them, and this
+paragraph changes then. A registered property keeps its value type on the
+view-model's public surface: no `IProperty` wrapper, no implicit conversion and
+no mutation history.
 
 ## 3. Modeled variant additions (`ComponentVM<M>`)
 

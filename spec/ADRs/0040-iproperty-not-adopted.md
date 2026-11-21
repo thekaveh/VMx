@@ -1,6 +1,6 @@
 # ADR 0040 — `IProperty<T>` reactive backing-field abstraction not adopted
 
-**Status:** Accepted (2026-06-13)
+**Status:** Accepted (2026-06-13; §2, the INPC-pattern clause of §4 item 1, and §4 item 2 superseded by ADR-0234 for registered view-model state)
 **Spec version:** 2.6.0 (teaching ADR; no code change)
 **Related:** ADR-0018, ADR-0039, `spec/proposals/2026-06-13-vmx-absorption-audit-followup.md` §6 L2
 
