@@ -161,6 +161,12 @@ below for them.
 
 ### Fixed
 
+- `TokenPagedComposition` runs every notification step of a committed load or
+  refresh, even when a subscriber fails. A failing `on_collection_changed` or
+  `on_property_changed` subscriber used to stop the later steps, so `items`,
+  `current_token`, `has_more` and the command re-signal could go unsent. The first
+  failure still reaches the caller after the last step. The public API does not
+  change (ADR-0234, #1883, `COL-073`).
 - `when_property_changed`, `property_value_changed_messages_for` and
   `subscribe_value` match a forwarding decorator by its canonical ownership
   identity, through nested decorators. A helper given a decorator used to match

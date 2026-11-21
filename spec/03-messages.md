@@ -210,13 +210,18 @@ These rules apply to the hub and to the library channels below (ADR-0191):
 - the granular, `Reset` and `Count` notifications of `ObservableList`, the
   dictionary's key views, and the C# `Count` and `Item[]` `PropertyChanged`
   handlers of the serviced collections (chapter 21 §2.5, §3.3, §4.6,
-  ADR-0220).
+  ADR-0220);
+- the `Reset` event, the `Items`, `CurrentToken` and `HasMore` property
+  notifications, and the command re-signal of `TokenPagedComposition`, including
+  its `PropertyChanged` handlers (chapter 21 §6.2, ADR-0234).
 
 Only these deliveries are *call-fed*:
 
 - a mutation or disposal of a collection or container;
 - the disposal of a `DerivedProperty` or `SearchableState`;
-- a `RaiseCanExecuteChanged` call.
+- a `RaiseCanExecuteChanged` call;
+- a token-paging load or refresh, with all of its notification steps (chapter
+  21 §6.2).
 
 Every other delivery is *stream-fed*. This includes a hub `Send`, a source or
 trigger emission, a debounce timer, a `SearchableState` term change and a
@@ -248,8 +253,9 @@ trigger emission, a debounce timer, a `SearchableState` term change and a
 
 These rules do not fix the order among the subscribers of one delivery. Only
 `AggregateChangeStream` fixes it (chapter 21 §9.5). They do not cover other
-`PropertyChanged` handlers, `AggregateChangeStream` subscriber failures
-(chapter 21 §9.5), or a failing `DerivedProperty` transform or source.
+`PropertyChanged` handlers, except the token-paging handlers named above.
+They do not cover `AggregateChangeStream` subscriber failures (chapter 21
+§9.5), or a failing `DerivedProperty` transform or source.
 
 ## 4. Threading
 

@@ -256,6 +256,13 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- `TokenPagedComposition` runs every notification step of a committed load or
+  refresh, even when a subscriber fails. A failing `Reset` or `PropertyChanged`
+  handler used to stop the later steps, so `Items`, `CurrentToken`, `HasMore` and
+  the command re-signal could go unsent. The first failure still reaches the
+  caller after the last step. The public API does not change (ADR-0234, #1883,
+  `COL-073`).
+
 - `WhenPropertyChanged`, `PropertyValueChangedMessagesFor` and `SubscribeValue`
   match a forwarding decorator by its canonical ownership identity, through
   nested decorators. A helper given a decorator used to match no message, and
