@@ -3828,6 +3828,25 @@ structure
 > Spec: `21-collections.md` §2.5, §3.3, §4.6, `03-messages.md` §3.6,
 > ADR-0220.
 
+### COL-073 — a failing token-paging subscriber skips no later notification step
+
+**Given** a `TokenPagedComposition` with a `Reset` subscriber that fails on every
+delivery, and a later `Reset` subscriber
+**When** a load that appends items, or a refresh that replaces the accumulator,
+completes
+**Then** the later `Reset` subscriber receives the event once
+**And** `Items`, `CurrentToken` and `HasMore` are notified once each, in that
+order, and then both commands re-signal `CanExecuteChanged`
+**And** a failing `PropertyChanged` subscriber skips no later property
+notification and no command re-signal
+**And** a `Reset` subscriber that disposes the composition stops the later
+property notifications and the command re-signal
+**And** C# and Python rethrow the first failure after the last step, TypeScript,
+Swift and Rust return normally, and Swift, whose subscribers cannot fail, asserts
+that structure
+
+> Spec: `21-collections.md` §6.2, §8, `03-messages.md` §3.6, ADR-0239.
+
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles

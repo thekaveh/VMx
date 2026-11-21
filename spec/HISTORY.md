@@ -811,5 +811,22 @@ five flavors where ADR-0121 requires it. It moves the spec release history from
 The 72 new conformance IDs bring the catalog to 497 library IDs plus 5
 scenario IDs. Chapter count stays at 24.
 
-See ADR-0146 through ADR-0180, ADR-0184 through ADR-0228 and the affected
-behavior chapters. No ADR uses the numbers 0181 to 0183.
+v3.30.0 also records five decisions on registered reactive state for
+view-models, which no flavor implements yet. They add no conformance ID.
+ADR-0234 adopts state and computed properties that a view-model registers,
+with dependencies that VMx tracks, and one announcement per changed value for
+each accepted write. It supersedes ADR-0040 §2, the INPC-pattern clause of §4
+item 1 and §4 item 2 for registered state, amends ADR-0083 §4.1, and extends
+ADR-0172 with the wait of a foreign write for the reactive drain. ADR-0235
+adds command helpers that create and own a command, makes every command that a
+consumer builds track its predicate, and amends ADR-0086 §2 and ADR-0012 §4.
+ADR-0236 adds members registered with an owner, owner-scoped injection and
+walks that visit members; it extends ADR-0162 §2.2, ADR-0107 §2 and ADR-0105
+§2. ADR-0237 adds construct-scoped reactions and amends ADR-0041 §4 and
+ADR-0090 §2 item 4. ADR-0238 adds a keyed driver for `AsyncResourceVM` that
+the owner declares, and it extends ADR-0100. Chapter 05 §2.3 records the
+direction. Chapter 24 and its conformance IDs land with the implementations.
+
+See ADR-0146 through ADR-0180, ADR-0184 through ADR-0230, ADR-0232, the
+decision records ADR-0234 through ADR-0238, and the affected behavior
+chapters. No ADR uses the numbers 0181 to 0183.

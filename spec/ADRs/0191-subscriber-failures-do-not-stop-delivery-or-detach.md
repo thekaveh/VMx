@@ -1,8 +1,8 @@
 # ADR 0191 — Subscriber failures do not stop delivery or detach a subscription
 
-- **Status:** Accepted (Extended by ADR-0220; §2.5 note on `PropertyChanged`
-  handlers and key views superseded by ADR-0220; decision rules 2 and 6 amended
-  by ADR-0232)
+- **Status:** Accepted (Extended by ADR-0220 and ADR-0239; §2.5 note on
+  `PropertyChanged` handlers and key views superseded by ADR-0220; decision rules
+  2 and 6 amended by ADR-0232)
 - **Date:** 2026-11-09
 - **Spec version:** 3.30.0 (chapter 03 §3.4 and §3.6, chapter 01 §1.4,
   chapter 04 §4, chapter 06 §8.2, chapter 15 §4.1, chapter 21 §2.5, `HUB-007`,
