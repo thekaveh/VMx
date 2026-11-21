@@ -2722,6 +2722,22 @@ structure
 
 > Spec: `06-composite-vm.md` §8.2, `03-messages.md` §3.6, ADR-0191.
 
+### SRCH-010 — a failed post-subscribe reconcile releases the source signal
+
+**Given** a `SearchableState` whose item supplier succeeds on its first read and
+fails on its second read, and a source-change signal
+**When** construction runs and its post-subscribe reconcile, the second read,
+fails
+**Then** the caller receives the original failure
+**And** the signal has no subscriber from the helper
+**When** the signal emits one value after the failed construction
+**Then** the item supplier is not read
+
+> Spec: `06-composite-vm.md` §8.2, ADR-0232. Rust, which pulls `filtered()`,
+> checks that the panic reaches the caller and that a later source message
+> does not read the supplier. Swift, whose reconcile cannot fail, checks that a
+> released helper stops listening to the signal.
+
 ______________________________________________________________________
 
 ## 21. GroupVM additions (`GRP-NNN`)
