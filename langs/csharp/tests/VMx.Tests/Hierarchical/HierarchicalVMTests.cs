@@ -1,4 +1,6 @@
+using System.Runtime.ExceptionServices;
 using FluentAssertions;
+using static VMx.Tree.Tree;
 using VMx.Components;
 using VMx.Hierarchical;
 using VMx.Tests.Helpers;
@@ -286,5 +288,137 @@ public class HierarchicalVMTests
         var rejection = result.Rejections.Should().ContainSingle().Subject;
         rejection.Reason.Should().Be(BatchAttachRejectionReason.SelectorFailed);
         rejection.Detail.Should().Be(failure.Message);
+    }
+
+    // ── Deep chains and pre-order (no recursion; spec/13 §2 and §3) ──────────
+
+    private const int DeepChainLevels = 10_000;
+
+    // A chain of `levels` nodes. Each child list comes from a factory, so building
+    // the chain does not touch the path caches (AddChild reads them).
+    private static Node DeepChain(int levels, TestHub hub, TestDispatcher dispatcher)
+    {
+        Node Build(int depth)
+        {
+            IEnumerable<Node> Children(Node _)
+            {
+                if (depth + 1 < levels)
+                    yield return Build(depth + 1);
+            }
+
+            return new Node(new Model(), Children, hub, dispatcher, name: $"n{depth}");
+        }
+
+        return Build(0);
+    }
+
+    // A recursive walk or invalidation of a 10,000-level chain overflows a 512 KiB
+    // stack (measured), but it passed on the default thread stack (measured on net9.0,
+    // Release). So each deep test runs its body on a thread with this fixed stack, and
+    // a recursive implementation fails it. The 60 s budget bounds the body's run time.
+    private const int DeepChainStackBytes = 512 * 1024;
+    private const int DeepChainBudgetMs = 60_000;
+
+    private static void RunOnSmallStack(Action body)
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                body();
+            }
+            catch (Exception caught)
+            {
+                failure = caught;
+            }
+        }, DeepChainStackBytes)
+        {
+            IsBackground = true,
+        };
+        thread.Start();
+        thread.Join(DeepChainBudgetMs).Should().BeTrue(
+            $"the deep-chain body finishes within {DeepChainBudgetMs} ms");
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    [Fact]
+    public void Deep_Chain_Walks_Find_And_Depth_Reach_The_Last_Level() => RunOnSmallStack(() =>
+    {
+        var root = DeepChain(DeepChainLevels, new TestHub(), new TestDispatcher());
+
+        var nodes = Walk(root).ToList();
+        var last = (Node)nodes[^1];
+
+        nodes.Select(n => n.Name).Should().Equal(
+            Enumerable.Range(0, DeepChainLevels).Select(i => $"n{i}"));
+        last.Depth.Should().Be(DeepChainLevels - 1);
+        last.Path.Should().HaveCount(DeepChainLevels);
+        WalkExpanded(root).Count().Should().Be(DeepChainLevels);
+        Find(root, n => ReferenceEquals(n, last)).Should().BeSameAs(last);
+    });
+
+    [Fact]
+    public void Deep_Chain_Moves_Under_A_New_Parent() => RunOnSmallStack(() =>
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var root = DeepChain(DeepChainLevels, hub, dispatcher);
+        // Materialize top-down in a loop, so the move itself is what recurses.
+        var last = root;
+        while (!last.IsLeaf)
+            last = last.Children[0];
+        // Cache the deepest path first, so the move has to invalidate it.
+        last.Depth.Should().Be(DeepChainLevels - 1);
+        var newRoot = new Node(new Model(), _ => [], hub, dispatcher, name: "new-root");
+
+        newRoot.AddChild(root);
+
+        root.HierarchicalParent.Should().BeSameAs(newRoot);
+        last.Depth.Should().Be(DeepChainLevels);
+        last.Path.Should().HaveCount(DeepChainLevels + 1);
+        last.Path[0].Should().BeSameAs(newRoot);
+        last.Path[1].Should().BeSameAs(root);
+    });
+
+    [Fact]
+    public void Walks_Pin_Preorder_And_Child_Read_Order_On_A_Small_Tree()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var shape = new Dictionary<string, string[]>
+        {
+            ["root"] = ["a", "b"],
+            ["a"] = ["a1", "a2"],
+            ["a1"] = ["a1x"],
+            ["b"] = ["b1"],
+        };
+        var reads = new List<string>();
+        var byName = new Dictionary<string, Node>();
+        foreach (var name in new[] { "root", "a", "a1", "a1x", "a2", "b", "b1" })
+        {
+            var self = name;
+            byName[self] = new Node(
+                new Model(),
+                _ =>
+                {
+                    reads.Add(self);
+                    return shape.TryGetValue(self, out var kids)
+                        ? kids.Select(k => byName[k])
+                        : Enumerable.Empty<Node>();
+                },
+                hub,
+                dispatcher,
+                name: self);
+        }
+        var root = byName["root"];
+        var expected = new[] { "root", "a", "a1", "a1x", "a2", "b", "b1" };
+
+        Walk(root).Select(n => n.Name).Should().Equal(expected);
+        reads.Should().Equal(expected, "children are read in the same pre-order as the walk");
+        WalkExpanded(root).Select(n => n.Name).Should().Equal(expected);
+        Find(root, n => n.Name == "b1").Should().BeSameAs(byName["b1"]);
+        byName["a1x"].Depth.Should().Be(3);
     }
 }
