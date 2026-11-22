@@ -1352,10 +1352,11 @@ root: CompositeVM
 
 ### UTIL-002 — walk skips empty aggregate slots
 
-**Given** an `AggregateVM3` with `Component1` populated, `Component2 == null`, `Component3` populated
+**Given** an `AggregateVM3` built with three component factories and not yet constructed
 **When** `list(walk(agg))` is materialized
-**Then** the sequence contains `agg`, `agg.Component1`, `agg.Component3`
-**And** the sequence does NOT contain `null` / `None` / any entry for the empty slot
+**Then** the sequence is exactly `[agg]`, with no entry for an empty slot
+**When** `agg.construct()` runs and `list(walk(agg))` is materialized again
+**Then** the sequence is `[agg, agg.Component1, agg.Component2, agg.Component3]`
 
 ### UTIL-003 — find returns first matching node and short-circuits
 
@@ -3974,7 +3975,7 @@ with `Source == parent` and `Affected == child`
 
 ### HIER-012 — `walk_expanded` honors lazy boundaries via `ExpandableState`
 
-**Given** a three-level tree where the root has `ExpandableState` composed
+**Given** a two-level tree (a root with leaf children) where the root has `ExpandableState` composed
 **And** the root's `IsExpanded` is false
 **When** `walk_expanded(root)` is called
 **Then** only the root is yielded; its children are NOT traversed

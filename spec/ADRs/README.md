@@ -69,7 +69,7 @@ cross-references each ADR carries.
 | [0048](0048-v3-form-vm-semantics.md)                                                | v3 FormVM semantics: injectable deep-equal `IsDirty`, deep default snapshot, and an approve error channel             | 3.0.0        | Accepted (clarified by 0113, 0135, 0139)                                                      |
 | [0049](0049-v3-command-semantics.md)                                                | v3 command semantics: confirmation-decorator error channel and CRUD can-execute reactivity                            | 3.0.0        | Accepted (clarified by 0137; extended by 0242)                                                |
 | [0050](0050-v3-parent-member-messaging-and-selection-clarifications.md)             | v3 spec reconciliation: `Parent` member, `whenPropertyChanged`, and selection clarifications                          | 3.0.0        | Accepted (§2.1 sender rule and conformance statement amended by 0233)                         |
-| [0051](0051-v3-tree-collections-capability-and-spec-organization-gaps.md)           | v3 spec reconciliation: tree/collections, capability, and spec-organization gaps; feature-port decisions              | 3.0.0        | Accepted                                                                                      |
+| [0051](0051-v3-tree-collections-capability-and-spec-organization-gaps.md)           | v3 spec reconciliation: tree/collections, capability, and spec-organization gaps; feature-port decisions              | 3.0.0        | Accepted (clarified by 0245)                                                                  |
 | [0052](0052-v3-public-surface-breaking-removals.md)                                 | v3 public-surface breaking removals: deprecated aliases, off-domain helpers, and a HierarchicalVM footgun             | 3.0.0        | Accepted                                                                                      |
 | [0053](0053-swift-converge-illegal-transition-and-non-child-current-to-throw.md)    | Swift converges illegal-transition and non-child-`current` handling from trap to throw                                | 3.0.0        | Accepted                                                                                      |
 | [0054](0054-v3-typescript-uniform-message-sender.md)                                | v3 TypeScript uniform message `sender`: remove the untyped `senderObject` field, restore ADR-0006 cross-flavor parity | 3.0.0        | Accepted (clarified by 0121)                                                                  |
@@ -259,6 +259,7 @@ cross-references each ADR carries.
 | [0242](0242-select-and-deselect-re-raise-on-selection-inputs.md)                    | SelectCommand and DeselectCommand re-raise CanExecuteChanged on their selection inputs                                | 3.30.0       | Accepted                                                                                      |
 | [0243](0243-fixture-json-schemas-and-consumer-case-id-rule.md)                      | Fixture JSON schemas and the consumer case-ID rule                                                                    | 3.30.0       | Accepted                                                                                      |
 | [0244](0244-async-resource-start-refused-from-disposed-observer.md)                 | A load or reload from an observer of the Disposed publication starts no loader                                        | 3.30.0       | Accepted                                                                                      |
+| [0245](0245-catalog-clauses-utils-hier-life004.md)                                  | Catalog clauses for UTIL-002 and HIER-012 match the spec; LIFE-004 asserts Disposed in every flavor                   | 3.30.0       | Accepted                                                                                      |
 
 ### 1.1 Consolidation opportunities (informative — VMX-120)
 
@@ -352,4 +353,6 @@ for parallel pull requests and never used, so the registry has no rows for
 them. ADR-0231 was held for open pull request #2087 when ADR-0232 was written,
 so the registry had no row for it at that time. ADR-0233 was held for open pull
 request #2107 when ADR-0234 was written, so the registry had no row for it at
-that time.
+that time. ADR-0244 was held for open pull request #2194 when ADR-0245
+was written, so the registry had no row for it at that time. Pull request
+#2194 has since merged ADR-0244 to `develop`, and its row is above.
