@@ -1036,8 +1036,9 @@ jobs:
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --capture-output
       - name: Check five-flavor conformance coverage
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift --require rust
-      - name: Check Rust fixture sync
-        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-rust-fixture-sync.py
+      - name: Check fixture copies against spec/fixtures
+        # Same inventory check as conformance.yml: all tracked copies, not only Rust.
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-fixture-sync.py
 
   rust-audit:
     name: rust — dependency advisory audit

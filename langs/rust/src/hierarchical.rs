@@ -823,16 +823,24 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
 
     /// Returns this node's zero-based depth from the root.
     pub fn depth(&self) -> usize {
-        self.parent().map(|parent| parent.depth() + 1).unwrap_or(0)
+        let mut depth = 0;
+        let mut current = self.parent();
+        while let Some(parent) = current {
+            depth += 1;
+            current = parent.parent();
+        }
+        depth
     }
 
     /// Returns the root-to-self path.
     pub fn path(&self) -> Vec<Self> {
-        let mut path = self
-            .parent()
-            .map(|parent| parent.path())
-            .unwrap_or_default();
-        path.push(self.clone());
+        let mut path = vec![self.clone()];
+        let mut current = self.parent();
+        while let Some(parent) = current {
+            current = parent.parent();
+            path.push(parent);
+        }
+        path.reverse();
         path
     }
 
@@ -1477,16 +1485,25 @@ where
     find_inner(TreeNodeRef::new(root.clone()), &predicate)
 }
 
-fn find_inner<F>(node: TreeNodeRef, predicate: &F) -> VmxResult<Option<TreeNodeRef>>
+fn find_inner<F>(root: TreeNodeRef, predicate: &F) -> VmxResult<Option<TreeNodeRef>>
 where
     F: Fn(&TreeNodeRef) -> bool,
 {
-    if predicate(&node) {
-        return Ok(Some(node));
-    }
-    for child in node.try_children_nodes()? {
-        if let Some(found) = find_inner(child, predicate)? {
-            return Ok(Some(found));
+    // Each frame holds the children of one open node and the next child to visit.
+    let mut frames: Vec<(Vec<TreeNodeRef>, usize)> = vec![(vec![root], 0)];
+    while let Some(top) = frames.last_mut() {
+        if top.1 == top.0.len() {
+            frames.pop();
+            continue;
+        }
+        let node = top.0[top.1].clone();
+        top.1 += 1;
+        if predicate(&node) {
+            return Ok(Some(node));
+        }
+        let children = node.try_children_nodes()?;
+        if !children.is_empty() {
+            frames.push((children, 0));
         }
     }
     Ok(None)
@@ -1510,19 +1527,27 @@ pub fn walk_expanded<T: TreeNode>(root: &T) -> VmxResult<Vec<TreeNodeRef>> {
 }
 
 fn walk_into(
-    node: TreeNodeRef,
+    root: TreeNodeRef,
     expanded_only: bool,
     nodes: &mut Vec<TreeNodeRef>,
 ) -> VmxResult<()> {
-    let descend = !expanded_only || node.expandable().is_none_or(Expandable::is_expanded);
-    let children = if descend {
-        Some(node.try_children_nodes())
-    } else {
-        None
-    };
-    nodes.push(node);
-    for child in children.transpose()?.unwrap_or_default() {
-        walk_into(child, expanded_only, nodes)?;
+    // Each frame holds the children of one open node and the next child to visit.
+    let mut frames: Vec<(Vec<TreeNodeRef>, usize)> = vec![(vec![root], 0)];
+    while let Some(top) = frames.last_mut() {
+        if top.1 == top.0.len() {
+            frames.pop();
+            continue;
+        }
+        let node = top.0[top.1].clone();
+        top.1 += 1;
+        let descend = !expanded_only || node.expandable().is_none_or(Expandable::is_expanded);
+        if descend {
+            let children = node.try_children_nodes()?;
+            if !children.is_empty() {
+                frames.push((children, 0));
+            }
+        }
+        nodes.push(node);
     }
     Ok(())
 }
