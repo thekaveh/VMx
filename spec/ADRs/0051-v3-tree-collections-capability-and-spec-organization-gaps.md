@@ -1,6 +1,6 @@
 # ADR 0051 — v3 spec reconciliation: tree/collections, capability, and spec-organization gaps; feature-port decisions
 
-**Status:** Accepted (2026-06-28)
+**Status:** Accepted (2026-06-28; clarified by ADR-0245)
 **Spec version:** 3.0.0
 
 ## 1. Context
