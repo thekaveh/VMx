@@ -344,7 +344,7 @@ public class HierarchicalVMTests
     }
 
     [Fact]
-    public void Deep_Chain_Walks_Find_And_Depth_Reach_The_Last_Level() => RunOnSmallStack(() =>
+    public void DeepChain_Walks_Find_And_Depth_Reach_The_Last_Level() => RunOnSmallStack(() =>
     {
         var root = DeepChain(DeepChainLevels, new TestHub(), new TestDispatcher());
 
@@ -360,7 +360,7 @@ public class HierarchicalVMTests
     });
 
     [Fact]
-    public void Deep_Chain_Moves_Under_A_New_Parent() => RunOnSmallStack(() =>
+    public void DeepChain_Moves_Under_A_New_Parent() => RunOnSmallStack(() =>
     {
         var hub = new TestHub();
         var dispatcher = new TestDispatcher();

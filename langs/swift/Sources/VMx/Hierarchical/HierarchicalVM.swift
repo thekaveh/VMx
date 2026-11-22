@@ -209,8 +209,13 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
     /// Distance from the root. Root is 0; a child is `parent.depth + 1`.
     public var depth: Int {
-        guard let parent = parent else { return 0 }
-        return node(parent).depth + 1
+        var count = 0
+        var ancestor = parent
+        while let current = ancestor {
+            count += 1
+            ancestor = node(current).parent
+        }
+        return count
     }
 
     /// The ordered child nodes. Lazily materialized on first access — the
@@ -798,12 +803,17 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         ))
     }
 
-    /// Recursively clears `_pathCache` for all materialized descendants of `vm`.
+    /// Clears `_pathCache` for all materialized descendants of `vm`. An explicit
+    /// stack visits the subtree, so the depth of the subtree is not limited by
+    /// the call stack.
     private func invalidatePathCacheDescendants(of vm: TVM) {
-        guard let kids = node(vm)._children else { return }
-        for kid in kids {
-            node(kid)._pathCache = nil
-            invalidatePathCacheDescendants(of: kid)
+        var pending: [TVM] = [vm]
+        while let current = pending.popLast() {
+            guard let kids = node(current)._children else { continue }
+            for kid in kids {
+                node(kid)._pathCache = nil
+                pending.append(kid)
+            }
         }
     }
 }
