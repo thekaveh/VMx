@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Validate the canonical fixture inventories and structural contracts."""
+"""Validate canonical fixtures against their published schemas and the rules left over.
+
+Each fixture in spec/fixtures is validated against its JSON Schema in
+spec/schemas/fixtures (ADR-0243). This tool then checks only the rules that JSON
+Schema cannot express: the exact inventory of case, scenario and transition keys
+(each key appears once across array items), and the cross-field rules of the
+derived-property scenarios.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +14,25 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from jsonschema import Draft202012Validator
+
+# jsonschema is imported inside the functions that use it, not at module top.
+# tools/tests/conftest.py pre-loads every check-*.py script, and the docs job runs
+# that conftest with docs/requirements.txt, which does not install jsonschema.
+# A top-level import would abort that job before any test runs (ADR-0243).
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SCHEMAS = ROOT / "spec" / "schemas" / "fixtures"
+
+FIXTURE_SCHEMAS: dict[str, str] = {
+    "command-truthtable.json": "command-truthtable-v1.schema.json",
+    "derived-properties.json": "derived-properties-v1.schema.json",
+    "lifecycle-transitions.json": "lifecycle-transitions-v1.schema.json",
+    "message-ordering.json": "message-ordering-v1.schema.json",
+}
 
 EXPECTED_IDS: dict[str, tuple[str, str, set[str]]] = {
     "command-truthtable.json": (
@@ -57,245 +82,92 @@ LIFECYCLE_KEYS = {
     for operation in operations
 }
 
-COMMAND_FIELDS = {
-    "id",
-    "predicate",
-    "task",
-    "trigger_emits",
-    "can_execute",
-    "execute_invokes_task",
-    "can_execute_changed_fires",
-}
-DERIVED_FIELDS = {
-    "name",
-    "sources_initial",
-    "transform",
-    "mutations",
-    "expected_values",
-    "expected_emissions",
-}
-MESSAGE_FIELDS = {
-    "single-producer-fifo": {"id", "description", "producer_sends", "expected_observed"},
-    "late-subscribe-no-replay": {
-        "id",
-        "description",
-        "producer_sends_before_subscribe",
-        "producer_sends_after_subscribe",
-        "expected_observed",
-    },
-    "multiple-subscribers-same-message": {
-        "id",
-        "description",
-        "producer_sends",
-        "subscriber_count",
-        "expected_observed_per_subscriber",
-    },
-    "unsubscribe-during-emit": {
-        "id",
-        "description",
-        "producer_sends",
-        "unsubscribe_after_first",
-        "expected_observed",
-    },
-}
-LIFECYCLE_STATES = [
-    "Disposed",
-    "Destructing",
-    "Destructed",
-    "Constructing",
-    "Constructed",
-]
-LIFECYCLE_OPERATIONS = {"construct", "destruct", "reconstruct", "dispose"}
+
+def _schema(path: Path) -> Draft202012Validator:
+    from jsonschema import Draft202012Validator
+
+    schema = json.loads(path.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema)
 
 
-def _is_bool(value: object) -> bool:
-    return isinstance(value, bool)
-
-
-def _is_string_list(value: object) -> bool:
-    return isinstance(value, list) and all(isinstance(item, str) for item in value)
-
-
-def _object(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError("root must be a JSON object")
-    if value.get("$schema-version") != "1.0.0":
-        raise ValueError("$schema-version must be exactly '1.0.0'")
-    return value
-
-
-def validate_fixture(path: Path) -> list[str]:
-    """Return all contract errors for one canonical fixture."""
-    try:
-        value = _object(path)
-    except (OSError, json.JSONDecodeError, ValueError) as error:
-        return [f"{path.name}: {error}"]
+def _inventory_errors(name: str, value: dict[str, Any]) -> list[str]:
+    """Return the inventory and cross-field errors that a JSON Schema cannot express."""
+    if name == "lifecycle-transitions.json":
+        keys = [(row["from"], row["via"]) for row in value["transitions"]]
+        if set(keys) != LIFECYCLE_KEYS or len(keys) != len(set(keys)):
+            return [f"{name}: transitions must contain each of the 20 state/operation keys once"]
+        return []
+    array_name, id_name, expected = EXPECTED_IDS[name]
+    identifiers = [row[id_name] for row in value[array_name]]
+    if set(identifiers) != expected or len(identifiers) != len(set(identifiers)):
+        return [
+            f"{name}: {array_name} must contain the complete unique inventory {sorted(expected)}"
+        ]
+    if name != "derived-properties.json":
+        return []
     errors: list[str] = []
-    if path.name == "lifecycle-transitions.json":
-        if value.get("states") != LIFECYCLE_STATES:
-            errors.append(f"{path.name}: states must contain the exact lifecycle state inventory")
-        if value.get("initial_state") != "Destructed":
-            errors.append(f"{path.name}: initial_state must be 'Destructed'")
-        if value.get("terminal_states") != ["Disposed"]:
-            errors.append(f"{path.name}: terminal_states must be ['Disposed']")
-        if not isinstance(value.get("notes"), dict):
-            errors.append(f"{path.name}: notes must be an object")
-        rows = value.get("transitions")
-        if not isinstance(rows, list):
-            return [f"{path.name}: transitions must be an array"]
-        keys = [(row.get("from"), row.get("via")) for row in rows if isinstance(row, dict)]
-        if len(keys) != len(rows) or set(keys) != LIFECYCLE_KEYS or len(keys) != len(set(keys)):
+    for row in value["scenarios"]:
+        if row["transform"] not in value["transforms"]:
+            errors.append(f"{name}: scenario {row['name']} references an unknown transform")
+        if len(row["expected_values"]) != len(row["mutations"]) + 1:
             errors.append(
-                f"{path.name}: transitions must contain each of the 20 state/operation keys once"
+                f"{name}: scenario {row['name']} expected_values must cover initial plus mutations"
             )
-        if any(
-            not isinstance(row, dict)
-            or set(row) != {"from", "via", "to_intermediate", "to_final", "legal"}
-            for row in rows
-        ):
-            errors.append(f"{path.name}: every transition must contain the exact required fields")
-        states = set(LIFECYCLE_STATES)
-        if any(
-            not isinstance(row, dict)
-            or row.get("from") not in states
-            or row.get("via") not in LIFECYCLE_OPERATIONS
-            or row.get("to_intermediate") not in states | {None}
-            or row.get("to_final") not in states | {None}
-            or not _is_bool(row.get("legal"))
-            or (
-                row.get("legal") is False
-                and (row.get("to_intermediate") is not None or row.get("to_final") is not None)
-            )
-            or (row.get("legal") is True and row.get("to_final") is None)
-            for row in rows
-        ):
-            errors.append(f"{path.name}: transition values violate lifecycle domains")
-        return errors
+        for index, _ in row["mutations"]:
+            if index >= len(row["sources_initial"]):
+                errors.append(
+                    f"{name}: scenario {row['name']} mutation index {index} names no source"
+                )
+    return list(dict.fromkeys(errors))
 
-    array_name, id_name, expected = EXPECTED_IDS[path.name]
-    rows = value.get(array_name)
-    if not isinstance(rows, list):
-        return [f"{path.name}: {array_name} must be an array"]
-    identifiers = [row.get(id_name) for row in rows if isinstance(row, dict)]
-    if (
-        len(identifiers) != len(rows)
-        or set(identifiers) != expected
-        or len(identifiers) != len(set(identifiers))
-    ):
-        errors.append(
-            f"{path.name}: {array_name} must contain the complete unique inventory "
-            f"{sorted(expected)}"
-        )
-    required_fields = {
-        "command-truthtable.json": lambda row: COMMAND_FIELDS,
-        "derived-properties.json": lambda row: DERIVED_FIELDS,
-        "message-ordering.json": lambda row: MESSAGE_FIELDS.get(str(row.get("id")), set()),
-    }[path.name]
-    if any(not isinstance(row, dict) or set(row) != required_fields(row) for row in rows):
-        errors.append(f"{path.name}: every row must contain its exact required fields")
-    if path.name == "command-truthtable.json":
-        if any(
-            not isinstance(row, dict)
-            or not (row.get("predicate") is None or _is_bool(row.get("predicate")))
-            or row.get("task") not in {"noop", None}
-            or any(
-                not _is_bool(row.get(field))
-                for field in (
-                    "trigger_emits",
-                    "can_execute",
-                    "execute_invokes_task",
-                    "can_execute_changed_fires",
-                )
-            )
-            for row in rows
-        ):
-            errors.append(f"{path.name}: row values violate command field domains")
-    elif path.name == "derived-properties.json":
-        transforms = value.get("transforms")
-        if not isinstance(transforms, dict) or not all(
-            isinstance(name, str) and isinstance(expression, str)
-            for name, expression in transforms.items()
-        ):
-            errors.append(f"{path.name}: transforms must be an object")
-        else:
-            for row in rows:
-                if isinstance(row, dict) and row.get("transform") not in transforms:
-                    errors.append(f"{path.name}: scenario references an unknown transform")
-                if (
-                    isinstance(row, dict)
-                    and isinstance(row.get("expected_values"), list)
-                    and isinstance(row.get("mutations"), list)
-                    and len(row["expected_values"]) != len(row["mutations"]) + 1
-                ):
-                    errors.append(f"{path.name}: expected_values must cover initial plus mutations")
-        if any(
-            not isinstance(row, dict)
-            or not isinstance(row.get("sources_initial"), list)
-            or not row["sources_initial"]
-            or not isinstance(row.get("transform"), str)
-            or not isinstance(row.get("mutations"), list)
-            or not isinstance(row.get("expected_values"), list)
-            or not isinstance(row.get("expected_emissions"), list)
-            or any(
-                not isinstance(mutation, list)
-                or len(mutation) != 2
-                or not isinstance(mutation[0], int)
-                or isinstance(mutation[0], bool)
-                or mutation[0] < 0
-                or mutation[0] >= len(row["sources_initial"])
-                for mutation in row.get("mutations", [])
-            )
-            for row in rows
-        ):
-            errors.append(f"{path.name}: scenario values violate derived-property domains")
-    elif path.name == "message-ordering.json":
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            arrays = [
-                value
-                for key, value in row.items()
-                if key.startswith("producer_sends") or key.startswith("expected_observed")
-            ]
-            if (
-                not isinstance(row.get("description"), str)
-                or not row["description"].strip()
-                or any(not _is_string_list(items) for items in arrays)
-                or (
-                    "subscriber_count" in row
-                    and (
-                        not isinstance(row["subscriber_count"], int)
-                        or isinstance(row["subscriber_count"], bool)
-                        or row["subscriber_count"] < 1
-                    )
-                )
-                or (
-                    "unsubscribe_after_first" in row
-                    and not _is_bool(row["unsubscribe_after_first"])
-                )
-            ):
-                errors.append(f"{path.name}: scenario values violate message field domains")
-                break
-    return errors
+
+def validate_fixture(path: Path, schemas: Path = DEFAULT_SCHEMAS) -> list[str]:
+    """Return all contract errors for one canonical fixture."""
+    from jsonschema.exceptions import SchemaError
+
+    schema_path = schemas / FIXTURE_SCHEMAS[path.name]
+    try:
+        validator = _schema(schema_path)
+    except (OSError, json.JSONDecodeError, SchemaError) as error:
+        return [f"{path.name}: no published schema could be read from {schema_path}: {error}"]
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"{path.name}: {error}"]
+    schema_errors = [
+        f"{path.name}: {error.json_path}: {error.message}"
+        for error in sorted(validator.iter_errors(value), key=lambda item: item.json_path)
+    ]
+    if schema_errors:
+        return schema_errors
+    return _inventory_errors(path.name, value)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--fixtures", type=Path, default=Path("spec/fixtures"))
+    parser.add_argument("--schemas", type=Path, default=DEFAULT_SCHEMAS)
     args = parser.parse_args(argv)
-    known = (*EXPECTED_IDS, "lifecycle-transitions.json")
+    known = tuple(FIXTURE_SCHEMAS)
     errors = [
         f"{path.name}: no contract entry in tools/check-fixture-contracts.py"
         for path in sorted(args.fixtures.glob("*.json"))
         if path.name not in known
     ]
-    errors += [error for name in known for error in validate_fixture(args.fixtures / name)]
+    errors += [
+        f"{path.name}: no fixture for this published schema"
+        for path in sorted(args.schemas.glob("*.json"))
+        if path.name not in FIXTURE_SCHEMAS.values()
+    ]
+    errors += [
+        error for name in known for error in validate_fixture(args.fixtures / name, args.schemas)
+    ]
     if errors:
         for error in errors:
             print(f"FAIL: {error}", file=sys.stderr)
         return 1
-    print("OK: canonical fixture contracts and inventories are complete")
+    print("OK: canonical fixtures match their published schemas and inventories are complete")
     return 0
 
 
