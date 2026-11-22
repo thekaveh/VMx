@@ -245,7 +245,7 @@ uv run mypy --strict src/vmx
 The `lifecycle-transitions.json` fixture from `spec/fixtures/` is tracked under
 `src/vmx/lifecycle/_data/` and shipped inside the wheel. The
 `vmx.lifecycle.transition_validator` module loads it via `importlib.resources`
-with a repo-relative fallback for diagnostics. `tools/check-python-fixture-sync.py`
+with a repo-relative fallback for diagnostics. `tools/check-fixture-sync.py`
 keeps the package copy byte-identical to the spec fixture.
 
 See [`CONTRIBUTING.md`](https://github.com/thekaveh/VMx/blob/main/CONTRIBUTING.md) for the contributor workflow and
