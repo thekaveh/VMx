@@ -47,13 +47,16 @@ final class HierarchicalDeepChainTests: XCTestCase {
 
     /// Drops the children of every node below `root`. Each node then releases
     /// its child only from the array that holds the chain, so freeing the nodes
-    /// does not recurse once per level.
+    /// does not recurse once per level. The nodes are detached deepest first:
+    /// a detach then touches a node with no materialized children, so the whole
+    /// teardown is linear. Top-down detaching re-walks the remaining subtree at
+    /// every level, which is quadratic in the depth.
     private static func release(_ root: DeepChainNode) {
         var chain: [DeepChainNode] = [root]
         while let child = chain[chain.count - 1].children.first {
             chain.append(child)
         }
-        for node in chain {
+        for node in chain.reversed() {
             node.invalidateChildren()
         }
     }

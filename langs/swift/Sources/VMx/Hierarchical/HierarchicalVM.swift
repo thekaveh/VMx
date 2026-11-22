@@ -253,17 +253,17 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         guard !materializationReentered else {
             return .failure(.invalidFactoryOutput)
         }
+        // Only the root of this node's tree can be an ancestor of this node and
+        // still have no parent (every other ancestor has one). Walking up to that
+        // root once avoids building a set of all ancestors for every node, which
+        // made top-down materialization of a deep chain quadratic in set inserts.
+        var top: TVM = selfNode
+        while let up = node(top).parent { top = up }
         var seen = Set<ObjectIdentifier>()
-        var ancestors = Set<ObjectIdentifier>()
-        var ancestor: TVM? = selfNode
-        while let current = ancestor {
-            ancestors.insert(ObjectIdentifier(current))
-            ancestor = node(current).parent
-        }
         for child in materialized {
             let identity = ObjectIdentifier(child)
             guard seen.insert(identity).inserted,
-                  !ancestors.contains(identity),
+                  child !== top,
                   node(child).parent == nil else {
                 return .failure(.invalidFactoryOutput)
             }
