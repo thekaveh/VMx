@@ -55,12 +55,13 @@ def test_UTIL_001_walk_yields_root_then_descendants_in_dfs_pre_order() -> None:
 
 @pytest.mark.conformance("UTIL-002")
 def test_UTIL_002_walk_skips_empty_aggregate_slots() -> None:
-    """UTIL-002: empty Component slots in an aggregate are skipped.
+    """UTIL-002: walk yields only the aggregate before construct(), then every slot.
 
-    Builders require every component factory, so all slots are populated at
-    construct time. To exercise the empty-slot path, we dispose the aggregate
-    (which sets every component_N to None) and assert walk yields only the
-    aggregate itself.
+    Slots fill from their factories at construct time (spec/08 §1), so an
+    AggregateVM3 built and not yet constructed has three empty slots. The
+    walk must skip them, and after construct() it must reach each populated
+    slot in declaration order. The test uses only the public builder and
+    lifecycle methods.
     """
     h = _hub()
     d = _dispatcher()
@@ -77,13 +78,11 @@ def test_UTIL_002_walk_skips_empty_aggregate_slots() -> None:
         .component_3(lambda: c)
         .build()
     )
+
+    assert [vm.name for vm in walk(agg)] == ["agg"]
+
     agg.construct()
     assert [vm.name for vm in walk(agg)] == ["agg", "a", "b", "c"]
-
-    agg.destruct()
-    agg._component2 = None
-    names_after = [vm.name for vm in walk(agg)]
-    assert names_after == ["agg", "a", "c"]
 
 
 @pytest.mark.conformance("UTIL-002")

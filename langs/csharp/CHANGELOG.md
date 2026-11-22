@@ -256,6 +256,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- Tree walks (`Tree.Walk`, `Tree.WalkExpanded` and `Tree.Find`) and the path-cache
+  invalidation of a `HierarchicalVM` no longer recurse once per tree level. A tree
+  deeper than the call stack no longer overflows it. Walk order, the timing of child
+  reads and the factory error rule are unchanged (spec/13, #1912).
+
 - `SelectCommand` and `DeselectCommand` re-raise `CanExecuteChanged` when the VM's
   `IsCurrent` flag or its `Parent` link changes. A select, a move of `Current`, or a
   container add or remove used to leave a bound control with a stale `CanExecute`

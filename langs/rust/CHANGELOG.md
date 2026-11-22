@@ -54,6 +54,12 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Fixed
 
+- `walk()`, `walk_expanded()`, `find()`, `HierarchicalVm::depth()` and
+  `HierarchicalVm::path()` no longer recurse once per tree level. A tree deeper
+  than the thread's stack no longer overflows it. Walk order, the timing of
+  child reads and the factory error rule (ADR-0170) are unchanged (spec/13,
+  #1912).
+
 - `select_command()` and `deselect_command()` re-raise `can_execute_changed` when the VM's
   current flag or its parent link changes. A select, a move of `Current`, or a
   container add or remove used to leave a bound control with a stale `can_execute()`
