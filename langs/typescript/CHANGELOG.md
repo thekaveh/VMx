@@ -222,6 +222,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   ADR-0162). The first call finishes the work: it disposes the registered
   members, then publishes `Disposed`.
 
+- The packaged consumer conformance schema states the case-ID rule on each
+  case `id`: IDs are unique within a suite, and a runner rejects a duplicate
+  (ADR-0243, ADR-0102 §2.1, #1788). The change is a `$comment`, so every suite
+  that passed before still passes. `$id` and `$schema-version` are unchanged,
+  and `parseConsumerConformance` still rejects duplicate IDs.
+
 ### Deprecated
 
 - Building a `HierarchicalVM` subclass without `hub` and `dispatcher`. The

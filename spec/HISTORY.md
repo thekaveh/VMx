@@ -830,3 +830,8 @@ direction. Chapter 24 and its conformance IDs land with the implementations.
 See ADR-0146 through ADR-0180, ADR-0184 through ADR-0230, ADR-0232, the
 decision records ADR-0234 through ADR-0238, and the affected behavior
 chapters. No ADR uses the numbers 0181 to 0183.
+
+v3.30.0 also states the case-ID rule of the consumer conformance schema and
+publishes a JSON Schema for each of the four spec fixtures in
+`spec/schemas/fixtures/` (ADR-0243). These are non-normative supporting
+contracts, and they add no behavior and no conformance ID.

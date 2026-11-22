@@ -103,7 +103,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `check-conformance-catalog.py` — Checks the catalog structure that the coverage tool does not read: each library ID appears in a chapter Conformance table, each `§N` and "Chapter 12 §N holds the `X` IDs" clause names a real section, each `###` ID heading is well formed, and each entry has Given, When and Then clauses. Exits 1 on a problem and 2 when a file cannot be read.
 - `check-conformance-execution.py` — Checks that every library conformance ID has a passing executed test case, not only a marker.
 - `check-coverage-floor.py` — Checks an llvm-cov coverage export against a flavor's recorded floor in `coverage-floors.json` (Rust and Swift).
-- `check-fixture-contracts.py` — Validates the canonical fixture inventories and their structural contracts, and fails on a `spec/fixtures/*.json` file that has no contract entry.
+- `check-fixture-contracts.py` — Validates each canonical fixture in `spec/fixtures/` against its published JSON Schema in `spec/schemas/fixtures/` (ADR-0243), and checks the inventory and cross-field rules that a schema cannot express. Fails on a `spec/fixtures/*.json` file that has no contract entry, and on a published fixture schema that has no fixture.
 - `check-nuget-package.py` — Validates the VMx NuGet main and symbol packages against an exact contract.
 - `check-python-interpreter.py` — Asserts the interpreter identity, then runs Python arguments with that executable.
 - `check-python-api.py` — Compares the public API of the `vmx` Python package with `langs/python/api/vmx.api.txt` on Python 3.12; `--update` rewrites the baseline.
