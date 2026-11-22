@@ -18,6 +18,7 @@ from vmx.commands.async_relay_command import AsyncRelayCommand
 from vmx.commands.relay_command import RelayCommand
 from vmx.components.base import _ComponentVMBase
 from vmx.components.protocols import ViewModelType
+from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
 from vmx.services.message_hub import MessageHubProto
@@ -223,15 +224,18 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
             # Cancellation is nonthrowing; state rollback remains authoritative.
             pass
 
+    def _is_inert(self) -> bool:
+        # The base publishes DISPOSED before _on_dispose() sets _resource_disposed,
+        # so an observer of that publication sees only the status (ADR-0244).
+        return self._resource_disposed or self.status is ConstructionStatus.DISPOSED
+
     def _can_load(self) -> bool:
         with self._resource_gate:
-            return not self._resource_disposed and self._state.status is AsyncResourceStatus.IDLE
+            return not self._is_inert() and self._state.status is AsyncResourceStatus.IDLE
 
     def _can_reload(self) -> bool:
         with self._resource_gate:
-            return (
-                not self._resource_disposed and self._state.status is not AsyncResourceStatus.IDLE
-            )
+            return not self._is_inert() and self._state.status is not AsyncResourceStatus.IDLE
 
     def _can_cancel(self) -> bool:
         with self._resource_gate:
@@ -239,7 +243,7 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
 
     async def _start(self) -> None:
         with self._resource_gate:
-            if self._resource_disposed:
+            if self._is_inert():
                 return
             previous_operation = self._operation
             self._operation = None
@@ -256,7 +260,7 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
             self._cleanup(previous.value)
 
         with self._resource_gate:
-            if self._resource_disposed or self._operation_identity != identity:
+            if self._is_inert() or self._operation_identity != identity:
                 return
             baseline = self._stable_state
             retained = (
@@ -280,7 +284,7 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
         cancelled: asyncio.Future[None] = loop.create_future()
         operation = _Operation(identity, task, cancelled, baseline, loop)
         with self._resource_gate:
-            admitted = not self._resource_disposed and self._operation_identity == identity
+            admitted = not self._is_inert() and self._operation_identity == identity
             if admitted:
                 self._operation = operation
                 self._state = loading

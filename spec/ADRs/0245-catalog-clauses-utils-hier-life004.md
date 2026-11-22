@@ -63,8 +63,8 @@ the same assertion applies to TypeScript.
 
 No conformance ID is added or removed, so every catalog count is unchanged. No
 library code changes, so no CHANGELOG entry and no version bump are needed.
-ADR-0244 is held for open pull request #2194, which has no registry row here.
-ADR-0245 is the next free number.
+ADR-0244 is on `develop` from pull request #2194, and it has a registry row.
+ADR-0245 follows it. No number is reserved.
 
 ## 3. Consequences
 

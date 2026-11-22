@@ -5707,6 +5707,8 @@ notifications
 **Then** current loader and async commands receive cancellation exactly once as
 their host contract permits
 **And** every command and direct intent is disabled or inert
+**And** a load or reload issued from an observer of the `Disposed` publication
+starts no loader and leaves the state externally unchanged (ADR-0244)
 **When** the old loader later succeeds or fails despite cancellation
 **Then** no state mutation, ordinary notification, command notification, or
 application callback occurs

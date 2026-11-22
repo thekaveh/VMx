@@ -209,6 +209,12 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Fixed
 
+- `AsyncResourceVM.load()` and `reload()` start no loader when they run from an
+  observer of the `Disposed` publication. The VM's `status` already reads
+  `Disposed` at that point, but the disposal flag was set later, so the intent
+  used to start the loader and leave `state` at `Loading`. The start is now
+  refused while `status` is `Disposed` (ADR-0244, #1851, `ARES-011`).
+
 - `selectCommand` and `deselectCommand` re-raise `canExecuteChanged` when the VM's
   `isCurrent` flag or its parent link changes. A select, a move of `Current`, or a
   container add or remove used to leave a bound control with a stale `canExecute()`
