@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+from reactivex.subject import Subject
 
 from vmx.aggregates.builders import (
     AggregateVM1Builder,
@@ -20,6 +21,7 @@ from vmx.aggregates.builders import (
     AggregateVM5Builder,
     AggregateVM6Builder,
 )
+from vmx.capabilities import SearchableState
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
 from vmx.composites.builders import CompositeVMOfBuilder
@@ -214,3 +216,27 @@ def test_throwing_scorer_detaches_from_the_source() -> None:
     calls.clear()
     source.add(_leaf("b"))
     assert calls == []
+
+
+def test_failed_searchable_reconcile_detaches_from_the_source_signal() -> None:
+    reads: list[str] = []
+
+    def items() -> list[str]:
+        reads.append("read")
+        if len(reads) == 2:
+            raise FactoryFailureError
+        return ["a", "b"]
+
+    signal: Subject[object] = Subject()
+    with pytest.raises(FactoryFailureError):
+        SearchableState(
+            items=items,
+            predicate=lambda item, term: term in item,
+            debounce_seconds=0,
+            source_changes=signal,
+        )
+
+    assert signal.observers == []
+    reads.clear()
+    signal.on_next(object())
+    assert reads == []

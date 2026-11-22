@@ -1137,6 +1137,8 @@ open class CompositeVM<Child: ComponentVMBase>:
                 throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
             }
             membershipTransactionDepth += 1
+            // The join is a selection-input scope too; each end closes one (ADR-0242).
+            SelectionInputScope.enter()
             return
         }
         membershipTransactionActive = true
@@ -1146,6 +1148,8 @@ open class CompositeVM<Child: ComponentVMBase>:
         let completion = DispatchGroup()
         completion.enter()
         membershipTransactionCompletion = completion
+        // The transaction is a selection-input scope (ADR-0242). Its end closes it.
+        SelectionInputScope.enter()
     }
 
     private func beginMembershipTransaction() throws -> ContainerOwnershipTransaction {
@@ -1210,6 +1214,9 @@ open class CompositeVM<Child: ComponentVMBase>:
             }
         }
         completion?.leave()
+        // Closes the scope after the gate is released: a queued Select and
+        // Deselect notification runs with no container lock held (ADR-0242).
+        SelectionInputScope.leave()
         if shouldDispose { dispose() }
     }
 

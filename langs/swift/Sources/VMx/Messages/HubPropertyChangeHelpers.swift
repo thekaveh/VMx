@@ -7,17 +7,31 @@
 //
 import Combine
 
+/// The canonical sender identity that the chapter 03 §7 helpers match
+/// (spec/03 §7, ADR-0233). A forwarding decorator sends no message of its own:
+/// the wrapped VM is the sender of each message it causes (ADR-0221), and nested
+/// decorators resolve to the same innermost VM (ADR-0124). An object that is not
+/// a VM is its own identity.
+func canonicalSenderIdentity(_ sender: AnyObject) -> AnyObject {
+    if let component = sender as? ComponentVMBase {
+        return component._ownershipIdentity
+    }
+    return sender
+}
+
 public extension MessageHubProtocol {
     /// The stream of `PropertyChangedMessage`s published by `sender` for
     /// `propertyName` — the canonical typed primitive for a cross-VM subscription
-    /// (spec/03 §7.2, ADR-0050).
+    /// (spec/03 §7.2, ADR-0050). A decorator matches the messages of its wrapped
+    /// VM (ADR-0233).
     func whenPropertyChanged(
         _ sender: AnyObject,
         _ propertyName: String
     ) -> AnyPublisher<PropertyChangedMessage, Never> {
-        messages
+        let identity = canonicalSenderIdentity(sender)
+        return messages
             .compactMap { $0 as? PropertyChangedMessage }
-            .filter { $0.sender === sender && $0.propertyName == propertyName }
+            .filter { $0.sender === identity && $0.propertyName == propertyName }
             .eraseToAnyPublisher()
     }
 
@@ -37,9 +51,10 @@ public extension MessageHubProtocol {
         _ otherPropertyNames: String...
     ) -> AnyPublisher<PropertyChangedMessage, Never> {
         let names = Set([firstPropertyName, secondPropertyName] + otherPropertyNames)
+        let identity = canonicalSenderIdentity(sender)
         return messages
             .compactMap { $0 as? PropertyChangedMessage }
-            .filter { $0.sender === sender && names.contains($0.propertyName) }
+            .filter { $0.sender === identity && names.contains($0.propertyName) }
             .eraseToAnyPublisher()
     }
 

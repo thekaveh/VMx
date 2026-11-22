@@ -229,6 +229,9 @@ public class DerivedPropertiesConformanceTests
                     subjects.Select(s => (IObservable<object?>)s).ToList(),
                     transform);
 
+                var emissions = new List<object?>();
+                using var emissionSub = dp.ValueChanged.Subscribe(v => emissions.Add(v));
+
                 var actuals = new List<object?> { dp.Value };
                 foreach (var mut in scenario.GetProperty("mutations").EnumerateArray())
                 {
@@ -243,6 +246,12 @@ public class DerivedPropertiesConformanceTests
                 actuals.Select(NormalizeForCompare).Should().Equal(
                     expected.Select(NormalizeForCompare),
                     $"scenario {name}");
+
+                var expectedEmissions = scenario.GetProperty("expected_emissions").EnumerateArray()
+                    .Select(e => (object?)ExtractScalar(e)).ToList();
+                emissions.Select(NormalizeForCompare).Should().Equal(
+                    expectedEmissions.Select(NormalizeForCompare),
+                    $"scenario {name} emissions");
             }
             finally
             {

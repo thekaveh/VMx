@@ -71,7 +71,7 @@ def _preload_scripts() -> None:
     _preload("check-showcase-parity.py", "check_showcase_parity")
     _preload("check-version-consistency.py", "check_version_consistency")
     _preload("check-workflow-pins.py", "check_workflow_pins")
-    _preload("check-python-fixture-sync.py", "check_python_fixture_sync")
+    _preload("check-fixture-sync.py", "check_fixture_sync")
     _preload("check-python-package.py", "check_python_package")
     _preload("check-release-please-state.py", "check_release_please_state")
     _preload("check-spec-adr.py", "check_spec_adr")
@@ -80,9 +80,7 @@ def _preload_scripts() -> None:
         "ensure-release-changelog-unreleased.py",
         "ensure_release_changelog_unreleased",
     )
-    _preload("check-rust-fixture-sync.py", "check_rust_fixture_sync")
     _preload("check-typescript-schema-sync.py", "check_typescript_schema_sync")
-    _preload("check-swift-fixture-sync.py", "check_swift_fixture_sync")
     _preload("check-swift-package-sync.py", "check_swift_package_sync")
     _preload("check-typescript-package.py", "check_typescript_package")
     _preload("check-react-package.py", "check_react_package")

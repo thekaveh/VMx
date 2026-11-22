@@ -197,7 +197,7 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         }
 
         if (retain)
-            NotifyPropertiesIfLive();
+            NotifyPropertiesIfLive()?.Throw();
         else
             NotifyResetIfLive();
     }
@@ -219,25 +219,37 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         }
     }
 
+    // Each step runs every handler it reaches, even when one throws, so a failing
+    // subscriber skips no later step (spec/21 §6.2, ADR-0239, ADR-0220 rule 1). The
+    // first failure is rethrown after the last step (ADR-0191 rule 5).
     private void NotifyResetIfLive()
     {
         if (!IsLive()) return;
-        CollectionChanged?.Invoke(
-            this,
-            new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
-        NotifyPropertiesIfLive();
+        ExceptionDispatchInfo? firstFailure = FanOut.Raise(
+            CollectionChanged,
+            handler => handler(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset)));
+        ExceptionDispatchInfo? propertyFailure = NotifyPropertiesIfLive();
+        (firstFailure ?? propertyFailure)?.Throw();
     }
 
-    private void NotifyPropertiesIfLive()
+    // Returns the first failure instead of rethrowing it, so that the caller can run
+    // its own later step before it rethrows.
+    private ExceptionDispatchInfo? NotifyPropertiesIfLive()
     {
+        ExceptionDispatchInfo? firstFailure = null;
         foreach (var name in new[] { nameof(Items), nameof(CurrentToken), nameof(HasMore) })
         {
-            if (!IsLive()) return;
-            OnPropertyChanged(name);
+            if (!IsLive()) return firstFailure;
+            ExceptionDispatchInfo? failure = FanOut.Raise(
+                PropertyChanged,
+                handler => handler(this, new PropertyChangedEventArgs(name)));
+            firstFailure ??= failure;
         }
-        if (!IsLive()) return;
+        if (!IsLive()) return firstFailure;
         // Re-signal both commands' CanExecuteChanged (parity with Python/TS/Swift).
-        _commandChanged.OnNext(Unit.Default);
+        ExceptionDispatchInfo? resignalFailure = null;
+        FirstFailure.Capture(ref resignalFailure, () => _commandChanged.OnNext(Unit.Default));
+        return firstFailure ?? resignalFailure;
     }
 
     private bool CanLoadMore()
@@ -258,9 +270,6 @@ public sealed class TokenPagedComposition<TVM, TToken> :
             return !_disposed;
         }
     }
-
-    private void OnPropertyChanged(string name) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
     private static bool DefaultPagesEqual(IReadOnlyList<TVM> left, IReadOnlyList<TVM> right) =>
         left.SequenceEqual(right, EqualityComparer<TVM>.Default);
