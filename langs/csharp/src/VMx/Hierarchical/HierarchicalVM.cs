@@ -763,10 +763,20 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     private void InvalidatePathCacheDescendants()
     {
         if (_children is null) return;
-        foreach (var child in _children)
+
+        // Clears the cache of every materialized descendant. An explicit stack keeps
+        // the walk off the call stack, so a deep chain costs heap, not stack depth.
+        var pending = new Stack<TVM>();
+        pending.Push((TVM)this);
+        while (pending.Count > 0)
         {
-            child._pathCache = null;
-            child.InvalidatePathCacheDescendants();
+            var node = pending.Pop();
+            if (node._children is null) continue;
+            foreach (var child in node._children)
+            {
+                child._pathCache = null;
+                pending.Push(child);
+            }
         }
     }
 }

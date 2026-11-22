@@ -1,5 +1,6 @@
 import type { Subscription } from "rxjs";
 import type { IComponentVM } from "../components/types.js";
+import { canonicalSender } from "./canonicalSender.js";
 import { isPropertyChanged } from "./predicates.js";
 
 export interface SubscribeValueOptions<TValue> {
@@ -16,9 +17,10 @@ export function subscribeValue<TSource extends IComponentVM, TValue>(
   let current = selector(source);
   if (options?.fireImmediately === true) callback(current, current);
   const equality = options?.equality ?? Object.is;
+  const identity = canonicalSender(source);
 
   return source.hub.messages.subscribe((message) => {
-    if (!isPropertyChanged(message, { sender: source })) return;
+    if (!isPropertyChanged(message, { sender: identity })) return;
     const next = selector(source);
     if (equality(current, next)) return;
     const previous = current;

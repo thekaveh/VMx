@@ -140,13 +140,7 @@ extension AggregateVM6: _TreeContainer {
 ///   in the tree has a lazy children factory that returns invalid output.
 ///   That node stays unmaterialized, and a later walk retries the factory.
 public func walk(_ root: ComponentVMBase) throws -> [ComponentVMBase] {
-    var out: [ComponentVMBase] = [root]
-    if let container = root as? _TreeContainer {
-        for child in try container.childComponents {
-            out.append(contentsOf: try walk(child))
-        }
-    }
-    return out
+    try preOrder(root, shouldDescend: { _ in true })
 }
 
 /// DFS pre-order like `walk`, but does NOT descend into the children of a node
@@ -158,11 +152,37 @@ public func walk(_ root: ComponentVMBase) throws -> [ComponentVMBase] {
 ///   descended `HierarchicalVM` whose lazy children factory returns invalid
 ///   output. A collapsed node's children are not read, so they cannot throw.
 public func walkExpanded(_ root: ComponentVMBase) throws -> [ComponentVMBase] {
-    var out: [ComponentVMBase] = [root]
-    let collapsed = (root as? Expandable).map { !$0.isExpanded } ?? false
-    if !collapsed, let container = root as? _TreeContainer {
-        for child in try container.childComponents {
-            out.append(contentsOf: try walkExpanded(child))
+    try preOrder(root, shouldDescend: isExpandedOrNotExpandable)
+}
+
+/// `false` only for an `Expandable` node that is currently collapsed (EXP-005).
+private func isExpandedOrNotExpandable(_ node: ComponentVMBase) -> Bool {
+    guard let expandable = node as? Expandable else { return true }
+    return expandable.isExpanded
+}
+
+/// Pre-order traversal with an explicit stack of pending child lists, so tree
+/// depth is not limited by the call stack. A node's children are read only when
+/// the walk descends into it, in the same order as the recursive walk, so the
+/// read order and the ADR-0170 error timing (spec/13 §6.1) are unchanged.
+private func preOrder(
+    _ root: ComponentVMBase,
+    shouldDescend: (ComponentVMBase) -> Bool
+) throws -> [ComponentVMBase] {
+    var out: [ComponentVMBase] = []
+    // Each frame holds the children of one open node and the next child to visit.
+    var frames: [(children: [ComponentVMBase], next: Int)] = [(children: [root], next: 0)]
+    while let top = frames.indices.last {
+        guard frames[top].next < frames[top].children.count else {
+            frames.removeLast()
+            continue
+        }
+        let node = frames[top].children[frames[top].next]
+        frames[top].next += 1
+        out.append(node)
+        if shouldDescend(node), let container = node as? _TreeContainer {
+            let children = try container.childComponents
+            if !children.isEmpty { frames.append((children: children, next: 0)) }
         }
     }
     return out
@@ -180,10 +200,18 @@ public func find(
     _ root: ComponentVMBase,
     where predicate: (ComponentVMBase) -> Bool
 ) throws -> ComponentVMBase? {
-    if predicate(root) { return root }
-    if let container = root as? _TreeContainer {
-        for child in try container.childComponents {
-            if let hit = try find(child, where: predicate) { return hit }
+    var frames: [(children: [ComponentVMBase], next: Int)] = [(children: [root], next: 0)]
+    while let top = frames.indices.last {
+        guard frames[top].next < frames[top].children.count else {
+            frames.removeLast()
+            continue
+        }
+        let node = frames[top].children[frames[top].next]
+        frames[top].next += 1
+        if predicate(node) { return node }
+        if let container = node as? _TreeContainer {
+            let children = try container.childComponents
+            if !children.isEmpty { frames.append((children: children, next: 0)) }
         }
     }
     return nil

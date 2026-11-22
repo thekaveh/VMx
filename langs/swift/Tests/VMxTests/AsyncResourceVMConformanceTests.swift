@@ -637,6 +637,85 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         withExtendedLifetime((stateCancellable, commandCancellables)) {}
     }
 
+    /// ARES-011 — a load started from an observer of the Disposed publication
+    /// calls no loader and leaves the state Idle. The observer cannot await
+    /// the async intent, so it keeps the task and the test awaits it after
+    /// `dispose()` returns.
+    func testAres011LoadFromDisposedObserverStartsNoLoader() async {
+        let calls = LockedCount()
+        let hub = MessageHub()
+        let vm = AsyncResourceVM<Int>(
+            name: "resource",
+            loader: {
+                calls.increment()
+                return 1
+            },
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        let intents = LockedValues<Task<Void, Never>>()
+        let subscription = hub.messages
+            .compactMap { ($0 as? ConstructionStatusChangedMessage)?.status }
+            .sink { status in
+                if status == .disposed {
+                    intents.append(Task { await vm.load() })
+                }
+            }
+
+        vm.dispose()
+        let pending = intents.values
+        for intent in pending {
+            await intent.value
+        }
+
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(calls.value, 0)
+        XCTAssertEqual(vm.state.status, .idle)
+        withExtendedLifetime(subscription) {}
+    }
+
+    /// ARES-011 — a reload started from an observer of the Disposed publication
+    /// calls no loader, and the accepted value is cleaned exactly once by
+    /// disposal. The intent is kept as a task, as in the load case above.
+    func testAres011ReloadFromDisposedObserverStartsNoLoader() async {
+        let calls = LockedCount()
+        let cleaned = LockedValues<Int>()
+        let hub = MessageHub()
+        let vm = AsyncResourceVM<Int>(
+            name: "resource",
+            loader: {
+                calls.increment()
+                return calls.value
+            },
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE,
+            cleanupValue: { cleaned.append($0) }
+        )
+        await vm.load()
+        XCTAssertEqual(vm.state.status, .ready)
+        XCTAssertEqual(calls.value, 1)
+
+        let intents = LockedValues<Task<Void, Never>>()
+        let subscription = hub.messages
+            .compactMap { ($0 as? ConstructionStatusChangedMessage)?.status }
+            .sink { status in
+                if status == .disposed {
+                    intents.append(Task { await vm.reload() })
+                }
+            }
+
+        vm.dispose()
+        let pending = intents.values
+        for intent in pending {
+            await intent.value
+        }
+
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(calls.value, 1)
+        XCTAssertEqual(cleaned.values, [1])
+        withExtendedLifetime(subscription) {}
+    }
+
     func testReentrantDisposeDuringLoadingNotificationPreventsLoaderStart() async {
         let calls = LockedCount()
         let vm = makeAsyncResourceVM {

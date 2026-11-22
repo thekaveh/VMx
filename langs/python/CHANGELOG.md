@@ -161,6 +161,31 @@ below for them.
 
 ### Fixed
 
+- `AsyncResourceVM.load()` and `reload()` start no loader when they run from an
+  observer of the `Disposed` publication. The VM's `status` already reads
+  `DISPOSED` at that point, but the disposal flag was set later, so a
+  synchronous observer that drove the load to completion started the loader.
+  The start is now refused while `status` is `DISPOSED` (ADR-0244, #1851,
+  `ARES-011`).
+- `select_command` and `deselect_command` re-raise `can_execute_changed` when the VM's
+  `is_current` flag or its `Parent` link changes. A select, a move of `Current`, or a
+  container add or remove used to leave a bound control with a stale `can_execute()`
+  until the next lifecycle transition (ADR-0242, #1755, `CVM-011`).
+- `TokenPagedComposition` runs every notification step of a committed load or
+  refresh, even when a subscriber fails. A failing `on_collection_changed` or
+  `on_property_changed` subscriber used to stop the later steps, so `items`,
+  `current_token`, `has_more` and the command re-signal could go unsent. The first
+  failure still reaches the caller after the last step. The public API does not
+  change (ADR-0239, #1883, `COL-073`).
+- `when_property_changed`, `property_value_changed_messages_for` and
+  `subscribe_value` match a forwarding decorator by its canonical ownership
+  identity, through nested decorators. A helper given a decorator used to match
+  no message, and its subscription stayed empty. The signatures are unchanged
+  (ADR-0233, #1911, `FWD-007`).
+- `SearchableState` releases its source_changes subscription when the
+  constructor's post-subscribe reconcile raises. The caller still receives the
+  original exception, and a later signal no longer runs the items callable or
+  the predicate of the unreachable helper (ADR-0232, #1881, `SRCH-010`).
 - Tree walks (`walk`, `walk_expanded`, `find`), `HierarchicalVM.depth` and
   path-cache invalidation no longer recurse once per level. A tree deeper than
   the interpreter recursion limit (about 1,000 levels) no longer raises

@@ -776,6 +776,8 @@ then reconcile from `Items` again before returning. This closes the ordinary
 initial-snapshot/attach gap without exposing constructor-only intermediate
 snapshots. The supplier and source retain their own threading requirements;
 `SearchableState` does not make concurrent mutation of an unsafe source safe.
+If that reconciliation fails, construction MUST release the subscription before
+the failure reaches the caller (ADR-0232).
 
 Source completion stops automatic source-triggered recomputation only. A source
 error, in flavors whose signal type can fail, has the same isolated effect: it
@@ -790,7 +792,9 @@ chapter 03 §3.6, even for a zero debounce or a `search()` call, so it never
 reaches the caller. The recompute subscription stays attached, and the next
 term change, source signal or `search()` recomputes as usual. A failing
 `Filtered` subscriber also follows chapter 03 §3.6. A failure in the
-constructor's first filter still reaches the constructor's caller. Swift
+constructor's first filter, or in its post-subscribe reconciliation, still
+reaches the constructor's caller. After a post-subscribe failure, the helper
+first releases its subscription to `SourceChanged` (ADR-0232). Swift
 predicates cannot fail. Rust evaluates the predicate when the caller pulls
 `filtered()` or calls `search()`, so a panic reaches that caller, and a later
 pull with a valid term returns the filtered items.
@@ -889,4 +893,5 @@ the behavior of each ID.
 | `COMP-050`..`COMP-052`                         | §3, §3.1, §4.3 and §5 `Disposed` child, `Destructing` and child `select()` (ADR-0188, ADR-0189) |
 | `SRCH-001`..`SRCH-008`                         | §8, §8.1 and §8.2 source changes, timing and ownership (ADR-0198)                               |
 | `SRCH-009`                                     | §8.2 failing predicate or subscriber (ADR-0191)                                                 |
+| `SRCH-010`                                     | §8.2 failed post-subscribe reconcile releases the signal (ADR-0232)                             |
 | `DISP-001`, `DISP-006`                         | chapter 01 §4 repeated cascades and batch or projection disposal                                |

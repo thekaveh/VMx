@@ -12,6 +12,7 @@
  * See spec/03-messages.md §"Convenience helpers".
  */
 import { filter, map, Observable } from "rxjs";
+import { canonicalSender } from "./canonicalSender.js";
 import { PropertyChangedMessage } from "./propertyChanged.js";
 import type { IMessage } from "./types.js";
 
@@ -25,7 +26,8 @@ interface IHubLike {
  * each time a matching `PropertyChangedMessage` arrives on the hub.
  *
  * @param hub - The message hub to filter.
- * @param source - The specific sender instance to watch (identity check).
+ * @param source - The specific sender instance to watch. It is compared by its
+ *   canonical identity, so a forwarding decorator matches its wrapped VM (ADR-0233).
  * @param propertyName - Name of the property to observe.
  * @returns Cold observable of property values (snapshotted at delivery time).
  */
@@ -34,11 +36,12 @@ export function propertyValueChangedMessagesFor<TSource extends object>(
   source: TSource,
   propertyName: keyof TSource & string,
 ): Observable<unknown> {
+  const identity = canonicalSender(source);
   return hub.messages.pipe(
     filter(
       (msg): msg is PropertyChangedMessage<TSource> =>
         msg instanceof PropertyChangedMessage &&
-        msg.sender === source &&
+        msg.sender === identity &&
         msg.propertyName === propertyName,
     ),
     map((_msg) => (source as Record<string, unknown>)[propertyName]),

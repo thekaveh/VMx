@@ -45,6 +45,8 @@ from vmx.components.base import (
     _begin_parent_transfer,
     _commit_parent_transfer,
     _ComponentVMBase,
+    _enter_selection_scope,
+    _leave_selection_scope,
     _ownership_reservation_batch,
     _ParentCompositeVM,
     _ParentTransfer,
@@ -247,6 +249,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             index = next((i for i, child in enumerate(self._children) if child is vm), -1)
             if index < 0:
                 self._release_membership_transaction_locked()
+                # No link was written, so this close queues nothing (ADR-0242).
+                _leave_selection_scope()
                 raise RuntimeError("recorded parent does not contain child identity")
             child = self._children.pop(index)
             was_current = self._current is child
@@ -988,6 +992,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._membership_transaction_active = True
         self._membership_transaction_owner = get_ident()
         WAITS.acquire(self._membership_gate, get_ident())
+        # The transaction is a selection-input scope (ADR-0242). Its end closes it.
+        _enter_selection_scope()
 
     def _release_membership_transaction_locked(self) -> None:
         self._membership_transaction_active = False
@@ -1039,12 +1045,17 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             # The deferral stays set until dispose() admits it, so no transaction
             # or selection starts between this release and dispose() (#1064).
             dispose = self._dispose_deferred and self._active_current_publications == 0
-        if dispose:
-            try:
-                self.dispose()
-            except BaseException:
-                if propagate_dispose_failure:
-                    raise
+        # Closes the scope after the gate is released: a queued Select and
+        # Deselect notification runs with no container lock held (ADR-0242).
+        try:
+            _leave_selection_scope()
+        finally:
+            if dispose:
+                try:
+                    self.dispose()
+                except BaseException:
+                    if propagate_dispose_failure:
+                        raise
 
     def _end_current_publication(self, *, propagate_dispose_failure: bool) -> None:
         with self._membership_condition:
