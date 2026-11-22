@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vmx:fixture:message-ordering:1.0.0",
+  "$comment": "Non-normative structural contract for spec/fixtures/message-ordering.json (ADR-0243). Each scenario id selects its exact field set. tools/check-fixture-contracts.py applies this schema and keeps only the inventory rule: each scenario id is in the expected set once.",
+  "title": "VMx message-ordering fixture v1",
+  "type": "object",
+  "required": ["$schema-version", "scenarios"],
+  "properties": {
+    "$schema-version": {
+      "const": "1.0.0"
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/scenario"
+      }
+    }
+  },
+  "$defs": {
+    "stringList": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "description": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "scenario": {
+      "oneOf": [
+        { "$ref": "#/$defs/singleProducerFifo" },
+        { "$ref": "#/$defs/lateSubscribeNoReplay" },
+        { "$ref": "#/$defs/multipleSubscribersSameMessage" },
+        { "$ref": "#/$defs/unsubscribeDuringEmit" }
+      ]
+    },
+    "singleProducerFifo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "producer_sends", "expected_observed"],
+      "properties": {
+        "id": { "const": "single-producer-fifo" },
+        "description": { "$ref": "#/$defs/description" },
+        "producer_sends": { "$ref": "#/$defs/stringList" },
+        "expected_observed": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    "lateSubscribeNoReplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "description",
+        "producer_sends_before_subscribe",
+        "producer_sends_after_subscribe",
+        "expected_observed"
+      ],
+      "properties": {
+        "id": { "const": "late-subscribe-no-replay" },
+        "description": { "$ref": "#/$defs/description" },
+        "producer_sends_before_subscribe": { "$ref": "#/$defs/stringList" },
+        "producer_sends_after_subscribe": { "$ref": "#/$defs/stringList" },
+        "expected_observed": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    "multipleSubscribersSameMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "description",
+        "producer_sends",
+        "subscriber_count",
+        "expected_observed_per_subscriber"
+      ],
+      "properties": {
+        "id": { "const": "multiple-subscribers-same-message" },
+        "description": { "$ref": "#/$defs/description" },
+        "producer_sends": { "$ref": "#/$defs/stringList" },
+        "subscriber_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expected_observed_per_subscriber": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    "unsubscribeDuringEmit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "description",
+        "producer_sends",
+        "unsubscribe_after_first",
+        "expected_observed"
+      ],
+      "properties": {
+        "id": { "const": "unsubscribe-during-emit" },
+        "description": { "$ref": "#/$defs/description" },
+        "producer_sends": { "$ref": "#/$defs/stringList" },
+        "unsubscribe_after_first": { "type": "boolean" },
+        "expected_observed": { "$ref": "#/$defs/stringList" }
+      }
+    }
+  }
+}

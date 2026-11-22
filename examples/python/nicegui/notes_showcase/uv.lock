@@ -361,7 +361,7 @@ resolution-markers = [
     "python_full_version >= '3.11' and python_full_version < '3.15'",
 ]
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version == '3.11.*'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a8/f2/8d2dd8276ca05e1f5157b6a0d34efb2f585f47a0fbed61e8aad04b221f0b/bidict-0.24.1.tar.gz", hash = "sha256:4dca6c17f0b01700e9f24359daa5ebabf7be022d99f4cb2a257b6af2a5076c88", size = 30818, upload-time = "2026-08-25T23:45:52.214Z" }
 wheels = [
@@ -409,7 +409,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -2291,6 +2291,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "jsonschema", marker = "extra == 'dev'", specifier = "==4.26.0" },
+    { name = "jsonschema", marker = "extra == 'tools'", specifier = "==4.26.0" },
     { name = "markdown-it-py", marker = "extra == 'dev'", specifier = "==4.2.0" },
     { name = "markdown-it-py", marker = "extra == 'tools'", specifier = "==4.2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8" },

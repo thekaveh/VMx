@@ -1,6 +1,6 @@
 # ADR 0102 — Consumer conformance adapter schema and TypeScript factory runner
 
-**Status:** Accepted (2026-07-12)
+**Status:** Accepted (2026-07-12; §2.1 clarified by ADR-0243)
 **Spec version:** 3.20.0 (supporting adapter; no normative behavior change)
 **Related:** ADR-0006, ADR-0065, ADR-0101, issue #95
 

@@ -193,6 +193,10 @@ jobs:
             echo "::error::A packages.lock.json differs from the project graph. Regenerate it with: dotnet restore langs/csharp/VMx.sln --force-evaluate (see docs/maintenance/2026-11-09-dependency-lock-regeneration.md)."
             exit 1
           }
+          # The switch must reach the restore: NuGet ignores SetTargetFramework,
+          # so this restore adds the packages the netstandard2.0 build needs.
+          # Its graph has no committed lock file; the restore writes one under obj/.
+          dotnet restore tests/VMx.Conformance.Tests/VMx.Conformance.Tests.csproj -p:VMxLibraryFramework=netstandard2.0
 
       - name: Build the netstandard2.0 library build
         run: dotnet build tests/VMx.Conformance.Tests/VMx.Conformance.Tests.csproj -c Release --no-restore -p:VMxLibraryFramework=netstandard2.0

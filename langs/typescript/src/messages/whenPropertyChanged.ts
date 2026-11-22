@@ -15,6 +15,7 @@
  * See spec/03-messages.md §"Convenience helpers".
  */
 import { filter, type Observable } from "rxjs";
+import { canonicalSender } from "./canonicalSender.js";
 import { PropertyChangedMessage } from "./propertyChanged.js";
 import type { IMessage } from "./types.js";
 
@@ -25,8 +26,9 @@ interface IHubLike {
 
 /**
  * Returns the stream of {@link PropertyChangedMessage} events published to `hub`
- * by `sender` for the property named `propertyName`. Sender identity is compared
- * by reference.
+ * by `sender` for the property named `propertyName`. The sender is compared by
+ * its canonical identity, so a forwarding decorator matches the messages of the
+ * VM it wraps (spec/03 §7.2, ADR-0233).
  *
  * Pass an array to watch several properties of one sender (spec/03 §7.2,
  * ADR-0160): `whenPropertyChanged(hub, chart, ["plot", "range"])`. A message
@@ -47,12 +49,13 @@ export function whenPropertyChanged(
   sender: object,
   propertyName: string | readonly string[],
 ): Observable<PropertyChangedMessage<unknown>> {
+  const identity = canonicalSender(sender);
   if (typeof propertyName === "string") {
     return hub.messages.pipe(
       filter(
         (m): m is PropertyChangedMessage<unknown> =>
           m instanceof PropertyChangedMessage &&
-          m.sender === sender &&
+          m.sender === identity &&
           m.propertyName === propertyName,
       ),
     );
@@ -65,7 +68,7 @@ export function whenPropertyChanged(
     filter(
       (m): m is PropertyChangedMessage<unknown> =>
         m instanceof PropertyChangedMessage &&
-        m.sender === sender &&
+        m.sender === identity &&
         names.has(m.propertyName),
     ),
   );

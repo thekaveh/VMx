@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vmx:fixture:command-truthtable:1.0.0",
+  "$comment": "Non-normative structural contract for spec/fixtures/command-truthtable.json (ADR-0243). tools/check-fixture-contracts.py applies this schema and keeps only the inventory rule: each case id is in the expected set once.",
+  "title": "VMx command-truthtable fixture v1",
+  "type": "object",
+  "required": ["$schema-version", "cases"],
+  "properties": {
+    "$schema-version": {
+      "const": "1.0.0"
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/case"
+      }
+    }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "predicate",
+        "task",
+        "trigger_emits",
+        "can_execute",
+        "execute_invokes_task",
+        "can_execute_changed_fires"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "predicate": {
+          "type": ["boolean", "null"]
+        },
+        "task": {
+          "enum": ["noop", null]
+        },
+        "trigger_emits": {
+          "type": "boolean"
+        },
+        "can_execute": {
+          "type": "boolean"
+        },
+        "execute_invokes_task": {
+          "type": "boolean"
+        },
+        "can_execute_changed_fires": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

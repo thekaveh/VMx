@@ -105,6 +105,9 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
+        // The slot replacement is a selection-input scope (ADR-0242): the scope
+        // closes after the slot lock below is released.
+        using var selectionScope = SelectionInputScope.Open();
         lock (_aggregateParent)
         {
             // A failed factory disposes the candidates built before it (#1324).

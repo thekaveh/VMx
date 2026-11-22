@@ -136,6 +136,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MIN_SPEC_VERSION: &str = "3.30.0";
 
 mod runtime;
+mod selection_inputs;
 pub use runtime::*;
 pub(crate) use runtime::{
     begin_membership_transaction, begin_parent_transfer, clone_locked, compensate_auto_start,

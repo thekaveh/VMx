@@ -24,6 +24,7 @@ import type { IDispatcher } from "../services/dispatcher.js";
 import { reportUnhandled } from "../services/reportUnhandled.js";
 import { declareCapabilities } from "../capabilities/registry.js";
 import { disposeBestEffort } from "./disposal.js";
+import { queueSelectionInputs } from "./selectionInputScope.js";
 import { setRunWhenReleased, type ParentTransfer } from "./parentTransfer.js";
 import {
   countedActionsOf,
@@ -135,7 +136,12 @@ export abstract class ComponentVMBase {
   /** @internal Set by CompositeVMBase / GroupVM to wire parent-child selection delegation. */
   #parent: IOwningParentVM | null = null;
   get _parent(): IOwningParentVM | null { return this.#parent; }
-  set _parent(value: IOwningParentVM | null) { this.#parent = value; }
+  /** A link that changes re-raises Select and Deselect `canExecuteChanged` (ADR-0242). */
+  set _parent(value: IOwningParentVM | null) {
+    if (this.#parent === value) return;
+    this.#parent = value;
+    this.#raiseSelectionInputsChanged();
+  }
   /** @internal Rejects nested ownership changes until the active mutation commits. */
   _ownershipInProgress = false;
   /** @internal Canonical component identity shared by forwarding decorators. */
@@ -144,6 +150,8 @@ export abstract class ComponentVMBase {
 
   readonly #propertyChangedSubject = new Subject<string>();
   readonly #statusTrigger = new Subject<void>();
+  /** Fires when IsCurrent or the Parent link changes (ADR-0242). */
+  readonly #selectionTrigger = new Subject<void>();
   #triggersDisposed = false;
   #activePropertyNotifications = 0;
   #propertyNotificationTeardownPending = false;
@@ -194,17 +202,20 @@ export abstract class ComponentVMBase {
     this.#background = opts.background ?? false;
 
     const trigger = this.#statusTrigger.asObservable();
+    const selectionTrigger = this.#selectionTrigger.asObservable();
 
     this.#selectCommand = RelayCommand.builder()
       .predicate(() => this.canSelect())
       .task(() => this.select())
       .triggers(trigger)
+      .triggers(selectionTrigger)
       .build();
 
     this.#deselectCommand = RelayCommand.builder()
       .predicate(() => this.canDeselect())
       .task(() => this.deselect())
       .triggers(trigger)
+      .triggers(selectionTrigger)
       .build();
 
     // SelectNext / SelectPrevious are placeholder stubs on the leaf base —
@@ -318,7 +329,30 @@ export abstract class ComponentVMBase {
 
   /** Internal: publishes a flag change that `_commitIsCurrent` reported. */
   _publishIsCurrent(): void {
-    this._notifyPropertyChanged("isCurrent");
+    try {
+      this._notifyPropertyChanged("isCurrent");
+    } finally {
+      this.#raiseSelectionInputsChanged();
+    }
+  }
+
+  /**
+   * Re-raises `canExecuteChanged` of Select and Deselect (ADR-0242). Skipped
+   * once teardown has started, since a completed Subject must not be fed.
+   */
+  #raiseSelectionInputsChanged(): void {
+    queueSelectionInputs(() => this.#emitSelectionInputs());
+  }
+
+  /**
+   * Emits the Select and Deselect notification (ADR-0242). It runs when the
+   * outermost selection-input scope closes, after the container finishes its
+   * membership change.
+   */
+  #emitSelectionInputs(): void {
+    if (!this.#triggersDisposed) {
+      this.#selectionTrigger.next();
+    }
   }
 
   // ── propertyChanged observable ───────────────────────────────────────────
@@ -1013,6 +1047,8 @@ export abstract class ComponentVMBase {
         if (!this.#triggersDisposed) {
           this.#triggersDisposed = true;
           this.#statusTrigger.complete();
+          // Completed, never disposed (ADR-0242): see #emitSelectionInputs.
+          this.#selectionTrigger.complete();
           if (this.#activePropertyNotifications === 0) {
             this.#propertyChangedSubject.complete();
           } else {
