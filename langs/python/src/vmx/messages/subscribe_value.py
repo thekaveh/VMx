@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, TypeVar
 
 from reactivex.abc import DisposableBase
 
+from vmx.messages._sender import canonical_sender
 from vmx.messages.property_changed import PropertyChangedMessage
 
 if TYPE_CHECKING:
@@ -30,10 +31,11 @@ def subscribe_value(
     if fire_immediately:
         callback(current, current)
     equality_fn: Callable[[TValue, TValue], bool] = operator.eq if equality is None else equality
+    identity = canonical_sender(source)
 
     def on_message(message: object) -> None:
         nonlocal current
-        if not isinstance(message, PropertyChangedMessage) or message.sender is not source:
+        if not isinstance(message, PropertyChangedMessage) or message.sender is not identity:
             return
         next_value = selector(source)
         if equality_fn(current, next_value):

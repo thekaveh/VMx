@@ -1,6 +1,6 @@
 # ADR 0050 — v3 spec reconciliation: `Parent` member, `whenPropertyChanged`, and selection clarifications
 
-**Status:** Accepted (2026-06-28)
+**Status:** Accepted (2026-06-28; §2.1 sender rule and conformance statement amended by ADR-0233)
 **Spec version:** 3.0.0
 **Supersedes:** [ADR-0042](0042-composite-builder-current-and-on-current-changed.md) §5.1 (the "SelectComponent path" phrasing)
 

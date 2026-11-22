@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable
+from contextlib import suppress
 from typing import Generic, TypeVar
 
 import reactivex as rx
@@ -84,9 +85,16 @@ class SearchableState(ISearchable, Generic[T]):
 
         # Close the initial snapshot/attach gap. This constructor-only first
         # value cannot be observed by callers; signals after attachment flow
-        # through the merged subscription above.
+        # through the merged subscription above. A failure here releases the
+        # signal subscription before it reaches the caller, because the caller
+        # never receives the helper to dispose (ADR-0232).
         if source_changes is not None:
-            self._filtered_subject.on_next(self._apply_filter(self._term_subject.value))
+            try:
+                self._filtered_subject.on_next(self._apply_filter(self._term_subject.value))
+            except BaseException:
+                with suppress(Exception):
+                    self.dispose()
+                raise
 
     @property
     def search_term(self) -> str:

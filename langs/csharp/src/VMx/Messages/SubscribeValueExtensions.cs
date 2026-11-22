@@ -40,11 +40,12 @@ public static class SubscribeValueExtensions
         var comparer = equalityComparer ?? EqualityComparer<TValue>.Default;
         var current = selector(source);
         if (fireImmediately) callback(current, current);
+        var identity = SenderIdentity.Of(source);
 
         return source.Hub.Messages.Subscribe(message =>
         {
             if (message is not IPropertyChangedMessage<object> propertyChanged ||
-                !ReferenceEquals(propertyChanged.SenderObject, source))
+                !ReferenceEquals(propertyChanged.SenderObject, identity))
             {
                 return;
             }

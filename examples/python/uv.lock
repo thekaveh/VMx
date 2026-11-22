@@ -394,6 +394,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "jsonschema", marker = "extra == 'dev'", specifier = "==4.26.0" },
+    { name = "jsonschema", marker = "extra == 'tools'", specifier = "==4.26.0" },
     { name = "markdown-it-py", marker = "extra == 'dev'", specifier = "==4.2.0" },
     { name = "markdown-it-py", marker = "extra == 'tools'", specifier = "==4.2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8" },

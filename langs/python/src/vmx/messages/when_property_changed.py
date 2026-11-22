@@ -19,6 +19,7 @@ from typing import Any
 from reactivex import Observable
 from reactivex import operators as ops
 
+from vmx.messages._sender import canonical_sender
 from vmx.messages.property_changed import PropertyChangedMessage
 
 
@@ -31,8 +32,9 @@ def when_property_changed(
     """Return an observable of the matching :class:`PropertyChangedMessage` events.
 
     Each time a :class:`~vmx.messages.property_changed.PropertyChangedMessage`
-    whose ``sender`` is ``sender`` (identity check) and whose ``property_name``
-    matches *property_name* arrives on the hub, the helper emits that message.
+    whose ``sender`` is the canonical ownership identity of ``sender`` (identity check,
+    ADR-0233) and whose ``property_name`` matches *property_name* arrives on the hub,
+    the helper emits that message.
 
     Pass more names to watch several properties of one sender (spec/03 §7.2,
     ADR-0160): ``when_property_changed(hub, chart, "plot", "range")``, or
@@ -59,11 +61,12 @@ def when_property_changed(
         Cold observable; each subscription attaches one filter to ``hub.messages``.
     """
     names = (property_name, *property_names)
+    identity = canonical_sender(sender)
 
     def _is_matching(msg: Any) -> bool:
         return (
             isinstance(msg, PropertyChangedMessage)
-            and msg.sender is sender
+            and msg.sender is identity
             and msg.property_name in names
         )
 

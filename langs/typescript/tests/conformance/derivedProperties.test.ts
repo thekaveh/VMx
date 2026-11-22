@@ -194,6 +194,7 @@ interface FixtureScenario {
   transform: string;
   mutations: FixtureMutation[];
   expected_values: unknown[];
+  expected_emissions: unknown[];
 }
 interface Fixture {
   scenarios: FixtureScenario[];
@@ -214,12 +215,16 @@ describe("DPROP-012", () => {
         (v) => new BehaviorSubject<unknown>(v),
       );
       const dp = fromSources<unknown>(subjects, transform);
+      const emissions: unknown[] = [];
+      const sub = dp.valueChanged.subscribe((v) => emissions.push(v));
       const actuals: unknown[] = [dp.value];
       for (const [idx, val] of scenario.mutations) {
         subjects[idx]!.next(val);
         actuals.push(dp.value);
       }
       expect(actuals).toEqual(scenario.expected_values);
+      expect(emissions).toEqual(scenario.expected_emissions);
+      sub.unsubscribe();
       dp.dispose();
     }
   });

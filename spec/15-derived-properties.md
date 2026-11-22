@@ -135,6 +135,11 @@ load. Each scenario has:
 - `mutations`: ordered `(source_index, new_value)` events.
 - `expected_values`: the expected `Value` readings — one for the initial
   state, then one after each mutation (see DPROP-012).
+- `expected_emissions`: the values published on `ValueChanged` after
+  construction, in order (see DPROP-012). An equal recompute publishes
+  nothing, so it adds no entry. At least one scenario contains a mutation
+  whose recompute equals the previous value, so a `DerivedProperty` that
+  omits the §6 gate fails DPROP-012.
 
 ## 8. Recipe: avoiding double-subscription on lazy initialization (spec v2.1)
 

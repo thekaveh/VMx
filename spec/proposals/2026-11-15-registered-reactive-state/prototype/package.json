@@ -1,0 +1,13 @@
+{
+  "name": "vmx-registered-reactive-state-prototype",
+  "private": true,
+  "type": "module",
+  "description": "Reference prototype of registered reactive state for VMx view-models, on VMx TypeScript 3.30.0 (see README.md)",
+  "scripts": {
+    "build": "node node_modules/typescript/bin/tsc -p tsconfig.json",
+    "check:src": "node node_modules/typescript/bin/tsc -p tsconfig.src.json",
+    "test": "NODE_ENV=test node --expose-gc --test build/tests/",
+    "bench": "NODE_ENV=production node bench/settle.mjs",
+    "stress": "NODE_ENV=test node bench/random-r2.mjs 300 600"
+  }
+}

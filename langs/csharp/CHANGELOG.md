@@ -256,6 +256,34 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- Tree walks (`Tree.Walk`, `Tree.WalkExpanded` and `Tree.Find`) and the path-cache
+  invalidation of a `HierarchicalVM` no longer recurse once per tree level. A tree
+  deeper than the call stack no longer overflows it. Walk order, the timing of child
+  reads and the factory error rule are unchanged (spec/13, #1912).
+
+- `SelectCommand` and `DeselectCommand` re-raise `CanExecuteChanged` when the VM's
+  `IsCurrent` flag or its `Parent` link changes. A select, a move of `Current`, or a
+  container add or remove used to leave a bound control with a stale `CanExecute`
+  until the next lifecycle transition (ADR-0242, #1755, `CVM-011`).
+
+- `TokenPagedComposition` runs every notification step of a committed load or
+  refresh, even when a subscriber fails. A failing `Reset` or `PropertyChanged`
+  handler used to stop the later steps, so `Items`, `CurrentToken`, `HasMore` and
+  the command re-signal could go unsent. The first failure still reaches the
+  caller after the last step. The public API does not change (ADR-0239, #1883,
+  `COL-073`).
+
+- `WhenPropertyChanged`, `PropertyValueChangedMessagesFor` and `SubscribeValue`
+  match a forwarding decorator by its canonical ownership identity, through
+  nested decorators. A helper given a decorator used to match no message, and
+  its subscription stayed empty. The signatures are unchanged (ADR-0233, #1911,
+  `FWD-007`).
+
+- `SearchableState` releases its source-change subscription when the
+  constructor's post-subscribe reconcile throws. The caller still receives the
+  original failure, and a later signal no longer runs the item supplier or the
+  predicate of the unreachable helper (ADR-0232, #1881, `SRCH-010`).
+
 - `ModalVM<T>` claims the first dismissal under a lock. Two threads that
   dismiss or dispose at once no longer leave `Result` different from the
   awaited `Completion`, and `IsDismissed` is read under the same lock

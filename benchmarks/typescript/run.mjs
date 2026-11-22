@@ -240,6 +240,47 @@ function lifecycleCase(cycles) {
   };
 }
 
+// A HierarchicalVM whose children come from a factory. The class is a plain
+// subclass, because HierarchicalVM is abstract in the TypeScript source only.
+class ChainNode extends core.HierarchicalVM {}
+
+// One full walk of a materialized chain of `levels` nodes (spec/13 §2). The
+// chain is built and walked once, before the first sample, and reused: a walk
+// does not change the tree. `ops` is 1, so the median is the time of one full
+// walk.
+function treeWalkChainCase(levels) {
+  const id = `tree.walk-chain/depth=${levels}`;
+  let built = null;
+  const chainNode = (depth, hub) =>
+    new ChainNode({
+      model: depth,
+      hub,
+      dispatcher: NullDispatcher.INSTANCE,
+      name: `n${depth}`,
+      childrenFactory: () => (depth + 1 === levels ? [] : [chainNode(depth + 1, hub)]),
+    });
+  return {
+    id,
+    params: { levels },
+    ops: 1,
+    setup() {
+      if (built === null) {
+        built = chainNode(0, new MessageHub());
+        let count = 0;
+        for (const _node of core.walk(built)) count += 1;
+        if (count !== levels) throw new Error(`the chain does not have ${levels} levels`);
+      }
+      return { root: built };
+    },
+    run({ root }) {
+      for (const _node of core.walk(root)) {
+        // The walk itself is the measured work.
+      }
+    },
+    teardown() {},
+  };
+}
+
 const allCases = [
   sendCase(0, size(150_000)),
   sendCase(1, size(150_000)),
@@ -256,6 +297,8 @@ const allCases = [
   collectionCase("insert0", 1_000, size(20_000)),
   collectionCase("insert0", 10_000, size(20_000)),
   lifecycleCase(size(20_000)),
+  treeWalkChainCase(5_000),
+  treeWalkChainCase(10_000),
 ];
 const unknownSlowdown = [...slowdown.keys()].filter(
   (id) => !allCases.some((entry) => entry.id === id),

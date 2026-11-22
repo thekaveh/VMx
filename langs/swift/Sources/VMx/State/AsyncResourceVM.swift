@@ -254,9 +254,13 @@ public final class AsyncResourceVM<Value>: ComponentVMBase {
 
     private func admit(reload: Bool) -> AsyncResourceOperation? {
         resourceLock.lock()
-        let allowed = !resourceDisposed && (reload
-            ? currentState.status != .idle
-            : currentState.status == .idle)
+        // `status` turns Disposed before observers of that publication run,
+        // while `_onDispose` sets `resourceDisposed` only afterwards. Checking
+        // both closes that window, so an intent from such an observer starts
+        // no loader (ARES-011, ADR-0244).
+        let allowed = !resourceDisposed
+            && status != .disposed
+            && (reload ? currentState.status != .idle : currentState.status == .idle)
         guard allowed else {
             resourceLock.unlock()
             return nil

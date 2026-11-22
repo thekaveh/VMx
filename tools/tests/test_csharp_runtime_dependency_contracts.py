@@ -161,6 +161,27 @@ def test_netstandard_locks_hold_the_system_text_json_closure() -> None:
             assert dependency in netstandard, (relative_path, dependency)
 
 
+def test_netstandard_switch_adds_the_packages_the_netstandard_build_needs() -> None:
+    # #1863: NuGet restore ignores SetTargetFramework, so the test graph carries no
+    # System.Text.Json for the netstandard2.0 build. Without a package reference
+    # the net8.0 test host loads the framework's copy, not the 10.x one.
+    root = ET.parse(C_SHARP / "tests" / "Directory.Build.targets").getroot()
+    switched = [
+        group
+        for group in root.findall("ItemGroup")
+        if "VMxLibraryFramework" in (group.get("Condition") or "")
+    ]
+    packages = {
+        reference.get("Include"): reference.get("Version")
+        for group in switched
+        for reference in group.findall("PackageReference")
+    }
+    for name in ("System.Text.Json", "System.Collections.Immutable"):
+        assert name in packages, name
+        assert packages[name] is None, f"{name} must take its central version"
+        assert name in PINS, name
+
+
 def test_ledger_names_the_version_source_and_the_hold() -> None:
     ledger = " ".join(LEDGER.read_text(encoding="utf-8").split())
 

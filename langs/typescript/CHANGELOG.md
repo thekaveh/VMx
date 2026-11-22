@@ -222,6 +222,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   ADR-0162). The first call finishes the work: it disposes the registered
   members, then publishes `Disposed`.
 
+- The packaged consumer conformance schema states the case-ID rule on each
+  case `id`: IDs are unique within a suite, and a runner rejects a duplicate
+  (ADR-0243, ADR-0102 §2.1, #1788). The change is a `$comment`, so every suite
+  that passed before still passes. `$id` and `$schema-version` are unchanged,
+  and `parseConsumerConformance` still rejects duplicate IDs.
+
 ### Deprecated
 
 - Building a `HierarchicalVM` subclass without `hub` and `dispatcher`. The
@@ -230,6 +236,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `HierarchicalVMBuilder`. `@thekaveh/vmx` 4.0 requires them (ADR-0009, #665).
 
 ### Fixed
+
+- `selectCommand` and `deselectCommand` re-raise `canExecuteChanged` when the VM's
+  `isCurrent` flag or its parent link changes. A select, a move of `Current`, or a
+  container add or remove used to leave a bound control with a stale `canExecute()`
+  until the next lifecycle transition (ADR-0242, #1755, `CVM-011`).
+
+- `AggregateChangeStream` disposed from a call-out of a reconciliation (a
+  selected `subscribe`, a selector, `source.snapshot()`, or the teardown of a
+  removed member) releases the subscriptions it staged and delivers only
+  `complete`. Before, a staged subscription stayed live and a `Membership` change
+  arrived after `complete`. The signatures are unchanged (ADR-0240, #1914,
+  `AGCH-012`).
+
+- `whenPropertyChanged`, `propertyValueChangedMessagesFor` and `subscribeValue`
+  match a forwarding decorator by its canonical identity, through nested
+  decorators: the identity is the innermost VM on the `wrappedBase` chain. A
+  helper given a decorator used to match no message, and its subscription stayed
+  empty. The signatures are unchanged (ADR-0233, #1911, `FWD-007`).
+
+- `SearchableState` releases its `sourceChanges` subscription when the
+  constructor's post-subscribe reconcile throws. The caller still receives the
+  original error, and a later signal no longer runs the `items` callback or the
+  `predicate` of the unreachable helper (ADR-0232, #1881, `SRCH-010`).
 
 - Tree walks (`walk`, `walkExpanded`, `find`), `HierarchicalVM.depth` and
   path-cache invalidation no longer recurse once per level. A deep tree no
