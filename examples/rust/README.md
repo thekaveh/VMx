@@ -76,13 +76,17 @@ cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
 Key bindings:
 
 - `q`: quit
-- `/`: apply the sample `vmx` note search
-- `x`: clear note search
+- `/`: filter the notes list by the sample term `vmx` (not the global search)
+- `x`: clear the notes-list filter
 - `n` / `p`: next or previous notes page
 - `j` / `k`: select the next or previous note on the page
-- `m`: toggle edit/preview mode
+- `m`: toggle edit/preview mode (only the header label changes)
 - `d`: request delete confirmation
 - `y` / `r`: approve or reject pending delete
+
+The [docs page](../../docs/content/examples/rust-tui-notes-showcase.md) §8.5.1
+gives each key's view-model call, the pending-delete rules, and the features
+that no key reaches.
 
 ## 3. Project Layout
 
