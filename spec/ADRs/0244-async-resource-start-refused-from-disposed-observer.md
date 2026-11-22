@@ -38,25 +38,34 @@ are inert afterward" already covers the case once the observer is read as after 
 
 ### 2.2 The check
 
-A start is refused when the VM's `status` is `Disposed`, in addition to the disposal flag.
-The status turns `Disposed` before any observer runs, so it is the first signal that is
-set. Each flavor applies the check where its start path admits an intent:
+In Swift, C#, TypeScript and Python, a start is refused when the VM's `status` is
+`Disposed`, in addition to the disposal flag. The base sets `Disposed` before it publishes,
+and the disposal flag is set later, in `_onDispose()`. The status is therefore the signal
+that is set first, and an observer of the publication sees only the status. Each flavor
+applies the check where its start path admits an intent:
 
 - Swift: `admit()` refuses while `status` is `.disposed`. The read takes the lifecycle lock.
 - C#: `StartAsync` refuses when `Status == ConstructionStatus.Disposed`.
 - TypeScript: `#isInert()` checks the status. Its command predicates use it too (PR #2045).
-- Python and Rust: the merged guards apply the same refusal.
+- Python: `_is_inert()` checks the status. `_can_load`, `_can_reload` and both guards of
+  `_start` use it, so the command predicates use it too. The read takes no lock, because
+  the status is one attribute that the lifecycle lock writes.
+- Rust: no status check is added. `dispose()` sets the disposal flag under the machine lock
+  before the component publishes `Disposed`, so the existing guards already refuse a start
+  from an observer.
 
-The status is used rather than a new flag. A new flag would need its own write, and
-setting the disposal flag earlier would move `_onDispose()` ahead of the publication. That
-moves cleanup and cancellation for every component, which this defect does not need.
+The status is used rather than a new flag in the four flavors that check it. A new flag
+would need its own write, and setting the disposal flag earlier would move `_onDispose()`
+ahead of the publication. That moves cleanup and cancellation for every component, which
+this defect does not need.
 
 ### 2.3 Command enablement and cancellation
 
-The rule does not require a command predicate to change. Swift and C# keep their command
-predicates as they were. The start is refused in the body, so the command runs and starts
-nothing. TypeScript's predicates also read the status, which only changes enablement after
-disposal. The guarantee is the same in all flavors.
+The rule does not require a command predicate to change in Swift and C#. Their commands run
+and start nothing, because the start is refused in the body. Python and TypeScript read the
+status in their command predicates too, so their commands report not executable from the
+`Disposed` publication on. The guarantee is the same in all flavors: the loader does not run,
+and the state stays unchanged.
 
 `cancel()` stays admitted from a `Disposed` observer. It finds no current operation and
 changes no state.
@@ -68,9 +77,20 @@ Each flavor's `ARES-011` tests cover the case. The Swift tests are
 `testAres011ReloadFromDisposedObserverStartsNoLoader`. Each one keeps the observer's
 task, awaits it after `dispose()` returns, and then checks the loader count.
 
-Mutation evidence: removing the `status != .disposed` check from `admit()` makes the load
-test fail (loader calls 1, expected 0, and state `ready`, expected `idle`). It makes the
+The Python test is `test_ares_011_synchronous_load_from_disposed_observer_starts_no_loader`.
+Its observer drives the load with `asyncio.run(vm.load())` instead of scheduling a task.
+A scheduled task runs after `dispose()` returns, when the disposal flag is already set, so
+the existing Python test (`test_ares_011_load_from_disposed_observer_starts_no_loader`)
+passes without the status check. The synchronous form is the one that reaches the window.
+The C#, TypeScript and Rust `ARES-011` tests already cover the observer case (C#
+`ARES_011_Load_From_A_Disposed_Observer_Starts_No_Loader`, the TypeScript `describe("ARES-011")`
+observer tests, and Rust `async_resource_load_from_disposed_observer_starts_no_loader`).
+
+Mutation evidence: removing the `status != .disposed` check from `admit()` makes the Swift load
+test fail (loader calls 1, expected 0, and state `loading`, expected `idle`). It makes the Swift
 reload test fail (loader calls 2, expected 1, and cleaned `[1, 2]`, expected `[1]`).
+Removing the `status is DISPOSED` term from Python's `_is_inert()` makes the synchronous test
+fail (`assert calls == 0`, with `1 == 0`), and the existing scheduled-task test still passes.
 
 ## 3. Consequences
 
