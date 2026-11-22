@@ -209,6 +209,14 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Fixed
 
+- `walk(_:)`, `walkExpanded(_:)`, `find(_:where:)`, `HierarchicalVM.depth` and
+  the path-cache invalidation of a `HierarchicalVM` no longer recurse once per
+  tree level. A tree deeper than the call stack no longer overflows it. Walk
+  order, the timing of child reads and the factory error rule (ADR-0170) are
+  unchanged (spec/13, #1912). Materializing the children of a `HierarchicalVM`
+  no longer builds a set of all its ancestors for each node, so a deep tree
+  materializes in less time.
+
 - `AsyncResourceVM.load()` and `reload()` start no loader when they run from an
   observer of the `Disposed` publication. The VM's `status` already reads
   `Disposed` at that point, but the disposal flag was set later, so the intent
