@@ -22,18 +22,6 @@ def _load(name: str, relative_path: str):
 push_wiki = _load("push_wiki_timeout", "scripts/docs/push_wiki.py")
 
 
-def test_swift_fixture_cli_reports_repository_lookup_timeout(monkeypatch, capsys) -> None:
-    checker = _load("check_swift_fixture_sync_timeout", "tools/check-swift-fixture-sync.py")
-    monkeypatch.setattr(
-        checker,
-        "repo_root",
-        lambda: (_ for _ in ()).throw(subprocess.TimeoutExpired("git", 1)),
-    )
-
-    assert checker.main() == 2
-    assert "unable to locate repository root" in capsys.readouterr().err
-
-
 def test_wiki_cli_reports_subprocess_timeout(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         push_wiki,

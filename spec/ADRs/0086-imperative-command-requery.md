@@ -1,6 +1,6 @@
 # ADR 0086 — Expose imperative command re-evaluation notifications
 
-**Status:** Accepted (2026-07-10)
+**Status:** Accepted (2026-07-10; §2 amended by ADR-0235)
 **Spec version:** introduced in 3.6.0
 
 ## 1. Context

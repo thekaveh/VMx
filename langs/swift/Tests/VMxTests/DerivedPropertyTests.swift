@@ -245,6 +245,8 @@ final class DerivedPropertyTests: XCTestCase {
                 subjects.map { $0.eraseToAnyPublisher() }
             ) { values in applyFixtureTransform(transformName, values) }
 
+            var emissions: [FixtureValue] = []
+            let emissionSink = dp.valueChanged.sink { emissions.append($0) }
             var actuals: [FixtureValue] = [try dp.value]
             for mutation in scenario.mutations {
                 subjects[mutation.index].send(mutation.newValue.anyValue)
@@ -252,6 +254,9 @@ final class DerivedPropertyTests: XCTestCase {
             }
             XCTAssertEqual(actuals, scenario.expectedValues,
                            "scenario \(scenario.name): value sequence mismatch")
+            XCTAssertEqual(emissions, scenario.expectedEmissions,
+                           "scenario \(scenario.name): ValueChanged emission mismatch")
+            emissionSink.cancel()
             dp.dispose()
         }
     }
@@ -338,6 +343,7 @@ private struct FixtureScenario: Decodable {
     let transform: String
     let mutations: [FixtureMutation]
     let expectedValues: [FixtureValue]
+    let expectedEmissions: [FixtureValue]
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -345,6 +351,7 @@ private struct FixtureScenario: Decodable {
         case transform
         case mutations
         case expectedValues = "expected_values"
+        case expectedEmissions = "expected_emissions"
     }
 }
 

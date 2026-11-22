@@ -10,6 +10,7 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps
+from vmx._subscriber_failures import FanOutSubject
 from vmx.collections.collection_changed import CollectionChangedEvent
 from vmx.commands.async_relay_command import AsyncRelayCommand
 from vmx.components.base import _ComponentVMBase
@@ -39,8 +40,8 @@ class TokenPagedComposition(Generic[TVM, TToken]):
         self._loaded_once = False
         self._operation_generation = 0
         self._disposed = False
-        self._collection_changed: Subject[CollectionChangedEvent] = Subject()
-        self._property_changed: Subject[str] = Subject()
+        self._collection_changed: Subject[CollectionChangedEvent] = FanOutSubject()
+        self._property_changed: Subject[str] = FanOutSubject()
         self._command_changed: Subject[None] = Subject()
         self._load_more_command = (
             AsyncRelayCommand.builder()
@@ -148,20 +149,33 @@ class TokenPagedComposition(Generic[TVM, TToken]):
             if isinstance(item, _ComponentVMBase) and not item.is_constructed:
                 item.construct()
 
+    # Each step runs even when an earlier subscriber raises, so a failing subscriber
+    # skips no later step (spec/21 §6.2, ADR-0239, ADR-0220 rule 1). The first
+    # failure is re-raised after the last step (ADR-0191 rule 5). A subscriber that
+    # disposes the composition stops the later steps.
     def _notify_reset(self) -> None:
         if self._disposed:
             return
-        self._collection_changed.on_next(CollectionChangedEvent(action="reset"))
-        self._notify_properties()
+        _run_disposal_steps(
+            lambda: self._collection_changed.on_next(CollectionChangedEvent(action="reset")),
+            self._notify_properties,
+        )
 
     def _notify_properties(self) -> None:
-        for name in ("items", "current_token", "has_more"):
-            if self._disposed:
-                return
+        _run_disposal_steps(
+            lambda: self._notify_property("items"),
+            lambda: self._notify_property("current_token"),
+            lambda: self._notify_property("has_more"),
+            self._resignal_commands,
+        )
+
+    def _notify_property(self, name: str) -> None:
+        if not self._disposed:
             self._property_changed.on_next(name)
-        if self._disposed:
-            return
-        self._command_changed.on_next(None)
+
+    def _resignal_commands(self) -> None:
+        if not self._disposed:
+            self._command_changed.on_next(None)
 
     def dispose(self) -> None:
         if self._disposed:

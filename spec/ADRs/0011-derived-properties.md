@@ -1,6 +1,6 @@
 # ADR 0011 — Derived properties with N-source dependency tracking
 
-**Status:** Accepted (2026-05-25)
+**Status:** Accepted (2026-05-25; extended by ADR-0241)
 **Spec version:** introduced in 2.0.0
 
 ## 1. Context

@@ -311,3 +311,28 @@ describe("SRCH-009", () => {
     state.dispose();
   });
 });
+
+describe("SRCH-010", () => {
+  it("releases the source signal when the post-subscribe reconcile throws", () => {
+    let reads = 0;
+    const signal = new Subject<void>();
+
+    expect(() => {
+      new SearchableState<string>({
+        items: () => {
+          reads += 1;
+          if (reads === 2) throw new Error("reconcile failed");
+          return ["a", "b"];
+        },
+        predicate: () => true,
+        debounceMs: 0,
+        sourceChanges: signal,
+      });
+    }).toThrow("reconcile failed");
+
+    expect(signal.observed).toBe(false);
+    reads = 0;
+    signal.next();
+    expect(reads).toBe(0);
+  });
+});

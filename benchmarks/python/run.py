@@ -27,11 +27,13 @@ from typing import Any
 import vmx
 from vmx import (
     ComponentVMOf,
+    HierarchicalVM,
     MessageHub,
     NullDispatcher,
     ObservableList,
     PropertyChangedMessage,
 )
+from vmx.tree import walk
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -235,6 +237,43 @@ def lifecycle_case(cycles: int) -> Case:
     return Case(case_id, {"cycles": cycles}, cycles, setup, run, release)
 
 
+def tree_walk_chain_case(levels: int) -> Case:
+    """One full walk of a materialized chain of `levels` nodes (spec/13 §2).
+
+    The chain is built and walked once, before the first sample, and reused:
+    a walk does not change the tree. `ops` is 1, so the median is the time of
+    one full walk.
+    """
+    case_id = f"tree.walk-chain/depth={levels}"
+    built: dict[str, Any] = {}
+
+    def chain_node(depth: int, hub: MessageHub[Any], dispatcher: NullDispatcher) -> Any:
+        def factory(_: Any) -> list[Any]:
+            return [] if depth + 1 == levels else [chain_node(depth + 1, hub, dispatcher)]
+
+        return HierarchicalVM(
+            model=depth,
+            children_factory=factory,
+            hub=hub,
+            dispatcher=dispatcher,
+            name=f"n{depth}",
+        )
+
+    def setup() -> dict[str, Any]:
+        if "root" not in built:
+            root = chain_node(0, MessageHub(), NullDispatcher())
+            if sum(1 for _ in walk(root)) != levels:
+                raise RuntimeError(f"the chain does not have {levels} levels")
+            built["root"] = root
+        return {"root": built["root"]}
+
+    def run(state: dict[str, Any]) -> None:
+        for _ in walk(state["root"]):
+            pass
+
+    return Case(case_id, {"levels": levels}, 1, setup, run)
+
+
 def measure(case: Case) -> float:
     state = case.setup()
     gc.collect()
@@ -350,6 +389,8 @@ def main() -> int:
         collection_case("insert0", 1_000, size(20_000)),
         collection_case("insert0", 10_000, size(20_000)),
         lifecycle_case(size(5_000)),
+        tree_walk_chain_case(5_000),
+        tree_walk_chain_case(10_000),
     ]
     unknown = sorted(set(SLOWDOWN) - {case.id for case in cases})
     if unknown:

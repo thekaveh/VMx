@@ -1,6 +1,6 @@
 # ADR 0083 — Add one dual-channel property notification helper
 
-**Status:** Accepted (2026-07-10)
+**Status:** Accepted (2026-07-10; §4.1 amended by ADR-0234)
 **Spec version:** introduced in 3.3.0
 
 ## 1. Context

@@ -111,6 +111,7 @@ mod conformance {
     mod threading;
     mod token_clone_reentry;
     mod token_load_terminal;
+    mod token_paging_failing_subscriber_steps;
     mod token_refresh_cursor;
     mod tree_selection;
     mod tree_utils;

@@ -130,9 +130,19 @@ A call of the local-only primitive that begins after VM disposal is also a
 no-op (ADR-0223). The library's own terminal `Status` and `IsConstructed`
 notifications are part of disposal and still reach local observers.
 
-This is the only property-authoring convenience added by VMx. Per ADR-0040,
-VMx does not provide `IProperty` wrappers, decorators, implicit accessors,
-mutation history, or automatic equality/old-value tracking.
+Today this helper is the only property-authoring convenience in VMx. No flavor
+provides `IProperty` wrappers, decorators, implicit accessors, mutation history,
+or automatic equality/old-value tracking (ADR-0040). ADR-0234 adopts registered
+reactive state as the direction for view-model properties. No flavor
+implements it yet. Under that direction a class will register its published
+state and its computed properties once, VMx will track their dependencies, and
+each accepted change will call this helper once per changed name, after the
+equality check that the registered state owns. The helper keeps the contract
+of this section: it neither compares nor assigns (ADR-0083 §4.4). Chapter 24
+will define the normative rules when the flavors implement them, and this
+paragraph changes then. A registered property keeps its value type on the
+view-model's public surface: no `IProperty` wrapper, no implicit conversion and
+no mutation history.
 
 ## 3. Modeled variant additions (`ComponentVM<M>`)
 
@@ -239,6 +249,14 @@ All five commands raise `CanExecuteChanged` on every relevant `Status` change of
 the VM (via a trigger derived from `Status`); consumers re-read `CanExecute`
 (chapter 04 §4).
 
+`SelectCommand` and `DeselectCommand` also raise `CanExecuteChanged` when a
+selection input of their predicates changes (§6): the VM's `IsCurrent` flag
+(§6.1), which mirrors `Parent.Current == this`, and the `Parent` link (§6.1).
+Their trigger merges the `Status` trigger with a selection trigger that fires on
+those two inputs. `SelectNextCommand`, `SelectPreviousCommand` and
+`ReconstructCommand` take the `Status` trigger alone, because their predicates
+read no selection input. ADR-0242 records the trigger inputs and their reasons.
+
 `SelectNextCommand` and `SelectPreviousCommand` are on the `IComponentVM`
 baseline for a uniform surface. A leaf VM does not enumerate its parent's
 children, so in all five flavors their predicate always returns `false` and
@@ -312,6 +330,12 @@ back-reference declared on the `IComponentVM` baseline (`01-concepts.md` §1.3):
   is added to a `CompositeVM` and constructed, `can_select()` becomes `true`; after
   removal it is `false` again) and through `select()` / `deselect()` delegating to
   the parent (a no-op once `Parent` is `null`).
+- A write of `Parent` that changes the link re-raises `CanExecuteChanged` of
+  `SelectCommand` and `DeselectCommand` (§5), because the link is an input of both
+  predicates. A change of `IsCurrent` re-raises them in the same way. The `Parent`
+  write itself still emits no `PropertyChangedMessage`. The re-raise runs after the
+  container's membership change has ended, with no container lock held (chapter 06
+  §4.3). ADR-0242 records the rule.
 
 The set-on-add / clear-on-remove wiring is conformance-tested by `COMP-027`.
 Atomic ownership and transfer are covered by `COMP-038` through `COMP-041`.
@@ -414,6 +438,7 @@ behavior of each ID.
 | `CVM-006`              | §5 built-in commands, §6 selection predicates                       |
 | `CVM-007`..`CVM-009`   | §2.3 dual-channel property notification helper                      |
 | `CVM-010`              | §3.3 explicit model republish                                       |
+| `CVM-011`              | §5 built-in commands, §6.1 `Parent` back-reference                  |
 | `EXP-001`..`EXP-004`   | §8 `IExpandable` integration                                        |
 | `EXP-006`..`EXP-008`   | §8.1 expansion commands                                             |
 | `DISP-007`..`DISP-013` | §2.2 hub exposure and owned-resource registration (chapter 02 §2.3) |

@@ -3,6 +3,7 @@
  * and nobody owns (#1324): aggregate factories and preflight, CompositeVMOf
  * projectors, and the first recompute of filtered projections.
  */
+import { Subject } from "rxjs";
 import { describe, expect, it } from "vitest";
 import {
   AggregateVM1,
@@ -20,6 +21,7 @@ import {
   MessageHub,
   RxDispatcher,
   ScoredFilteredCompositeVM,
+  SearchableState,
 } from "../../src/index.js";
 
 const hub = new MessageHub();
@@ -205,5 +207,30 @@ describe("filtered projection with a failing first recompute", () => {
     calls = 0;
     expect(() => { src.add(leaf("b")); }).not.toThrow();
     expect(calls).toBe(0);
+  });
+});
+
+describe("searchable reconcile failure", () => {
+  it("detaches from the source signal when the post-subscribe filter throws", () => {
+    let reads = 0;
+    const signal = new Subject<void>();
+
+    expect(() => {
+      new SearchableState<string>({
+        items: () => {
+          reads += 1;
+          if (reads === 2) throw new Error("second read fails");
+          return ["a", "b"];
+        },
+        predicate: (item, term) => item.includes(term),
+        debounceMs: 0,
+        sourceChanges: signal,
+      });
+    }).toThrow("second read fails");
+
+    expect(signal.observed).toBe(false);
+    reads = 0;
+    signal.next();
+    expect(reads).toBe(0);
   });
 });

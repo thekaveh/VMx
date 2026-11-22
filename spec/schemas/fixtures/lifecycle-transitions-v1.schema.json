@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vmx:fixture:lifecycle-transitions:1.0.0",
+  "$comment": "Non-normative structural contract for spec/fixtures/lifecycle-transitions.json (ADR-0243). tools/check-fixture-contracts.py applies this schema and keeps only the inventory rule: each of the 20 state/operation keys appears once.",
+  "title": "VMx lifecycle-transitions fixture v1",
+  "type": "object",
+  "required": [
+    "$schema-version",
+    "notes",
+    "states",
+    "initial_state",
+    "terminal_states",
+    "transitions"
+  ],
+  "properties": {
+    "$schema-version": {
+      "const": "1.0.0"
+    },
+    "notes": {
+      "type": "object"
+    },
+    "states": {
+      "const": ["Disposed", "Destructing", "Destructed", "Constructing", "Constructed"]
+    },
+    "initial_state": {
+      "const": "Destructed"
+    },
+    "terminal_states": {
+      "const": ["Disposed"]
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/transition"
+      }
+    }
+  },
+  "$defs": {
+    "state": {
+      "enum": ["Disposed", "Destructing", "Destructed", "Constructing", "Constructed"]
+    },
+    "operation": {
+      "enum": ["construct", "destruct", "reconstruct", "dispose"]
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "via", "to_intermediate", "to_final", "legal"],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/state"
+        },
+        "via": {
+          "$ref": "#/$defs/operation"
+        },
+        "to_intermediate": {
+          "anyOf": [{ "$ref": "#/$defs/state" }, { "type": "null" }]
+        },
+        "to_final": {
+          "anyOf": [{ "$ref": "#/$defs/state" }, { "type": "null" }]
+        },
+        "legal": {
+          "type": "boolean"
+        }
+      },
+      "if": {
+        "properties": {
+          "legal": { "const": false }
+        },
+        "required": ["legal"]
+      },
+      "then": {
+        "properties": {
+          "to_intermediate": { "type": "null" },
+          "to_final": { "type": "null" }
+        }
+      },
+      "else": {
+        "properties": {
+          "to_final": { "$ref": "#/$defs/state" }
+        }
+      }
+    }
+  }
+}

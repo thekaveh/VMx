@@ -29,6 +29,10 @@ final class AggregateParent: ParentVM, OwnershipParentVM {
     }
 
     func withTransaction<T>(_ action: () throws -> T) rethrows -> T {
+        // The slot transaction is a selection-input scope (ADR-0242). It is
+        // declared first, so it closes after the transaction lock is released.
+        SelectionInputScope.enter()
+        defer { SelectionInputScope.leave() }
         transactionLock.lock()
         defer { transactionLock.unlock() }
         return try action()

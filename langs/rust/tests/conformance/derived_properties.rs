@@ -20,6 +20,7 @@ struct DerivedPropertyScenario {
     transform: String,
     mutations: Vec<(usize, Value)>,
     expected_values: Vec<Value>,
+    expected_emissions: Vec<Value>,
 }
 
 fn apply_transform(transform: &str, sources: &[Value]) -> Value {
@@ -320,6 +321,11 @@ fn all_fixture_scenarios_match_expected_values() {
         let property = DerivedProperty::from_sources(sources.clone(), move |values| {
             apply_transform(&transform_name, &values)
         });
+        let emissions = Arc::new(Mutex::new(Vec::new()));
+        let _emission_subscription = property.value_changes().subscribe({
+            let emissions = emissions.clone();
+            move |value| emissions.lock().unwrap().push(value)
+        });
         assert_eq!(
             property.value(),
             scenario.expected_values[0],
@@ -340,6 +346,12 @@ fn all_fixture_scenarios_match_expected_values() {
                 scenario.name
             );
         }
+        assert_eq!(
+            *emissions.lock().unwrap(),
+            scenario.expected_emissions,
+            "scenario {} ValueChanged emissions",
+            scenario.name
+        );
     }
 }
 
