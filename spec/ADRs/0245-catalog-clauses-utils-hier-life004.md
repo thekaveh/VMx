@@ -41,12 +41,13 @@ longer writes `_component2`.
 ### 2.2 `HIER-012` catalog text: a two-level tree
 
 The Given is a two-level tree: a root with leaf children, where the root has
-`ExpandableState` composed. The Then is unchanged. The Python test builds the
-same two-level tree and asserts the same sequence: `[root]` while collapsed,
-then `[root, child-a, child-b]` after expansion. The grandchild assertion is
-removed from the Python test, because the catalog Then does not name a
-grandchild. Chapter 13's rule that a non-expandable node is always descended
-is no longer checked by `HIER-012` in Python.
+`ExpandableState` composed. The Then is unchanged. The Python test keeps its
+three-level tree and its grandchild assertion, as issue #1808 step 13 directs.
+Chapter 13 always descends a node that is not `IExpandable`, so the grandchild
+is yielded, and the Python test asserts it. The catalog Then does not name the
+grandchild, so the Python test checks more than the catalog states. The other
+four flavors check the two-level tree only, so `HIER-012` checks chapter 13's
+descent rule in Python alone.
 
 ### 2.3 `LIFE-004`: one assertion for all five flavors
 
@@ -69,6 +70,10 @@ ADR-0245 is the next free number.
 
 - The `UTIL-002` and `HIER-012` Givens name only states that public APIs build.
   Their Thens match chapters 08 and 13.
+- The Python `HIER-012` test asserts a grandchild that the catalog Then does not
+  name. Adding the grandchild to the Then would need the same assertion in the
+  other four flavors. This ADR does not change the Then, so that choice stays
+  with the owner.
 - The pre-construct leg of `UTIL-002` cannot separate a walk that stops at the
   first empty slot from one that skips it, because both yield `[agg]`. The
   removed middle-slot test made that separation. No public API builds a middle
@@ -85,8 +90,13 @@ ADR-0245 is the next free number.
     child iterator ends on a private sentinel, so `None` is yielded. The test
     fails at the pre-construct assertion with
     `AttributeError: 'NoneType' object has no attribute 'name'`.
-  - Python `HIER-012`: `walk_expanded` ignores `IsExpanded`. The collapsed root
-    yields its children, and the test fails with `assert [...] == [root]`.
+  - Python `HIER-012`, collapsed boundary: `walk_expanded` ignores `IsExpanded`.
+    The collapsed root yields its children, and the test fails with
+    `assert [...] == [root]` (left side has 3 more items).
+  - Python `HIER-012`, grandchild: `_is_expanded_or_not_expandable` returns
+    `isinstance(node, IExpandable) and node.is_expanded`, so a non-expandable
+    child is not descended. The three-level test fails at the grandchild
+    assertion with `AssertionError: assert {'child-a', 'child-b', 'root'} == {...}`.
 
 ## 4. Rejected alternatives
 

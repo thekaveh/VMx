@@ -418,9 +418,8 @@ def test_hier_011_tree_structure_changed_message() -> None:
 
 @pytest.mark.conformance("HIER-012")
 def test_hier_012_walk_expanded_honors_expandable_state() -> None:
-    """HIER-012: walk_expanded honors the lazy boundary of a two-level
-    HierarchicalVM tree (a root with leaf children) whose root composes
-    ExpandableState.
+    """HIER-012: walk_expanded honors the lazy boundary of a three-level
+    HierarchicalVM tree whose root composes ExpandableState.
 
     The node declares IExpandable through ABC virtual registration: a direct
     ``(HierarchicalVM, IExpandable)`` mixin hits a Python 3.10 ABC recursion
@@ -456,7 +455,10 @@ def test_hier_012_walk_expanded_honors_expandable_state() -> None:
 
     IExpandable.register(ExpandableNode)
 
-    child_a = MyNode(hub=hub, dispatcher=dispatcher, name="child-a")
+    grandchild = MyNode(hub=hub, dispatcher=dispatcher, name="grandchild")
+    child_a = MyNode(
+        children_factory=lambda _: [grandchild], hub=hub, dispatcher=dispatcher, name="child-a"
+    )
     child_b = MyNode(hub=hub, dispatcher=dispatcher, name="child-b")
     root = ExpandableNode(children=[child_a, child_b], name="root", collapsed=True)
     assert isinstance(root, IExpandable)
@@ -469,8 +471,10 @@ def test_hier_012_walk_expanded_honors_expandable_state() -> None:
     root.expand()
     assert root.is_expanded is True
     names = [node.name for node in walk_expanded(root)]
-    # Root plus its direct children, in declaration order.
-    assert names == ["root", "child-a", "child-b"]
+    # Root plus its direct children (and the always-expanded plain subtree).
+    assert names[:2] == ["root", "child-a"]
+    assert "child-b" in names
+    assert set(names) == {"root", "child-a", "grandchild", "child-b"}
 
     # HierarchicalVM does NOT auto-implement IExpandable (ADR-0028 §3.6).
     assert not issubclass(HierarchicalVM, IExpandable)
