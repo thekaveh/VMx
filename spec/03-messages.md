@@ -210,13 +210,18 @@ These rules apply to the hub and to the library channels below (ADR-0191):
 - the granular, `Reset` and `Count` notifications of `ObservableList`, the
   dictionary's key views, and the C# `Count` and `Item[]` `PropertyChanged`
   handlers of the serviced collections (chapter 21 §2.5, §3.3, §4.6,
-  ADR-0220).
+  ADR-0220);
+- the `Reset` event, the `Items`, `CurrentToken` and `HasMore` property
+  notifications, and the command re-signal of `TokenPagedComposition`, including
+  its `PropertyChanged` handlers (chapter 21 §6.2, ADR-0239).
 
 Only these deliveries are *call-fed*:
 
 - a mutation or disposal of a collection or container;
 - the disposal of a `DerivedProperty` or `SearchableState`;
-- a `RaiseCanExecuteChanged` call.
+- a `RaiseCanExecuteChanged` call;
+- a token-paging load or refresh, with all of its notification steps (chapter
+  21 §6.2).
 
 Every other delivery is *stream-fed*. This includes a hub `Send`, a source or
 trigger emission, a debounce timer, a `SearchableState` term change and a
@@ -227,7 +232,10 @@ trigger emission, a debounce timer, a `SearchableState` term change and a
    follows the same rule.
 1. **No detach.** A failure MUST NOT detach the failing subscriber, another
    subscriber or the library's own source subscription. Later deliveries reach
-   all of them.
+   all of them. One exception: when a `SearchableState` constructor's
+   post-subscribe reconciliation fails, the helper releases its subscription to
+   the source-change signal before the failure reaches the caller (chapter 06
+   §8.2, ADR-0232).
 1. **State first.** The library commits the state that a delivery announces
    before it delivers. A failure does not roll that state back.
 1. **Stream-fed route.** A stream-fed failure MUST NOT reach the upstream
@@ -245,8 +253,9 @@ trigger emission, a debounce timer, a `SearchableState` term change and a
 
 These rules do not fix the order among the subscribers of one delivery. Only
 `AggregateChangeStream` fixes it (chapter 21 §9.5). They do not cover other
-`PropertyChanged` handlers, `AggregateChangeStream` subscriber failures
-(chapter 21 §9.5), or a failing `DerivedProperty` transform or source.
+`PropertyChanged` handlers, except the token-paging handlers named above.
+They do not cover `AggregateChangeStream` subscriber failures (chapter 21
+§9.5), or a failing `DerivedProperty` transform or source.
 
 ## 4. Threading
 
@@ -410,20 +419,25 @@ The null variant is conformance-tested by `NULL-001`.
 
 Each flavor ships two small helpers over the hub for the single most common cross-VM
 subscription pattern — observing one property of one *specific* sender. Both are
-**informative**: neither carries a conformance ID, because the underlying `Messages`
-stream (§3) is the conformance-tested contract (ADR-0032). They differ only in what
-they emit — the property *value* versus the matching *message*.
+**informative**: neither carries a conformance ID for its behavior, because the
+underlying `Messages` stream (§3) is the conformance-tested contract (ADR-0032). The
+one exception is the sender rule of §7.1 and §7.2, which `FWD-007` tests (ADR-0233).
+They differ only in what they emit — the property *value* versus the matching
+*message*.
 
-Sections 7.1–7.3 are informative convenience APIs. Section 7.4 defines the
-normative cross-flavor `subscribeValue` behavior.
+Sections 7.1–7.3 are informative convenience APIs, apart from the sender rule that
+§7.1 and §7.2 state. Section 7.4 defines the normative cross-flavor `subscribeValue`
+behavior.
 
 ### 7.1 `PropertyValueChangedMessagesFor` — project the value (spec v2.1)
 
 Instead of filtering the full message stream and projecting the property value
 manually, this helper returns `IObservable<TProperty>` (or equivalent) directly by:
 
-1. Filtering `Messages` to `PropertyChangedMessage` instances whose sender is
-   reference-equal to the given object and whose `PropertyName` matches.
+1. Filtering `Messages` to `PropertyChangedMessage` instances whose sender is the
+   canonical ownership identity of the given object and whose `PropertyName` matches.
+   The canonical ownership identity is defined in chapter 09 §1. An object that is
+   not a VM is its own identity (ADR-0233).
 1. Snapshotting the current property value from the sender at delivery time.
 
 Per-flavor names and shapes:
@@ -449,9 +463,11 @@ replacing the hand-wired filter —
 — that flagship apps otherwise copy-paste into every binding (VMX-017). The helper:
 
 1. Filters `Messages` to `PropertyChangedMessage` instances whose runtime sender is
-   reference-equal (identity) to `sender` and whose `PropertyName` equals
-   `propertyName` by exact string match (idiomatic-cased per ADR-0006 — the
-   subscriber passes the property name in its own flavor's idiom).
+   reference-equal (identity) to the canonical ownership identity of `sender`
+   (chapter 09 §1, ADR-0233) and whose `PropertyName` equals `propertyName` by exact
+   string match (idiomatic-cased per ADR-0006 — the subscriber passes the property
+   name in its own flavor's idiom). A forwarding decorator therefore matches the
+   messages of the VM it wraps, through any number of decorator layers (`FWD-007`).
 1. Emits the matching **message** itself (not the projected value), so the subscriber
    may read whatever state it needs from the sender at delivery time. Prefer §7.1
    when only the property value is wanted.
@@ -486,11 +502,12 @@ Per-flavor names and shapes:
 | TypeScript | `whenPropertyChanged`   | Named export from `src/messages`        | `propertyName: string \| readonly string[]`                 | `RangeError`                   |
 | Swift      | `whenPropertyChanged`   | Method on `MessageHubProtocol`          | `String, String, String...` overload (two or more names)    | Does not compile               |
 
-Like §7.1 the helper is informative (no conformance ID), and so is its multi-name
-form; the four flavors that ship this convenience helper cover both with a unit
-test (`WhenPropertyChangedTests` / `test_when_property_changed` /
-`whenPropertyChanged.test.ts` / `PropertyChangedTests` in Swift). Rust consumers use `MessageHub::subscribe` with the
-`Message::PropertyChanged` variant directly, for one name or several. See ADR-0050
+Like §7.1 the helper is informative, and so is its multi-name form, apart from the
+sender rule of rule 1, which `FWD-007` tests (ADR-0233). The four flavors that ship
+this convenience helper cover both with a unit test (`WhenPropertyChangedTests` /
+`test_when_property_changed` / `whenPropertyChanged.test.ts` / `PropertyChangedTests`
+in Swift). Rust consumers use `MessageHub::subscribe` with the `Message::PropertyChanged`
+variant directly, for one name or several. See ADR-0050
 for the rationale and ADR-0160 for the multi-name form.
 
 ### 7.3 TypeScript raw-message predicates (informative, spec v3.14)
@@ -546,7 +563,7 @@ Setup and delivery follow this state machine exactly:
 initial = selector(source)
 if fireImmediately: callback(initial, initial)
 current = initial
-on each property message from source:
+on each property message whose sender is the canonical ownership identity of source:
     next = selector(source)
     if equality(current, next): stop this delivery
     previous = current
@@ -562,7 +579,9 @@ synchronization rather than a mutation hook. Setup is not an atomic transaction
 with unrelated concurrent producers.
 
 C#, Python, TypeScript, and Swift accept only `PropertyChangedMessage` events
-whose sender is object-identical to `source`. Rust accepts only the property
+whose sender is the canonical ownership identity of `source` (chapter 09 §1,
+ADR-0233, `FWD-007`). A forwarding decorator through any number of layers therefore
+receives the messages of the VM it wraps. Rust accepts only the property
 message variant for which `message.sender_id == sender_id` on the supplied hub.
 Messages from other senders and non-property message families do not evaluate
 the selector.
@@ -614,9 +633,9 @@ dynamic membership; see ADR-0095 for the fixed-source bridge.
 
 ## 8. Conformance
 
-Chapter 12 §4 holds the `HUB` IDs, §5 the `PROP` and `SUBV` IDs, and §16 the
-`NULL` IDs. The table maps each ID to the rules of this chapter, and chapter 12
-states the behavior of each ID.
+Chapter 12 §4 holds the `HUB` IDs, §5 the `PROP` and `SUBV` IDs, §11 the `FWD` IDs,
+and §16 the `NULL` IDs. The table maps each ID to the rules of this chapter, and
+chapter 12 states the behavior of each ID.
 
 | IDs                             | Rules                                         |
 | ------------------------------- | --------------------------------------------- |
@@ -627,5 +646,6 @@ states the behavior of each ID.
 | `HUB-008`..`HUB-013`            | §3.3 hub transactions and re-entrant delivery |
 | `PROP-001`..`PROP-004`          | §2.1 `PropertyChangedMessage<TSender>`        |
 | `SUBV-001`..`SUBV-004`          | §7.4 `subscribeValue`                         |
+| `FWD-007`                       | §7.1, §7.2 sender rule and §7.4 (ADR-0233)    |
 | `NULL-001`                      | §6 `NullMessageHub`                           |
 | `NULL-003`                      | §6 and chapter 11 §5 paired null variants     |

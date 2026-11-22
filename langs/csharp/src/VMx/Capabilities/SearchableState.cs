@@ -98,9 +98,21 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
 
         // Close the initial snapshot/attach gap. No caller can observe the
         // constructor-only first value, while a signal arriving after the
-        // subscription is installed is handled by the merged stream.
+        // subscription is installed is handled by the merged stream. A failure
+        // here detaches from the signal before it reaches the caller, because
+        // the caller never receives the helper to dispose (ADR-0232).
         if (sourceChanged is not null)
-            _filteredSubject.OnNext(ApplyFilter(_termSubject.Value));
+        {
+            try
+            {
+                _filteredSubject.OnNext(ApplyFilter(_termSubject.Value));
+            }
+            catch
+            {
+                try { Dispose(); } catch { /* keep the original failure (ADR-0224 rule 3) */ }
+                throw;
+            }
+        }
     }
 
     /// <inheritdoc/>

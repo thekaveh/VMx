@@ -853,6 +853,28 @@ the existing iterative hub queue without recursive loss
 **And** ordinary equal assignment remains silent while ordinary unequal
 assignment retains its existing behavior
 
+### CVM-011 — Selection commands re-raise CanExecuteChanged on selection inputs
+
+Per spec/05-component-vm.md §5 and §6.1, and ADR-0242.
+
+**Given** a composite `P` with constructed children `A` and `B`, and `P.Current` is null
+**And** subscribers to `A.SelectCommand` and `A.DeselectCommand` `CanExecuteChanged`, each
+reading `CanExecute` when it fires
+**When** `A.select()` is called
+**Then** both commands notify
+**And** the `SelectCommand` subscriber reads `false`, and the `DeselectCommand` subscriber reads `true`
+**When** `Current` moves to `B` (`B.select()`)
+**Then** `A.DeselectCommand` notifies, and its subscriber reads `false`
+**Given** a constructed component `C` that is in no container
+**And** a subscriber to `C.SelectCommand` `CanExecuteChanged`, reading `CanExecute` when it fires
+**When** `P.add(C)` is called
+**Then** `C.SelectCommand` notifies, and its subscriber reads `true`
+**And** the subscriber can read or change `P` while it runs, because no membership gate or
+transaction of `P` is held (ADR-0242)
+**When** `P.remove(C)` is called
+**Then** `C.SelectCommand` notifies, and its subscriber reads `false`
+**And** the subscriber can read or change `P` while it runs, as above
+
 ______________________________________________________________________
 
 ## 8. CompositeVM (`COMP-NNN`)
@@ -1202,6 +1224,21 @@ receives no message
 and the local-only raise primitive again
 **Then** neither channel emits
 
+### FWD-007 — Sender-filter helpers match a decorator by its canonical identity
+
+Per spec/03-messages.md §7.1, §7.2 and §7.4, spec/09-forwarding.md §1 and ADR-0233.
+
+**Given** a component `inner` with a hub, a decorator `first` around `inner`, and a
+decorator `outer` around `first`, and a second component `other` on the same hub
+**When** the model of `outer` is written
+**Then** each hub subscription helper given `outer` (`whenPropertyChanged`,
+`PropertyValueChangedMessagesFor` and `subscribeValue`) emits once: the message
+names `inner` as its sender, the property value is the new value, and the selected
+value calls back once with the new value (Rust: `subscribe_value` given `outer`'s
+`id()` calls back once)
+**When** the model of `other` is written
+**Then** no helper given `outer` emits for that message
+
 ______________________________________________________________________
 
 ## 12. Builders (`BLD-NNN`)
@@ -1315,10 +1352,11 @@ root: CompositeVM
 
 ### UTIL-002 — walk skips empty aggregate slots
 
-**Given** an `AggregateVM3` with `Component1` populated, `Component2 == null`, `Component3` populated
+**Given** an `AggregateVM3` built with three component factories and not yet constructed
 **When** `list(walk(agg))` is materialized
-**Then** the sequence contains `agg`, `agg.Component1`, `agg.Component3`
-**And** the sequence does NOT contain `null` / `None` / any entry for the empty slot
+**Then** the sequence is exactly `[agg]`, with no entry for an empty slot
+**When** `agg.construct()` runs and `list(walk(agg))` is materialized again
+**Then** the sequence is `[agg, agg.Component1, agg.Component2, agg.Component3]`
 
 ### UTIL-003 — find returns first matching node and short-circuits
 
@@ -1658,9 +1696,12 @@ to `ValueChanged` that records completion
 
 **Given** the JSON fixture `spec/fixtures/derived-properties.json`
 **When** each scenario is exercised — initial values populate sources, the
-named transform is resolved, and the mutation sequence is replayed
+named transform is resolved, a subscriber to `ValueChanged` is attached before
+the first mutation, and the mutation sequence is replayed
 **Then** the sequence of `Value` reads (one initial, one after each mutation)
 matches `expected_values` exactly
+**And** the sequence of values published on `ValueChanged` matches
+`expected_emissions` exactly
 
 ### DPROP-013 — a failing `ValueChanged` subscriber stops neither the property nor the other subscribers
 
@@ -2721,6 +2762,22 @@ while the term is `"boom"` and returns `["banana"]` after the term is `"an"`
 structure
 
 > Spec: `06-composite-vm.md` §8.2, `03-messages.md` §3.6, ADR-0191.
+
+### SRCH-010 — a failed post-subscribe reconcile releases the source signal
+
+**Given** a `SearchableState` whose item supplier succeeds on its first read and
+fails on its second read, and a source-change signal
+**When** construction runs and its post-subscribe reconcile, the second read,
+fails
+**Then** the caller receives the original failure
+**And** the signal has no subscriber from the helper
+**When** the signal emits one value after the failed construction
+**Then** the item supplier is not read
+
+> Spec: `06-composite-vm.md` §8.2, ADR-0232. Rust, which pulls `filtered()`,
+> checks that the panic reaches the caller and that a later source message
+> does not read the supplier. Swift, whose reconcile cannot fail, checks that a
+> released helper stops listening to the signal.
 
 ______________________________________________________________________
 
@@ -3797,6 +3854,25 @@ structure
 > Spec: `21-collections.md` §2.5, §3.3, §4.6, `03-messages.md` §3.6,
 > ADR-0220.
 
+### COL-073 — a failing token-paging subscriber skips no later notification step
+
+**Given** a `TokenPagedComposition` with a `Reset` subscriber that fails on every
+delivery, and a later `Reset` subscriber
+**When** a load that appends items, or a refresh that replaces the accumulator,
+completes
+**Then** the later `Reset` subscriber receives the event once
+**And** `Items`, `CurrentToken` and `HasMore` are notified once each, in that
+order, and then both commands re-signal `CanExecuteChanged`
+**And** a failing `PropertyChanged` subscriber skips no later property
+notification and no command re-signal
+**And** a `Reset` subscriber that disposes the composition stops the later
+property notifications and the command re-signal
+**And** C# and Python rethrow the first failure after the last step, TypeScript,
+Swift and Rust return normally, and Swift, whose subscribers cannot fail, asserts
+that structure
+
+> Spec: `21-collections.md` §6.2, §8, `03-messages.md` §3.6, ADR-0239.
+
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles
@@ -3899,7 +3975,7 @@ with `Source == parent` and `Affected == child`
 
 ### HIER-012 — `walk_expanded` honors lazy boundaries via `ExpandableState`
 
-**Given** a three-level tree where the root has `ExpandableState` composed
+**Given** a two-level tree (a root with leaf children) where the root has `ExpandableState` composed
 **And** the root's `IsExpanded` is false
 **When** `walk_expanded(root)` is called
 **Then** only the root is yielded; its children are NOT traversed
@@ -5525,8 +5601,11 @@ and then raises the structural callback
 take the source lock in its unsubscribe
 **And** TypeScript, which runs on one thread, checks the same sequences on one
 thread: a selector that adds a member during setup, a selector that adds a
-member during a drain, and a structural callback that the source raises after
-disposal began
+member during a drain, a structural callback that the source raises after
+disposal began, and a call-out that disposes the aggregate during a
+reconciliation (a selected `subscribe`, a selector, the source snapshot, or the
+teardown of a removed member). The reconciliation then releases what it staged
+and delivers only completion (ADR-0240)
 
 ## 32. Async resource viewmodel (`ARES-NNN`) — spec v3.20
 
@@ -5628,6 +5707,8 @@ notifications
 **Then** current loader and async commands receive cancellation exactly once as
 their host contract permits
 **And** every command and direct intent is disabled or inert
+**And** a load or reload issued from an observer of the `Disposed` publication
+starts no loader and leaves the state externally unchanged (ADR-0244)
 **When** the old loader later succeeds or fails despite cancellation
 **Then** no state mutation, ordinary notification, command notification, or
 application callback occurs
