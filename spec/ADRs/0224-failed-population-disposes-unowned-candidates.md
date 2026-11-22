@@ -1,6 +1,7 @@
 # ADR 0224 — A population that fails before its commit disposes its unowned candidates
 
-- **Status:** Accepted (Decision rules 6 and 7 amended by ADR-0226)
+- **Status:** Accepted (Decision rules 6 and 7 amended by ADR-0226; Decision
+  rule 5 extended by ADR-0232)
 - **Date:** 2026-11-09
 - **Spec version:** 3.30.0 (chapter 08 §2 and §4, chapter 06 §6 and §9)
 - **Related:** [ADR-0125](0125-specify-aggregate-reconstruction-transactions.md),

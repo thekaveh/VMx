@@ -16,6 +16,7 @@ from typing import Any
 from reactivex import Observable
 from reactivex import operators as ops
 
+from vmx.messages._sender import canonical_sender
 from vmx.messages.property_changed import PropertyChangedMessage
 
 
@@ -27,7 +28,8 @@ def property_value_changed_messages_for(
     """Return an observable that emits the current value of *property_name* on *source*.
 
     Each time a :class:`~vmx.messages.property_changed.PropertyChangedMessage` whose
-    ``sender`` is ``source`` (identity check) and whose ``property_name`` matches
+    ``sender`` is the canonical ownership identity of ``source`` (identity check,
+    ADR-0233) and whose ``property_name`` matches
     *property_name* arrives on the hub, the helper reads ``getattr(source, property_name)``
     and emits it.
 
@@ -46,10 +48,12 @@ def property_value_changed_messages_for(
         Cold observable; each subscription attaches a new filter to ``hub.messages``.
     """
 
+    identity = canonical_sender(source)
+
     def _is_matching(msg: Any) -> bool:
         return (
             isinstance(msg, PropertyChangedMessage)
-            and msg.sender is source
+            and msg.sender is identity
             and msg.property_name == property_name
         )
 

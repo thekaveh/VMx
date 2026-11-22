@@ -1092,6 +1092,14 @@ unchanged, publishes nothing, and surfaces the failure through the command.
 These notifications run where the fetch completes. The composition does not
 marshal them to the caller's thread (chapter 11 §3.1, ADR-0195).
 
+A failing subscriber of one of these steps skips no later step of the same
+committed load or refresh (`COL-073`, ADR-0239, extending ADR-0220). The steps
+are the `Reset` event, the `Items`, `CurrentToken` and `HasMore` property
+notifications, and the re-signal of both commands. A subscriber that disposes the
+composition stops the later steps. C# and Python rethrow the first failure after
+the last step, so the load or refresh call surfaces it. TypeScript, Swift and
+Rust return normally (chapter 03 §3.6).
+
 Each load or refresh supersedes every operation started before it. An
 operation that completes after a later load or refresh started is stale: it
 MUST return without mutating state or publishing notifications, and it skips
@@ -1172,7 +1180,7 @@ behavior of each ID.
 | `COL-016`..`COL-021`, `COL-031`                                             | §5 `PagedComposition<TVM>` (ADR-0023)                                                            |
 | `COL-024`..`COL-030`, `COL-065`                                             | §6 `TokenPagedComposition<TVM, TToken>` (ADR-0069, ADR-0202)                                     |
 | `COL-032`..`COL-039`                                                        | chapter 01 §1.4 shared `Move` (ADR-0085)                                                         |
-| `COL-066`, `COL-069`, `COL-072`                                             | §2, §3 and §4 failing subscribers (ADR-0171, ADR-0191, ADR-0220)                                 |
+| `COL-066`, `COL-069`, `COL-072`, `COL-073`                                  | §2, §3, §4 and §6.2 failing subscribers (ADR-0171, ADR-0191, ADR-0220, ADR-0239)                 |
 | `AGCH-001`..`AGCH-012`                                                      | §9 dynamic aggregate change stream (ADR-0098, ADR-0192, ADR-0214)                                |
 | `DISP-006`                                                                  | §2.6 and §6 repeated disposal of the collection, paging, batch, aggregate and projection helpers |
 

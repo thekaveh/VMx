@@ -14,9 +14,10 @@ public func subscribeValue<Source: ComponentVMBase, Value>(
         try callback(current, current)
     }
 
+    let identity = canonicalSenderIdentity(source)
     return source.hub.subscribe { message in
         guard let propertyChanged = message as? PropertyChangedMessage,
-              propertyChanged.senderObject === source else {
+              propertyChanged.senderObject === identity else {
             return
         }
 

@@ -1,6 +1,6 @@
 # ADR 0041 — Single disposable lifecycle via `OnDestruct` / `OnDispose` overrides (no two-tier bags)
 
-**Status:** Accepted (2026-06-13; extended by ADR-0090)
+**Status:** Accepted (2026-06-13; extended by ADR-0090; §4 amended by ADR-0237)
 **Spec version:** 2.6.0 (teaching ADR; no code change)
 **Related:** ADR-0008, ADR-0018, `spec/proposals/2026-06-13-vmx-absorption-audit-followup.md` §6 L3
 

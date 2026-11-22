@@ -1,6 +1,6 @@
 # ADR 0090 — Add disposal-lifetime ownership registration and public hub exposure
 
-**Status:** Accepted (2026-07-10)
+**Status:** Accepted (2026-07-10; §2 item 4 amended by ADR-0237)
 **Spec version:** introduced in 3.10.0
 **Extends:** [ADR-0041](0041-single-disposable-lifecycle.md)
 **Related:** ADR-0003, ADR-0006, ADR-0084, issue #83

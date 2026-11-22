@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use vmx::{
     Command, ConstructionStatus, ForwardingComponentVm, ForwardingCompositeVm, MessageHub,
-    NullDispatcher,
+    NullDispatcher, SubscribeValueOptions,
 };
 
 type Child = vmx::ComponentVm<&'static str>;
@@ -538,6 +538,33 @@ fn record_property_messages(hub: &MessageHub) -> (PropertyMessages, vmx::Subscri
         }
     });
     (messages, subscription)
+}
+
+/// FWD-007 — A subscribe_value on a nested decorator's id() matches the wrapped
+/// VM's writes and ignores another VM on the same hub (spec/03-messages.md §7.4,
+/// ADR-0233). The decorator id() is the innermost component's id, so no change
+/// is needed in Rust.
+#[test]
+fn forwarding_nested_decorator_id_matches_the_wrapped_vm_in_subscribe_value() {
+    let hub = MessageHub::new();
+    let inner = Child::with_model("inner", "m", hub.clone(), NullDispatcher::new());
+    let other = Child::with_model("other", "m", hub.clone(), NullDispatcher::new());
+    let outer = ForwardingComponentVm::wrap(ForwardingComponentVm::new(inner.clone()));
+    let selector_vm = inner.clone();
+    let selected = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&selected);
+    let _subscription = hub.subscribe_value(
+        outer.id(),
+        move || selector_vm.model(),
+        move |current, previous| sink.lock().unwrap().push((current, previous)),
+        SubscribeValueOptions::default(),
+    );
+
+    outer.set_model("updated");
+    assert_eq!(*selected.lock().unwrap(), vec![("updated", "m")]);
+
+    other.set_model("other-updated");
+    assert_eq!(*selected.lock().unwrap(), vec![("updated", "m")]);
 }
 
 /// FWD-006 — A component decorator's notification helper publishes through

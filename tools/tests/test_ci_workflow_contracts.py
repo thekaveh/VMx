@@ -157,6 +157,19 @@ def test_csharp_conformance_suite_runs_against_the_netstandard2_0_library_build(
     assert _NETSTANDARD_CONFORMANCE_JOB in [name.strip() for name in needs.group(1).split(",")]
 
 
+def test_netstandard_conformance_job_restores_the_switched_graph() -> None:
+    # #1863: the switch must reach the restore too. A restore without it resolves
+    # the net8.0 library graph, so System.Text.Json 10 is never copied to the output.
+    jobs = workflow_jobs((WORKFLOWS / "csharp.yml").read_text(encoding="utf-8"))
+    job = jobs[_NETSTANDARD_CONFORMANCE_JOB]
+    restores = [line for line in job.splitlines() if "dotnet restore" in line]
+    assert any(
+        "tests/VMx.Conformance.Tests/VMx.Conformance.Tests.csproj" in line
+        and "-p:VMxLibraryFramework=netstandard2.0" in line
+        for line in restores
+    ), restores
+
+
 def test_every_workflow_change_triggers_the_pin_inventory() -> None:
     conformance = (WORKFLOWS / "conformance.yml").read_text(encoding="utf-8")
 

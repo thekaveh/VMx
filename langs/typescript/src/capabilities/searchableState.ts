@@ -75,9 +75,20 @@ export class SearchableState<T> implements ISearchable {
 
     // Close the initial snapshot/attach gap. Callers cannot observe the
     // constructor-only first value; later source pulses flow through the
-    // subscription above.
+    // subscription above. A failure here releases the subscription before it
+    // reaches the caller, because the caller never receives the helper to
+    // dispose (ADR-0232).
     if (opts.sourceChanges !== undefined) {
-      this.#filteredSubject.next(this.#applyFilter(this.#termSubject.value));
+      try {
+        this.#filteredSubject.next(this.#applyFilter(this.#termSubject.value));
+      } catch (error) {
+        try {
+          this.dispose();
+        } catch {
+          // Keep the original failure (ADR-0224 rule 3).
+        }
+        throw error;
+      }
     }
   }
 

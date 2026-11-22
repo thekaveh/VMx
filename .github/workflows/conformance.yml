@@ -138,11 +138,11 @@ jobs:
       - name: Check workflow pin inventory
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-workflow-pins.py
 
-      - name: Check Python fixture sync
-        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-python-fixture-sync.py
-
-      - name: Check Rust fixture sync
-        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-rust-fixture-sync.py
+      - name: Check fixture copies against spec/fixtures
+        # One inventory-driven check: every spec/fixtures/*.json file must have a
+        # byte-identical copy in the Python runtime, Python test, Rust and Swift
+        # directories, except the exemptions in tools/check-fixture-sync.py.
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-fixture-sync.py
 
       - name: Check TypeScript schema sync
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-typescript-schema-sync.py
@@ -182,6 +182,3 @@ jobs:
         # each catalog entry. The coverage check above reads only test markers,
         # so a dropped table row or a malformed ID heading would otherwise pass.
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-conformance-catalog.py
-
-      - name: Check Swift fixture sync
-        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-swift-fixture-sync.py

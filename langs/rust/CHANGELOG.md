@@ -54,6 +54,17 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Fixed
 
+- `walk()`, `walk_expanded()`, `find()`, `HierarchicalVm::depth()` and
+  `HierarchicalVm::path()` no longer recurse once per tree level. A tree deeper
+  than the thread's stack no longer overflows it. Walk order, the timing of
+  child reads and the factory error rule (ADR-0170) are unchanged (spec/13,
+  #1912).
+
+- `select_command()` and `deselect_command()` re-raise `can_execute_changed` when the VM's
+  current flag or its parent link changes. A select, a move of `Current`, or a
+  container add or remove used to leave a bound control with a stale `can_execute()`
+  until the next lifecycle transition (ADR-0242, #1755, `CVM-011`).
+
 - An `ObservableList` batch no longer loses a change, or its `Count` change,
   when another thread's batch opens or closes at the same moment. The batch
   depth, dirty flag and item count at the outermost open now change under one
@@ -61,6 +72,7 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   batch publishes nothing. `CompositeVm` and `GroupVm` inherit the fix
   (spec/06 §4.1, spec/21 §3.5, #1924). The regression tests are
   `observable_list_batch_threading.rs`.
+
 - A container destruct (`CompositeVm`, `GroupVm`, and `AggregateVm1` to
   `AggregateVm6`) joins a child destruct that another thread started after the
   walk read the status, instead of failing and rolling back to `Constructed`.
@@ -74,6 +86,7 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   error. A walk that waits on a child no longer loses the child's failure when
   the walk ends during the check (ADR-0227 §2.8). The regression tests are
   `destruct_start_race.rs`.
+
 - `ObservableList::remove_at` and `ObservableList::replace` publish a committed
   change before they drop the displaced snapshot, as `push`, `insert` and
   `remove` do. This completes #1295 for these two methods. An item whose `Drop`
