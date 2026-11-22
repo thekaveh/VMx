@@ -258,7 +258,7 @@ cross-references each ADR carries.
 | [0241](0241-derived-property-fixture-records-emissions.md)                          | A derived-property fixture scenario records its `ValueChanged` emissions                                              | 3.30.0       | Accepted                                                                                      |
 | [0242](0242-select-and-deselect-re-raise-on-selection-inputs.md)                    | SelectCommand and DeselectCommand re-raise CanExecuteChanged on their selection inputs                                | 3.30.0       | Accepted                                                                                      |
 | [0243](0243-fixture-json-schemas-and-consumer-case-id-rule.md)                      | Fixture JSON schemas and the consumer case-ID rule                                                                    | 3.30.0       | Accepted                                                                                      |
-| [0244](0244-async-resource-start-refused-from-disposed-observer.md)                 | A load or reload from an observer of the Disposed publication starts no loader                                        | 3.30.0       | Accepted                                                                                      |
+| [0244](0244-async-resource-start-refused-from-disposed-observer.md)                 | A load or reload from an observer of the Disposed publication starts no loader                                        | 3.30.0       | Accepted (Python synchronous form open, §2.5)                                                 |
 
 ### 1.1 Consolidation opportunities (informative — VMX-120)
 

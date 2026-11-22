@@ -161,12 +161,6 @@ below for them.
 
 ### Fixed
 
-- `AsyncResourceVM.load()` and `reload()` start no loader when they run from an
-  observer of the `Disposed` publication. The VM's `status` already reads
-  `DISPOSED` at that point, but the disposal flag was set later, so a
-  synchronous observer that drove the load to completion started the loader.
-  The start is now refused while `status` is `DISPOSED` (ADR-0244, #1851,
-  `ARES-011`).
 - `select_command` and `deselect_command` re-raise `can_execute_changed` when the VM's
   `is_current` flag or its `Parent` link changes. A select, a move of `Current`, or a
   container add or remove used to leave a bound control with a stale `can_execute()`

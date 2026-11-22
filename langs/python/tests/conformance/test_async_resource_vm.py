@@ -823,37 +823,6 @@ async def test_ares_011_load_from_disposed_observer_starts_no_loader() -> None:
     assert vm.state.status is AsyncResourceStatus.IDLE
 
 
-@pytest.mark.conformance("ARES-011")
-def test_ares_011_synchronous_load_from_disposed_observer_starts_no_loader() -> None:
-    # ADR-0244: the observer runs inside dispose(), before _on_dispose() sets the
-    # disposal flag. asyncio.run drives the load to completion before that flag is
-    # set, so only the status check refuses it. No loop is running in this test.
-    calls = 0
-    cleaned: list[int] = []
-
-    async def loader() -> int:
-        nonlocal calls
-        calls += 1
-        return calls
-
-    hub: MessageHub[Message] = MessageHub()
-    vm = _vm(loader, hub=hub, cleanup=cleaned.append)
-
-    def load_on_disposed(message: Message) -> None:
-        if (
-            isinstance(message, ConstructionStatusChangedMessage)
-            and message.status is ConstructionStatus.DISPOSED
-        ):
-            asyncio.run(vm.load())
-
-    hub.messages.subscribe(load_on_disposed)
-    vm.dispose()
-
-    assert calls == 0
-    assert vm.state.status is AsyncResourceStatus.IDLE
-    assert cleaned == []
-
-
 @pytest.mark.asyncio
 @pytest.mark.conformance("ARES-011")
 async def test_ares_011_dispose_cleans_retained_value_after_terminal_observer_error() -> None:
