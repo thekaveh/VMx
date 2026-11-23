@@ -303,6 +303,32 @@ describe("NullValidation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Parented ancestors in factory output (ADR-0247 D2)
+// ---------------------------------------------------------------------------
+
+describe("ParentedAncestorFactory", () => {
+  it("a children factory that returns a parented ancestor is refused and leaves the tree intact", () => {
+    const hub = makeHub();
+    // leaf's factory returns mid, which is leaf's ancestor once the tree is built.
+    let mid!: Node;
+    const leafVm = new Node({ hub, name: "leaf", childrenFactory: () => [mid] });
+    mid = new Node({ hub, name: "mid", childrenFactory: () => [leafVm] });
+    const root = new Node({ hub, name: "root", childrenFactory: () => [mid] });
+    expect(root.children).toHaveLength(1);
+    expect(mid.children).toHaveLength(1);
+    expect(mid.children[0]).toBe(leafVm);
+
+    // mid has a parent, so the factory check walks leaf's ancestors and finds mid
+    // (ADR-0247 D2). Without that walk, the already-parented message would fire.
+    expect(() => leafVm.children).toThrow(/one of its ancestors/);
+
+    expect(mid.parent).toBe(root);
+    expect(leafVm.parent).toBe(mid);
+    expect(leafVm.path.map((n) => n.name)).toEqual(["root", "mid", "leaf"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Deep chains: walks, depth and path invalidation do not recurse
 // ---------------------------------------------------------------------------
 

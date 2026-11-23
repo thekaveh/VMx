@@ -64,7 +64,7 @@ chooses which message to raise. Error texts do not change.
 
 `invalidateSubtree` and every other recursion over the materialized subtree use an
 explicit stack. They are: Python `_invalidate_subtree_nodes`; TypeScript
-`invalidateSubtree` and `invalidateDescendant`; C# `InvalidateSubtree` and
+`invalidateSubtree` (its per-node frame step is `#invalidationFrame`); C# `InvalidateSubtree` and
 `DropSubtree`; Swift `invalidateMaterializedSubtree`; and Rust
 `invalidate_subtree_from_live_ancestor`. The traversal visits nodes in the same
 order as the recursive code and skips disposed nodes exactly as it does now. The

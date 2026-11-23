@@ -73,4 +73,26 @@ describe("HIER-018", () => {
     expect(structureMessages[0]?.change).toBe("reparented");
     expect(structureMessages[0]?.affected).toBe(leaf);
   });
+
+  it("reparentChild and addChild reject a parented ancestor and leave the tree intact", () => {
+    const hub: IMessageHub = new MessageHub();
+    const leaf = new MyNode({ hub, name: "leaf" });
+    const mid = new MyNode({ hub, name: "mid", childrenFactory: () => [leaf] });
+    const root = new MyNode({ hub, name: "root", childrenFactory: () => [mid] });
+    expect(root.children.map((c) => c.name)).toEqual(["mid"]);
+    expect(mid.children.map((c) => c.name)).toEqual(["leaf"]);
+
+    // mid has a parent, so the guard walks leaf's ancestors and finds mid
+    // (ADR-0247 D2). The root case above is the parentless O(1) branch.
+    expect(() => leaf.reparentChild(mid)).toThrow(/HIER-018/);
+    expect(() => leaf.addChild(mid)).toThrow(/HIER-018/);
+
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0]).toBe(mid);
+    expect(mid.children).toHaveLength(1);
+    expect(mid.children[0]).toBe(leaf);
+    expect(mid.parent).toBe(root);
+    expect(leaf.parent).toBe(mid);
+    expect(leaf.path.map((n) => n.name)).toEqual(["root", "mid", "leaf"]);
+  });
 });
