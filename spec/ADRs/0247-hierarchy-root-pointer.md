@@ -1,6 +1,6 @@
 # ADR 0247 — Hierarchy root pointer and iterative subtree invalidation
 
-- **Status:** Accepted
+- **Status:** Accepted (§2.2 and §3 amended by ADR-0248)
 - **Date:** 2026-11-23
 - **Spec version:** 3.30.0 (chapter 18 §5 clarified; no conformance ID change; no library behavior change)
 - **Clarifies:** [ADR-0073](0073-hierarchical-child-cache-invalidation.md) §2 (the reach of `InvalidateSubtree`; the traversal is not specified). Related: [ADR-0028](0028-hierarchical-vm.md) §3 item 5, [ADR-0037](0037-v2.5-maintenance-clarifications.md) §2.3, [ADR-0127](0127-validate-hierarchy-factory-hydration-atomically.md), [ADR-0170](0170-tree-walks-report-invalid-factory-output.md), [ADR-0189](0189-disposed-children-leave-current-and-container-walks.md), [ADR-0190](0190-disposed-tree-nodes-refuse-structural-calls.md), #1912.

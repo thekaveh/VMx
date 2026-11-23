@@ -744,7 +744,9 @@ recoverable error, which is a source break for Swift and Rust callers
 (`UTIL-004`). Python tree walks stop catching a `TypeError` from `iter(node)`.
 `InvalidateSubtree` applies its invalidation to this node and every currently
 materialized descendant, at any depth. The traversal is not specified
-(ADR-0247).
+(ADR-0247). A candidate that already has a parent is a transfer, which
+succeeds (chapter 18 §7); only a parentless attach has the O(1) cycle check,
+and a transfer walks the ancestors once (ADR-0248).
 
 v3.30.0 also defines failing subscribers and notification order. A delivery on
 a library channel reaches every attached subscriber once, even when an earlier
