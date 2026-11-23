@@ -88,11 +88,13 @@ already hold their parent, so there is no `Rc` cycle.
 ### 2.5 Scope (D5)
 
 This change adds no public API, no conformance ID and no version bump. The only
-change under `spec/` is the clarification in chapter 18 §5, made in the same pull
-request as this ADR. The flavor pull requests change no file under `spec/`. Each
-flavor pull request adds a `### Fixed` entry under its unreleased source version
-heading in its CHANGELOG. This pull request changes no library code, so it adds no
-CHANGELOG entry.
+change to a chapter under `spec/` is the clarification in chapter 18 §5, which
+landed with this ADR in #2221. The flavor pull requests change no chapter,
+fixture or conformance ID under `spec/`. They may amend the text of this ADR and
+its row in `spec/ADRs/README.md`, because `spec/ADRs/**` is exempt from the
+spec-discipline rule (CLAUDE.md §2). Each flavor pull request adds a `### Fixed`
+entry under its unreleased source version heading in its CHANGELOG. Pull request
+#2221 changed no library code and added no CHANGELOG entry.
 
 ### 2.6 Tests (D6)
 
