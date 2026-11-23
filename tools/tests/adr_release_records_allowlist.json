@@ -1,0 +1,18 @@
+{
+  "A ADR-0146": "ADR-0146 is labelled 3.29.0, but it was added by commit f5198d3b (2026-10-18, #636), after the spec-v3.29.0 tag at f317f10e (2026-10-15). Issue #1809 corrects this label and the spec/HISTORY.md records for 3.29.0.",
+  "A ADR-0147": "ADR-0147 is labelled 3.29.0, but it was added by commit f5198d3b (2026-10-18, #636), after the spec-v3.29.0 tag at f317f10e (2026-10-15). Issue #1809 corrects this label and the spec/HISTORY.md records for 3.29.0.",
+  "A ADR-0148": "ADR-0148 is labelled 3.29.0, but it was added by commit f5198d3b (2026-10-18, #636), after the spec-v3.29.0 tag at f317f10e (2026-10-15). Issue #1809 corrects this label and the spec/HISTORY.md records for 3.29.0.",
+  "A ADR-0149": "ADR-0149 is labelled 3.29.0, but it was added by commit f5198d3b (2026-10-18, #636), after the spec-v3.29.0 tag at f317f10e (2026-10-15). Issue #1809 corrects this label and the spec/HISTORY.md records for 3.29.0.",
+  "A ADR-0150": "ADR-0150 is labelled 3.29.0, but it was added by commit f5198d3b (2026-10-18, #636), after the spec-v3.29.0 tag at f317f10e (2026-10-15). Issue #1809 corrects this label and the spec/HISTORY.md records for 3.29.0.",
+  "B 3.30.0 ADR-0233": "Section 39 of spec/HISTORY.md does not yet name ADR-0233, a 3.30.0 ADR. Issue #1478 corrects section 39 before the spec-v3.30.0 tag is pushed.",
+  "B 3.30.0 ADR-0239": "Section 39 of spec/HISTORY.md does not yet name ADR-0239, a 3.30.0 ADR. Issue #1478 corrects section 39 before the spec-v3.30.0 tag is pushed.",
+  "B 3.30.0 ADR-0240": "Section 39 of spec/HISTORY.md does not yet name ADR-0240, a 3.30.0 ADR. Issue #1478 corrects section 39 before the spec-v3.30.0 tag is pushed.",
+  "B 3.30.0 ADR-0241": "Section 39 of spec/HISTORY.md does not yet name ADR-0241, a 3.30.0 ADR. Issue #1478 corrects section 39 before the spec-v3.30.0 tag is pushed.",
+  "B 3.30.0 ADR-0242": "Section 39 of spec/HISTORY.md does not yet name ADR-0242, a 3.30.0 ADR. Issue #1478 corrects section 39 before the spec-v3.30.0 tag is pushed.",
+  "B 3.30.0 ADR-0244": "Section 39 of spec/HISTORY.md does not yet name ADR-0244, a 3.30.0 ADR. Issue #1478 corrects section 39 before the spec-v3.30.0 tag is pushed.",
+  "B 3.30.0 ADR-0245": "Section 39 of spec/HISTORY.md does not yet name ADR-0245, a 3.30.0 ADR. Issue #1478 corrects section 39 before the spec-v3.30.0 tag is pushed.",
+  "B 3.30.0 COL-073": "Section 39 of spec/HISTORY.md does not yet name the new 3.30.0 ID COL-073. Issue #1478 corrects section 39 before the spec-v3.30.0 tag is pushed.",
+  "B 3.30.0 CVM-011": "Section 39 of spec/HISTORY.md does not yet name the new 3.30.0 ID CVM-011. Issue #1478 corrects section 39 before the spec-v3.30.0 tag is pushed.",
+  "B 3.30.0 FWD-007": "Section 39 of spec/HISTORY.md does not yet name the new 3.30.0 ID FWD-007. Issue #1478 corrects section 39 before the spec-v3.30.0 tag is pushed.",
+  "C ADR-0162 -> ADR-0058": "ADR-0162 says 'reconstruct replaces its slots (AGG-007)', and then cites ADR-0058 as the source of the arity limit. That citation is not a supersession of ADR-0058, so ADR-0058 needs no back-link."
+}

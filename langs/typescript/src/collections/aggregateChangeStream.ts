@@ -191,6 +191,7 @@ export class AggregateChangeStream<T extends object> {
     for (;;) {
       const version = this.#structuralVersion;
       const snapshot = this.#validatedSnapshot();
+      if (this.#isClosed()) return;
       if (version !== this.#structuralVersion) continue;
 
       const plan = this.#buildPlan(snapshot);
@@ -200,12 +201,16 @@ export class AggregateChangeStream<T extends object> {
         this.#disposeStaged(plan);
         throw error;
       }
+      if (this.#isClosed()) {
+        this.#disposeStaged(plan);
+        return;
+      }
       if (version !== this.#structuralVersion) {
         this.#disposeStaged(plan);
         continue;
       }
 
-      this.#commitPlan(plan);
+      if (!this.#commitPlan(plan)) return;
       if (version !== this.#structuralVersion) continue;
       this.#discardBufferedItems();
       this.#settingUp = false;
@@ -307,6 +312,7 @@ export class AggregateChangeStream<T extends object> {
       for (;;) {
         const version = this.#structuralVersion;
         const snapshot = this.#validatedSnapshot();
+        if (this.#isClosed()) return;
         if (version !== this.#structuralVersion) continue;
 
         const plan = this.#buildPlan(snapshot);
@@ -316,12 +322,16 @@ export class AggregateChangeStream<T extends object> {
           this.#disposeStaged(plan);
           throw error;
         }
+        if (this.#isClosed()) {
+          this.#disposeStaged(plan);
+          return;
+        }
         if (version !== this.#structuralVersion) {
           this.#disposeStaged(plan);
           continue;
         }
 
-        this.#commitPlan(plan);
+        if (!this.#commitPlan(plan)) return;
         if (version !== this.#structuralVersion) continue;
         const changes: PendingChange<T>[] = [
           {
@@ -399,10 +409,14 @@ export class AggregateChangeStream<T extends object> {
         terminal: false,
         bufferedItems: 0,
       };
+      // Staged before the first call-out, so a disposal inside a call-out finds
+      // the entry in the plan and releases its subscription (ADR-0240).
+      plan.staged.push(entry);
       const selected = this.#observeItem(item) as
         | Observable<unknown>
         | null
         | undefined;
+      if (this.#isClosed()) return;
       if (selected == null) {
         throw new TypeError("observeItem returned null or undefined");
       }
@@ -419,11 +433,12 @@ export class AggregateChangeStream<T extends object> {
         this.#safeUnsubscribe(entry.subscription);
         entry.subscription = null;
       }
-      plan.staged.push(entry);
+      if (this.#isClosed()) return;
     }
   }
 
-  #commitPlan(plan: SnapshotPlan<T>): void {
+  /** Returns false, and admits nothing, when a removal call-out disposed the aggregate. */
+  #commitPlan(plan: SnapshotPlan<T>): boolean {
     for (const [item, existing] of [...this.#entries]) {
       const refcount = plan.counts.get(item);
       if (refcount !== undefined) {
@@ -437,10 +452,15 @@ export class AggregateChangeStream<T extends object> {
       existing.subscription = null;
       this.#entries.delete(item);
     }
+    if (this.#isClosed()) {
+      this.#disposeStaged(plan);
+      return false;
+    }
     for (const staged of plan.staged) {
       staged.admitted = true;
       this.#entries.set(staged.item, staged);
     }
+    return true;
   }
 
   #appendBufferedItems(changes: PendingChange<T>[]): void {
@@ -459,6 +479,11 @@ export class AggregateChangeStream<T extends object> {
 
   #discardBufferedItems(): void {
     for (const entry of this.#entries.values()) entry.bufferedItems = 0;
+  }
+
+  /** True once dispose began or the source failed; a reconciliation then commits nothing. */
+  #isClosed(): boolean {
+    return this.#completed || this.#terminalError !== noTerminalError;
   }
 
   #disposeStaged(plan: SnapshotPlan<T>): void {

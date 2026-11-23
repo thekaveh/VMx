@@ -1,6 +1,7 @@
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import { disposeBestEffort } from "../components/disposal.js";
 import { disposeUnownedCandidates } from "../components/unownedCandidates.js";
+import { withSelectionScope } from "../components/selectionInputScope.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import type { IOwningParentVM } from "../components/componentVMBase.js";
 import type { ParentTransfer } from "../components/parentTransfer.js";
@@ -88,6 +89,20 @@ export function commitAggregateSlots(
 
 /** @internal Reserve replacement identities across validation, cleanup, and commit. */
 export function replaceAggregateSlots(
+  parent: AggregateParent,
+  previous: readonly (ComponentVMBase | null)[],
+  next: readonly ComponentVMBase[],
+  assign: () => void,
+  notifyCommittedError: () => void,
+): boolean {
+  // The slot replacement is a selection-input scope (ADR-0242): a queued Select
+  // and Deselect notification runs after the replacement finishes.
+  return withSelectionScope(() =>
+    replaceAggregateSlotsInScope(parent, previous, next, assign, notifyCommittedError),
+  );
+}
+
+function replaceAggregateSlotsInScope(
   parent: AggregateParent,
   previous: readonly (ComponentVMBase | null)[],
   next: readonly ComponentVMBase[],

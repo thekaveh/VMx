@@ -213,6 +213,34 @@ describe("LIFE-004", () => {
     }
   });
 
+  it("dispose from Constructing and Destructing reaches Disposed and publishes it once", () => {
+    for (const state of ["constructing", "destructing"] as const) {
+      const hub = makeHub();
+      let vm: ComponentVM;
+      const builder = ComponentVM.builder().name(`life-004-${state}`).services(hub, makeDisp());
+      vm = (state === "constructing"
+        ? builder.onConstruct(() => vm.dispose())
+        : builder.onDestruct(() => vm.dispose())
+      ).build();
+      const disposed: ConstructionStatus[] = [];
+      hub.messages.subscribe((m) => {
+        if (m instanceof ConstructionStatusChangedMessage && m.status === ConstructionStatus.Disposed) {
+          disposed.push(m.status);
+        }
+      });
+
+      if (state === "constructing") {
+        vm.construct();
+      } else {
+        vm.construct();
+        vm.destruct();
+      }
+
+      expect(vm.status).toBe(ConstructionStatus.Disposed);
+      expect(disposed).toHaveLength(1);
+    }
+  });
+
   it("suppresses a hook when a status observer disposes first", () => {
     for (const phase of [ConstructionStatus.Constructing, ConstructionStatus.Destructing]) {
       const hub = makeHub();

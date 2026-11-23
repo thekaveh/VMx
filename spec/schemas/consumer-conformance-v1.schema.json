@@ -63,7 +63,8 @@
       "properties": {
         "id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "$comment": "Unique within the suite. JSON Schema cannot express uniqueness across array items, so a runner MUST reject a duplicate case id (ADR-0102 §2.1, ADR-0243)."
         },
         "description": {
           "type": "string",

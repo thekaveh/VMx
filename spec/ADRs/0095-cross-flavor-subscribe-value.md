@@ -1,6 +1,6 @@
 # ADR 0095 — Add a cross-flavor selected-state subscription bridge
 
-**Status:** Accepted (2026-07-11)
+**Status:** Accepted (2026-07-11; §2 rule 1 amended by ADR-0233)
 **Spec version:** introduced in 3.15.0
 **Related:** ADR-0002, ADR-0006, ADR-0032, ADR-0050, ADR-0082, issue #93, issue #136
 

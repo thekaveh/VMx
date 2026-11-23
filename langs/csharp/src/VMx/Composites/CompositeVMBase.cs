@@ -908,6 +908,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 _membershipTransactionOwnerThreadId = 0;
                 WaitForGraph.Shared.Release(_membershipGate);
                 Monitor.PulseAll(_membershipGate);
+                // No link was written, so this close queues nothing (ADR-0242).
+                SelectionInputScope.Leave();
                 throw new InvalidOperationException("The recorded parent does not contain the child identity.");
             }
             child = typed;
@@ -1678,6 +1680,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         // Recorded so a group transfer or a disposal that waits for this
         // transaction can see a wait-for cycle (#717).
         WaitForGraph.Shared.Acquire(_membershipGate, _membershipTransactionOwnerThreadId);
+        // The transaction is a selection-input scope (ADR-0242). Its end closes it.
+        SelectionInputScope.Enter();
     }
 
     private void BeginMembershipTransaction()
@@ -1706,10 +1710,16 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             dispose = _disposeDeferred && _activeCurrentPublications == 0;
             Monitor.PulseAll(_membershipGate);
         }
-        if (dispose)
+        // Closes the scope after the gate is released: a queued Select and
+        // Deselect notification runs with no container lock held (ADR-0242).
+        try { SelectionInputScope.Leave(); }
+        finally
         {
-            try { Dispose(); }
-            catch when (!propagateDisposeFailure) { }
+            if (dispose)
+            {
+                try { Dispose(); }
+                catch when (!propagateDisposeFailure) { }
+            }
         }
     }
 

@@ -42,6 +42,7 @@ pub(crate) struct ComponentCommands {
     select_previous: RelayCommand,
     reconstruct: RelayCommand,
     status_subscription: Arc<Subscription>,
+    selection_subscription: Arc<Subscription>,
 }
 
 impl ComponentCommands {
@@ -104,6 +105,16 @@ impl ComponentCommands {
                 }
             }))
         };
+        // Select and Deselect also re-raise when IsCurrent or the Parent link
+        // changes (ADR-0242). The notification is private to this core.
+        let selection_subscription = {
+            let commands = [select.clone(), deselect.clone()];
+            Arc::new(core.selection_inputs_hub().subscribe(move |_message| {
+                for command in &commands {
+                    command.raise_can_execute_changed();
+                }
+            }))
+        };
         Self {
             select,
             deselect,
@@ -111,6 +122,7 @@ impl ComponentCommands {
             select_previous,
             reconstruct,
             status_subscription,
+            selection_subscription,
         }
     }
 
@@ -136,6 +148,7 @@ impl ComponentCommands {
 
     pub(crate) fn dispose(&self) {
         self.status_subscription.dispose();
+        self.selection_subscription.dispose();
         self.select.dispose();
         self.deselect.dispose();
         self.select_next.dispose();

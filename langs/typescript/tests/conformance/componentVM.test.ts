@@ -173,6 +173,68 @@ describe("CVM-006", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// CVM-011
+// ---------------------------------------------------------------------------
+
+describe("CVM-011", () => {
+  it("select, the old child's deselect, add and remove re-raise the selection commands", () => {
+    const hub = makeHub();
+    const disp = makeDisp();
+    const a = ComponentVM.builder().name("a").services(hub, disp).build();
+    const b = ComponentVM.builder().name("b").services(hub, disp).build();
+    const parent = CompositeVM.builder<ComponentVM>()
+      .name("p")
+      .services(hub, disp)
+      .children(() => [a, b])
+      .build();
+    parent.construct();
+
+    const selectSeen: boolean[] = [];
+    const deselectSeen: boolean[] = [];
+    a.selectCommand.canExecuteChanged.subscribe(() => selectSeen.push(a.selectCommand.canExecute()));
+    a.deselectCommand.canExecuteChanged.subscribe(() => deselectSeen.push(a.deselectCommand.canExecute()));
+
+    a.select();
+    expect(selectSeen).toEqual([false]);
+    expect(deselectSeen).toEqual([true]);
+    selectSeen.length = 0;
+    deselectSeen.length = 0;
+
+    b.select();
+    expect(deselectSeen).toEqual([false]);
+    expect(selectSeen).toEqual([true]);
+
+    const c = ComponentVM.builder().name("c").services(hub, disp).build();
+    c.construct();
+    const addedSeen: boolean[] = [];
+    const nestedAddOk: boolean[] = [];
+    const extra = ComponentVM.builder().name("extra").services(hub, disp).build();
+    extra.construct();
+    c.selectCommand.canExecuteChanged.subscribe(() => {
+      addedSeen.push(c.selectCommand.canExecute());
+      if (nestedAddOk.length === 0) {
+        // The notification runs after the membership change (ADR-0242), so no
+        // transaction is open and a subscriber may start another change.
+        try {
+          parent.add(extra);
+          nestedAddOk.push(true);
+        } catch {
+          nestedAddOk.push(false);
+        }
+      }
+    });
+
+    parent.add(c);
+    expect(addedSeen).toEqual([true]);
+    expect(nestedAddOk).toEqual([true]);
+    addedSeen.length = 0;
+
+    parent.remove(c);
+    expect(addedSeen).toEqual([false]);
+  });
+});
+
 class NotificationProbeVM extends ComponentVMBase {
   #value = 0;
 

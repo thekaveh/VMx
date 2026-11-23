@@ -13,6 +13,7 @@ use super::{
     VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
+use crate::selection_inputs::membership_section;
 use crate::{TreeNode, TreeNodeRef};
 
 type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
@@ -110,7 +111,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 move |child_id, owner_handle| {
                     let transaction =
                         begin_membership_transaction(&detach_transaction, &detach_control)?;
-                    let _gate = lock(&detach_gate);
+                    let _gate = membership_section(&detach_gate);
                     if detach_disposed.load(Ordering::Acquire)
                         || detach_control.has_deferred_dispose()
                     {
@@ -147,7 +148,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                                 rollback_transaction,
                                 rollback_control,
                             );
-                            let _gate = lock(&rollback_gate);
+                            let _gate = membership_section(&rollback_gate);
                             if rollback_disposed.load(Ordering::Acquire) {
                                 removed.set_parent_handle(None);
                                 drop(_gate);
@@ -370,7 +371,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         let original_status = item.status();
         let mut late_start;
         let index = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 if let Some(transfer) = transfer {
                     let _ = transfer.rollback();
@@ -393,7 +394,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 }
             });
         if let Err(error) = admission {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if let Some(start) = late_start.as_mut() {
                 start.forget();
             }
@@ -461,7 +462,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 original_statuses.push(child.status());
             }
             {
-                let _gate = lock(&self.membership_gate);
+                let _gate = membership_section(&self.membership_gate);
                 if self.disposal_pending() {
                     return Err(VmxError::Disposed);
                 }
@@ -485,7 +486,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         })();
         if let Err(error) = result {
             let mut compensation_error = None;
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             for child in candidates.iter().rev() {
                 if let Some(index) = self.items().iter().position(|item| item.id() == child.id()) {
                     let _ = self.items.remove_at_silent(index);
@@ -549,7 +550,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         let original_status = item.status();
         let mut late_start;
         {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 if let Some(transfer) = transfer {
                     let _ = transfer.rollback();
@@ -576,7 +577,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 }
             });
         if let Err(error) = admission {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if let Some(start) = late_start.as_mut() {
                 start.forget();
             }
@@ -631,7 +632,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             &self.membership_transaction_control,
         )?;
         let removed = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             self.items()
                 .iter()
                 .position(|candidate| candidate.id() == item.id())
@@ -661,7 +662,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             &self.membership_transaction_control,
         )?;
         let removed = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             self.items
                 .remove_at_silent(index)
                 .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?
@@ -687,7 +688,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         let original_status = item.status();
         let mut late_start;
         let old = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() {
                 if let Some(transfer) = transfer {
                     let _ = transfer.rollback();
@@ -720,7 +721,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 }
             });
         if let Err(error) = admission {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if let Some(start) = late_start.as_mut() {
                 start.forget();
             }
@@ -770,7 +771,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             &self.membership_transaction_control,
         )?;
         let changed = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 return Err(VmxError::Disposed);
             }
@@ -795,7 +796,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             &self.membership_transaction_control,
         )?;
         let removed = {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             for item in self.items() {
                 if item
                     .parent_handle()
@@ -937,7 +938,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     pub fn dispose(&self) -> VmxResult<()> {
         self.core.abandon_child_settle();
         let snapshot = loop {
-            let _gate = lock(&self.membership_gate);
+            let _gate = membership_section(&self.membership_gate);
             match self.membership_transaction_control.dispose_disposition() {
                 MembershipDisposeDisposition::Owned
                 | MembershipDisposeDisposition::PublishingThread => {

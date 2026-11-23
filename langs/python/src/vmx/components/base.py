@@ -175,6 +175,68 @@ def _lifecycle_hook_is_running() -> bool:
     return bool(_lifecycle_hook_owners())
 
 
+# The per-thread selection-input scope (ADR-0242). A container membership
+# transaction, and an aggregate slot replacement, enter it. While it is open, a
+# child whose selection inputs changed is queued, not notified. The outermost
+# scope on the thread emits the queue after every container lock is released,
+# so no CanExecuteChanged subscriber runs under a membership gate (spec/06 §4.3).
+_selection_scope = threading.local()
+
+
+def _selection_depth() -> int:
+    depth: int = getattr(_selection_scope, "depth", 0)
+    return depth
+
+
+def _enter_selection_scope() -> None:
+    _selection_scope.depth = _selection_depth() + 1
+
+
+def _leave_selection_scope() -> None:
+    """Close one scope. The outermost close emits the queued children."""
+    depth = _selection_depth()
+    if depth > 0:
+        depth -= 1
+    _selection_scope.depth = depth
+    if depth > 0:
+        return
+    pending: list[_ComponentVMBase] | None = getattr(_selection_scope, "pending", None)
+    _selection_scope.pending = None
+    if not pending:
+        return
+    first_error: BaseException | None = None
+    for child in pending:
+        try:
+            child._emit_selection_inputs()
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+    if first_error is not None:
+        raise first_error
+
+
+def _queue_selection_inputs(child: _ComponentVMBase) -> None:
+    """Queue a child for the open scope, or emit at once when no scope is open."""
+    if _selection_depth() == 0:
+        child._emit_selection_inputs()
+        return
+    pending: list[_ComponentVMBase] | None = getattr(_selection_scope, "pending", None)
+    if pending is None:
+        pending = []
+        _selection_scope.pending = pending
+    pending.append(child)
+
+
+@contextmanager
+def _selection_input_scope() -> Iterator[None]:
+    """Hold a selection-input scope for the body (ADR-0242)."""
+    _enter_selection_scope()
+    try:
+        yield
+    finally:
+        _leave_selection_scope()
+
+
 @contextmanager
 def _lifecycle_hook_scope(owner: _ComponentVMBase) -> Iterator[None]:
     owners = _lifecycle_hook_owners()
@@ -512,6 +574,10 @@ class _ComponentVMBase(ABC):
 
         # ── Status-change trigger (drives command CanExecute re-eval) ────────
         self._status_trigger: Subject[None] = Subject()
+        # ── Selection-input trigger (ADR-0242) ───────────────────────────────
+        # Fires when IsCurrent or the Parent link changes. Only the select and
+        # deselect commands subscribe to it, next to the status trigger.
+        self._selection_trigger: Subject[None] = Subject()
 
         # ── Built-in commands (lazily built on first access) ─────────────────
         # Building all five RelayCommands eagerly here allocated five commands
@@ -589,11 +655,40 @@ class _ComponentVMBase(ABC):
 
     def _publish_is_current(self) -> None:
         """Publish a current-flag commit after container coordination is released."""
-        self._notify_property_changed("is_current")
+        try:
+            self._notify_property_changed("is_current")
+        finally:
+            self._raise_selection_inputs_changed()
 
     def _set_parent(self, parent: _ParentCompositeVM | None) -> None:
-        """Called by CompositeVMBase when this child is added/removed."""
+        """Called by CompositeVMBase when this child is added/removed.
+
+        A link that changes re-raises CanExecuteChanged of select and deselect
+        (ADR-0242). The link emits no PropertyChangedMessage (spec/05 §6.1).
+        """
+        if self._parent is parent:
+            return
         self._parent = parent
+        self._raise_selection_inputs_changed()
+
+    def _raise_selection_inputs_changed(self) -> None:
+        """Queue the re-raise of CanExecuteChanged of select and deselect (ADR-0242).
+
+        The notification is emitted when the outermost selection-input scope on
+        this thread closes, after every container lock is released, or at once
+        when no scope is open.
+        """
+        _queue_selection_inputs(self)
+
+    def _emit_selection_inputs(self) -> None:
+        """Emit the select and deselect notification (ADR-0242).
+
+        Skipped once the terminal publication has finished. The selection subject
+        is completed at teardown and never disposed, so an emission that races
+        teardown is a silent no-op rather than a disposed-subject fault.
+        """
+        if not self._trigger_disposed:
+            self._selection_trigger.on_next(None)
 
     @property
     def _ownership_identity(self) -> _ComponentVMBase:
@@ -663,30 +758,40 @@ class _ComponentVMBase(ABC):
         self,
         predicate: Callable[[], bool],
         task: Callable[[], None],
+        *,
+        selection_inputs: bool = False,
     ) -> RelayCommand:
         """Build a built-in RelayCommand, wiring the status trigger when live.
 
         The status trigger re-fires ``can_execute_changed`` on every lifecycle
         transition (VMX-104).  After the VM is disposed the trigger Subject is
         completed/disposed, so a command built post-dispose is built without it
-        rather than subscribing to a disposed Subject.
+        rather than subscribing to a disposed Subject.  ``selection_inputs``
+        adds the selection trigger for select and deselect (ADR-0242).
         """
         builder = RelayCommand.builder().predicate(predicate).task(task)
         if not self._trigger_disposed:
             trigger_obs: rx.Observable[object] = self._status_trigger
             builder = builder.triggers(trigger_obs)
+            if selection_inputs:
+                selection_obs: rx.Observable[object] = self._selection_trigger
+                builder = builder.triggers(selection_obs)
         return builder.build()
 
     @property
     def select_command(self) -> RelayCommand:
         if self._select_command is None:
-            self._select_command = self._build_command(self.can_select, self.select)
+            self._select_command = self._build_command(
+                self.can_select, self.select, selection_inputs=True
+            )
         return self._select_command
 
     @property
     def deselect_command(self) -> RelayCommand:
         if self._deselect_command is None:
-            self._deselect_command = self._build_command(self.can_deselect, self.deselect)
+            self._deselect_command = self._build_command(
+                self.can_deselect, self.deselect, selection_inputs=True
+            )
         return self._deselect_command
 
     @property
@@ -2236,6 +2341,12 @@ class _ComponentVMBase(ABC):
             pass
         try:
             self._status_trigger.dispose()
+        except BaseException:
+            pass
+        # Completed, never disposed (ADR-0242): a racing emission is then a
+        # silent no-op, not a DisposedException from a disposed subject.
+        try:
+            self._selection_trigger.on_completed()
         except BaseException:
             pass
         if active_property_notifications == 0:

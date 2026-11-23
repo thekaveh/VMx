@@ -1,7 +1,7 @@
 //
 // ComponentVM conformance tests.
 //
-// Claimed IDs: CVM-001..010 (CVM-003's "no setter" is compiler-shaped in
+// Claimed IDs: CVM-001..011 (CVM-003's "no setter" is compiler-shaped in
 // Swift — external writes trap per ADR-0037; the test verifies the
 // readonly builder and internal update path).
 //
@@ -18,6 +18,48 @@ private struct Tab: Equatable {
 private final class RefModel {
     let n: Int
     init(_ n: Int) { self.n = n }
+}
+
+/// Records `canExecute()` each time `canExecuteChanged` of a command fires.
+private final class CanExecuteRecorder {
+    var values: [Bool] = []
+    private var subscription: AnyCancellable?
+
+    init(_ command: RelayCommand) {
+        subscription = command.canExecuteChanged.sink { [weak self] in
+            self?.values.append(command.canExecute())
+        }
+    }
+}
+
+/// Records the result of `countFromAnotherThread` each time `canExecuteChanged` fires.
+private final class MembershipCountRecorder {
+    var values: [Int?] = []
+    private var subscription: AnyCancellable?
+
+    init(_ command: RelayCommand, read: @escaping () -> Int) {
+        subscription = command.canExecuteChanged.sink { [weak self] in
+            self?.values.append(countFromAnotherThread(read))
+        }
+    }
+}
+
+private final class CountBox {
+    var value: Int?
+}
+
+/// Reads on another thread. Returns nil when the read does not finish within five
+/// seconds: a read blocks while the calling thread holds the container's
+/// membership gate, so nil means the subscriber ran under that gate (ADR-0242).
+private func countFromAnotherThread(_ read: @escaping () -> Int) -> Int? {
+    let box = CountBox()
+    let done = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+        box.value = read()
+        done.signal()
+    }
+    guard done.wait(timeout: .now() + 5) == .success else { return nil }
+    return box.value
 }
 
 private final class NotificationProbeVM: ComponentVMBase {
@@ -176,6 +218,50 @@ final class ComponentVMTests: XCTestCase {
         XCTAssertTrue(comp.current === child)
         XCTAssertFalse(child.selectCommand.canExecute(), "already current")
         XCTAssertTrue(child.deselectCommand.canExecute())
+    }
+
+    /// CVM-011 — Select, the old child's deselect, add and remove re-raise the
+    /// selection commands, and each subscriber reads the new `canExecute()`. A
+    /// subscriber that reads its container from another thread sees the committed
+    /// membership, so the notification runs with no container lock held (ADR-0242).
+    func testCvm011SelectionCommandsRenotifyOnSelectionInputs() throws {
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+        let a = try ComponentVM.builder()
+            .name("a").services(hub: hub, dispatcher: dispatcher).build()
+        let b = try ComponentVM.builder()
+            .name("b").services(hub: hub, dispatcher: dispatcher).build()
+        let parent = try CompositeVM<ComponentVM>.builder()
+            .name("p").services(hub: hub, dispatcher: dispatcher)
+            .children { [a, b] }.build()
+        try parent.construct()
+
+        let selectSeen = CanExecuteRecorder(a.selectCommand)
+        let deselectSeen = CanExecuteRecorder(a.deselectCommand)
+        a.select()
+        XCTAssertEqual(selectSeen.values, [false])
+        XCTAssertEqual(deselectSeen.values, [true])
+        selectSeen.values.removeAll()
+        deselectSeen.values.removeAll()
+
+        b.select()
+        XCTAssertEqual(deselectSeen.values, [false], "the old child's DeselectCommand notifies")
+        XCTAssertEqual(selectSeen.values, [true])
+
+        let c = try ComponentVM.builder()
+            .name("c").services(hub: hub, dispatcher: dispatcher).build()
+        try c.construct()
+        let addedSeen = CanExecuteRecorder(c.selectCommand)
+        let countSeen = MembershipCountRecorder(c.selectCommand) { parent.count }
+        parent.add(c)
+        XCTAssertEqual(addedSeen.values, [true])
+        XCTAssertEqual(countSeen.values, [3])
+        addedSeen.values.removeAll()
+        countSeen.values.removeAll()
+
+        _ = parent.remove(c)
+        XCTAssertEqual(addedSeen.values, [false])
+        XCTAssertEqual(countSeen.values, [2])
     }
 
     /// CVM-007 — helper emits one hub notification before one local notification.
