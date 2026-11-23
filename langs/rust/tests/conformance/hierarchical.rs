@@ -12,6 +12,12 @@ fn leaf(name: &str) -> HierarchicalVm<String> {
     HierarchicalVm::new(name, name.to_string())
 }
 
+/// Error texts the hierarchy rejects with. Each test pins its text, so a change
+/// to the wording fails a test (ADR-0247 D2: error texts do not change).
+const FACTORY_CYCLE_MESSAGE: &str = "children factory returned this node or one of its ancestors";
+const FACTORY_PARENTED_MESSAGE: &str = "children factory returned an already-parented child";
+const CYCLE_MESSAGE: &str = "cannot reparent self or ancestor";
+
 /// HIER-031 — factory hydration validates the complete snapshot before mutation.
 #[test]
 fn factory_hydration_is_atomic_and_retryable() {
@@ -73,7 +79,10 @@ fn factory_hydration_rejects_invalid_topology() {
         MessageHub::new(),
     );
     *self_slot.lock().unwrap() = Some(self_node.clone());
-    assert!(self_node.try_children().is_err());
+    assert!(matches!(
+        self_node.try_children(),
+        Err(VmxError::InvalidArgument(message)) if message == FACTORY_CYCLE_MESSAGE
+    ));
     assert!(self_node.parent().is_none());
 
     // An ancestor in the snapshot is rejected without any hub publication.
@@ -98,7 +107,10 @@ fn factory_hydration_rejects_invalid_topology() {
     );
     ancestor.add_child(descendant.clone()).unwrap();
     let before = recorder.messages().len();
-    assert!(descendant.try_children().is_err());
+    assert!(matches!(
+        descendant.try_children(),
+        Err(VmxError::InvalidArgument(message)) if message == FACTORY_CYCLE_MESSAGE
+    ));
     assert_eq!(recorder.messages().len(), before, "no message on rejection");
     assert!(ancestor.parent().is_none());
     assert!(descendant.parent().as_ref() == Some(&ancestor));
@@ -119,7 +131,10 @@ fn factory_hydration_rejects_invalid_topology() {
         false,
         MessageHub::new(),
     );
-    assert!(new_parent.try_children().is_err());
+    assert!(matches!(
+        new_parent.try_children(),
+        Err(VmxError::InvalidArgument(message)) if message == FACTORY_PARENTED_MESSAGE
+    ));
     assert!(attached.parent().as_ref() == Some(&old_parent));
     assert!(old_parent.children() == vec![attached.clone()]);
 }
@@ -1351,10 +1366,22 @@ fn reparent_rejects_self_and_ancestor_cycles() {
             .collect::<Vec<_>>()
     };
 
-    assert!(leaf_node.reparent_child(&root).is_err());
-    assert!(mid.reparent_child(&mid).is_err());
-    assert!(leaf_node.add_child(leaf_node.clone()).is_err());
-    assert!(leaf_node.add_child(root.clone()).is_err());
+    assert!(matches!(
+        leaf_node.reparent_child(&root),
+        Err(VmxError::InvalidArgument(message)) if message == CYCLE_MESSAGE
+    ));
+    assert!(matches!(
+        mid.reparent_child(&mid),
+        Err(VmxError::InvalidArgument(message)) if message == CYCLE_MESSAGE
+    ));
+    assert!(matches!(
+        leaf_node.add_child(leaf_node.clone()),
+        Err(VmxError::InvalidArgument(message)) if message == CYCLE_MESSAGE
+    ));
+    assert!(matches!(
+        leaf_node.add_child(root.clone()),
+        Err(VmxError::InvalidArgument(message)) if message == CYCLE_MESSAGE
+    ));
     assert_eq!(leaf_node.depth(), 2);
     assert_eq!([shape(&root), shape(&mid), shape(&leaf_node)], before);
     assert!(

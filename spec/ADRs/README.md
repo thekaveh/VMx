@@ -261,7 +261,7 @@ cross-references each ADR carries.
 | [0243](0243-fixture-json-schemas-and-consumer-case-id-rule.md)                      | Fixture JSON schemas and the consumer case-ID rule                                                                    | 3.30.0       | Accepted                                                                                      |
 | [0244](0244-async-resource-start-refused-from-disposed-observer.md)                 | A load or reload from an observer of the Disposed publication starts no loader                                        | 3.30.0       | Accepted                                                                                      |
 | [0245](0245-catalog-clauses-utils-hier-life004.md)                                  | Catalog clauses for UTIL-002 and HIER-012 match the spec; LIFE-004 asserts Disposed in every flavor                   | 3.30.0       | Accepted                                                                                      |
-| [0247](0247-hierarchy-root-pointer.md)                                              | Hierarchy nodes hold their tree root; attach checks are O(1); subtree invalidation is iterative                       | 3.30.0       | Accepted                                                                                      |
+| [0247](0247-hierarchy-root-pointer.md)                                              | Hierarchy nodes hold their tree root; a parentless attach checks in O(1); subtree invalidation is iterative           | 3.30.0       | Accepted                                                                                      |
 
 ### 1.1 Consolidation opportunities (informative — VMX-120)
 

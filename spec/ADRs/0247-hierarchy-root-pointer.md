@@ -52,10 +52,15 @@ traversal.
 
 A candidate with no parent is a cycle when it is this node or this node's root.
 Otherwise it attaches. A parentless node can be an ancestor of this node only when
-it is the root of this node's tree, so this rule is complete. A candidate that
-already has a parent takes the existing already-parented error path. Only there
-does the code walk the ancestors, to choose the existing message. The success
-path costs O(1). A rejection costs one O(depth) walk. Error texts do not change.
+it is the root of this node's tree, so this rule is complete. An attach of a
+parentless node costs O(1), and so does its rejection.
+
+A candidate that already has a parent is checked by a walk of this node's
+ancestors, which costs O(depth of this node). For a move (`add_child` or
+`reparent_child`), the walk finds a cycle. Rust skips the walk for a candidate in
+another tree, which cannot be an ancestor of this node. A children-factory result
+that already has a parent also walks, to choose between the cycle message and the
+already-parented message. Error texts do not change.
 
 ### 2.3 Iterative subtree invalidation (D3)
 
@@ -66,8 +71,11 @@ explicit stack. They are: Python `_invalidate_subtree_nodes`; TypeScript
 `invalidate_subtree_from_live_ancestor`. The traversal visits nodes in the same
 order as the recursive code and skips disposed nodes exactly as it does now. The
 reach does not change: every currently materialized descendant, at any depth.
-ADR-0247 clarifies that the word "recursively" in chapter 18 §5 names that reach,
-not the call mechanism. The clarifying sentence is part of this pull request.
+Chapter 18 §5 said that `InvalidateSubtree` applied its invalidation "recursively".
+ADR-0247 replaces that word with "at any depth", which names the reach and not the
+call mechanism. The traversal is not specified (`spec/HISTORY.md`, v3.30.0). The
+replacement landed with this ADR in #2221, on develop, so this pull request
+changes no spec text.
 
 ### 2.4 Storage (D4)
 
@@ -111,16 +119,19 @@ build case and report it in their bodies. The recursive Rust drop is issue #2204
 
 ### 2.9 Rust move trade (D9)
 
-The restamp changes Rust move cost from O(depth of the new parent) to
-O(materialized subtree). The change is accepted for uniformity across flavors.
+The restamp adds O(materialized subtree) to a Rust move. The same-tree cycle walk
+of §2.2 still costs O(depth of the new parent), so a Rust move costs O(depth of
+the new parent + materialized subtree), where it cost O(depth of the new parent)
+before. The restamp is accepted for uniformity across flavors.
 
 ## 3. Consequences
 
 - Each node stores one more reference, to its root.
-- An attach that succeeds costs O(1). A rejected attach costs one O(depth) walk,
-  and its error text is unchanged.
-- A move costs O(materialized subtree) in every flavor. In Rust this replaces
-  O(depth of the new parent), as §2.9 records.
+- An attach of a parentless node costs O(1). A move costs one O(depth of the new
+  parent) cycle walk, plus O(materialized subtree) for the restamp or path-cache
+  invalidation, in every flavor. Each rejected attach keeps its error text.
+- In Rust a move of a parented node in another tree skips the cycle walk, so it
+  costs O(materialized subtree) only, as §2.9 records.
 - Python's parent link is a strong reference, so a root that holds itself is a
   reference cycle. Python frees such a root with its cyclic collector, not by
   reference counting. A tree with materialized children already forms cycles
