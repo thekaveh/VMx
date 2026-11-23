@@ -217,6 +217,15 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   no longer builds a set of all its ancestors for each node, so a deep tree
   materializes in less time.
 
+- `HierarchicalVM.invalidateSubtree()` no longer recurses once per tree level,
+  so a materialized tree of any depth can be invalidated on a thread with a
+  small stack. Each node keeps a weak link to its tree root (ADR-0247, #1912).
+  Attaching a node, materializing children and checking for a cycle read that
+  root in O(1) instead of walking up to it, so building a chain of N nodes
+  takes time linear in N. Moving or detaching a subtree restamps it with its new
+  root in the traversal that clears its path caches. Walk order, error texts and
+  the cycle rule (HIER-018) are unchanged.
+
 - `AsyncResourceVM.load()` and `reload()` start no loader when they run from an
   observer of the `Disposed` publication. The VM's `status` already reads
   `Disposed` at that point, but the disposal flag was set later, so the intent

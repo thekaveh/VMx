@@ -3,8 +3,9 @@ import Foundation
 import XCTest
 @testable import VMx
 
-// Deep-chain tests for walk, walkExpanded, find, depth and path-cache
-// invalidation (issue #1912). The tree is 10,000 levels deep. Each test body
+// Deep-chain tests for walk, walkExpanded, find, depth, path-cache
+// invalidation, the tree root link and invalidateSubtree (issue #1912,
+// ADR-0247). The tree is 10,000 levels deep. Each test body
 // runs on a thread with a 512 KiB stack, so an implementation that recurses
 // once per level overflows that stack and the test process crashes. The C#
 // deep-chain tests use the same stack size.
@@ -140,7 +141,55 @@ final class HierarchicalDeepChainTests: XCTestCase {
             XCTAssertEqual(last.path.count, Self.levels + 1)
             XCTAssertTrue(last.path.first === newRoot)
 
+            // The deepest node now reports the new root: a batch it attaches
+            // parks its missing-parent orphan on that root (ADR-0247 D1). A
+            // root link left on the old root would park it there instead.
+            let orphan = DeepChainNode(
+                model: DeepChainModel(value: "orphan"),
+                childrenFactory: { _ in [] },
+                hub: hub,
+                dispatcher: dispatcher,
+                name: "orphan"
+            )
+            let batch = last.attachMany(
+                [orphan],
+                keyOf: { $0.name },
+                parentKeyOf: { _ in "missing" },
+                onMissingParent: .park
+            )
+            XCTAssertEqual(batch.orphans.count, 1)
+            XCTAssertEqual(newRoot.parkedAttachCount, 1)
+
             Self.release(newRoot)
+        }
+    }
+
+    func testDeepChainInvalidateSubtreeReachesEveryLevel() {
+        runOnSmallStack {
+            let root = Self.chain(
+                Self.levels,
+                hub: MessageHub(),
+                dispatcher: ImmediateDispatcher.INSTANCE
+            )
+            let nodes = try walk(root)
+            let second = nodes[1] as! DeepChainNode
+            let last = nodes[nodes.count - 1] as! DeepChainNode
+            XCTAssertEqual(last.depth, Self.levels - 1)
+            XCTAssertEqual(last.path.count, Self.levels)
+
+            // Every materialized level is dropped, at any depth. The
+            // deepest node loses its parent link, so its depth and cached path
+            // reset to a root of one.
+            root.invalidateSubtree()
+
+            XCTAssertNil(second.parent)
+            XCTAssertNil(last.parent)
+            XCTAssertEqual(last.depth, 0)
+            XCTAssertEqual(last.path.count, 1)
+            // The cache is gone, so the factory builds a new first child.
+            XCTAssertFalse(root.children.first === second)
+
+            Self.release(root)
         }
     }
 }
