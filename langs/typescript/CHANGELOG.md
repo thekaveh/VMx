@@ -237,6 +237,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `HierarchicalVM.invalidateSubtree` walks the materialized subtree with an
+  explicit stack, so a deep chain no longer overflows the call stack. At 5,000
+  levels it used to throw `RangeError`. Each node also holds a reference to its
+  tree root, so attaching a child no longer walks the ancestors, and building an
+  N-level chain costs O(N) instead of O(N²). The visit order, the error texts and
+  the public API are unchanged (ADR-0247, #1912).
+
 - `selectCommand` and `deselectCommand` re-raise `canExecuteChanged` when the VM's
   `isCurrent` flag or its parent link changes. A select, a move of `Current`, or a
   container add or remove used to leave a bound control with a stale `canExecute()`

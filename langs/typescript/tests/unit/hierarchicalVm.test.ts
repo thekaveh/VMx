@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   HierarchicalVM,
   MessageHub,
+  PropertyChangedMessage,
   RxDispatcher,
   TreeStructureChangedMessage,
   ViewModelType,
@@ -352,7 +353,70 @@ describe("DeepChain", () => {
     expect(last.depth).toBe(DEEP_CHAIN_LEVELS);
     expect(last.path[0]).toBe(newRoot);
     expect(last.path[1]).toBe(root);
+    // The move restamps every materialized node with the new root (ADR-0247
+    // D1). A batch parked from the deepest node therefore lands on newRoot.
+    const orphan = leaf(hub, "orphan");
+    last.attachMany([orphan], {
+      keyOf: (vm) => vm.name,
+      parentKeyOf: () => "missing",
+    });
+    expect(newRoot.parkedAttachCount).toBe(1);
+    expect(last.parkedAttachCount).toBe(1);
   }, 30_000);
+
+  it("deep chain: invalidateSubtree drops every materialized level", () => {
+    const root = deepChain(DEEP_CHAIN_LEVELS, makeHub(), RxDispatcher.immediate());
+    const nodes = [...walk(root)];
+    const first = nodes[1] as Node;
+    const last = nodes[nodes.length - 1] as Node;
+
+    root.invalidateSubtree();
+
+    expect(nodes).toHaveLength(DEEP_CHAIN_LEVELS);
+    expect(first.parent).toBeNull();
+    expect(last.parent).toBeNull();
+    expect(last.depth).toBe(0);
+    expect(last.path).toHaveLength(1);
+    expect(last.path[0]).toBe(last);
+  }, 30_000);
+});
+
+describe("InvalidateSubtreeOrder", () => {
+  it("publishes each children change after its descendants (pre-order tree, post-order changes)", () => {
+    const hub = makeHub();
+    const dispatcher = RxDispatcher.immediate();
+    const shape: Record<string, string[]> = {
+      root: ["a", "b"],
+      a: ["a1"],
+      a1: [],
+      b: [],
+    };
+    const byName = new Map<string, Node>();
+    for (const name of ["root", "a", "a1", "b"]) {
+      byName.set(
+        name,
+        new Node({
+          hub,
+          dispatcher,
+          name,
+          childrenFactory: () => (shape[name] ?? []).map((child) => byName.get(child) as Node),
+        }),
+      );
+    }
+    const root = byName.get("root") as Node;
+    expect([...walk(root)].map((vm) => vm.name)).toEqual(["root", "a", "a1", "b"]);
+
+    const published: string[] = [];
+    hub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage && message.propertyName === "children") {
+        published.push(message.senderName);
+      }
+    });
+
+    root.invalidateSubtree();
+
+    expect(published).toEqual(["a1", "a", "b", "root"]);
+  });
 });
 
 describe("WalkOrder", () => {

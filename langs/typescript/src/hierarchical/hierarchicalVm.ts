@@ -84,6 +84,17 @@ interface BatchAttachCandidate<TVM, TKey> {
 }
 
 /**
+ * One node whose materialized children an iterative subtree invalidation is
+ * visiting (ADR-0247 D3). `live` is the node's status when it was visited.
+ */
+interface InvalidationFrame<TVM> {
+  readonly node: TVM;
+  readonly pending: readonly TVM[];
+  next: number;
+  readonly live: boolean;
+}
+
+/**
  * Abstract recursive tree ViewModel. Concrete subclasses must satisfy the
  * recursive generic constraint: `class MyNode extends HierarchicalVM<MyModel, MyNode>`.
  *
@@ -98,6 +109,8 @@ export abstract class HierarchicalVM<
   readonly #eagerChildren: boolean;
 
   #hierarchicalParent: TVM | null = null;
+  /** The root of this node's tree; a root holds itself (ADR-0247 D1). */
+  #root: TVM;
   #children: TVM[] | null = null;
   #pathCache: readonly TVM[] | null = null;
   #parkedAttachItems: TVM[] = [];
@@ -132,6 +145,7 @@ export abstract class HierarchicalVM<
     this.#model = opts.model;
     this.#childrenFactory = opts.childrenFactory;
     this.#eagerChildren = opts.eagerChildren ?? false;
+    this.#root = this.#self;
   }
 
   // ── ViewModelType ────────────────────────────────────────────────────────
@@ -308,7 +322,7 @@ export abstract class HierarchicalVM<
 
     // HIER-018: reparenting this node or one of its ancestors under
     // itself would create a parent cycle and corrupt depth/path/walk.
-    if (this.path.includes(child)) {
+    if (this.#isSelfOrAncestor(child)) {
       throw new Error(
         `Cannot reparent '${child.name}' under '${this.name}': ` +
           `it is this node or one of its ancestors (HIER-018).`,
@@ -561,6 +575,7 @@ export abstract class HierarchicalVM<
     for (const child of this.#children) {
       if (child.#hierarchicalParent !== this.#self) continue;
       child.#hierarchicalParent = null;
+      child.#root = child;
       child.#pathCache = null;
       child.#invalidatePathCacheDescendants();
     }
@@ -574,32 +589,45 @@ export abstract class HierarchicalVM<
     );
   }
 
-  /** Drops cached children for this node and all materialized descendants. */
+  /**
+   * Drops cached children for this node and all materialized descendants.
+   *
+   * The traversal uses an explicit stack, so the depth of the tree is not
+   * limited by the call stack (ADR-0247 D3). It keeps the recursive order: a
+   * node's children are visited first, then the node's own child cache is
+   * dropped. A disposed descendant keeps its own cache, but its children are
+   * still visited (spec/18 §7.1).
+   */
   invalidateSubtree(): void {
     this.#rejectStructuralReentry();
     this.#rejectIfDisposed();
-    if (this.#children === null) return;
-    for (const child of [...this.#children]) {
-      child.#invalidateDescendant();
+    const top = this.#invalidationFrame(true);
+    if (top === null) return;
+    const stack: InvalidationFrame<TVM>[] = [top];
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1] as InvalidationFrame<TVM>;
+      if (frame.next < frame.pending.length) {
+        const child = frame.pending[frame.next] as TVM;
+        frame.next += 1;
+        const childFrame = child.#invalidationFrame(
+          child.status !== ConstructionStatus.Disposed,
+        );
+        if (childFrame !== null) stack.push(childFrame);
+        continue;
+      }
+      stack.pop();
+      if (frame.live) frame.node.invalidateChildren();
     }
-    this.invalidateChildren();
   }
 
   /**
-   * One step of {@link invalidateSubtree} below its receiver. A disposed
-   * descendant keeps its own cache, but its children are still visited
-   * (spec/18 §7.1).
+   * The frame that visits this node's materialized children, or null when
+   * there are none. It is one step of {@link invalidateSubtree}.
    */
-  #invalidateDescendant(): void {
-    if (this.status !== ConstructionStatus.Disposed) {
-      this.invalidateSubtree();
-      return;
-    }
+  #invalidationFrame(live: boolean): InvalidationFrame<TVM> | null {
     this.#rejectStructuralReentry();
-    if (this.#children === null) return;
-    for (const child of [...this.#children]) {
-      child.#invalidateDescendant();
-    }
+    if (this.#children === null) return null;
+    return { node: this.#self, pending: [...this.#children], next: 0, live };
   }
 
   protected override _onDispose(): void {
@@ -624,12 +652,6 @@ export abstract class HierarchicalVM<
         throw new Error("children factory re-entered a structural operation");
       }
       const seen = new Set<TVM>();
-      const ancestors = new Set<TVM>();
-      let ancestor: TVM | null = this.#self;
-      while (ancestor !== null) {
-        ancestors.add(ancestor);
-        ancestor = ancestor.#hierarchicalParent;
-      }
       for (const child of children) {
         const candidate: unknown = child;
         if (candidate == null) {
@@ -639,7 +661,9 @@ export abstract class HierarchicalVM<
           throw new Error("children factory returned duplicate child identity");
         }
         seen.add(child);
-        if (ancestors.has(child)) {
+        // A parentless child is tested in O(1). An already-parented child walks
+        // the ancestors, and the walk only chooses the message (ADR-0247 D2).
+        if (this.#isSelfOrAncestor(child)) {
           throw new Error("children factory returned this node or one of its ancestors");
         }
         if (child.#hierarchicalParent !== null) {
@@ -648,6 +672,7 @@ export abstract class HierarchicalVM<
       }
       for (const child of children) {
         child.#hierarchicalParent = this.#self;
+        child.#root = this.#root;
         child.#pathCache = null;
         child.#invalidatePathCacheDescendants();
       }
@@ -679,9 +704,27 @@ export abstract class HierarchicalVM<
   }
 
   #treeRoot(): TVM {
-    let node = this.#self;
-    while (node.#hierarchicalParent !== null) node = node.#hierarchicalParent;
-    return node;
+    return this.#root;
+  }
+
+  /**
+   * The HIER-018 test for a candidate child (ADR-0247 D2). A candidate with no
+   * parent can be an ancestor of this node only when it is this node or the
+   * root of this node's tree, so that test is O(1). A candidate with a parent
+   * walks this node's ancestors.
+   */
+  #isSelfOrAncestor(candidate: TVM): boolean {
+    if (candidate.#hierarchicalParent === null) {
+      return candidate === this.#self || candidate === this.#root;
+    }
+    for (
+      let node: TVM | null = this.#self;
+      node !== null;
+      node = node.#hierarchicalParent
+    ) {
+      if (node === candidate) return true;
+    }
+    return false;
   }
 
   #materializedSubtree(): TVM[] {
@@ -720,6 +763,7 @@ export abstract class HierarchicalVM<
       if (index >= 0) parent.#children.splice(index, 1);
     }
     child.#hierarchicalParent = null;
+    child.#root = child;
     child.#pathCache = null;
     child.#invalidatePathCacheDescendants();
   }
@@ -760,6 +804,7 @@ export abstract class HierarchicalVM<
   #setHierarchicalParent(parent: TVM | null): void {
     if (this.#hierarchicalParent === parent) return;
     this.#hierarchicalParent = parent;
+    this.#root = parent === null ? this.#self : parent.#root;
     this.#pathCache = null; // Invalidate path cache.
     this.#invalidatePathCacheDescendants();
     this._hub.send(
@@ -771,6 +816,12 @@ export abstract class HierarchicalVM<
     );
   }
 
+  /**
+   * Clears the path cache of every materialized descendant and restamps it
+   * with this node's root (ADR-0247 D1). The caller sets this node's own root
+   * first. The restamp shares this pass, so a move costs one traversal of the
+   * materialized subtree.
+   */
   #invalidatePathCacheDescendants(): void {
     const stack: TVM[] = [this.#self];
     while (stack.length > 0) {
@@ -778,6 +829,7 @@ export abstract class HierarchicalVM<
       if (node.#children === null) continue;
       for (const child of node.#children) {
         child.#pathCache = null;
+        child.#root = this.#root;
         stack.push(child);
       }
     }
