@@ -102,6 +102,9 @@ jobs:
       - name: Mypy
         run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- -m mypy --strict src/vmx
 
+      - name: Mypy typing contract (bare hub forms, ADR-0231)
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- -m mypy --strict tests/typing/message_hub_default.py
+
       - name: Compare the public API with the baseline
         # The rendered API depends on a few interpreter reprs, so the check
         # runs on the Python version that tools/check-python-api.py pins.
