@@ -894,3 +894,8 @@ children materialization of `HierarchicalVM` join the wait-for graph (ADR-0260,
 queues its change for the delivering thread, and the other refused waits take
 the results that chapter 03 §4.1 names. The other four flavors do not change,
 and no conformance ID is added.
+
+v3.30.0 also records the release-prep decisions for the Rust package (ADR-0246):
+the packaged `vmx-rs` README and CHANGELOG are corrected before the
+`rust-v0.37.0` tag. These are release-process records, and they add no behavior
+and no conformance ID.

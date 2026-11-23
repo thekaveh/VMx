@@ -7,8 +7,7 @@ Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framewo
 **v0.37.0** implements spec 3.30.0. Behavioral Rust tests cover every
 library conformance ID. Rust has no UI scenario suite for the THEME IDs.
 
-The crate is not yet published to crates.io. Use a git or path dependency, as
-§2 shows.
+Install the crate from crates.io, as §2 shows.
 
 The public surface and some behaviors are not fully aligned with the other
 flavors. The status paragraph at the top of the
@@ -23,11 +22,15 @@ lists the open items and the recorded difference.
   sub-package of spec/16 (`NotificationHub`, `NullNotificationHub`,
   `NotificationHubApi`, `make_confirm`, `NotificationVm`, `ConfirmationVm`).
   Set `default-features = false` to build the core without it (ADR-0211).
-- Add the crate from the repository by git, or by path from a VMx checkout.
+- Add `vmx-rs` from crates.io. The git and path forms below build the crate
+  from the repository instead.
 
 ```toml
 [dependencies]
-vmx-rs = { git = "https://github.com/thekaveh/VMx.git" }
+vmx-rs = "0.37.0"
+
+# Or, from the repository as a git dependency:
+# vmx-rs = { git = "https://github.com/thekaveh/VMx.git" }
 
 # Or, with VMx cloned beside your project:
 # vmx-rs = { path = "../VMx/langs/rust" }

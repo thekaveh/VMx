@@ -10,9 +10,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 0.37.0 is the first `vmx-rs` release on crates.io. Versions 0.1.0 to 0.36.0
 were not published to a registry, so this package also contains the changes in
-the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
-3.30.0. The version moves past 0.36.0 because 0.37.0 removes public API
-(CONTRIBUTING §2.8).
+the 0.1.0 to 0.36.0 sections below. It implements spec 3.30.0. The version
+moves past 0.36.0 because 0.37.0 removes public API
+([CONTRIBUTING §2.8](https://github.com/thekaveh/VMx/blob/main/CONTRIBUTING.md#28-public-api-baselines)).
 
 ### Added
 
