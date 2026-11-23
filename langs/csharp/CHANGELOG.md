@@ -256,6 +256,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- `HierarchicalVM.InvalidateSubtree` no longer recurses once per tree level, so a
+  materialized subtree deeper than the call stack no longer overflows it. Each node
+  holds a reference to its tree root, so the attach cycle check of a parentless
+  candidate costs O(1), and building a chain is linear in its depth. Error texts and
+  the reach of `InvalidateSubtree` are unchanged (spec/18 §5, ADR-0247, #1912).
+
 - Tree walks (`Tree.Walk`, `Tree.WalkExpanded` and `Tree.Find`) and the path-cache
   invalidation of a `HierarchicalVM` no longer recurse once per tree level. A tree
   deeper than the call stack no longer overflows it. Walk order, the timing of child

@@ -380,6 +380,47 @@ public class HierarchicalVMTests
         last.Path.Should().HaveCount(DeepChainLevels + 1);
         last.Path[0].Should().BeSameAs(newRoot);
         last.Path[1].Should().BeSameAs(root);
+        // The deepest node reads its tree root from the restamped pointer. Parking an
+        // item on newRoot, the tree root, makes that root visible through the deepest
+        // node's ParkedAttachCount. A stale pointer would read the old root and see 0.
+        var orphan = new Node(new Model(), _ => [], hub, dispatcher, name: "orphan");
+        newRoot.AttachMany([orphan], node => node.Name,
+            _ => BatchParentKey<string>.For("no-such-parent"), MissingParentPolicy.Park);
+        last.ParkedAttachCount.Should().Be(1);
+        // The deepest node's tree root is now newRoot, so a parentless newRoot is a
+        // cycle for it. A stale root pointer would accept this attach and form a loop.
+        // The exception is caught without a lambda: a failure message would enumerate
+        // the loop, and the enumeration would not end.
+        Exception? cycle = null;
+        try
+        {
+            last.AddChild(newRoot);
+        }
+        catch (InvalidOperationException caught)
+        {
+            cycle = caught;
+        }
+        cycle.Should().NotBeNull("attaching the tree root under its own descendant is a cycle");
+    });
+
+    [Fact]
+    public void DeepChain_InvalidateSubtree_Detaches_Every_Materialized_Level() => RunOnSmallStack(() =>
+    {
+        var root = DeepChain(DeepChainLevels, new TestHub(), new TestDispatcher());
+        // Materialize every level top-down, so the invalidation has the whole chain to drop.
+        var last = root;
+        while (!last.IsLeaf)
+            last = last.Children[0];
+        last.Depth.Should().Be(DeepChainLevels - 1);
+
+        root.InvalidateSubtree();
+
+        // The deepest node was dropped from its parent, so it is a root again.
+        last.HierarchicalParent.Should().BeNull();
+        last.IsRoot.Should().BeTrue();
+        last.Depth.Should().Be(0);
+        // The root's own cache was dropped too: its next read invokes the factory again.
+        root.Children.Should().ContainSingle();
     });
 
     [Fact]
