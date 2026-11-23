@@ -174,8 +174,8 @@ refresh a node's children explicitly call:
   this node's materialized child cache. The next `Children` access invokes the
   children factory again. Calling it before materialization is a no-op.
 - `InvalidateSubtree` / `invalidate_subtree` / `invalidateSubtree` — applies the
-  same invalidation recursively to this node and all currently materialized
-  descendants.
+  same invalidation to this node and all currently materialized descendants, at
+  any depth.
 
 Invalidation is a cache refresh operation, not a structural remove. It does not
 publish `TreeStructureChangedMessage`; instead it publishes
