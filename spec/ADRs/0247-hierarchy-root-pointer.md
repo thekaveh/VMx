@@ -57,6 +57,16 @@ already has a parent takes the existing already-parented error path. Only there
 does the code walk the ancestors, to choose the existing message. The success
 path costs O(1). A rejection costs one O(depth) walk. Error texts do not change.
 
+C# is the exception to the already-parented path, and this clarifies the decision
+above for C#. C# has no already-parented error. `AddChild` and `ReparentChild`
+accept a child that has a parent and move it, and the HIER-018 check runs before the
+move. A parented candidate can be an ancestor of this node at any depth, and the
+root pointer does not show that. So C# `AttachChild` walks this node's ancestors for
+every candidate whose parent is another node. A move therefore costs one
+O(depth of the new parent) walk, in addition to the O(materialized subtree) restamp
+of §2.1. A parentless attach stays O(1). The walk stays because the alternatives in
+§4 do not reach O(1) for a parented candidate. Its error text is unchanged.
+
 ### 2.3 Iterative subtree invalidation (D3)
 
 `invalidateSubtree` and every other recursion over the materialized subtree use an
@@ -117,10 +127,13 @@ O(materialized subtree). The change is accepted for uniformity across flavors.
 ## 3. Consequences
 
 - Each node stores one more reference, to its root.
-- An attach that succeeds costs O(1). A rejected attach costs one O(depth) walk,
-  and its error text is unchanged.
-- A move costs O(materialized subtree) in every flavor. In Rust this replaces
-  O(depth of the new parent), as §2.9 records.
+- An attach of a parentless candidate that succeeds costs O(1). A rejected attach
+  costs one O(depth) walk, and its error text is unchanged. In C#, an attach of a
+  candidate that has a parent (a move) also costs one O(depth of the new parent)
+  walk, as §2.2 records.
+- A move costs O(materialized subtree) in every flavor except C#. In Rust this
+  replaces O(depth of the new parent), as §2.9 records. In C# a move costs
+  O(materialized subtree) plus the O(depth of the new parent) walk of §2.2.
 - Python's parent link is a strong reference, so a root that holds itself is a
   reference cycle. Python frees such a root with its cyclic collector, not by
   reference counting. A tree with materialized children already forms cycles
@@ -139,3 +152,7 @@ O(materialized subtree). The change is accepted for uniformity across flavors.
   error messages depend on the ancestor walk, so they would change.
 - **Read the root from the path cache.** Rejected. Each node's path cache is a copy
   of its whole path, so the caches of a chain cost O(N²) memory.
+- **Use a depth field or an interval index for the C# move check.** Rejected. A depth
+  field still walks up to depth(this) minus depth(candidate) steps, so it is not
+  O(1). An interval index must be renumbered across the whole tree on each structural
+  change, and the restamp traversal of §2.1 covers only the moved subtree.
