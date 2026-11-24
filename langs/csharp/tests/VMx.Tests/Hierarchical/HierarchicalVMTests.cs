@@ -189,6 +189,45 @@ public class HierarchicalVMTests
         sibling.Children.Should().BeEmpty();
     }
 
+    // Rule R2 case (a) of ADR-0248 is the self check. Without it, a parented node added to
+    // itself passes every other case, and its move loops forever. The move runs on its own
+    // thread under a budget, so a looping move fails this test in seconds instead of hanging
+    // the run. The exception is caught without a lambda that formats a node.
+    [Fact]
+    public void Self_Add_Of_A_Parented_Node_Is_Rejected_Within_The_Budget()
+    {
+        const int selfAddBudgetMs = 10_000;
+        var hub = new TestHub();
+        var leaf = Leaf(hub, "leaf");
+        var root = Parent([leaf], hub);
+        root.Children.Should().ContainSingle().Which.Should().BeSameAs(leaf);
+        // leaf holds a parent link, so only the self check (case a) rejects this move.
+        ReferenceEquals(leaf.HierarchicalParent, root).Should().BeTrue();
+
+        Exception? error = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                leaf.AddChild(leaf);
+            }
+            catch (InvalidOperationException caught)
+            {
+                error = caught;
+            }
+        })
+        {
+            IsBackground = true,
+        };
+        thread.Start();
+        thread.Join(selfAddBudgetMs).Should().BeTrue(
+            $"the self-add finishes within {selfAddBudgetMs} ms, so it does not loop");
+
+        error.Should().NotBeNull("a node may not be added to itself");
+        error!.Message.Should().Contain("HIER-018");
+        ReferenceEquals(leaf.HierarchicalParent, root).Should().BeTrue("a rejected move changes nothing");
+    }
+
     // The three texts below are pinned exactly, so a changed or re-worded error is a failing
     // test. ADR-0248 §2.4 keeps the existing texts. The exception is caught without a lambda
     // and compared as a string, so a failure does not format a deep or looping graph.
