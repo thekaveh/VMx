@@ -760,6 +760,16 @@ below for them.
   that started in between was admitted and then disposed, or the handoff
   waited for it. That `add` now raises the "container is disposing"
   `RuntimeError` (spec/06 §4.2, spec/07) (#1153).
+- `HierarchicalVM` stores its tree root on every node (ADR-0247 §2.1, ADR-0248 R3).
+  An attach, reparent, detach or children-factory materialization no longer walks
+  the receiver's ancestors. A move between two trees costs O(1) for its cycle
+  check, and a move within one tree walks only the receiver's ancestors. A
+  top-down build of a chain used to be quadratic and is now linear.
+  `invalidate_subtree` uses an explicit stack, so it no longer recurses once per
+  level and raised `RecursionError` near 1,000 levels in Python. A tree root holds
+  a reference to itself, so a standalone node is freed by the cyclic collector
+  rather than at its last reference. Error texts and the public API do not change
+  (#1912).
 
 ## [3.29.0] — unreleased source version
 

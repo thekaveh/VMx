@@ -428,6 +428,124 @@ def test_deep_chain_moves_under_a_new_parent() -> None:
     assert last.path[1] is root
 
 
+def _materialize_top_down(root: Node) -> Node:
+    """Materialize the chain from the root down, in a loop, and return its leaf."""
+    last = root
+    while not last.is_leaf:
+        last = last.children[0]
+    return last
+
+
+def test_deep_chain_invalidate_subtree_does_not_recurse() -> None:
+    hub = make_hub()
+    dispatcher = RxDispatcher.immediate()
+    root = _deep_chain(DEEP_CHAIN_LEVELS, hub, dispatcher)
+    last = _materialize_top_down(root)
+    old_child = root.children[0]
+
+    root.invalidate_subtree()
+
+    assert root.children[0] is not old_child
+    assert old_child.parent is None
+    assert last.parent is None
+    assert last.depth == 0
+
+
+def test_deep_chain_move_stamps_the_new_tree_root_on_its_subtree() -> None:
+    hub = make_hub()
+    dispatcher = RxDispatcher.immediate()
+    root = _deep_chain(DEEP_CHAIN_LEVELS, hub, dispatcher)
+    nodes = list(walk(root))
+    middle, last = nodes[DEEP_CHAIN_LEVELS // 2], nodes[-1]
+    new_root = Node(hub=hub, dispatcher=dispatcher, name="new-root")
+
+    new_root.add_child(middle)
+    # The chain above middle is now a tree of its own, so it may move under last.
+    last.add_child(root)
+
+    assert root.parent is last
+    assert last.path[0] is new_root
+
+
+def test_deep_chain_refuses_its_root_under_a_descendant() -> None:
+    hub = make_hub()
+    dispatcher = RxDispatcher.immediate()
+    root = _deep_chain(DEEP_CHAIN_LEVELS, hub, dispatcher)
+    last = _materialize_top_down(root)
+    new_root = Node(hub=hub, dispatcher=dispatcher, name="new-root")
+    new_root.add_child(root)
+
+    # The move stamped new_root as the tree root of last, so last refuses it.
+    with pytest.raises(ValueError, match="HIER-018"):
+        last.add_child(new_root)
+
+    assert new_root.parent is None
+    assert root.parent is new_root
+
+
+def test_deep_chain_refuses_an_ancestor_under_a_descendant() -> None:
+    hub = make_hub()
+    dispatcher = RxDispatcher.immediate()
+    root = _deep_chain(DEEP_CHAIN_LEVELS, hub, dispatcher)
+    nodes = list(walk(root))
+    middle, last = nodes[DEEP_CHAIN_LEVELS // 2], nodes[-1]
+    parent_of_middle = middle.parent
+
+    with pytest.raises(ValueError, match="HIER-018"):
+        last.add_child(middle)
+
+    assert middle.parent is parent_of_middle
+    assert last.depth == DEEP_CHAIN_LEVELS - 1
+
+
+def test_deep_chain_moves_within_one_tree_to_another_branch() -> None:
+    hub = make_hub()
+    dispatcher = RxDispatcher.immediate()
+    root = _deep_chain(DEEP_CHAIN_LEVELS, hub, dispatcher)
+    nodes = list(walk(root))
+    branch_tail, last = nodes[-2], nodes[-1]
+
+    # Same tree, and nodes[1] is not inside branch_tail, so the move is legal.
+    nodes[1].add_child(branch_tail)
+
+    assert branch_tail.parent is nodes[1]
+    assert last.depth == 3
+
+
+def test_deep_chain_factory_returning_an_ancestor_is_refused() -> None:
+    hub = make_hub()
+    dispatcher = RxDispatcher.immediate()
+    root = _deep_chain(DEEP_CHAIN_LEVELS, hub, dispatcher)
+    last = _materialize_top_down(root)
+    tail = Node(children_factory=lambda _: [root], hub=hub, dispatcher=dispatcher, name="tail")
+    last.add_child(tail)
+
+    # root has no parent, but it is the top of tail's tree, so it is an ancestor of tail.
+    with pytest.raises(ValueError, match="one of its ancestors"):
+        _ = tail.children
+
+    assert root.parent is None
+
+
+def test_deep_chain_factory_adoption_stamps_the_adopter_tree_root() -> None:
+    hub = make_hub()
+    dispatcher = RxDispatcher.immediate()
+    root = _deep_chain(DEEP_CHAIN_LEVELS, hub, dispatcher)
+    last = _materialize_top_down(root)
+    holder = Node(children_factory=lambda _: [root], hub=hub, dispatcher=dispatcher, name="holder")
+
+    assert holder.children[0] is root
+    holder.attach_many(
+        [Node(hub=hub, dispatcher=dispatcher, name="orphan")],
+        key_of=lambda node: node.name,
+        parent_key_of=lambda _: "missing",
+    )
+
+    # The parked item belongs to the tree root, which is holder for every node below it.
+    assert holder.parked_attach_count == 1
+    assert last.parked_attach_count == 1
+
+
 def test_walks_pin_preorder_and_child_read_order_on_a_small_tree() -> None:
     hub = make_hub()
     dispatcher = RxDispatcher.immediate()
