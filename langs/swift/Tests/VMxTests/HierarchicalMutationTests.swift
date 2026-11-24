@@ -210,7 +210,13 @@ final class HierarchicalMutationTests: XCTestCase {
     /// within `seconds`. A move that wrongly creates a children cycle makes the
     /// subtree restamp loop forever, so the watchdog turns that hang into a
     /// failure.
-    private func runWatched(seconds: Double = 20, _ body: @escaping () throws -> Void) {
+    /// `stackBytes` overrides the thread's stack size when it is positive. A body
+    /// that releases a deep chain needs a larger stack than the default.
+    private func runWatched(
+        seconds: Double = 20,
+        stackBytes: Int = 0,
+        _ body: @escaping () throws -> Void
+    ) {
         let finished = DispatchSemaphore(value: 0)
         let thread = Thread {
             do {
@@ -220,6 +226,7 @@ final class HierarchicalMutationTests: XCTestCase {
             }
             finished.signal()
         }
+        if stackBytes > 0 { thread.stackSize = stackBytes }
         thread.start()
         let result = finished.wait(timeout: .now() + seconds)
         XCTAssertEqual(result, .success, "the body finishes within \(seconds) s")
@@ -318,60 +325,49 @@ final class HierarchicalMutationTests: XCTestCase {
         }
     }
 
-    // ── ADR-0248 R2 cases (b) and (c): cost-only shortcuts ───────────────
+    // ── ADR-0248 R2 cases (b) and (c): result checks under a deep receiver ──
+    //
+    // Cases (b) and (c) are O(1) shortcuts whose results equal the ancestor walk
+    // they skip (ADR-0248 §2.2), so these tests check only the results. Their
+    // cost is not a CI gate (ADR-0247 §2.7) and is measured outside CI.
 
-    /// ADR-0248 R2 case (b) is an O(1) shortcut. Its result equals the ancestor
-    /// walk it skips, so only the cost shows it. This test times the same
-    /// cross-tree transfers under a deep receiver and under a shallow one. A
-    /// missing shortcut makes every deep transfer walk the receiver's ancestors.
-    func testHier018CrossTreeTransferCostDoesNotGrowWithReceiverDepth() {
+    /// ADR-0248 R2 case (b): a parented node of another tree transfers under a
+    /// deep receiver, and its old parent lets go of it.
+    func testHier018CrossTreeTransferIntoDeepReceiver() {
         let hub = MessageHub()
-        let transfers = 20_000
         let (deepRoot, deepTail) = makeChain(hub, depth: 5_000)
-        let (shallowRoot, shallowTail) = makeChain(hub, depth: 1)
-        let deepOwners = makeParentedCandidates(hub, count: transfers)
-        let shallowOwners = makeParentedCandidates(hub, count: transfers)
-        let shallowSeconds = elapsedSeconds {
-            for candidate in shallowOwners { _ = shallowTail.addChild(candidate.leaf) }
+        let leaf = makeNode(hub, name: "leaf")
+        let owner = makeNode(hub, name: "owner", children: [leaf])
+        _ = owner.children
+
+        guard case .success = deepTail.addChild(leaf) else {
+            return XCTFail("a parented node of another tree should transfer under a deep receiver")
         }
-        let deepSeconds = elapsedSeconds {
-            for candidate in deepOwners { _ = deepTail.addChild(candidate.leaf) }
-        }
-        XCTAssertTrue(deepOwners.allSatisfy { $0.leaf.parent === deepTail },
-            "every cross-tree transfer should land under the deep receiver")
+        XCTAssertTrue(leaf.parent === deepTail, "the transfer lands under the deep receiver")
+        XCTAssertTrue(owner.children.isEmpty, "the old parent lets go of the transferred node")
         XCTAssertEqual(deepRoot.children.count, 1, "the deep chain keeps its one child")
-        XCTAssertEqual(shallowRoot.children.count, 1, "the shallow chain keeps its one child")
-        XCTAssertLessThan(deepSeconds, 4 * shallowSeconds + 0.25,
-            "a cross-tree transfer into a deep receiver should cost about the same as into a shallow one")
+        XCTAssertTrue(leaf.path.first === deepRoot, "the transferred node is under the deep root")
     }
 
-    /// ADR-0248 R2 case (c) is an O(1) shortcut: a parentless candidate that is
-    /// the receiver's tree root is refused without an ancestor walk. Its result
-    /// equals the walk it skips, so only the cost shows it. This test times the
-    /// same refused moves under a deep receiver and under a shallow one.
-    func testHier018RootCandidateRefusalCostDoesNotGrowWithReceiverDepth() {
-        let hub = MessageHub()
-        let refusals = 20_000
-        let (deepRoot, deepTail) = makeChain(hub, depth: 5_000)
-        let (shallowRoot, shallowTail) = makeChain(hub, depth: 1)
-        XCTAssertThrowsError(try deepTail.reparentChild(deepRoot),
-            "reparentChild(tree root) should throw HierarchyError.invalidReparent") { error in
-            XCTAssertEqual(error as? HierarchyError, .invalidReparent)
+    /// ADR-0248 R2 case (c): a parentless tree root is refused as a child of a
+    /// node in its own deep chain, and the chain is unchanged. Only the result
+    /// is checked. A wrongly accepted move would make a children cycle, so the
+    /// body runs under the watchdog. It runs on a 16 MiB stack, because the
+    /// 5,000-level chain is released on this thread.
+    func testHier018RootCandidateRefusalUnderDeepReceiver() {
+        runWatched(stackBytes: 16 * 1024 * 1024) {
+            let hub = MessageHub()
+            let (deepRoot, deepTail) = self.makeChain(hub, depth: 5_000)
+            XCTAssertThrowsError(try deepTail.reparentChild(deepRoot),
+                "reparentChild(tree root) should throw HierarchyError.invalidReparent") { error in
+                XCTAssertEqual(error as? HierarchyError, .invalidReparent)
+            }
+            XCTAssertNil(deepRoot.parent, "a refused tree root stays a root")
+            XCTAssertTrue(deepTail.path.first === deepRoot, "the deep chain is unchanged")
         }
-        let shallowSeconds = elapsedSeconds {
-            for _ in 0..<refusals { _ = try? shallowTail.reparentChild(shallowRoot) }
-        }
-        let deepSeconds = elapsedSeconds {
-            for _ in 0..<refusals { _ = try? deepTail.reparentChild(deepRoot) }
-        }
-        XCTAssertNil(deepRoot.parent, "a refused tree root stays a root")
-        XCTAssertNil(shallowRoot.parent, "a refused tree root stays a root")
-        XCTAssertTrue(deepTail.path.first === deepRoot, "the deep chain is unchanged")
-        XCTAssertLessThan(deepSeconds, 4 * shallowSeconds + 0.25,
-            "a refused root candidate under a deep receiver should cost about the same as under a shallow one")
     }
 
-    // ── Cost-test helpers ────────────────────────────────────────────────
+    // ── Chain helper ─────────────────────────────────────────────────────
 
     /// Builds a chain of `depth` edges with `addChild` and returns its root and
     /// tail. The caller keeps the root alive, or the chain loses its ancestors.
@@ -384,26 +380,5 @@ final class HierarchicalMutationTests: XCTestCase {
             tail = next
         }
         return (root, tail)
-    }
-
-    /// Builds `count` leaves, each owned by its own parent in another tree. The
-    /// caller keeps the owners alive, or each leaf would lose its parent.
-    private func makeParentedCandidates(
-        _ hub: MessageHubProtocol,
-        count: Int
-    ) -> [(owner: MyNode, leaf: MyNode)] {
-        (0..<count).map { index in
-            let leaf = makeNode(hub, name: "leaf\(index)")
-            let owner = makeNode(hub, name: "owner\(index)", children: [leaf])
-            _ = owner.children
-            return (owner: owner, leaf: leaf)
-        }
-    }
-
-    /// Runs `body` once and returns its wall-clock time in seconds.
-    private func elapsedSeconds(_ body: () -> Void) -> Double {
-        let start = DispatchTime.now().uptimeNanoseconds
-        body()
-        return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
     }
 }
