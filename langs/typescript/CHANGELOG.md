@@ -237,6 +237,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `CompositeVM`, `CompositeVMOf` or `GroupVM` whose construct hook disposes it
+  no longer calls its children factory. Its `construct()` used to throw `Cannot attach a child while the container is disposing`. It now returns without an
+  error and ends `Disposed` with no children, as the other four flavors already
+  do (ADR-0252, #1805, `LIFE-015`).
+
 - `HierarchicalVM.invalidateSubtree` walks the materialized subtree with an
   explicit stack, so a deep chain no longer overflows the call stack. At 5,000
   levels it used to throw `RangeError`. Each node also holds a reference to its

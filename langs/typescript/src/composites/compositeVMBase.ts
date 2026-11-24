@@ -632,6 +632,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   protected override _onConstruct(): void {
     super._onConstruct();
+    // A dispose that superseded the hook stops population and the child walk: both
+    // are post-hook container actions, and construct() returns without an error
+    // (spec/02 §2.4, ADR-0218 rule 5, ADR-0252).
+    if (this.#disposePending() || this.status === ConstructionStatus.Disposed) return;
     // Children whose construct population started are joined, not restarted.
     const joined = new Set<ComponentVMBase>();
     if (!this.#populated) {

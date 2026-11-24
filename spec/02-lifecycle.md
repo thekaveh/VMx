@@ -183,10 +183,11 @@ construct/destruct hook is admitted, foreign `dispose()` publishes the terminal
 status but waits for that hook and its container action before running terminal
 cleanup. The hook rechecks terminal supersession before any post-hook container
 action, so disposed parents cannot begin new child work. Factory population is
-such an action. A container whose construct hook a foreign `dispose()`
-superseded does not call its children factory and attaches nothing. Its
-`construct()` returns without an error, as §7.2 says for a superseded call
-(ADR-0218, `LIFE-015`). An `add()` during disposal still fails.
+such an action. A container whose construct hook a `dispose()` superseded does
+not call its children factory and attaches nothing. The supersession counts
+whether the `dispose()` is foreign or comes from the hook's own body (ADR-0252).
+Its `construct()` returns without an error, as §7.2 says for a superseded call
+(ADR-0218, ADR-0252, `LIFE-015`). An `add()` during disposal still fails.
 
 If two active hooks
 cross-dispose their peers, the flavor's wait-for graph breaks the cycle by

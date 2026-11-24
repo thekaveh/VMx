@@ -752,6 +752,11 @@ surviving chain (ADR-0249, which amends ADR-0248 §2.1, §2.2, §2.3 and §3). T
 scope of the change, and the correction of ADR-0247 section 1 on the scope of
 issue #1912, are recorded in ADR-0250.
 
+v3.30.0 also clarifies container construct behavior. A dispose from a container's
+own construct hook supersedes that hook, so the children factory does not run and
+`construct()` returns without an error. TypeScript now behaves this way, as the
+other four flavors already do (ADR-0252, `LIFE-015`).
+
 v3.30.0 also defines failing subscribers and notification order. A delivery on
 a library channel reaches every attached subscriber once, even when an earlier
 one fails, and no failure detaches a subscriber or the library's own source
