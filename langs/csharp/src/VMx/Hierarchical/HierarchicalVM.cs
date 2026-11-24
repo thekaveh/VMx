@@ -30,6 +30,9 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     private readonly bool _eagerChildren;
 
     private TVM? _hierarchicalParent;
+    // The root of this node's tree. A root holds itself; a child takes its parent's
+    // root when it attaches, and a moved subtree is restamped (ADR-0247 §2.1).
+    private TVM _treeRoot;
     private List<TVM>? _children;
     private ReadOnlyCollection<TVM>? _pathCache;
     private readonly List<TVM> _parkedAttachItems = [];
@@ -102,6 +105,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         Model = model;
         _childrenFactory = childrenFactory;
         _eagerChildren = eagerChildren;
+        _treeRoot = (TVM)this;
     }
 
     // ── Model ────────────────────────────────────────────────────────────────
@@ -272,7 +276,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         if (child._hierarchicalParent is { } current && current.IsDisposed())
             throw new ObjectDisposedException(current.Name,
                 $"Cannot move '{child.Name}' out of a disposed parent.");
-        if (Path.Any(p => ReferenceEquals(p, child)))
+        if (IsSelfOrAncestor(child))
             throw new InvalidOperationException(
                 $"Cannot reparent '{child.Name}' under '{Name}': it is this node or one of its ancestors (HIER-018).");
 
@@ -569,8 +573,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         {
             if (!ReferenceEquals(child._hierarchicalParent, this)) continue;
             child._hierarchicalParent = null;
-            child._pathCache = null;
-            child.InvalidatePathCacheDescendants();
+            child.RestampSubtree(child);
         }
         _children = null;
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(
@@ -592,11 +595,43 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
 
     private void DropSubtree()
     {
-        RejectStructuralReentry();
-        if (_children is null) return;
-        foreach (var child in _children.ToArray())
-            child.DropSubtree();
-        if (!IsDisposed()) DropChildren();
+        // Post-order over the materialized subtree with an explicit stack, in place of
+        // one call frame per level (ADR-0247 §2.3). A node drops its children after its
+        // own children have dropped theirs, and a disposed node keeps its cache while its
+        // materialized children are still visited (spec/18 §7.1).
+        var open = new Stack<DropFrame>();
+        EnterDrop((TVM)this, open);
+        while (open.Count > 0)
+        {
+            var frame = open.Peek();
+            if (frame.Next < frame.Children.Length)
+            {
+                EnterDrop(frame.Children[frame.Next++], open);
+                continue;
+            }
+            open.Pop();
+            if (!frame.Node.IsDisposed()) frame.Node.DropChildren();
+        }
+    }
+
+    private static void EnterDrop(TVM node, Stack<DropFrame> open)
+    {
+        node.RejectStructuralReentry();
+        if (node._children is null) return;
+        open.Push(new DropFrame(node, node._children.ToArray()));
+    }
+
+    private sealed class DropFrame
+    {
+        public DropFrame(TVM node, TVM[] children)
+        {
+            Node = node;
+            Children = children;
+        }
+
+        public TVM Node { get; }
+        public TVM[] Children { get; }
+        public int Next { get; set; }
     }
 
     /// <inheritdoc/>
@@ -633,24 +668,19 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
                 if (seen.Any(existing => ReferenceEquals(existing, child)))
                     throw new InvalidOperationException("The children factory returned duplicate child identity.");
                 seen.Add(child);
-                for (TVM? ancestor = (TVM)this;
-                     ancestor is not null;
-                     ancestor = ancestor._hierarchicalParent)
-                {
-                    if (ReferenceEquals(ancestor, child))
-                        throw new InvalidOperationException(
-                            "The children factory returned this node or one of its ancestors.");
-                }
+                if (IsSelfOrAncestor(child))
+                    throw new InvalidOperationException(
+                        "The children factory returned this node or one of its ancestors.");
                 if (child._hierarchicalParent is not null)
                     throw new InvalidOperationException("The children factory returned an already-parented child.");
             }
             // Initial hydration is silent, but it still changes ancestry.
-            // Clear any path cached by the factory before exposing the commit.
+            // Stamp each child's root and clear any path cached by the factory
+            // before exposing the commit.
             foreach (var child in list)
             {
                 child._hierarchicalParent = (TVM)this;
-                child._pathCache = null;
-                child.InvalidatePathCacheDescendants();
+                child.RestampSubtree(_treeRoot);
             }
             return list;
         }
@@ -680,12 +710,23 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
                 "A disposed tree node refuses structural calls.");
     }
 
-    private TVM GetTreeRoot()
+    private TVM GetTreeRoot() => _treeRoot;
+
+    // True when candidate is this node or one of its ancestors (HIER-018). The checks run
+    // in the order of ADR-0248 §2.2 (R2). The stored tree roots decide every case except
+    // a move within one tree, and only that case walks the receiver's ancestors.
+    private bool IsSelfOrAncestor(TVM candidate)
     {
-        var node = (TVM)this;
-        while (node._hierarchicalParent is not null)
-            node = node._hierarchicalParent;
-        return node;
+        // (a) The candidate is this node.
+        if (ReferenceEquals(candidate, this)) return true;
+        // (b) The candidate is in another tree, so no cycle is possible.
+        if (!ReferenceEquals(candidate._treeRoot, _treeRoot)) return false;
+        // (c) The same tree and no parent: the candidate is that tree's root, an ancestor.
+        if (candidate._hierarchicalParent is null) return true;
+        // (d) The same tree and a parent: a cycle only if the candidate is an ancestor.
+        for (TVM? node = _hierarchicalParent; node is not null; node = node._hierarchicalParent)
+            if (ReferenceEquals(node, candidate)) return true;
+        return false;
     }
 
     private IEnumerable<TVM> MaterializedSubtree()
@@ -723,8 +764,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         if (parent._children is not null)
             parent._children.RemoveAll(item => ReferenceEquals(item, child));
         child._hierarchicalParent = null;
-        child._pathCache = null;
-        child.InvalidatePathCacheDescendants();
+        child.RestampSubtree(child);
     }
 
     private void EnsureChildrenMaterialized()
@@ -751,21 +791,24 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         if (ReferenceEquals(_hierarchicalParent, parent)) return;
 
         _hierarchicalParent = parent;
-        _pathCache = null; // Invalidate path cache on parent change.
-
-        // Invalidate path cache on all descendants as well.
-        InvalidatePathCacheDescendants();
+        // A child takes its parent's root; a node without a parent is its own root.
+        // The path cache of this node and of every materialized descendant is cleared
+        // in the same traversal (ADR-0247 §2.1).
+        RestampSubtree(parent is null ? (TVM)this : parent._treeRoot);
 
         Hub.Send(PropertyChangedMessage<IComponentVM>.Create(
             this, Name, nameof(HierarchicalParent)));
     }
 
-    private void InvalidatePathCacheDescendants()
+    // Sets the tree root of this node and of every materialized descendant to root, and
+    // clears their path caches. One explicit stack covers the subtree, so a deep chain
+    // costs heap, not call stack (ADR-0247 §2.1, §2.3).
+    private void RestampSubtree(TVM root)
     {
+        _treeRoot = root;
+        _pathCache = null;
         if (_children is null) return;
 
-        // Clears the cache of every materialized descendant. An explicit stack keeps
-        // the walk off the call stack, so a deep chain costs heap, not stack depth.
         var pending = new Stack<TVM>();
         pending.Push((TVM)this);
         while (pending.Count > 0)
@@ -774,6 +817,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
             if (node._children is null) continue;
             foreach (var child in node._children)
             {
+                child._treeRoot = root;
                 child._pathCache = null;
                 pending.Push(child);
             }
