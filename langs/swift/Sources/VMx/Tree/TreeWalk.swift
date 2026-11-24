@@ -32,16 +32,20 @@ protocol _TreeContainer {
 // MARK: - CompositeVM conformance
 
 extension CompositeVM: _TreeContainer {
+    /// One `snapshot()` reads the membership once, so a removal on another
+    /// thread cannot shrink the list between a `count` read and an `at(_:)`
+    /// read (ADR-0187).
     var childComponents: [ComponentVMBase] {
-        (0..<count).map { at($0) as ComponentVMBase }
+        snapshot().map { $0 as ComponentVMBase }
     }
 }
 
 // MARK: - GroupVM conformance
 
 extension GroupVM: _TreeContainer {
+    /// One `snapshot()` reads the membership once (ADR-0187).
     var childComponents: [ComponentVMBase] {
-        (0..<count).map { at($0) as ComponentVMBase }
+        snapshot().map { $0 as ComponentVMBase }
     }
 }
 

@@ -20,9 +20,11 @@ public final class ScoredFilteredCompositeVM<Child: ComponentVMBase>: FilteredCo
         refreshScores()
     }
 
+    /// Enumerates one `snapshot()` and calls `scorer` once per child, so each
+    /// score belongs to the child it is paired with (ADR-0187).
     public override func orderedVisible() -> [Child] {
-        (0..<source.count)
-            .map { (index: $0, vm: source.at($0), score: scorer(source.at($0))) }
+        source.snapshot().enumerated()
+            .map { (index: $0.offset, vm: $0.element, score: scorer($0.element)) }
             .filter { $0.score != nil }
             .sorted {
                 if $0.score! == $1.score! { return $0.index < $1.index }

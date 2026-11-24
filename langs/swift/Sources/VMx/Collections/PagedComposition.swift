@@ -210,14 +210,16 @@ public extension PagedComposition where TVM: ComponentVMBase {
     /// Creates a paged view over a CompositeVM source and refreshes the source
     /// snapshot whenever the composite emits `collectionChanged`.
     convenience init(sourceComposite: CompositeVM<TVM>, pageSize: Int = 0) {
+        // Each read is one `snapshot()`, so a removal on another thread cannot
+        // trap it (ADR-0187).
         self.init(
-            source: (0..<sourceComposite.count).map { sourceComposite.at($0) },
+            source: sourceComposite.snapshot(),
             pageSize: pageSize
         )
         sourceComposite.collectionChanged
             .sink { [weak self, weak sourceComposite] _ in
                 guard let self, !self._disposed, let sourceComposite else { return }
-                self.setSource((0..<sourceComposite.count).map { sourceComposite.at($0) })
+                self.setSource(sourceComposite.snapshot())
             }
             .store(in: &_sourceCancellables)
     }
