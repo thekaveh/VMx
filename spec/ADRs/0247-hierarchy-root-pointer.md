@@ -1,21 +1,15 @@
 # ADR 0247 — Hierarchy root pointer and iterative subtree invalidation
 
-- **Status:** Accepted (§2.2, §2.9 and §3 amended by ADR-0248; sections 2.3 and 2.5 corrected by ADR-0249 (the chapter 18 wording is the replacement of "recursively" by "at any depth", carried by PR #2221); §1 cites corrected to the issue text (PR #2225))
+- **Status:** Accepted (§2.2, §2.9 and §3 amended by ADR-0248; sections 2.3 and 2.5 corrected by ADR-0249 (the chapter 18 wording is the replacement of "recursively" by "at any depth", carried by PR #2221); section 1 corrected by ADR-0250 (the scope of the issue))
 - **Date:** 2026-11-23
 - **Spec version:** 3.30.0 (chapter 18 §5 clarified; no conformance ID change; no library behavior change)
 - **Clarifies:** [ADR-0073](0073-hierarchical-child-cache-invalidation.md) §2 (the reach of `InvalidateSubtree`; the traversal is not specified). Related: [ADR-0028](0028-hierarchical-vm.md) §3 item 5, [ADR-0037](0037-v2.5-maintenance-clarifications.md) §2.3, [ADR-0127](0127-validate-hierarchy-factory-hydration-atomically.md), [ADR-0170](0170-tree-walks-report-invalid-factory-output.md), [ADR-0189](0189-disposed-children-leave-current-and-container-walks.md), [ADR-0190](0190-disposed-tree-nodes-refuse-structural-calls.md), #1912.
 
 ## 1. Context
 
-Issue #1912 asks that tree walks, `depth` and path-cache invalidation use loops,
-so tree depth is limited only by memory (the issue body, "Requested outcome"). Its
-progress comment of 2026-11-22 adds that the Swift child materialization checks for
-a cycle by walking to the root once per node, and that a root cached per node would
-make that linear (comment item 1). The issue body does not name `invalidateSubtree`,
-and the comment of 2026-11-15 says the issue does not list it. The attach cycle
-check of the other flavors is not named in the issue text. §2.2 applies the same
-root link to it. Whether `invalidateSubtree` and the attach check stay under #1912
-is an owner item of pull request #2225. Chapters 13 and 18 set no depth limit.
+Issue #1912 asks that tree walks, `depth`, path-cache invalidation and the attach
+cycle check cost no stack frame per tree level, and no ancestor walk per attach.
+Chapters 13 and 18 set no depth limit.
 
 Pull request #2061 (Python and TypeScript) and pull request #2202 (C#, Swift and
 Rust) made `walk`, `walk_expanded`, `find`, `depth` and path-cache invalidation on
