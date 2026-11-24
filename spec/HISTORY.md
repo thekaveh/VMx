@@ -746,7 +746,9 @@ recoverable error, which is a source break for Swift and Rust callers
 materialized descendant, at any depth. The traversal is not specified
 (ADR-0247). An explicit `AddChild` or reparent checks for a cycle through a
 stored tree root, so only a move within one tree walks the receiver's ancestors
-(ADR-0248, which amends ADR-0247 §2.2, §2.9 and §3).
+(ADR-0248, which amends ADR-0247 §2.2, §2.9 and §3). A released stored tree
+root answers by the parent links, so the cycle check still finds the top of a
+surviving chain (ADR-0249, which amends ADR-0248 §2.1, §2.2, §2.3 and §3).
 
 v3.30.0 also defines failing subscribers and notification order. A delivery on
 a library channel reaches every attached subscriber once, even when an earlier
