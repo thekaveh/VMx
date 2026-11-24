@@ -3873,6 +3873,19 @@ that structure
 
 > Spec: `21-collections.md` §6.2, §8, `03-messages.md` §3.6, ADR-0239.
 
+### COL-074 — a page move clamps a stale index before it picks its target
+
+**Given** a `PagedComposition` over a source that no change stream observes (a
+plain list or array), with page size 3 and `CurrentPageIndex` 3 over 10 items
+**When** the source shrinks to 5 items without the pager seeing it, and then one
+page move runs
+**Then** the move leaves `CurrentPageIndex` in `[0, max(0, PageCount - 1)]` and
+shows that page's items: `move_to_first_page` and `move_to_previous_page` land on
+page 0, and `move_to_next_page` and `move_to_last_page` land on page 1
+**And** `CurrentPageIndex` and then `Items` are each notified once
+
+> Spec: `21-collections.md` §5.1, §5.2 and §8, `14-capabilities.md` §2.10, ADR-0251.
+
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles

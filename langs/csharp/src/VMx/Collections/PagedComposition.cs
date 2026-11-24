@@ -117,42 +117,34 @@ public sealed class PagedComposition<TVM> : IPageable, INotifyPropertyChanged, I
     public void MoveToFirstPage()
     {
         if (_disposed) return;
-        if (_currentPageIndex == 0) return;
-        _currentPageIndex = 0;
-        OnPropertyChanged(nameof(CurrentPageIndex));
-        OnPropertyChanged(nameof(Items));
+        MoveTo(0);
     }
 
     /// <inheritdoc/>
     public void MoveToPreviousPage()
     {
         if (_disposed) return;
-        if (_currentPageIndex <= 0) return;
-        _currentPageIndex--;
-        OnPropertyChanged(nameof(CurrentPageIndex));
-        OnPropertyChanged(nameof(Items));
+        // Clamp a stale index first (ADR-0251), so the target is on a page in range.
+        var last = Math.Max(0, PageCount - 1);
+        var current = Math.Min(Math.Max(_currentPageIndex, 0), last);
+        MoveTo(Math.Max(0, current - 1));
     }
 
     /// <inheritdoc/>
     public void MoveToNextPage()
     {
         if (_disposed) return;
-        var max = PageCount - 1;
-        if (_currentPageIndex >= max) return;
-        _currentPageIndex++;
-        OnPropertyChanged(nameof(CurrentPageIndex));
-        OnPropertyChanged(nameof(Items));
+        // Clamp a stale index first (ADR-0251), so the target is on a page in range.
+        var last = Math.Max(0, PageCount - 1);
+        var current = Math.Min(Math.Max(_currentPageIndex, 0), last);
+        MoveTo(Math.Min(current + 1, last));
     }
 
     /// <inheritdoc/>
     public void MoveToLastPage()
     {
         if (_disposed) return;
-        var last = PageCount - 1;
-        if (_currentPageIndex >= last) return;
-        _currentPageIndex = last;
-        OnPropertyChanged(nameof(CurrentPageIndex));
-        OnPropertyChanged(nameof(Items));
+        MoveTo(Math.Max(0, PageCount - 1));
     }
 
     // ── PagedComposition-specific surface ─────────────────────────────────────
@@ -208,6 +200,15 @@ public sealed class PagedComposition<TVM> : IPageable, INotifyPropertyChanged, I
         if (_source is IReadOnlyCollection<TVM> roc) return roc.Count;
         if (_source is ICollection<TVM> col) return col.Count;
         return _source.Count();
+    }
+
+    // Stores a page move and publishes it only when it changes the stored index (ADR-0251).
+    private void MoveTo(int target)
+    {
+        if (_currentPageIndex == target) return;
+        _currentPageIndex = target;
+        OnPropertyChanged(nameof(CurrentPageIndex));
+        OnPropertyChanged(nameof(Items));
     }
 
     private int ClampIndex(int index)

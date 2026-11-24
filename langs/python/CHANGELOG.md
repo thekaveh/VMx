@@ -175,6 +175,11 @@ below for them.
 
 ### Fixed
 
+- `PagedComposition`: a page move clamps a stale `current_page_index` before it picks
+  its target (ADR-0251, #1917). After an unobserved source shrinks,
+  `move_to_last_page`, `move_to_next_page` and `move_to_previous_page` land on a page
+  in range, where a stale index used to leave the pager on an empty page. A move that
+  changes no index publishes nothing, as before.
 - `AsyncResourceVM.load()` and `reload()` start no loader when they run from an
   observer of the `Disposed` publication. The VM's `status` already reads
   `DISPOSED` at that point, but the disposal flag was set later, so a

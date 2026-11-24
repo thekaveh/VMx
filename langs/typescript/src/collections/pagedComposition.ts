@@ -160,36 +160,28 @@ export class PagedComposition<TVM> implements IPageable {
 
   moveToFirstPage(): void {
     if (this.#disposed) return;
-    if (this.#currentPageIndex === 0) return;
-    this.#currentPageIndex = 0;
-    this.#notify("currentPageIndex");
-    this.#notify("items");
+    this.#moveTo(0);
   }
 
   moveToPreviousPage(): void {
     if (this.#disposed) return;
-    if (this.#currentPageIndex <= 0) return;
-    this.#currentPageIndex--;
-    this.#notify("currentPageIndex");
-    this.#notify("items");
+    // Clamp a stale index first (ADR-0251), so the target is on a page in range.
+    const last = Math.max(0, this.pageCount - 1);
+    const current = Math.min(Math.max(this.#currentPageIndex, 0), last);
+    this.#moveTo(Math.max(0, current - 1));
   }
 
   moveToNextPage(): void {
     if (this.#disposed) return;
-    const max = this.pageCount - 1;
-    if (this.#currentPageIndex >= max) return;
-    this.#currentPageIndex++;
-    this.#notify("currentPageIndex");
-    this.#notify("items");
+    // Clamp a stale index first (ADR-0251), so the target is on a page in range.
+    const last = Math.max(0, this.pageCount - 1);
+    const current = Math.min(Math.max(this.#currentPageIndex, 0), last);
+    this.#moveTo(Math.min(current + 1, last));
   }
 
   moveToLastPage(): void {
     if (this.#disposed) return;
-    const last = this.pageCount - 1;
-    if (this.#currentPageIndex >= last) return;
-    this.#currentPageIndex = last;
-    this.#notify("currentPageIndex");
-    this.#notify("items");
+    this.#moveTo(Math.max(0, this.pageCount - 1));
   }
 
   // ── PagedComposition-specific surface ─────────────────────────────────────
@@ -249,6 +241,14 @@ export class PagedComposition<TVM> implements IPageable {
     let count = 0;
     for (const _ of src) count++;
     return count;
+  }
+
+  // Stores a page move and publishes it only when it changes the stored index (ADR-0251).
+  #moveTo(target: number): void {
+    if (this.#currentPageIndex === target) return;
+    this.#currentPageIndex = target;
+    this.#notify("currentPageIndex");
+    this.#notify("items");
   }
 
   #clampIndex(index: number): number {

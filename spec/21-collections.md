@@ -893,10 +893,10 @@ PagedComposition<TVM>:
     PageCount        : int     # derived: ceil(source.Count / PageSize), or 1 when PageSize == 0
     IsPagingEnabled  : bool    # derived: PageSize > 0
 
-    move_to_first_page()       # no-op when CurrentPageIndex == 0
-    move_to_previous_page()    # no-op at lower bound
-    move_to_next_page()        # no-op at upper bound
-    move_to_last_page()        # no-op when at last page
+    move_to_first_page()       # clamps a stale index first (ADR-0251); no-op when at first page
+    move_to_previous_page()    # clamps a stale index first (ADR-0251); no-op at lower bound
+    move_to_next_page()        # clamps a stale index first (ADR-0251); no-op at upper bound
+    move_to_last_page()        # clamps a stale index first (ADR-0251); no-op when at last page
 
     Items : Iterable<TVM>      # read-only; current page slice
     Count : int                # count of items in current page (not total)
@@ -937,8 +937,10 @@ index clamps to `0` rather than to `-1` (§5.4).
 
 In C#, Python and TypeScript, a change to a live source that the pager does not
 observe shows on the next read. The pager does not clamp `CurrentPageIndex`
-until a delivered change, the next `CurrentPageIndex` assignment, or a
-`PageSize` assignment that changes the page size.
+until a delivered change, the next `CurrentPageIndex` assignment, a `PageSize`
+assignment that changes the page size, or a page move call. A move clamps a
+stale index before it picks its target, so it lands on a page in
+`[0, max(0, PageCount-1)]` and publishes only when the index changes (ADR-0251).
 
 In Python and TypeScript, a source that can be enumerated only once is the one
 exception to on-demand slices. In TypeScript, a one-shot source is a direct
@@ -1177,7 +1179,7 @@ behavior of each ID.
 | `COL-056`..`COL-064`                                                        | §2.7–§2.14 keyed serviced collection (ADR-0097, ADR-0214)                                        |
 | `COL-005`..`COL-009`, `COL-023`, `COL-040`..`COL-047`                       | §3 `ObservableList<T>` (ADR-0026, ADR-0089)                                                      |
 | `COL-010`..`COL-015`, `COL-022`, `COL-067`, `COL-068`, `COL-070`, `COL-071` | §4 `ObservableDictionary` (ADR-0025, ADR-0177, ADR-0214)                                         |
-| `COL-016`..`COL-021`, `COL-031`                                             | §5 `PagedComposition<TVM>` (ADR-0023)                                                            |
+| `COL-016`..`COL-021`, `COL-031`, `COL-074`                                  | §5 `PagedComposition<TVM>` (ADR-0023, ADR-0251)                                                  |
 | `COL-024`..`COL-030`, `COL-065`                                             | §6 `TokenPagedComposition<TVM, TToken>` (ADR-0069, ADR-0202)                                     |
 | `COL-032`..`COL-039`                                                        | chapter 01 §1.4 shared `Move` (ADR-0085)                                                         |
 | `COL-066`, `COL-069`, `COL-072`, `COL-073`                                  | §2, §3, §4 and §6.2 failing subscribers (ADR-0171, ADR-0191, ADR-0220, ADR-0239)                 |

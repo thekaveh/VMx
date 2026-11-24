@@ -1,7 +1,7 @@
 //
 // PagedCompositionTests.swift — conformance tests for PagedComposition<TVM>.
 //
-// Claimed IDs: COL-016, COL-017, COL-018, COL-019, COL-020, COL-021.
+// Claimed IDs: COL-016, COL-017, COL-018, COL-019, COL-020, COL-021, COL-074.
 //
 // Ports langs/typescript/tests/conformance/col-016-to-021-paged-composition.test.ts.
 // See spec/21-collections.md §5 and ADR-0023.
@@ -92,6 +92,32 @@ final class PagedCompositionTests: XCTestCase {
         // moveToNextPage at upper bound is a no-op
         sut.moveToNextPage()
         XCTAssertEqual(sut.currentPageIndex, 2)
+    }
+
+    // ── COL-074 ──────────────────────────────────────────────────────────────
+
+    /// COL-074 — PagedComposition page moves stay in range after the stored copy shrinks via setSource.
+    func testCOL074PageMovesStayInRangeAfterSourceShrink() {
+        let moves: [(String, (PagedComposition<Int>) -> Void, Int)] = [
+            ("moveToFirstPage", { $0.moveToFirstPage() }, 0),
+            ("moveToPreviousPage", { $0.moveToPreviousPage() }, 0),
+            ("moveToNextPage", { $0.moveToNextPage() }, 1),
+            ("moveToLastPage", { $0.moveToLastPage() }, 1),
+        ]
+        for (name, move, expectedIndex) in moves {
+            // Given: pageSize=3 over 10 items, on the last page (index 3)
+            let sut = PagedComposition<Int>(source: Array(0..<10), pageSize: 3)
+            sut.moveToLastPage()
+            XCTAssertEqual(sut.currentPageIndex, 3, name)
+
+            // When: the stored copy shrinks to 5 items, and then the move runs
+            sut.setSource(Array(0..<5))
+            move(sut)
+
+            // Then: the index is in range and the page shows its items
+            XCTAssertEqual(sut.currentPageIndex, expectedIndex, name)
+            XCTAssertLessThan(sut.currentPageIndex, sut.pageCount, name)
+        }
     }
 
     // ── COL-019 ──────────────────────────────────────────────────────────────
