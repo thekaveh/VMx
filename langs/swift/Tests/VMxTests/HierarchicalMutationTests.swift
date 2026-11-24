@@ -141,10 +141,12 @@ final class HierarchicalMutationTests: XCTestCase {
     /// HIER-018 — reparentChild rejects self- and ancestor-reparenting:
     /// throws, leaves the tree intact, and publishes 0 TreeStructureChangedMessages.
     func testHier018ReparentGuard() {
-        // Runs under the watchdog: without the self-reparent guard (case (a)),
-        // the subtree restamp loops forever. The watchdog turns that hang into
-        // a failure instead of a stalled job.
-        runWatched {
+        // Runs under a 5 s watchdog, not hangGuard (Liveness.swift lists this
+        // exception). Without the self-reparent guard (case (a)), the subtree
+        // restamp loops forever, and the watchdog turns that hang into a failure
+        // within seconds. This body does constant work on a three-node tree and
+        // returns in about 2 ms, so the short bound leaves a 2,500-fold margin.
+        runWatched(seconds: 5) {
             let hub = MessageHub()
             var structureMessages: [TreeStructureChangedMessage] = []
             var bag = Set<AnyCancellable>()
