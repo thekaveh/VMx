@@ -376,7 +376,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     /// Returns the root of this node's tree, the node with no parent (ADR-0247
     /// D1). The stamped root answers in O(1). A stamped root that has been
     /// dropped no longer names this node's tree, so the parent links give the
-    /// top of the tree instead, in O(depth).
+    /// top of the tree instead, in O(depth) (ADR-0249 §2.1).
     fn root_unlocked(&self) -> Self {
         let stamped = lock(&self.inner.root).upgrade();
         if let Some(inner) = stamped {
