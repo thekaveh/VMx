@@ -86,6 +86,7 @@ line up the same workload across reports without comparing their numbers.
 | `collection.insert0/size=…`          | Fill a list to 1,000 or 10,000 items by inserting at the front.                |
 | `lifecycle.construct_dispose`        | Build, construct, and dispose a component view-model on a shared hub.          |
 | `tree.walk-chain/depth=…`            | One full walk of a materialized 5,000- or 10,000-level chain (Python, TS).     |
+| `tree.build-walk-chain/depth=…`      | Python: build the chain top-down with `add_child`, then one walk and `depth`.  |
 
 The cases cover disabled observer overhead (`disconnected` against `plain`),
 large subscriber counts (`subscribers=100`), transaction bursts (`hub.batch`),
