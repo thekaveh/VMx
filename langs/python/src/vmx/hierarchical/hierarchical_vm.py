@@ -173,6 +173,8 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         self._eager_children: bool = eager_children
 
         self._hierarchical_parent: TVM | None = None
+        # ADR-0247 §2.1 and ADR-0248 R3: the tree root of this node. A root stores itself.
+        self._structural_root: TVM = self  # type: ignore[assignment]  # CRTP self view
         self._children_list: list[TVM] | None = None
         # Cached read-only facade over ``_children_list`` (VMX-078). The view
         # reads through to the live list (mutated in place by add/remove/
@@ -354,13 +356,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                 f"Cannot move '{child.name}' out of disposed parent '{old_parent.name}'."
             )
 
-        # HIER-018: reparenting this node or one of its ancestors under
-        # itself would create a parent cycle and corrupt depth/path/walk.
-        if any(node is child for node in self.path):
-            raise ValueError(
-                f"Cannot reparent '{child.name}' under '{self.name}': "
-                "it is this node or one of its ancestors (HIER-018)."
-            )
+        self._reject_reparent_cycle(child)
 
         # Materialize before mutation so factory failure cannot leave a child
         # detached from its original parent.
@@ -407,6 +403,34 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                 index=-1 if reparented else new_index,
             )
         )
+
+    def _reject_reparent_cycle(self, child: TVM) -> None:
+        """Refuse a move that would make *child* this node or its ancestor (HIER-018).
+
+        The cases of ADR-0248 §2.2 run in order. Only case (d) walks ancestors.
+        """
+        if child is self:  # (a) the candidate is the receiver
+            cycle = True
+        elif child._structural_root is not self._structural_root:  # (b) no cycle possible
+            cycle = False
+        elif child._hierarchical_parent is None:  # (c) the candidate is the shared root
+            cycle = True
+        else:  # (d) the same tree, so the candidate is an ancestor only if it is on our path
+            cycle = self._is_self_or_ancestor(child)
+        if cycle:
+            raise ValueError(
+                f"Cannot reparent '{child.name}' under '{self.name}': "
+                "it is this node or one of its ancestors (HIER-018)."
+            )
+
+    def _is_self_or_ancestor(self, node: TVM) -> bool:
+        """Walk the parent links from this node upward. Used only on error and case (d) paths."""
+        current: Any = self
+        while current is not None:
+            if current is node:
+                return True
+            current = current._hierarchical_parent
+        return False
 
     @property
     def parked_attach_count(self) -> int:
@@ -641,8 +665,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         for child in self._children_list:
             if child._hierarchical_parent is self:
                 child._hierarchical_parent = None
-                child._path_cache = None
-                child._invalidate_path_cache_descendants()
+                child._restamp_subtree(child)
         self._children_list = None
         self._children_view = None
         self._hub.send(
@@ -664,13 +687,21 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         self._invalidate_subtree_nodes()
 
     def _invalidate_subtree_nodes(self) -> None:
-        self._reject_structural_reentry()
-        if self._children_list is None:
-            return
-        for child in list(self._children_list):
-            child._invalidate_subtree_nodes()
-        if not self._is_status_disposed():
-            self._drop_children_cache()
+        # ADR-0247 §2.3: an explicit stack in the visit order of the recursive form.
+        # A node drops its cache after its children have dropped theirs. A disposed
+        # node keeps its cache, but its materialized children are still visited.
+        stack: list[tuple[TVM, bool]] = [(self, False)]  # type: ignore[list-item]
+        while stack:
+            node, dropping = stack.pop()
+            if dropping:
+                if not node._is_status_disposed():
+                    node._drop_children_cache()
+                continue
+            node._reject_structural_reentry()
+            if node._children_list is None:
+                continue
+            stack.append((node, True))
+            stack.extend((child, False) for child in reversed(node._children_list))
 
     def _on_dispose(self) -> None:
         self._parked_attach_items.clear()
@@ -689,11 +720,6 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
             if self._materialization_reentered:
                 raise ValueError("children factory re-entered a structural operation")
             seen: set[int] = set()
-            ancestors: set[int] = set()
-            ancestor: Any = self
-            while ancestor is not None:
-                ancestors.add(id(ancestor))
-                ancestor = ancestor._hierarchical_parent
             for child in children:
                 if child is None:
                     raise ValueError("children factory returned None")
@@ -701,14 +727,20 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                 if identity in seen:
                     raise ValueError("children factory returned duplicate child identity")
                 seen.add(identity)
-                if identity in ancestors:
-                    raise ValueError("children factory returned this node or one of its ancestors")
+                # ADR-0248 R1: a child with a parent is rejected. The ancestor walk runs
+                # only here, to choose the message. A parentless child is an ancestor
+                # only when it is the root of this tree.
                 if child._hierarchical_parent is not None:
+                    if self._is_self_or_ancestor(child):
+                        raise ValueError(
+                            "children factory returned this node or one of its ancestors"
+                        )
                     raise ValueError("children factory returned an already-parented child")
+                if child is self._structural_root:
+                    raise ValueError("children factory returned this node or one of its ancestors")
             for child in children:
                 child._hierarchical_parent = self
-                child._path_cache = None
-                child._invalidate_path_cache_descendants()
+                child._restamp_subtree(self._structural_root)
             return children
         finally:
             self._materializing_children = False
@@ -729,10 +761,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
             raise RuntimeError(f"Cannot change the children of disposed node '{self.name}'.")
 
     def _tree_root(self) -> TVM:
-        node: TVM = self  # type: ignore[assignment]  # CRTP self view
-        while node._hierarchical_parent is not None:
-            node = node._hierarchical_parent
-        return node
+        return self._structural_root
 
     def _materialized_subtree(self) -> Iterator[TVM]:
         stack: list[TVM] = [self]  # type: ignore[list-item]
@@ -770,8 +799,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         if parent._children_list is not None:
             parent._children_list[:] = [item for item in parent._children_list if item is not child]
         child._hierarchical_parent = None
-        child._path_cache = None
-        child._invalidate_path_cache_descendants()
+        child._restamp_subtree(child)
 
     def _ensure_children_materialized(self) -> None:
         if self._children_list is None:
@@ -790,16 +818,21 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         if self._hierarchical_parent is parent:
             return
         self._hierarchical_parent = parent
-        self._path_cache = None  # Invalidate path cache.
-        self._invalidate_path_cache_descendants()
+        # ADR-0248 R3: a detached node is its own root, and an attached node takes
+        # its parent's root. The restamp also clears the path cache of the subtree.
+        if parent is None:
+            self._restamp_subtree(self)  # type: ignore[arg-type]  # a root stores itself
+        else:
+            self._restamp_subtree(parent._structural_root)
         self._hub.send(PropertyChangedMessage.create(self, self._name, "parent"))
 
-    def _invalidate_path_cache_descendants(self) -> None:
+    def _restamp_subtree(self, root: TVM) -> None:
+        """Stamp *root* on this node and each materialized descendant, and clear their
+        path caches. One iterative traversal (ADR-0248 R3)."""
         stack: list[TVM] = [self]  # type: ignore[list-item]
         while stack:
             node = stack.pop()
-            if node._children_list is None:
-                continue
-            for child in node._children_list:
-                child._path_cache = None
-                stack.append(child)
+            node._structural_root = root
+            node._path_cache = None
+            if node._children_list is not None:
+                stack.extend(node._children_list)
