@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   HierarchicalVM,
   MessageHub,
+  PropertyChangedMessage,
   RxDispatcher,
   TreeStructureChangedMessage,
   ViewModelType,
@@ -302,6 +303,147 @@ describe("NullValidation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Parented ancestors in factory output (ADR-0247 D2)
+// ---------------------------------------------------------------------------
+
+describe("ParentedAncestorFactory", () => {
+  it("a children factory that returns a parented ancestor is refused and leaves the tree intact", () => {
+    const hub = makeHub();
+    // leaf's factory returns mid, which is leaf's ancestor once the tree is built.
+    let mid!: Node;
+    const leafVm = new Node({ hub, name: "leaf", childrenFactory: () => [mid] });
+    mid = new Node({ hub, name: "mid", childrenFactory: () => [leafVm] });
+    const root = new Node({ hub, name: "root", childrenFactory: () => [mid] });
+    expect(root.children).toHaveLength(1);
+    expect(mid.children).toHaveLength(1);
+    expect(mid.children[0]).toBe(leafVm);
+
+    // mid has a parent, so the factory check walks leaf's ancestors and finds mid
+    // (ADR-0247 D2). Without that walk, the already-parented message would fire.
+    expect(() => leafVm.children).toThrow(
+      /^children factory returned this node or one of its ancestors$/,
+    );
+
+    expect(mid.parent).toBe(root);
+    expect(leafVm.parent).toBe(mid);
+    expect(leafVm.path.map((n) => n.name)).toEqual(["root", "mid", "leaf"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Parented children in factory output keep the already-parented message
+// ---------------------------------------------------------------------------
+
+describe("ParentedChildFactory", () => {
+  it("a children factory that returns a child of another parent is refused with the pinned message", () => {
+    const hub = makeHub();
+    const owned = leaf(hub, "owned");
+    const owner = parentOf([owned], hub);
+    expect(owner.children).toHaveLength(1);
+    expect(owned.parent).toBe(owner);
+
+    const thief = new Node({ hub, name: "thief", childrenFactory: () => [owned] });
+    expect(() => thief.children).toThrow(
+      /^children factory returned an already-parented child$/,
+    );
+
+    expect(owned.parent).toBe(owner);
+    expect(owner.children[0]).toBe(owned);
+  });
+
+  it("a same-tree child that is not an ancestor also gets the pinned message", () => {
+    const hub = makeHub();
+    const a = leaf(hub, "a");
+    const b = new Node({ hub, name: "b", childrenFactory: () => [a] });
+    const root = parentOf([a, b], hub);
+    expect(root.children).toHaveLength(2);
+
+    expect(() => b.children).toThrow(
+      /^children factory returned an already-parented child$/,
+    );
+    expect(a.parent).toBe(root);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HIER-018 cycle guard by stored tree root (ADR-0248 R2, cases a to d)
+// ---------------------------------------------------------------------------
+
+/** The exact HIER-018 text of an explicit add or reparent (ADR-0248 R4 keeps it). */
+const hier018 = (child: string, under: string): RegExp =>
+  new RegExp(
+    `^Cannot reparent '${child}' under '${under}': ` +
+      "it is this node or one of its ancestors \\(HIER-018\\)\\.$",
+  );
+
+describe("CycleGuardByStoredRoot", () => {
+  it("R2 (a): a node cannot be added under itself", () => {
+    const node = leaf(makeHub(), "solo");
+
+    expect(() => node.addChild(node)).toThrow(hier018("solo", "solo"));
+    expect(node.parent).toBeNull();
+  });
+
+  it("R2 (b): a candidate from another tree transfers with no cycle error, parented or not", () => {
+    const hub = makeHub();
+    const moved = leaf(hub, "moved");
+    const oldRoot = parentOf([moved], hub);
+    expect(oldRoot.children).toHaveLength(1);
+    expect(moved.parent).toBe(oldRoot);
+    const newRoot = leaf(hub, "new-root");
+
+    newRoot.addChild(moved);
+
+    expect(moved.parent).toBe(newRoot);
+    expect(oldRoot.children).toHaveLength(0);
+    expect(moved.path.map((n) => n.name)).toEqual(["new-root", "moved"]);
+
+    // A parentless candidate from another tree is also a transfer, not a cycle.
+    const lone = leaf(hub, "lone");
+    newRoot.addChild(lone);
+    expect(lone.parent).toBe(newRoot);
+    expect(newRoot.children).toEqual([moved, lone]);
+  });
+
+  it("R2 (c): a parentless candidate that is this tree's root is a cycle", () => {
+    const hub = makeHub();
+    const child = leaf(hub, "child");
+    const root = new Node({ hub, name: "root", childrenFactory: () => [child] });
+    expect(root.children).toHaveLength(1);
+
+    expect(() => child.addChild(root)).toThrow(hier018("root", "child"));
+    expect(root.parent).toBeNull();
+    expect(child.parent).toBe(root);
+  });
+
+  it("R2 (d): a parented ancestor in this tree is a cycle, and a parented non-ancestor transfers", () => {
+    const hub = makeHub();
+    const sibling = leaf(hub, "sibling");
+    const deep = leaf(hub, "deep");
+    const mid = new Node({ hub, name: "mid", childrenFactory: () => [deep] });
+    const root = new Node({ hub, name: "root", childrenFactory: () => [mid, sibling] });
+    expect(root.children).toHaveLength(2);
+    expect(mid.children).toHaveLength(1);
+
+    // mid is parented and is an ancestor of deep: the walk finds it.
+    expect(() => deep.addChild(mid)).toThrow(hier018("mid", "deep"));
+    expect(mid.parent).toBe(root);
+    expect(deep.parent).toBe(mid);
+
+    // sibling is parented in the same tree but is not an ancestor of deep.
+    deep.addChild(sibling);
+    expect(sibling.parent).toBe(deep);
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0]).toBe(mid);
+    expect(sibling.path).toHaveLength(4);
+    expect(sibling.path[0]).toBe(root);
+    expect(sibling.path[1]).toBe(mid);
+    expect(sibling.path[2]).toBe(deep);
+    expect(sibling.path[3]).toBe(sibling);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Deep chains: walks, depth and path invalidation do not recurse
 // ---------------------------------------------------------------------------
 
@@ -352,7 +494,70 @@ describe("DeepChain", () => {
     expect(last.depth).toBe(DEEP_CHAIN_LEVELS);
     expect(last.path[0]).toBe(newRoot);
     expect(last.path[1]).toBe(root);
+    // The move restamps every materialized node with the new root (ADR-0247
+    // D1). A batch parked from the deepest node therefore lands on newRoot.
+    const orphan = leaf(hub, "orphan");
+    last.attachMany([orphan], {
+      keyOf: (vm) => vm.name,
+      parentKeyOf: () => "missing",
+    });
+    expect(newRoot.parkedAttachCount).toBe(1);
+    expect(last.parkedAttachCount).toBe(1);
   }, 30_000);
+
+  it("deep chain: invalidateSubtree drops every materialized level", () => {
+    const root = deepChain(DEEP_CHAIN_LEVELS, makeHub(), RxDispatcher.immediate());
+    const nodes = [...walk(root)];
+    const first = nodes[1] as Node;
+    const last = nodes[nodes.length - 1] as Node;
+
+    root.invalidateSubtree();
+
+    expect(nodes).toHaveLength(DEEP_CHAIN_LEVELS);
+    expect(first.parent).toBeNull();
+    expect(last.parent).toBeNull();
+    expect(last.depth).toBe(0);
+    expect(last.path).toHaveLength(1);
+    expect(last.path[0]).toBe(last);
+  }, 30_000);
+});
+
+describe("InvalidateSubtreeOrder", () => {
+  it("publishes each children change after its descendants (pre-order tree, post-order changes)", () => {
+    const hub = makeHub();
+    const dispatcher = RxDispatcher.immediate();
+    const shape: Record<string, string[]> = {
+      root: ["a", "b"],
+      a: ["a1"],
+      a1: [],
+      b: [],
+    };
+    const byName = new Map<string, Node>();
+    for (const name of ["root", "a", "a1", "b"]) {
+      byName.set(
+        name,
+        new Node({
+          hub,
+          dispatcher,
+          name,
+          childrenFactory: () => (shape[name] ?? []).map((child) => byName.get(child) as Node),
+        }),
+      );
+    }
+    const root = byName.get("root") as Node;
+    expect([...walk(root)].map((vm) => vm.name)).toEqual(["root", "a", "a1", "b"]);
+
+    const published: string[] = [];
+    hub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage && message.propertyName === "children") {
+        published.push(message.senderName);
+      }
+    });
+
+    root.invalidateSubtree();
+
+    expect(published).toEqual(["a1", "a", "b", "root"]);
+  });
 });
 
 describe("WalkOrder", () => {
