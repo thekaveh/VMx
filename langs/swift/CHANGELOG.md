@@ -1015,6 +1015,15 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   factory output returns `.failure(.invalidFactoryOutput)` and changes nothing,
   and a later valid factory call still loads the children (#737).
 
+- `walk(_:)`, `walkExpanded(_:)`, `find(_:where:)`, `FilteredCompositeVM`,
+  `ScoredFilteredCompositeVM` and `PagedComposition(sourceComposite:)` read the
+  membership of a `CompositeVM` or `GroupVM` once, through `snapshot()`. They
+  used to read `count` and then `at(_:)`, so a removal on another thread between
+  the two reads trapped with an index out of range. A scored view also reads
+  each child once, so its score belongs to the child it is paired with. Walk
+  order, the filter and sort rules and the public signatures are unchanged
+  (ADR-0187, #1921).
+
 ## [3.31.0] — unreleased source version
 
 ### Changed
