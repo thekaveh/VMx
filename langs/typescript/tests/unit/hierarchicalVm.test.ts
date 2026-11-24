@@ -320,7 +320,9 @@ describe("ParentedAncestorFactory", () => {
 
     // mid has a parent, so the factory check walks leaf's ancestors and finds mid
     // (ADR-0247 D2). Without that walk, the already-parented message would fire.
-    expect(() => leafVm.children).toThrow(/one of its ancestors/);
+    expect(() => leafVm.children).toThrow(
+      /^children factory returned this node or one of its ancestors$/,
+    );
 
     expect(mid.parent).toBe(root);
     expect(leafVm.parent).toBe(mid);
