@@ -1,6 +1,6 @@
 # ADR 0073 — Add explicit hierarchical child-cache invalidation
 
-**Status:** Accepted (2026-07-01; §3 TTL note updated by [ADR-0219](0219-scheduler-contract-delayed-task-and-rust-timers.md))
+**Status:** Accepted (2026-07-01; §3 TTL note updated by [ADR-0219](0219-scheduler-contract-delayed-task-and-rust-timers.md)). Clarified by [ADR-0247](0247-hierarchy-root-pointer.md) (the reach of InvalidateSubtree; the traversal is not specified).
 **Spec version:** introduced in 3.1.0
 
 ## 1. Context

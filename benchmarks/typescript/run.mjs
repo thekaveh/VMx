@@ -281,6 +281,43 @@ function treeWalkChainCase(levels) {
   };
 }
 
+// The chain is built inside each sample, so the cost of attaching every child is
+// measured with the walk and the depth (ADR-0247 D7). The stderr summary reports
+// the ratio of the two levels; a linear build gives about 2, a quadratic one
+// about 4. The ratio is reported, never gated.
+function treeBuildWalkDepthCase(levels) {
+  const id = `tree.build-walk-depth/depth=${levels}`;
+  return {
+    id,
+    params: { levels },
+    ops: 1,
+    setup() {
+      return { hub: new MessageHub() };
+    },
+    run({ hub }) {
+      const chainNode = (depth) =>
+        new ChainNode({
+          model: depth,
+          hub,
+          dispatcher: NullDispatcher.INSTANCE,
+          name: `n${depth}`,
+          childrenFactory: () => (depth + 1 === levels ? [] : [chainNode(depth + 1)]),
+        });
+      const root = chainNode(0);
+      let last = root;
+      let count = 0;
+      for (const node of core.walk(root)) {
+        count += 1;
+        last = node;
+      }
+      if (count !== levels || last.depth !== levels - 1) {
+        throw new Error(`the chain does not have ${levels} levels`);
+      }
+    },
+    teardown() {},
+  };
+}
+
 const allCases = [
   sendCase(0, size(150_000)),
   sendCase(1, size(150_000)),
@@ -299,6 +336,8 @@ const allCases = [
   lifecycleCase(size(20_000)),
   treeWalkChainCase(5_000),
   treeWalkChainCase(10_000),
+  treeBuildWalkDepthCase(5_000),
+  treeBuildWalkDepthCase(10_000),
 ];
 const unknownSlowdown = [...slowdown.keys()].filter(
   (id) => !allCases.some((entry) => entry.id === id),
@@ -446,6 +485,15 @@ else process.stdout.write(text);
 for (const entry of report.cases) {
   process.stderr.write(
     `${entry.id.padEnd(36)} ${entry.median.toFixed(1).padStart(10)} ns/op  ±${(entry.rel_mad * 100).toFixed(1)}%\n`,
+  );
+}
+const linearity = report.cases
+  .filter((entry) => entry.id.startsWith("tree.build-walk-depth/"))
+  .sort((left, right) => left.params.levels - right.params.levels);
+if (linearity.length === 2) {
+  const [small, large] = linearity;
+  process.stderr.write(
+    `${large.id} / ${small.id} median ratio ${(large.median / small.median).toFixed(2)} (linear is about 2)\n`,
   );
 }
 const probe = report.probes["lifecycle.memory"];

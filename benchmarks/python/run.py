@@ -274,6 +274,37 @@ def tree_walk_chain_case(levels: int) -> Case:
     return Case(case_id, {"levels": levels}, 1, setup, run)
 
 
+def tree_build_walk_chain_case(levels: int) -> Case:
+    """Build a chain of `levels` nodes top-down with `add_child`, then one full walk and
+    `depth` of the last node (ADR-0247 section 2.7). The build is inside the timed run,
+    so the case also measures the attach cycle check (ADR-0248). `ops` is 1.
+    """
+    case_id = f"tree.build-walk-chain/depth={levels}"
+
+    def run(_: dict[str, Any]) -> None:
+        hub: MessageHub[Any] = MessageHub()
+        dispatcher = NullDispatcher()
+        root: Any = HierarchicalVM(
+            model=0, children_factory=lambda _: [], hub=hub, dispatcher=dispatcher, name="n0"
+        )
+        last: Any = root
+        for depth in range(1, levels):
+            child: Any = HierarchicalVM(
+                model=depth,
+                children_factory=lambda _: [],
+                hub=hub,
+                dispatcher=dispatcher,
+                name=f"n{depth}",
+            )
+            last.add_child(child)
+            last = child
+        count = sum(1 for _ in walk(root))
+        if count != levels or last.depth != levels - 1:
+            raise RuntimeError(f"the chain does not have {levels} levels")
+
+    return Case(case_id, {"levels": levels}, 1, lambda: {}, run)
+
+
 def measure(case: Case) -> float:
     state = case.setup()
     gc.collect()
@@ -391,6 +422,8 @@ def main() -> int:
         lifecycle_case(size(5_000)),
         tree_walk_chain_case(5_000),
         tree_walk_chain_case(10_000),
+        tree_build_walk_chain_case(5_000),
+        tree_build_walk_chain_case(10_000),
     ]
     unknown = sorted(set(SLOWDOWN) - {case.id for case in cases})
     if unknown:

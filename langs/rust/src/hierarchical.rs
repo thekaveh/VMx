@@ -135,6 +135,9 @@ struct HierarchicalVmInner<M: Clone + PartialEq + Send + Sync + 'static, N: Send
     children: Arc<Mutex<Option<HierChildren<M, N>>>>,
     materializing_children: Arc<(Mutex<ChildrenMaterializationState>, Condvar)>,
     parent: Mutex<Option<Weak<HierarchicalVmInner<M, N>>>>,
+    /// The tree root, stamped on every node of a tree (ADR-0247 D1). A root
+    /// holds itself. The link is weak, as `parent` is, so no `Rc` cycle forms.
+    root: Mutex<Weak<HierarchicalVmInner<M, N>>>,
     children_factory: HierChildrenFactory<M, N>,
     eager_children: Arc<Mutex<bool>>,
     parked_attach_items: Arc<Mutex<Vec<HierarchicalVm<M, N>>>>,
@@ -214,7 +217,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         F: Fn(&Self) -> Vec<Self> + Send + Sync + 'static,
     {
         Self {
-            inner: Arc::new(HierarchicalVmInner {
+            inner: Arc::new_cyclic(|this| HierarchicalVmInner {
                 component: ComponentVm::with_model(name, model, hub.clone(), NullDispatcher::new()),
                 node_data,
                 children: Arc::new(Mutex::new(None)),
@@ -223,6 +226,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                     Condvar::new(),
                 )),
                 parent: Mutex::new(None),
+                root: Mutex::new(this.clone()),
                 children_factory: Arc::new(children_factory),
                 eager_children: Arc::new(Mutex::new(eager_children)),
                 parked_attach_items: Arc::new(Mutex::new(Vec::new())),
@@ -367,6 +371,41 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                 inner,
                 materialization_context: None,
             })
+    }
+
+    /// Returns the root of this node's tree, the node with no parent (ADR-0247
+    /// D1). The stamped root answers in O(1). A stamped root that has been
+    /// dropped no longer names this node's tree, so the parent links give the
+    /// top of the tree instead, in O(depth) (ADR-0249 §2.1).
+    fn root_unlocked(&self) -> Self {
+        let stamped = lock(&self.inner.root).upgrade();
+        if let Some(inner) = stamped {
+            return Self {
+                inner,
+                materialization_context: None,
+            };
+        }
+        let mut current = Self {
+            inner: Arc::clone(&self.inner),
+            materialization_context: None,
+        };
+        while let Some(parent) = current.parent_unlocked() {
+            current = parent;
+        }
+        current
+    }
+
+    /// Stamps every materialized node of this subtree with `root` (ADR-0247
+    /// D1). The traversal uses an explicit stack. The caller holds
+    /// `HIERARCHY_TOPOLOGY_GATE`.
+    fn restamp_subtree_unlocked(&self, root: &Weak<HierarchicalVmInner<M, N>>) {
+        let mut stack = vec![Arc::clone(&self.inner)];
+        while let Some(node) = stack.pop() {
+            *lock(&node.root) = root.clone();
+            if let Some(children) = lock(&node.children).as_ref() {
+                stack.extend(children.iter().map(|child| Arc::clone(&child.inner)));
+            }
+        }
     }
 
     /// Adds or transfers `child` beneath this node.
@@ -945,15 +984,24 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     fn invalidate_subtree_from_live_ancestor(&self) {
-        if self.reject_structural_reentry().is_err() {
-            return;
-        }
-        let materialized_children = lock(&self.inner.children).clone();
-        if let Some(children) = materialized_children {
-            for child in children {
-                child.invalidate_subtree_from_live_ancestor();
+        // Each entry holds a node and whether its children are already done.
+        // The explicit stack keeps the recursive order, in which a node's
+        // children are invalidated before the node itself, and needs no call
+        // frame per tree level (ADR-0247 D3).
+        let mut stack = vec![(self.clone(), false)];
+        while let Some((node, children_done)) = stack.pop() {
+            if children_done {
+                node.invalidate_children();
+                continue;
             }
-            self.invalidate_children();
+            if node.reject_structural_reentry().is_err() {
+                continue;
+            }
+            let materialized_children = lock(&node.inner.children).clone();
+            if let Some(children) = materialized_children {
+                stack.push((node, true));
+                stack.extend(children.into_iter().rev().map(|child| (child, false)));
+            }
         }
     }
 
@@ -1041,6 +1089,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                     hook();
                 }
             }
+            let self_root = self.root_unlocked();
             let mut seen = HashSet::new();
             for child in &children {
                 if !seen.insert(child.id()) {
@@ -1048,17 +1097,22 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                         "children factory returned duplicate child identity".to_string(),
                     ));
                 }
-                let mut ancestor = Some(self.clone());
-                while let Some(node) = ancestor {
-                    if node == *child {
-                        return Err(VmxError::InvalidArgument(
-                            "children factory returned this node or one of its ancestors"
-                                .to_string(),
-                        ));
-                    }
-                    ancestor = node.parent_unlocked();
+                let parented = child.parent_unlocked().is_some();
+                // A parentless child is this node or an ancestor only when it is
+                // this node's tree root, so the check is O(1) (ADR-0247 D2). The
+                // ancestor walk runs only for a parented child, to choose between
+                // the two error messages.
+                let self_or_ancestor = if parented {
+                    self.is_self_or_ancestor_unlocked(child)
+                } else {
+                    child.id() == self.id() || child.id() == self_root.id()
+                };
+                if self_or_ancestor {
+                    return Err(VmxError::InvalidArgument(
+                        "children factory returned this node or one of its ancestors".to_string(),
+                    ));
                 }
-                if child.parent_unlocked().is_some() {
+                if parented {
                     return Err(VmxError::InvalidArgument(
                         "children factory returned an already-parented child".to_string(),
                     ));
@@ -1101,11 +1155,8 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     fn tree_root(&self) -> Self {
-        let mut current = self.clone();
-        while let Some(parent) = current.parent() {
-            current = parent;
-        }
-        current
+        let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
+        self.root_unlocked()
     }
 
     fn materialized_subtree(&self) -> Vec<Self> {
@@ -1147,7 +1198,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     fn set_parent_state(&self, parent: Option<Self>) {
+        // The subtree joins the parent's tree, or becomes a tree of its own
+        // with this node as its root (ADR-0247 D1).
+        let root = match &parent {
+            Some(parent) => Arc::downgrade(&parent.root_unlocked().inner),
+            None => Arc::downgrade(&self.inner),
+        };
         *lock(&self.inner.parent) = parent.as_ref().map(|parent| Arc::downgrade(&parent.inner));
+        self.restamp_subtree_unlocked(&root);
         self.inner
             .component
             .core
@@ -1164,20 +1222,44 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
             }));
     }
 
-    fn ensure_not_reparenting_cycle_unlocked(&self, child: &Self) -> VmxResult<()> {
-        let mut current = Some(self.clone());
+    /// Reports whether `candidate` is this node or one of its ancestors. It walks
+    /// the parent links, so it costs O(depth). The caller holds
+    /// `HIERARCHY_TOPOLOGY_GATE`.
+    fn is_self_or_ancestor_unlocked(&self, candidate: &Self) -> bool {
+        let mut current = Some(Self {
+            inner: Arc::clone(&self.inner),
+            materialization_context: None,
+        });
         while let Some(node) = current {
-            if node == *child {
-                return Err(VmxError::InvalidArgument(
-                    "cannot reparent self or ancestor".to_string(),
-                ));
+            if node.id() == candidate.id() {
+                return true;
             }
             current = node.parent_unlocked();
         }
+        false
+    }
+
+    fn ensure_not_reparenting_cycle_unlocked(&self, child: &Self) -> VmxResult<()> {
+        let cycle = || VmxError::InvalidArgument("cannot reparent self or ancestor".to_string());
         if child.id() == self.id() {
-            return Err(VmxError::InvalidArgument(
-                "cannot reparent self or ancestor".to_string(),
-            ));
+            return Err(cycle());
+        }
+        let self_root = self.root_unlocked();
+        if child.parent_unlocked().is_none() {
+            // A parentless child is an ancestor of this node only as its tree
+            // root, so the check is O(1) while the stored roots are live
+            // (ADR-0247 D2, ADR-0248 §2.2 (c), ADR-0249 §2.5).
+            return if child.id() == self_root.id() {
+                Err(cycle())
+            } else {
+                Ok(())
+            };
+        }
+        // A parented child in another tree is no ancestor of this node, so only
+        // a child of this tree is walked (ADR-0247 D2).
+        let same_tree = child.root_unlocked().id() == self_root.id();
+        if same_tree && self.is_self_or_ancestor_unlocked(child) {
+            return Err(cycle());
         }
         Ok(())
     }
@@ -1644,5 +1726,81 @@ mod tests {
         assert!(retry_child.parent().as_ref() == Some(&root));
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
         assert!(messages.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_detached_subtree_takes_its_own_root_for_the_cycle_check() {
+        // After the detach, `root` is a tree of its own. The stamp on `leaf` must
+        // not still name `root` as its root, or `root` would look like an ancestor.
+        let root = HierarchicalVm::new("root", "root".to_string());
+        let middle = HierarchicalVm::new("middle", "middle".to_string());
+        let leaf = HierarchicalVm::new("leaf", "leaf".to_string());
+        root.add_child(middle.clone()).unwrap();
+        middle.add_child(leaf.clone()).unwrap();
+
+        root.remove_child(&middle).unwrap();
+
+        assert!(middle.parent().is_none());
+        assert!(leaf.add_child(root.clone()).is_ok());
+        assert!(leaf.add_child(middle.clone()).is_err());
+    }
+
+    #[test]
+    fn a_node_whose_root_was_dropped_finds_the_top_through_its_parents() {
+        // The root is dropped while its middle and leaf survive. The middle node
+        // is then the top of its tree, and the stamp on `leaf` no longer upgrades,
+        // so the top is found through the parent links (ADR-0249 §2.1).
+        let root = HierarchicalVm::new("root", "root".to_string());
+        let middle = HierarchicalVm::new("middle", "middle".to_string());
+        let leaf = HierarchicalVm::new("leaf", "leaf".to_string());
+        root.add_child(middle.clone()).unwrap();
+        middle.add_child(leaf.clone()).unwrap();
+        drop(root);
+
+        assert!(leaf.parent().is_some_and(|parent| parent == middle));
+        // The batch attach indexes the tree of `leaf`, whose top is `middle`, so
+        // an item keyed by `middle` is a duplicate. This check fails without a
+        // cycle, so it cannot hang when the top is missed.
+        let result = leaf.attach_many(
+            vec![HierarchicalVm::new("duplicate", "middle".to_string())],
+            |node| Ok(node.model()),
+            |_| Ok(None),
+            MissingParentPolicy::Reject,
+        );
+        assert!(result.added.is_empty());
+        assert!(result.rejections.iter().any(|rejection| {
+            rejection.reason == BatchAttachRejectionReason::DuplicateExistingKey
+        }));
+        // The cycle check finds the same top: `middle` is an ancestor of `leaf`.
+        assert!(leaf.add_child(middle.clone()).is_err());
+    }
+
+    #[test]
+    fn a_released_stored_root_is_found_through_the_parent_links_without_a_restamp() {
+        // ADR-0249 §2.1: once the stored root is released, a lookup walks the
+        // parent links to the top of the surviving chain, and it restamps no
+        // node. The chain has four levels, so a walk that stops one hop early
+        // returns `middle` where the top is `top`.
+        let root = HierarchicalVm::new("root", "root".to_string());
+        let top = HierarchicalVm::new("top", "top".to_string());
+        let middle = HierarchicalVm::new("middle", "middle".to_string());
+        let leaf = HierarchicalVm::new("leaf", "leaf".to_string());
+        root.add_child(top.clone()).unwrap();
+        top.add_child(middle.clone()).unwrap();
+        middle.add_child(leaf.clone()).unwrap();
+        drop(root);
+
+        assert!(leaf.tree_root() == top);
+        assert!(
+            lock(&leaf.inner.root).upgrade().is_none(),
+            "the lookup restamps no node, so the stored root stays released"
+        );
+        assert!(middle.tree_root() == top);
+        assert!(top.tree_root() == top);
+
+        // Once the top is released too, `middle` is the top of the surviving chain.
+        drop(top);
+        assert!(leaf.tree_root() == middle);
+        assert!(middle.tree_root() == middle);
     }
 }

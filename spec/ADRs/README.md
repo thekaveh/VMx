@@ -91,7 +91,7 @@ cross-references each ADR carries.
 | [0070](0070-filtered-and-scored-composite-views.md)                                 | Add filtered and scored composite views                                                                               | 3.1.0        | Accepted                                                                                      |
 | [0071](0071-form-validation.md)                                                     | Add declarative FormVM validation                                                                                     | 3.1.0        | Accepted                                                                                      |
 | [0072](0072-vm-backed-modal-presentation.md)                                        | Add VM-backed modal presentation                                                                                      | 3.1.0        | Accepted                                                                                      |
-| [0073](0073-hierarchical-child-cache-invalidation.md)                               | Add explicit hierarchical child-cache invalidation                                                                    | 3.1.0        | Accepted (§3 TTL note updated by 0219)                                                        |
+| [0073](0073-hierarchical-child-cache-invalidation.md)                               | Add explicit hierarchical child-cache invalidation                                                                    | 3.1.0        | Accepted (§3 TTL note updated by 0219; clarified by 0247)                                     |
 | [0074](0074-vnext-adoption-doc-clarifications.md)                                   | Clarify collection ownership and property-change binding docs                                                         | 3.1.0        | Accepted                                                                                      |
 | [0075](0075-discriminator-vm.md)                                                    | Add DiscriminatorVM active-key coordinator                                                                            | 3.1.0        | Accepted                                                                                      |
 | [0076](0076-swift-async-command-parity-doc-correction.md)                           | Correct Swift async command parity documentation                                                                      | 3.1.0        | Accepted                                                                                      |
@@ -261,6 +261,10 @@ cross-references each ADR carries.
 | [0243](0243-fixture-json-schemas-and-consumer-case-id-rule.md)                      | Fixture JSON schemas and the consumer case-ID rule                                                                    | 3.30.0       | Accepted                                                                                      |
 | [0244](0244-async-resource-start-refused-from-disposed-observer.md)                 | A load or reload from an observer of the Disposed publication starts no loader                                        | 3.30.0       | Accepted                                                                                      |
 | [0245](0245-catalog-clauses-utils-hier-life004.md)                                  | Catalog clauses for UTIL-002 and HIER-012 match the spec; LIFE-004 asserts Disposed in every flavor                   | 3.30.0       | Accepted                                                                                      |
+| [0247](0247-hierarchy-root-pointer.md)                                              | Hierarchy nodes hold their tree root; attach checks are O(1); subtree invalidation is iterative                       | 3.30.0       | Accepted (§2.2, §2.9, §3 amended by 0248; §2.3, §2.5 corrected by 0249; §1 corrected by 0250) |
+| [0248](0248-attach-cycle-check-by-tree-root.md)                                     | Explicit add and reparent check cycles through the stored tree root; factory and batch attach stay O(1)               | 3.30.0       | Accepted (§2.1, §2.2, §2.3 and §3 amended by 0249)                                            |
+| [0249](0249-released-tree-root-walks-parent-links.md)                               | A released stored tree root falls back to the parent links                                                            | 3.30.0       | Accepted                                                                                      |
+| [0250](0250-scope-of-the-invalidation-change.md)                                    | Scope of the invalidation change; ADR-0247 section 1 corrected                                                        | 3.30.0       | Accepted                                                                                      |
 
 ### 1.1 Consolidation opportunities (informative — VMX-120)
 
@@ -356,4 +360,6 @@ so the registry had no row for it at that time. ADR-0233 was held for open pull
 request #2107 when ADR-0234 was written, so the registry had no row for it at
 that time. ADR-0244 was held for open pull request #2194 when ADR-0245
 was written, so the registry had no row for it at that time. Pull request
-#2194 has since merged ADR-0244 to `develop`, and its row is above.
+#2194 has since merged ADR-0244 to `develop`, and its row is above. ADR-0246 was
+held for open pull request #2209 when ADR-0247 was written, so the registry had no
+row for it at that time.

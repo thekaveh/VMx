@@ -742,6 +742,15 @@ parent, and a descendant key collision rejects the item
 (`HIER-042`..`HIER-044`). Tree walks report invalid factory output as a
 recoverable error, which is a source break for Swift and Rust callers
 (`UTIL-004`). Python tree walks stop catching a `TypeError` from `iter(node)`.
+`InvalidateSubtree` applies its invalidation to this node and every currently
+materialized descendant, at any depth. The traversal is not specified
+(ADR-0247). An explicit `AddChild` or reparent checks for a cycle through a
+stored tree root, so only a move within one tree walks the receiver's ancestors
+(ADR-0248, which amends ADR-0247 §2.2, §2.9 and §3). A released stored tree
+root answers by the parent links, so the cycle check still finds the top of a
+surviving chain (ADR-0249, which amends ADR-0248 §2.1, §2.2, §2.3 and §3). The
+scope of the change, and the correction of ADR-0247 section 1 on the scope of
+issue #1912, are recorded in ADR-0250.
 
 v3.30.0 also defines failing subscribers and notification order. A delivery on
 a library channel reaches every attached subscriber once, even when an earlier
