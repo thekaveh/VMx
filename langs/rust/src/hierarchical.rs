@@ -1749,7 +1749,7 @@ mod tests {
     fn a_node_whose_root_was_dropped_finds_the_top_through_its_parents() {
         // The root is dropped while its middle and leaf survive. The middle node
         // is then the top of its tree, and the stamp on `leaf` no longer upgrades,
-        // so the top is found through the parent links (ADR-0247 D1).
+        // so the top is found through the parent links (ADR-0249 §2.1).
         let root = HierarchicalVm::new("root", "root".to_string());
         let middle = HierarchicalVm::new("middle", "middle".to_string());
         let leaf = HierarchicalVm::new("leaf", "leaf".to_string());
@@ -1773,5 +1773,34 @@ mod tests {
         }));
         // The cycle check finds the same top: `middle` is an ancestor of `leaf`.
         assert!(leaf.add_child(middle.clone()).is_err());
+    }
+
+    #[test]
+    fn a_released_stored_root_is_found_through_the_parent_links_without_a_restamp() {
+        // ADR-0249 §2.1: once the stored root is released, a lookup walks the
+        // parent links to the top of the surviving chain, and it restamps no
+        // node. The chain has four levels, so a walk that stops one hop early
+        // returns `middle` where the top is `top`.
+        let root = HierarchicalVm::new("root", "root".to_string());
+        let top = HierarchicalVm::new("top", "top".to_string());
+        let middle = HierarchicalVm::new("middle", "middle".to_string());
+        let leaf = HierarchicalVm::new("leaf", "leaf".to_string());
+        root.add_child(top.clone()).unwrap();
+        top.add_child(middle.clone()).unwrap();
+        middle.add_child(leaf.clone()).unwrap();
+        drop(root);
+
+        assert!(leaf.tree_root() == top);
+        assert!(
+            lock(&leaf.inner.root).upgrade().is_none(),
+            "the lookup restamps no node, so the stored root stays released"
+        );
+        assert!(middle.tree_root() == top);
+        assert!(top.tree_root() == top);
+
+        // Once the top is released too, `middle` is the top of the surviving chain.
+        drop(top);
+        assert!(leaf.tree_root() == middle);
+        assert!(middle.tree_root() == middle);
     }
 }
