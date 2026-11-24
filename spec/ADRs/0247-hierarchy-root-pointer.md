@@ -1,6 +1,6 @@
 # ADR 0247 — Hierarchy root pointer and iterative subtree invalidation
 
-- **Status:** Accepted
+- **Status:** Accepted (§2.2, §2.9 and §3 amended by ADR-0248)
 - **Date:** 2026-11-23
 - **Spec version:** 3.30.0 (chapter 18 §5 clarified; no conformance ID change; no library behavior change)
 - **Clarifies:** [ADR-0073](0073-hierarchical-child-cache-invalidation.md) §2 (the reach of `InvalidateSubtree`; the traversal is not specified). Related: [ADR-0028](0028-hierarchical-vm.md) §3 item 5, [ADR-0037](0037-v2.5-maintenance-clarifications.md) §2.3, [ADR-0127](0127-validate-hierarchy-factory-hydration-atomically.md), [ADR-0170](0170-tree-walks-report-invalid-factory-output.md), [ADR-0189](0189-disposed-children-leave-current-and-container-walks.md), [ADR-0190](0190-disposed-tree-nodes-refuse-structural-calls.md), #1912.
@@ -9,8 +9,7 @@
 
 Issue #1912 asks that tree walks, `depth`, path-cache invalidation and the attach
 cycle check cost no stack frame per tree level, and no ancestor walk per attach.
-Chapters 13 and 18 set no depth limit. This ADR meets the request for a parentless
-attach. A move keeps one ancestor walk, as §2.2 explains.
+Chapters 13 and 18 set no depth limit.
 
 Pull request #2061 (Python and TypeScript) and pull request #2202 (C#, Swift and
 Rust) made `walk`, `walk_expanded`, `find`, `depth` and path-cache invalidation on
@@ -38,11 +37,6 @@ to 1625 with it on, and move at 6250 to 6875 with a 512 KiB stack; Swift `walk` 
 1147 to 1228 with a 512 KiB thread; Rust `walk` at 2687 to 2968 and `depth` at
 8312 to 8875 with a 2 MiB stack.
 
-Pull request #2223 corrected §2.2, §2.9 and §3 in place on the day this ADR was
-merged. The earlier text described the move path wrongly for every flavor, not only
-for C#. Spec version 3.30.0 has no release tag, so no release has shipped the
-earlier text.
-
 ## 2. Decision
 
 ### 2.1 Root pointer (D1)
@@ -58,22 +52,10 @@ traversal.
 
 A candidate with no parent is a cycle when it is this node or this node's root.
 Otherwise it attaches. A parentless node can be an ancestor of this node only when
-it is the root of this node's tree, so this rule is complete for parentless
-candidates. The check costs O(1), whether the attach succeeds or fails. Error texts
-do not change.
-
-A candidate that already has a parent is a move. `AddChild` and `ReparentChild`
-accept it in every flavor, and the HIER-018 check runs before the move. A parented
-candidate in this node's tree can be an ancestor of this node at any depth, so the
-root pointer alone does not decide the check. Every flavor therefore keeps the
-existing ancestor walk for a move. The walk costs O(depth of the new parent), and it
-keeps the existing HIER-018 error text. The alternatives in §4 do not reach O(1) for
-a parented candidate.
-
-No flavor raises an already-parented error on the attach path. The children-factory
-check raises one, and the batch attach path keeps its own checks. This ADR changes
-neither. A move costs one O(depth of the new parent) walk, plus the
-O(materialized subtree) restamp of §2.1.
+it is the root of this node's tree, so this rule is complete. A candidate that
+already has a parent takes the existing already-parented error path. Only there
+does the code walk the ancestors, to choose the existing message. The success
+path costs O(1). A rejection costs one O(depth) walk. Error texts do not change.
 
 ### 2.3 Iterative subtree invalidation (D3)
 
@@ -127,21 +109,18 @@ The component-level attach cycle checks also walk ancestors on each attach:
 does not change them. The flavor pull requests measure the cost they add to the
 build case and report it in their bodies. The recursive Rust drop is issue #2204.
 
-### 2.9 Restamp cost (D9)
+### 2.9 Rust move trade (D9)
 
-In C#, Python, TypeScript and Swift the restamp uses the traversal that already
-clears path caches on move, so a move adds one root-pointer write per materialized
-node. Rust has no path cache, so a Rust move gains one O(materialized subtree)
-traversal. The Rust move keeps its O(depth of the new parent) walk of §2.2, so it
-costs both. The added traversal is accepted for uniformity across flavors.
+The restamp changes Rust move cost from O(depth of the new parent) to
+O(materialized subtree). The change is accepted for uniformity across flavors.
 
 ## 3. Consequences
 
 - Each node stores one more reference, to its root.
-- An attach of a parentless candidate costs O(1), whether it succeeds or fails.
-  An attach of a candidate that has a parent (a move) costs one O(depth of the new
-  parent) walk in every flavor, and the O(materialized subtree) restamp of §2.1.
-  Error texts are unchanged.
+- An attach that succeeds costs O(1). A rejected attach costs one O(depth) walk,
+  and its error text is unchanged.
+- A move costs O(materialized subtree) in every flavor. In Rust this replaces
+  O(depth of the new parent), as §2.9 records.
 - Python's parent link is a strong reference, so a root that holds itself is a
   reference cycle. Python frees such a root with its cyclic collector, not by
   reference counting. A tree with materialized children already forms cycles
@@ -160,7 +139,3 @@ costs both. The added traversal is accepted for uniformity across flavors.
   error messages depend on the ancestor walk, so they would change.
 - **Read the root from the path cache.** Rejected. Each node's path cache is a copy
   of its whole path, so the caches of a chain cost O(N²) memory.
-- **Use a depth field or an interval index for the move check.** Rejected. A depth
-  field still walks up to depth(this) minus depth(candidate) steps, so it is not
-  O(1). An interval index must be renumbered across the whole tree on each structural
-  change, and the restamp traversal of §2.1 covers only the moved subtree.
