@@ -130,6 +130,176 @@ public class HierarchicalVMTests
         messages.Items.Should().BeEmpty("reparent to same parent is a no-op");
     }
 
+    [Fact]
+    public void Move_Under_A_Parented_Ancestor_In_The_Same_Tree_Is_Rejected()
+    {
+        var hub = new TestHub();
+        var leaf = Leaf(hub, "leaf");
+        var mid = Parent([leaf], hub);
+        var root = Parent([mid, Leaf(hub, "sibling")], hub);
+        // Materialize the tree, so every node holds its parent link and tree root.
+        root.Children.Should().HaveCount(2);
+        mid.Children.Should().ContainSingle().Which.Should().BeSameAs(leaf);
+
+        // mid has a parent and is an ancestor of leaf in the same tree (ADR-0248 R2, case d).
+        // The exception is caught without a lambda, and the parents are compared as
+        // booleans: a failure would format the nodes, and a move that formed a loop would
+        // never finish formatting them.
+        Exception? cycle = null;
+        try
+        {
+            leaf.AddChild(mid);
+        }
+        catch (InvalidOperationException caught)
+        {
+            cycle = caught;
+        }
+
+        cycle.Should().NotBeNull("a parented ancestor in the same tree is a cycle");
+        cycle!.Message.Should().Contain("HIER-018");
+        ReferenceEquals(mid.HierarchicalParent, root).Should().BeTrue("a rejected move changes nothing");
+        ReferenceEquals(leaf.HierarchicalParent, mid).Should().BeTrue("a rejected move changes nothing");
+    }
+
+    [Fact]
+    public void Move_Of_A_Parented_Node_Within_A_Tree_And_Across_Trees_Succeeds()
+    {
+        var hub = new TestHub();
+        var leaf = Leaf(hub, "leaf");
+        var mid = Parent([leaf], hub);
+        var sibling = Leaf(hub, "sibling");
+        var root = Parent([mid, sibling], hub);
+        root.Children.Should().HaveCount(2);
+        mid.Children.Should().ContainSingle();
+
+        // sibling has a parent in the same tree and is not an ancestor of leaf (ADR-0248 R2, case d).
+        sibling.AddChild(leaf);
+        leaf.HierarchicalParent.Should().BeSameAs(sibling);
+        leaf.Depth.Should().Be(2);
+        leaf.Path[0].Should().BeSameAs(root);
+        leaf.Path[1].Should().BeSameAs(sibling);
+        mid.Children.Should().BeEmpty();
+
+        // other is in a different tree, so no cycle is possible (ADR-0248 R2, case b).
+        var other = Leaf(hub, "other");
+        other.AddChild(leaf);
+        leaf.HierarchicalParent.Should().BeSameAs(other);
+        leaf.Depth.Should().Be(1);
+        leaf.Path[0].Should().BeSameAs(other);
+        sibling.Children.Should().BeEmpty();
+    }
+
+    // Rule R2 case (a) of ADR-0248 is the self check. Without it, a parented node added to
+    // itself passes every other case, and its move loops forever. The move runs on its own
+    // thread under a budget, so a looping move fails this test in seconds instead of hanging
+    // the run. The exception is caught without a lambda that formats a node.
+    [Fact]
+    public void Self_Add_Of_A_Parented_Node_Is_Rejected_Within_The_Budget()
+    {
+        const int selfAddBudgetMs = 10_000;
+        var hub = new TestHub();
+        var leaf = Leaf(hub, "leaf");
+        var root = Parent([leaf], hub);
+        root.Children.Should().ContainSingle().Which.Should().BeSameAs(leaf);
+        // leaf holds a parent link, so only the self check (case a) rejects this move.
+        ReferenceEquals(leaf.HierarchicalParent, root).Should().BeTrue();
+
+        Exception? error = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                leaf.AddChild(leaf);
+            }
+            catch (InvalidOperationException caught)
+            {
+                error = caught;
+            }
+        })
+        {
+            IsBackground = true,
+        };
+        thread.Start();
+        thread.Join(selfAddBudgetMs).Should().BeTrue(
+            $"the self-add finishes within {selfAddBudgetMs} ms, so it does not loop");
+
+        error.Should().NotBeNull("a node may not be added to itself");
+        error!.Message.Should().Contain("HIER-018");
+        ReferenceEquals(leaf.HierarchicalParent, root).Should().BeTrue("a rejected move changes nothing");
+    }
+
+    // The three texts below are pinned exactly, so a changed or re-worded error is a failing
+    // test. ADR-0248 §2.4 keeps the existing texts. The exception is caught without a lambda
+    // and compared as a string, so a failure does not format a deep or looping graph.
+
+    [Fact]
+    public void Explicit_Cycle_Error_Names_The_Child_And_The_Receiver()
+    {
+        var hub = new TestHub();
+        var leaf = Leaf(hub, "leaf");
+        var mid = new Node(new Model(), _ => [leaf], hub, name: "mid");
+        var root = new Node(new Model(), _ => [mid], hub, name: "root");
+        root.Children.Should().ContainSingle();
+        mid.Children.Should().ContainSingle();
+
+        Exception? error = null;
+        try
+        {
+            leaf.AddChild(mid);
+        }
+        catch (InvalidOperationException caught)
+        {
+            error = caught;
+        }
+
+        error.Should().NotBeNull("a parented ancestor in the same tree is a cycle");
+        error!.Message.Should().Be(
+            "Cannot reparent 'mid' under 'leaf': it is this node or one of its ancestors (HIER-018).");
+    }
+
+    [Fact]
+    public void Factory_Returning_This_Node_Error_Has_The_Pinned_Text()
+    {
+        var node = new Node(new Model(), self => [self], new TestHub(), name: "self");
+
+        Exception? error = null;
+        try
+        {
+            _ = node.Children;
+        }
+        catch (InvalidOperationException caught)
+        {
+            error = caught;
+        }
+
+        error.Should().NotBeNull("a factory that returns its own node is a cycle");
+        error!.Message.Should().Be("The children factory returned this node or one of its ancestors.");
+    }
+
+    [Fact]
+    public void Factory_Returning_A_Parented_Child_Error_Has_The_Pinned_Text()
+    {
+        var hub = new TestHub();
+        var taken = Leaf(hub, "taken");
+        var owner = Parent([taken], hub);
+        owner.Children.Should().ContainSingle().Which.Should().BeSameAs(taken);
+
+        var node = new Node(new Model(), _ => [taken], hub, name: "node");
+        Exception? error = null;
+        try
+        {
+            _ = node.Children;
+        }
+        catch (InvalidOperationException caught)
+        {
+            error = caught;
+        }
+
+        error.Should().NotBeNull("a factory child that already has a parent is rejected");
+        error!.Message.Should().Be("The children factory returned an already-parented child.");
+        ReferenceEquals(taken.HierarchicalParent, owner).Should().BeTrue("the rejected factory changes nothing");
+    }
+
     // ── Multiple lazy accesses ───────────────────────────────────────────────
 
     [Fact]
@@ -380,6 +550,48 @@ public class HierarchicalVMTests
         last.Path.Should().HaveCount(DeepChainLevels + 1);
         last.Path[0].Should().BeSameAs(newRoot);
         last.Path[1].Should().BeSameAs(root);
+        // The deepest node reads its tree root from the restamped pointer. Parking an
+        // item on newRoot, the tree root, makes that root visible through the deepest
+        // node's ParkedAttachCount. A stale pointer would read the old root and see 0.
+        var orphan = new Node(new Model(), _ => [], hub, dispatcher, name: "orphan");
+        newRoot.AttachMany([orphan], node => node.Name,
+            _ => BatchParentKey<string>.For("no-such-parent"), MissingParentPolicy.Park);
+        last.ParkedAttachCount.Should().Be(1);
+        // The deepest node's tree root is now newRoot, so a parentless newRoot is a
+        // cycle for it. A stale root pointer would accept this attach and form a loop.
+        // The exception is caught without a lambda: a failure message would enumerate
+        // the loop, and the enumeration would not end.
+        Exception? cycle = null;
+        try
+        {
+            last.AddChild(newRoot);
+        }
+        catch (InvalidOperationException caught)
+        {
+            cycle = caught;
+        }
+        cycle.Should().NotBeNull("attaching the tree root under its own descendant is a cycle");
+    });
+
+    [Fact]
+    public void DeepChain_InvalidateSubtree_Detaches_Every_Materialized_Level() => RunOnSmallStack(() =>
+    {
+        var root = DeepChain(DeepChainLevels, new TestHub(), new TestDispatcher());
+        // Materialize every level top-down, so the invalidation has the whole chain to drop.
+        var last = root;
+        while (!last.IsLeaf)
+            last = last.Children[0];
+        last.Depth.Should().Be(DeepChainLevels - 1);
+
+        root.InvalidateSubtree();
+
+        // The deepest node was dropped from its parent, so it is a root again. The null
+        // check is a boolean, so a failure does not format the 10,000-node graph.
+        (last.HierarchicalParent is null).Should().BeTrue("the deepest node was dropped from its parent");
+        last.IsRoot.Should().BeTrue();
+        last.Depth.Should().Be(0);
+        // The root's own cache was dropped too: its next read invokes the factory again.
+        root.Children.Should().ContainSingle();
     });
 
     [Fact]

@@ -60,6 +60,14 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   child reads and the factory error rule (ADR-0170) are unchanged (spec/13,
   #1912).
 
+- `HierarchicalVm::invalidate_subtree()` no longer recurses once per tree level,
+  so a deep materialized chain no longer overflows the thread's stack. Every
+  materialized descendant is still invalidated, in the same order. Each node now
+  holds a weak link to its tree root (ADR-0247, #1912). An attach, move or
+  detach restamps the moved subtree in O(materialized subtree). A cycle check
+  costs O(1) while the stored tree roots are live, and a released root is found
+  through the parent links (ADR-0248, ADR-0249).
+
 - `select_command()` and `deselect_command()` re-raise `can_execute_changed` when the VM's
   current flag or its parent link changes. A select, a move of `Current`, or a
   container add or remove used to leave a bound control with a stale `can_execute()`

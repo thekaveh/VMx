@@ -1,7 +1,8 @@
-//! Deep-chain tests for `walk`, `walk_expanded`, `find`, `depth`, `path` and a
-//! move of a subtree (issue #1912). The tree is 10,000 levels deep. Each test
-//! body runs on a thread with a 512 KiB stack, so an implementation that
-//! recurses once per level overflows that stack and aborts the test binary.
+//! Deep-chain tests for `walk`, `walk_expanded`, `find`, `depth`, `path`, a
+//! move of a subtree and `invalidate_subtree` (issue #1912). The tree is
+//! 10,000 levels deep. Each test body runs on a thread with a 512 KiB stack,
+//! so an implementation that recurses once per level overflows that stack and
+//! aborts the test binary.
 
 use std::thread;
 use vmx::{find, walk, walk_expanded, HierarchicalVm, MessageHub};
@@ -11,9 +12,10 @@ const STACK_BYTES: usize = 512 * 1024;
 
 /// A chain of `levels` nodes whose model is the node's depth. Children come
 /// from factories, so building the chain does not touch any cache. The node
-/// at depth `depth` materializes one child until the last level.
+/// at depth `depth` materializes one child until the last level. Each child
+/// gets its own hub: on one shared hub, every structural message reaches every
+/// node, so a chain's messages cost O(levels²).
 fn chain(depth: usize, levels: usize, hub: MessageHub) -> HierarchicalVm<usize> {
-    let factory_hub = hub.clone();
     HierarchicalVm::with_children_factory(
         format!("n{depth}"),
         depth,
@@ -21,7 +23,7 @@ fn chain(depth: usize, levels: usize, hub: MessageHub) -> HierarchicalVm<usize> 
             if depth + 1 == levels {
                 Vec::new()
             } else {
-                vec![chain(depth + 1, levels, factory_hub.clone())]
+                vec![chain(depth + 1, levels, MessageHub::new())]
             }
         },
         false,
@@ -114,7 +116,31 @@ fn deep_chain_moves_under_a_new_parent() {
         assert_eq!(path.len(), LEVELS + 1);
         assert!(path[0] == new_root);
         assert!(path[1] == root);
+        // The deepest node now shares its tree root with new_root, so new_root
+        // is one of its ancestors and must not become its child.
+        assert!(
+            last.add_child(new_root.clone()).is_err(),
+            "the moved subtree restamps its nodes with the new tree root"
+        );
 
         release(&new_root);
+    });
+}
+
+#[test]
+fn deep_chain_invalidate_subtree_clears_every_level() {
+    on_small_stack(|| {
+        let root = chain(0, LEVELS, MessageHub::new());
+        let nodes = materialize(&root);
+        assert!(nodes.iter().all(|node| node.is_children_materialized()));
+
+        root.invalidate_subtree();
+
+        assert!(nodes.iter().all(|node| !node.is_children_materialized()));
+        assert!(root.is_root());
+        // The factory runs again on the next read, so the chain rebuilds.
+        assert_eq!(materialize(&root).len(), LEVELS);
+
+        release(&root);
     });
 }
