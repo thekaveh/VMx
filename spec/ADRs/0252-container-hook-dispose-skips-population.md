@@ -41,8 +41,9 @@ this for `CompositeVM`, `CompositeVMOf` and `GroupVM`.
 
 C#, Python, Swift and Rust return from the construct path when the hook superseded it.
 Their population and walk do not run, and `construct()` returns without an error. Their
-same-thread tests cover this path. The C#, Python and Swift tests discard the `construct()`
-outcome, and the Rust test asserts `Ok(())`. This ADR does not change those tests.
+same-thread tests cover this path. Before this ADR, the C#, Python and Swift tests discarded
+the `construct()` outcome, and the Rust test asserted `Ok(())`. Section 3.3 records the
+change to the C#, Python and Swift tests.
 
 ## 2. Decision
 
@@ -129,35 +130,50 @@ difference is recorded here as an open corner, not as a decided behavior.
   `CompositeVM`, `CompositeVMOf` and `GroupVM` now end with status `Disposed`, no children and no
   error, and the factory does not run. The public API does not change, so
   `langs/typescript/api/vmx.api.txt` does not change.
-- **C#, Python, Swift and Rust.** No code change. Each already returns from the construct path
-  for a superseded hook.
+- **C#, Python, Swift and Rust.** No library code change. Each already returns from the construct
+  path for a superseded hook. The same-thread tests of C#, Python and Swift change, as §3.3 says.
 
 ### 3.2 Specification
 
 Chapter 02 §2.4 names the same-thread case. The `LIFE-015` clause in chapter 12 names it too.
 No conformance ID is added, and `spec/VERSION` does not change.
 
-`spec/HISTORY.md` §39 gets one sentence that names this ADR. The release-record test (rule B in
+`spec/HISTORY.md` §39 gets one sentence that names this ADR. Issue #1805 asked for no edit to
+`spec/HISTORY.md`, and this ADR keeps the edit anyway. The release-record test (rule B in
 `tools/tests/test_adr_release_records.py`) requires the 3.30.0 section to name every 3.30.0 ADR,
-and the recent ADR-0248 to ADR-0250 pull requests did the same. Issue #1805 asked for no edit to
-`spec/HISTORY.md`. This ADR departs from that request, because the test fails without the
-sentence.
+and it fails without this sentence. The recent ADR-0248 to ADR-0250 pull requests did the same.
 
 ### 3.3 Tests
 
-Three TypeScript tests under `describe("LIFE-015")` in `lifecycle.test.ts` cover
-`CompositeVM`, `CompositeVMOf` and `GroupVM`. Each disposes its container in the construct hook.
-Each asserts that `construct()` does not throw, that the factory ran 0 times, that `count` is 0,
-and that the status is `Disposed`.
+The same-thread `LIFE-015` tests of all five flavors changed, as follows.
 
-The C#, Python and Swift same-thread tests still discard the `construct()` outcome. The Rust test
-asserts `Ok(())`. This ADR leaves those tests unchanged, because the scope of issue #1805 is
-TypeScript.
+- **TypeScript.** Three new tests under `describe("LIFE-015")` in `lifecycle.test.ts` cover
+  `CompositeVM`, `CompositeVMOf` and `GroupVM`. Each disposes its container in the construct
+  hook. Each asserts that `construct()` does not throw, that the factory ran 0 times, that
+  `count` is 0, and that the status is `Disposed`.
+- **C#.** `LIFE_015_Same_Thread_Container_Disposal_Inside_Hook_Cascades_Immediately` counts the
+  children factory calls and asserts that `Record.Exception(composite.Construct)` is null. The
+  test discarded that result before. It asserts that the factory ran 0 times.
+- **Python.** `test_LIFE_015_same_thread_composite_disposal_inside_hook_cascades_immediately`
+  calls `construct()` without a `try`, so an exception fails the test. It no longer swallows
+  `BaseException`. It counts the children factory calls and asserts that they are 0.
+- **Swift.** `testSameThreadDisposeInsideOwnHookCascadesImmediately` calls `construct()` in a
+  `do` block whose `catch` calls `XCTFail`. It asserts that the factory ran 0 times for the
+  composite and for the group. The `Container.make` helper takes an optional `factoryCalls` log,
+  which defaults to none, so the other tests are unchanged.
+- **Rust.** No change. The test already asserts that `composite.construct()` returns `Ok(())`,
+  so it does not discard the result.
+
+Python was checked by mutation. With its superseded-hook early return disabled, the test fails
+with `cannot attach a child while the container is disposing`. The C# and Swift tests were not
+mutated in this change.
 
 ### 3.4 Changelog
 
 The TypeScript changelog gets a `Fixed` entry under the current `unreleased source version`
-heading. No other package changes.
+heading. The C#, Python and Swift changelogs each get an `Added` entry for the test change in
+§3.3, under their current `unreleased source version` headings. Rust gets none. No other
+package changes.
 
 ## 4. Conformance
 

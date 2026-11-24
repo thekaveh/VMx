@@ -17,6 +17,9 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- `LIFE-015` same-thread test now asserts the `construct()` outcome: it does not
+  throw, and the children factory runs 0 times when the hook disposes the
+  container (ADR-0252, #1805). Swift already behaved this way.
 - `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
   cancelled from a value-less `Error` restores that `Error`.
 - `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused

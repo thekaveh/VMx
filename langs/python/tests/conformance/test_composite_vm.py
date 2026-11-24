@@ -2347,6 +2347,7 @@ def test_LIFE_015_same_thread_composite_disposal_inside_hook_cascades_immediatel
     first = _CleanupProbe("first", hub, log)
     second = _CleanupProbe("second", hub, log)
     holder: list[CompositeVM[ComponentVM]] = []
+    factory_calls: list[str] = []
 
     def hook() -> None:
         log.append("hook-enter")
@@ -2354,12 +2355,16 @@ def test_LIFE_015_same_thread_composite_disposal_inside_hook_cascades_immediatel
         log.append("dispose-returned")
         log.append("hook-exit")
 
+    def children() -> tuple[ComponentVM, ...]:
+        factory_calls.append("factory")
+        return ()
+
     composite: CompositeVM[ComponentVM] = (
         CompositeVMBuilder()
         .name("comp")
         .services(hub, _dispatcher())
         .on_construct(hook)
-        .children(lambda: ())
+        .children(children)
         .build()
     )
     holder.append(composite)
@@ -2368,13 +2373,12 @@ def test_LIFE_015_same_thread_composite_disposal_inside_hook_cascades_immediatel
     constructed: list[str] = []
     _record_constructed(hub, constructed)
 
-    try:
-        composite.construct()
-    except BaseException:
-        pass
+    # A same-thread dispose supersedes the hook, so construct() returns without an error.
+    composite.construct()
     composite.dispose()
 
     assert log == ["hook-enter", "cleanup:first", "cleanup:second", "dispose-returned", "hook-exit"]
+    assert factory_calls == [], "a superseded hook skips the children factory"
     assert first.cleanups == 1
     assert second.cleanups == 1
     assert composite.status is ConstructionStatus.DISPOSED

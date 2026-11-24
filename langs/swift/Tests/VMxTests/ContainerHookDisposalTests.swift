@@ -59,17 +59,26 @@ private struct Container {
         _ kind: String,
         hub: MessageHubProtocol,
         factory: Bool,
+        factoryCalls: EventLog? = nil,
         hook: @escaping () throws -> Void
     ) -> Container {
         if kind == "composite" {
             let vm = CompositeVM<CleanupProbe>(
                 name: kind, hub: hub, dispatcher: NullDispatcher.INSTANCE,
-                childrenFactory: factory ? { [] } : nil, onConstruct: hook)
+                childrenFactory: factory ? {
+                    factoryCalls?.add("factory")
+                    return []
+                } : nil,
+                onConstruct: hook)
             return Container(vm: vm, add: { vm.add($0) })
         }
         let vm = GroupVM<CleanupProbe>(
             name: kind, hub: hub, dispatcher: NullDispatcher.INSTANCE,
-            childrenFactory: factory ? { [] } : nil, onConstruct: hook)
+            childrenFactory: factory ? {
+                factoryCalls?.add("factory")
+                return []
+            } : nil,
+            onConstruct: hook)
         return Container(vm: vm, add: { vm.add($0) })
     }
 }
@@ -224,8 +233,11 @@ final class ContainerHookDisposalTests: XCTestCase {
         for kind in ["composite", "group"] {
             let hub = MessageHub()
             let log = EventLog()
+            let factoryCalls = EventLog()
             var owner: ComponentVMBase?
-            let container = Container.make(kind, hub: hub, factory: true) {
+            let container = Container.make(
+                kind, hub: hub, factory: true, factoryCalls: factoryCalls
+            ) {
                 log.add("hook-enter")
                 owner?.dispose()
                 log.add("dispose-returned")
@@ -236,11 +248,16 @@ final class ContainerHookDisposalTests: XCTestCase {
             container.add(first)
             container.add(second)
 
-            try? container.vm.construct()
+            do {
+                try container.vm.construct()
+            } catch {
+                XCTFail("\(kind): construct() must not throw after a same-thread dispose: \(error)")
+            }
 
             XCTAssertEqual(
                 Array(log.all.prefix(4)),
                 ["hook-enter", "cleanup:first", "cleanup:second", "dispose-returned"], kind)
+            XCTAssertEqual(factoryCalls.all, [], "\(kind): a superseded hook skips the children factory")
             XCTAssertEqual(container.vm.status, .disposed, kind)
             XCTAssertEqual(first.cleanups, 1, kind)
             XCTAssertEqual(second.cleanups, 1, kind)

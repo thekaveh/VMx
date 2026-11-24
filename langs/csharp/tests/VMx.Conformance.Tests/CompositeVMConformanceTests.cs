@@ -1226,9 +1226,14 @@ public class CompositeVMConformanceTests
         var first = new HookCleanupProbeVM("first", hub, dispatcher, log);
         var second = new HookCleanupProbeVM("second", hub, dispatcher, log);
         CompositeVM<IComponentVM>? composite = null;
+        var factoryCalls = 0;
         composite = CompositeVM<IComponentVM>.Builder()
             .Name("composite").Services(hub, dispatcher)
-            .Children(() => Array.Empty<IComponentVM>())
+            .Children(() =>
+            {
+                factoryCalls++;
+                return Array.Empty<IComponentVM>();
+            })
             .OnConstruct(() =>
             {
                 log.Enqueue("hook-enter");
@@ -1247,12 +1252,14 @@ public class CompositeVMConformanceTests
                 constructedNames.Add(csm.SenderName);
         });
 
-        _ = Record.Exception(composite.Construct);
+        Record.Exception(composite.Construct).Should().BeNull(
+            "a same-thread dispose supersedes the hook, so construct() returns without an error");
         composite.Dispose();
 
         log.Should().Equal(
             ["hook-enter", "cleanup:first", "cleanup:second", "dispose-returned", "hook-exit"],
             "an owner-thread disposal is not deferred behind its own hook");
+        factoryCalls.Should().Be(0, "a superseded hook skips the children factory");
         first.Cleanups.Should().Be(1);
         second.Cleanups.Should().Be(1);
         composite.Status.Should().Be(ConstructionStatus.Disposed);
