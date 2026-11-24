@@ -140,62 +140,67 @@ final class HierarchicalMutationTests: XCTestCase {
 
     /// HIER-018 — reparentChild rejects self- and ancestor-reparenting:
     /// throws, leaves the tree intact, and publishes 0 TreeStructureChangedMessages.
-    func testHier018ReparentGuard() throws {
-        let hub = MessageHub()
-        var structureMessages: [TreeStructureChangedMessage] = []
-        var bag = Set<AnyCancellable>()
-        hub.messages.sink { msg in
-            if let structure = msg as? TreeStructureChangedMessage { structureMessages.append(structure) }
-        }.store(in: &bag)
+    func testHier018ReparentGuard() {
+        // Runs under the watchdog: without the self-reparent guard (case (a)),
+        // the subtree restamp loops forever. The watchdog turns that hang into
+        // a failure instead of a stalled job.
+        runWatched {
+            let hub = MessageHub()
+            var structureMessages: [TreeStructureChangedMessage] = []
+            var bag = Set<AnyCancellable>()
+            hub.messages.sink { msg in
+                if let structure = msg as? TreeStructureChangedMessage { structureMessages.append(structure) }
+            }.store(in: &bag)
 
-        let leaf = makeNode(hub, name: "leaf")
-        let mid = makeNode(hub, name: "mid", children: [leaf])
-        let root = makeNode(hub, name: "root", children: [mid])
+            let leaf = self.makeNode(hub, name: "leaf")
+            let mid = self.makeNode(hub, name: "mid", children: [leaf])
+            let root = self.makeNode(hub, name: "root", children: [mid])
 
-        // Materialize so parent backpointers are wired.
-        _ = root.children
-        _ = mid.children
-        _ = leaf.path
+            // Materialize so parent backpointers are wired.
+            _ = root.children
+            _ = mid.children
+            _ = leaf.path
 
-        // Self-reparenting must throw HierarchyError.invalidReparent exactly.
-        XCTAssertThrowsError(try leaf.reparentChild(leaf),
-            "reparentChild(self) should throw HierarchyError.invalidReparent") { error in
-            XCTAssertEqual(error as? HierarchyError, .invalidReparent)
+            // Self-reparenting must throw HierarchyError.invalidReparent exactly.
+            XCTAssertThrowsError(try leaf.reparentChild(leaf),
+                "reparentChild(self) should throw HierarchyError.invalidReparent") { error in
+                XCTAssertEqual(error as? HierarchyError, .invalidReparent)
+            }
+
+            // Reparenting an ancestor under its own descendant must throw the same error.
+            XCTAssertThrowsError(try leaf.reparentChild(root),
+                "reparentChild(ancestor) should throw HierarchyError.invalidReparent") { error in
+                XCTAssertEqual(error as? HierarchyError, .invalidReparent)
+            }
+
+            self.assertInvalidReparent(leaf.addChild(leaf), "addChild(self)")
+            self.assertInvalidReparent(leaf.addChild(root), "addChild(ancestor)")
+
+            // Tree structure must be completely unchanged.
+            XCTAssertNil(root.parent, "root.parent should remain nil")
+            XCTAssertTrue(mid.parent === root, "mid.parent should still be root")
+            XCTAssertTrue(leaf.parent === mid, "leaf.parent should still be mid")
+            XCTAssertEqual(leaf.depth, 2, "leaf.depth should remain 2")
+
+            // No structure messages should have been published.
+            XCTAssertEqual(structureMessages.count, 0, "No TreeStructureChangedMessages expected on guard rejection")
+
+            let newParent = self.makeNode(hub, name: "newParent")
+            guard case .success = newParent.addChild(leaf) else {
+                return XCTFail("cross-parent addChild should succeed")
+            }
+            XCTAssertTrue(mid.children.isEmpty)
+            XCTAssertEqual(newParent.children.count, 1)
+            XCTAssertTrue(newParent.children.first === leaf)
+            XCTAssertTrue(leaf.parent === newParent)
+            // The addChild transfer publishes exactly one message: Reparented, from newParent, for leaf.
+            XCTAssertEqual(structureMessages.count, 1)
+            let transfer = try XCTUnwrap(structureMessages.first)
+            XCTAssertTrue(transfer.sender === newParent)
+            XCTAssertTrue(transfer.affected === leaf)
+            XCTAssertEqual(transfer.change, .reparented,
+                           "HIER-018: the addChild transfer publishes Reparented, not Added")
         }
-
-        // Reparenting an ancestor under its own descendant must throw the same error.
-        XCTAssertThrowsError(try leaf.reparentChild(root),
-            "reparentChild(ancestor) should throw HierarchyError.invalidReparent") { error in
-            XCTAssertEqual(error as? HierarchyError, .invalidReparent)
-        }
-
-        assertInvalidReparent(leaf.addChild(leaf), "addChild(self)")
-        assertInvalidReparent(leaf.addChild(root), "addChild(ancestor)")
-
-        // Tree structure must be completely unchanged.
-        XCTAssertNil(root.parent, "root.parent should remain nil")
-        XCTAssertTrue(mid.parent === root, "mid.parent should still be root")
-        XCTAssertTrue(leaf.parent === mid, "leaf.parent should still be mid")
-        XCTAssertEqual(leaf.depth, 2, "leaf.depth should remain 2")
-
-        // No structure messages should have been published.
-        XCTAssertEqual(structureMessages.count, 0, "No TreeStructureChangedMessages expected on guard rejection")
-
-        let newParent = makeNode(hub, name: "newParent")
-        guard case .success = newParent.addChild(leaf) else {
-            return XCTFail("cross-parent addChild should succeed")
-        }
-        XCTAssertTrue(mid.children.isEmpty)
-        XCTAssertEqual(newParent.children.count, 1)
-        XCTAssertTrue(newParent.children.first === leaf)
-        XCTAssertTrue(leaf.parent === newParent)
-        // The addChild transfer publishes exactly one message: Reparented, from newParent, for leaf.
-        XCTAssertEqual(structureMessages.count, 1)
-        let transfer = try XCTUnwrap(structureMessages.first)
-        XCTAssertTrue(transfer.sender === newParent)
-        XCTAssertTrue(transfer.affected === leaf)
-        XCTAssertEqual(transfer.change, .reparented,
-                       "HIER-018: the addChild transfer publishes Reparented, not Added")
     }
 
     /// Fails the test unless `result` is `.failure(.invalidReparent)`.
