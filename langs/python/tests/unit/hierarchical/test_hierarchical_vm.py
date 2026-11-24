@@ -5,6 +5,7 @@ Conformance-level tests live in tests/conformance/test_hier_001_to_014.py.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -382,6 +383,19 @@ class TestDisposedNodeRefusal:
 DEEP_CHAIN_LEVELS = 10_000
 
 
+def _refusal(message: str) -> str:
+    """A ``pytest.raises`` match that requires the whole refusal text, prefix included."""
+    return rf"\A{re.escape(message)}\Z"
+
+
+def _cycle_refusal(child: str, receiver: str) -> str:
+    """The HIER-018 refusal for moving *child* under *receiver*, as a match pattern."""
+    return _refusal(
+        f"Cannot reparent '{child}' under '{receiver}': "
+        "it is this node or one of its ancestors (HIER-018)."
+    )
+
+
 def _deep_chain(levels: int, hub: MessageHub[Any], dispatcher: RxDispatcher) -> Node:
     """A chain of ``levels`` nodes. Children come from factories, so building the
     chain does not touch the path caches."""
@@ -476,7 +490,7 @@ def test_deep_chain_refuses_its_root_under_a_descendant() -> None:
     new_root.add_child(root)
 
     # The move stamped new_root as the tree root of last, so last refuses it.
-    with pytest.raises(ValueError, match="this node or one of its ancestors"):
+    with pytest.raises(ValueError, match=_cycle_refusal("new-root", "n9999")):
         last.add_child(new_root)
 
     assert new_root.parent is None
@@ -491,7 +505,7 @@ def test_deep_chain_refuses_an_ancestor_under_a_descendant() -> None:
     middle, last = nodes[DEEP_CHAIN_LEVELS // 2], nodes[-1]
     parent_of_middle = middle.parent
 
-    with pytest.raises(ValueError, match="this node or one of its ancestors"):
+    with pytest.raises(ValueError, match=_cycle_refusal("n5000", "n9999")):
         last.add_child(middle)
 
     assert middle.parent is parent_of_middle
@@ -521,7 +535,9 @@ def test_deep_chain_factory_returning_an_ancestor_is_refused() -> None:
     last.add_child(tail)
 
     # root has no parent, but it is the top of tail's tree, so it is an ancestor of tail.
-    with pytest.raises(ValueError, match="this node or one of its ancestors"):
+    with pytest.raises(
+        ValueError, match=_refusal("children factory returned this node or one of its ancestors")
+    ):
         _ = tail.children
 
     assert root.parent is None
@@ -539,7 +555,9 @@ def test_deep_chain_factory_returning_a_parented_ancestor_is_refused() -> None:
 
     # middle has a parent, and it is an ancestor of tail. The message names the ancestor,
     # not the already-parented branch (ADR-0248 R1).
-    with pytest.raises(ValueError, match="this node or one of its ancestors"):
+    with pytest.raises(
+        ValueError, match=_refusal("children factory returned this node or one of its ancestors")
+    ):
         _ = tail.children
 
     assert middle.parent is parent_of_middle
@@ -555,7 +573,9 @@ def test_factory_child_owned_by_another_parent_is_refused() -> None:
     holder = Node(children_factory=lambda _: [owned], hub=hub, dispatcher=dispatcher, name="holder")
 
     # owned has a parent that is not an ancestor of holder, so the already-parented message applies.
-    with pytest.raises(ValueError, match="an already-parented child"):
+    with pytest.raises(
+        ValueError, match=_refusal("children factory returned an already-parented child")
+    ):
         _ = holder.children
 
     assert owned.parent is other_parent
