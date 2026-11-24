@@ -206,14 +206,16 @@ final class HierarchicalMutationTests: XCTestCase {
         XCTAssertEqual(error, .invalidReparent, "\(label) error")
     }
 
-    /// Runs `body` on its own thread and fails the test when it does not finish
-    /// within `seconds`. A move that wrongly creates a children cycle makes the
-    /// subtree restamp loop forever, so the watchdog turns that hang into a
-    /// failure.
+    /// Runs `body` on its own thread and fails the test when it does not return
+    /// within `seconds`. The default is the shared liveness bound `hangGuard`
+    /// (Liveness.swift, #1408). The bound stops a hang. It measures no speed, and
+    /// a body that returns costs nothing. A move that wrongly creates a children
+    /// cycle makes the subtree restamp loop forever, so the watchdog turns that
+    /// hang into a failure.
     /// `stackBytes` overrides the thread's stack size when it is positive. A body
     /// that releases a deep chain needs a larger stack than the default.
     private func runWatched(
-        seconds: Double = 20,
+        seconds: Double = hangGuard,
         stackBytes: Int = 0,
         _ body: @escaping () throws -> Void
     ) {
@@ -229,7 +231,7 @@ final class HierarchicalMutationTests: XCTestCase {
         if stackBytes > 0 { thread.stackSize = stackBytes }
         thread.start()
         let result = finished.wait(timeout: .now() + seconds)
-        XCTAssertEqual(result, .success, "the body finishes within \(seconds) s")
+        XCTAssertEqual(result, .success, "the body returns within \(seconds) s (liveness bound, Liveness.swift)")
     }
 
     /// ADR-0248 R2 case (d): a parented node of the receiver's own tree is

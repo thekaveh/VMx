@@ -24,7 +24,6 @@ private final class DeepChainOutcome {
 final class HierarchicalDeepChainTests: XCTestCase {
     private static let levels = 10_000
     private static let stackBytes = 512 * 1024
-    private static let budgetSeconds: Double = 60
 
     /// A chain of `levels` nodes. Children come from factories, so building the
     /// chain does not touch the path caches. The node at depth `d` materializes
@@ -62,8 +61,10 @@ final class HierarchicalDeepChainTests: XCTestCase {
         }
     }
 
-    /// Runs `body` on a thread with a 512 KiB stack and waits for it to finish.
-    /// An error thrown by `body` fails the test on the calling thread.
+    /// Runs `body` on a thread with a 512 KiB stack and waits for it to return.
+    /// The wait is the shared liveness bound `hangGuard` (Liveness.swift, #1408):
+    /// it stops a hang and measures no speed. An error thrown by `body` fails the
+    /// test on the calling thread.
     private func runOnSmallStack(_ body: @escaping () throws -> Void) {
         let outcome = DeepChainOutcome()
         let finished = DispatchSemaphore(value: 0)
@@ -77,11 +78,11 @@ final class HierarchicalDeepChainTests: XCTestCase {
         }
         thread.stackSize = Self.stackBytes
         thread.start()
-        let result = finished.wait(timeout: .now() + Self.budgetSeconds)
+        let result = finished.wait(timeout: .now() + hangGuard)
         XCTAssertEqual(
             result,
             .success,
-            "the deep-chain body finishes within \(Self.budgetSeconds) s"
+            "the deep-chain body returns within \(hangGuard) s (liveness bound, Liveness.swift)"
         )
         if let error = outcome.error {
             XCTFail("the deep-chain body threw: \(error)")
