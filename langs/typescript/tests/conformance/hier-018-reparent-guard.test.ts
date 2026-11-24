@@ -32,6 +32,13 @@ class MyNode extends HierarchicalVM<MyModel, MyNode> {
   }
 }
 
+/** The exact HIER-018 text of an explicit add or reparent (ADR-0248 R4 keeps it). */
+const hier018 = (child: string, under: string): RegExp =>
+  new RegExp(
+    `^Cannot reparent '${child}' under '${under}': ` +
+      "it is this node or one of its ancestors \\(HIER-018\\)\\.$",
+  );
+
 describe("HIER-018", () => {
   it("reparentChild rejects self- and ancestor-reparenting and leaves the tree intact", () => {
     const hub: IMessageHub = new MessageHub();
@@ -49,12 +56,12 @@ describe("HIER-018", () => {
     });
 
     // Self-reparenting raises.
-    expect(() => leaf.reparentChild(leaf)).toThrow(/HIER-018/);
+    expect(() => leaf.reparentChild(leaf)).toThrow(hier018("leaf", "leaf"));
 
     // Reparenting an ancestor under its own descendant raises.
-    expect(() => leaf.reparentChild(root)).toThrow(/HIER-018/);
-    expect(() => leaf.addChild(leaf)).toThrow(/HIER-018/);
-    expect(() => leaf.addChild(root)).toThrow(/HIER-018/);
+    expect(() => leaf.reparentChild(root)).toThrow(hier018("root", "leaf"));
+    expect(() => leaf.addChild(leaf)).toThrow(hier018("leaf", "leaf"));
+    expect(() => leaf.addChild(root)).toThrow(hier018("root", "leaf"));
 
     // Tree structure unchanged; no message published.
     expect(root.parent).toBeNull();
@@ -84,8 +91,8 @@ describe("HIER-018", () => {
 
     // mid has a parent, so the guard walks leaf's ancestors and finds mid
     // (ADR-0247 D2). The root case above is the parentless O(1) branch.
-    expect(() => leaf.reparentChild(mid)).toThrow(/HIER-018/);
-    expect(() => leaf.addChild(mid)).toThrow(/HIER-018/);
+    expect(() => leaf.reparentChild(mid)).toThrow(hier018("mid", "leaf"));
+    expect(() => leaf.addChild(mid)).toThrow(hier018("mid", "leaf"));
 
     expect(root.children).toHaveLength(1);
     expect(root.children[0]).toBe(mid);

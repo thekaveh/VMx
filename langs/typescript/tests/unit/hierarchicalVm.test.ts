@@ -367,15 +367,22 @@ describe("ParentedChildFactory", () => {
 // HIER-018 cycle guard by stored tree root (ADR-0248 R2, cases a to d)
 // ---------------------------------------------------------------------------
 
+/** The exact HIER-018 text of an explicit add or reparent (ADR-0248 R4 keeps it). */
+const hier018 = (child: string, under: string): RegExp =>
+  new RegExp(
+    `^Cannot reparent '${child}' under '${under}': ` +
+      "it is this node or one of its ancestors \\(HIER-018\\)\\.$",
+  );
+
 describe("CycleGuardByStoredRoot", () => {
   it("R2 (a): a node cannot be added under itself", () => {
     const node = leaf(makeHub(), "solo");
 
-    expect(() => node.addChild(node)).toThrow(/HIER-018/);
+    expect(() => node.addChild(node)).toThrow(hier018("solo", "solo"));
     expect(node.parent).toBeNull();
   });
 
-  it("R2 (b): a parented candidate from another tree transfers with no cycle error", () => {
+  it("R2 (b): a candidate from another tree transfers with no cycle error, parented or not", () => {
     const hub = makeHub();
     const moved = leaf(hub, "moved");
     const oldRoot = parentOf([moved], hub);
@@ -388,15 +395,21 @@ describe("CycleGuardByStoredRoot", () => {
     expect(moved.parent).toBe(newRoot);
     expect(oldRoot.children).toHaveLength(0);
     expect(moved.path.map((n) => n.name)).toEqual(["new-root", "moved"]);
+
+    // A parentless candidate from another tree is also a transfer, not a cycle.
+    const lone = leaf(hub, "lone");
+    newRoot.addChild(lone);
+    expect(lone.parent).toBe(newRoot);
+    expect(newRoot.children).toEqual([moved, lone]);
   });
 
   it("R2 (c): a parentless candidate that is this tree's root is a cycle", () => {
     const hub = makeHub();
     const child = leaf(hub, "child");
-    const root = parentOf([child], hub);
+    const root = new Node({ hub, name: "root", childrenFactory: () => [child] });
     expect(root.children).toHaveLength(1);
 
-    expect(() => child.addChild(root)).toThrow(/HIER-018/);
+    expect(() => child.addChild(root)).toThrow(hier018("root", "child"));
     expect(root.parent).toBeNull();
     expect(child.parent).toBe(root);
   });
@@ -405,13 +418,13 @@ describe("CycleGuardByStoredRoot", () => {
     const hub = makeHub();
     const sibling = leaf(hub, "sibling");
     const deep = leaf(hub, "deep");
-    const mid = parentOf([deep], hub);
-    const root = parentOf([mid, sibling], hub);
+    const mid = new Node({ hub, name: "mid", childrenFactory: () => [deep] });
+    const root = new Node({ hub, name: "root", childrenFactory: () => [mid, sibling] });
     expect(root.children).toHaveLength(2);
     expect(mid.children).toHaveLength(1);
 
     // mid is parented and is an ancestor of deep: the walk finds it.
-    expect(() => deep.addChild(mid)).toThrow(/HIER-018/);
+    expect(() => deep.addChild(mid)).toThrow(hier018("mid", "deep"));
     expect(mid.parent).toBe(root);
     expect(deep.parent).toBe(mid);
 
