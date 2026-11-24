@@ -141,6 +141,18 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// and its ancestors and keep the node alive (the `parent` link is weak
     /// for the same reason).
     private var _pathCache: [WeakPathNode<TVM>]?
+
+    /// The root of this node's tree (ADR-0247 D1). A root holds itself. A child
+    /// takes its parent's root when it attaches, and a moved or detached subtree
+    /// is restamped in the same traversal that clears its path caches, so the
+    /// root of a node is read in O(1). The link is weak, like `parent`: a strong
+    /// link would form an ARC cycle with the children array, and a root does not
+    /// keep itself alive. A nil link means the root was released with its tree,
+    /// and `treeRoot()` then walks the parent links to the topmost live
+    /// ancestor, the root of the surviving subtree (ADR-0249, which amends
+    /// ADR-0248 §2.3).
+    private weak var rootLink: TVM?
+
     private var materializingChildren = false
     private var materializationReentered = false
 
@@ -200,6 +212,8 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             hub: hub,
             dispatcher: dispatcher
         )
+        // A new node is the root of its own tree (ADR-0247 D1).
+        rootLink = selfNode
     }
 
     // ── Tree identity ───────────────────────────────────────────────────
@@ -254,11 +268,10 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             return .failure(.invalidFactoryOutput)
         }
         // Only the root of this node's tree can be an ancestor of this node and
-        // still have no parent (every other ancestor has one). Walking up to that
-        // root once avoids building a set of all ancestors for every node, which
-        // made top-down materialization of a deep chain quadratic in set inserts.
-        var top: TVM = selfNode
-        while let up = node(top).parent { top = up }
+        // still have no parent (every other ancestor has one). The root link
+        // gives that root in O(1), so materializing a deep chain costs O(1) per
+        // node (ADR-0247 D2).
+        let top = treeRoot()
         var seen = Set<ObjectIdentifier>()
         for child in materialized {
             let identity = ObjectIdentifier(child)
@@ -269,10 +282,8 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             }
         }
         for child in materialized {
-            let childNode = node(child)
-            childNode.parent = selfNode
-            childNode._pathCache = nil
-            invalidatePathCacheDescendants(of: child)
+            node(child).parent = selfNode
+            restampSubtree(child, root: top)
         }
         _children = materialized
         return .success(materialized)
@@ -416,8 +427,8 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         if let oldParent = node(child).parent, node(oldParent).isDisposedNode {
             return .failure(.disposed)
         }
-        // HIER-018: child is self or one of self's ancestors → cycle.
-        if path.contains(where: { $0 === child }) {
+        // HIER-018: child is self or one of self's ancestors → cycle (ADR-0248 R2).
+        if createsCycle(child) {
             return .failure(.invalidReparent)
         }
 
@@ -451,6 +462,29 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             index: reparented ? -1 : newIndex
         ))
         return .success(())
+    }
+
+    /// `true` when attaching `child` under this node would create a parent
+    /// cycle (HIER-018, ADR-0248 R2). The cases run in order, and only case (d)
+    /// walks ancestors:
+    /// (a) `child` is this node;
+    /// (b) the stored roots differ, so no cycle is possible;
+    /// (c) the roots agree and `child` has no parent, so `child` is that root;
+    /// (d) the roots agree and `child` has a parent: a cycle exists only when
+    ///     `child` is one of this node's ancestors.
+    private func createsCycle(_ child: TVM) -> Bool {
+        if child === selfNode { return true }
+        let receiverRoot = treeRoot()
+        if node(child).parent == nil {
+            return child === receiverRoot
+        }
+        if node(child).treeRoot() !== receiverRoot { return false }
+        var ancestor = parent
+        while let current = ancestor {
+            if current === child { return true }
+            ancestor = node(current).parent
+        }
+        return false
     }
 
     /// Number of missing-parent items retained on the structural root.
@@ -673,8 +707,8 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             let childNode = node(child)
             guard childNode.parent === selfNode else { continue }
             childNode.parent = nil
-            childNode._pathCache = nil
-            invalidatePathCacheDescendants(of: child)
+            // A detached child is the root of its own tree (ADR-0247 D1).
+            restampSubtree(child, root: child)
         }
         _children = nil
         hub.send(PropertyChangedMessage(
@@ -696,13 +730,33 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
     /// Drops the materialized caches below and at this node, children first.
     /// `invalidateChildren` skips a disposed node, so the walk only skips it.
+    ///
+    /// An explicit stack replaces the recursion, so the depth of the
+    /// materialized subtree is not limited by the call stack (ADR-0247 D3). The
+    /// walk visits nodes in the order of the recursive walk, and it reads each
+    /// node's cached children when it enters that node, as the recursion did.
     private func invalidateMaterializedSubtree() {
-        if rejectStructuralReentry() { return }
-        guard let cached = _children else { return }
-        for child in cached {
-            node(child).invalidateMaterializedSubtree()
+        // Each frame is a node whose cached children are being visited.
+        var frames: [(vm: TVM, children: [TVM], next: Int)] = []
+        // Enters `vm` as the recursive walk did: a reentrant node is skipped, and
+        // a node with no materialized cache has nothing below it to drop.
+        func enter(_ vm: TVM) {
+            if node(vm).rejectStructuralReentry() { return }
+            guard let cached = node(vm)._children else { return }
+            frames.append((vm: vm, children: cached, next: 0))
         }
-        invalidateChildren()
+        enter(selfNode)
+        while let top = frames.indices.last {
+            if frames[top].next < frames[top].children.count {
+                let child = frames[top].children[frames[top].next]
+                frames[top].next += 1
+                enter(child)
+            } else {
+                // All children are done, so this node's cache is dropped last.
+                let finished = frames.removeLast()
+                node(finished.vm).invalidateChildren()
+            }
+        }
     }
 
     open override func _onDispose() {
@@ -712,7 +766,13 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
     // ── Private helpers ─────────────────────────────────────────────────
 
+    /// The root of this node's tree, read from the root link in O(1) (ADR-0247
+    /// D1). A nil link means the stored root was released with its tree, so the
+    /// parent links are walked up to the topmost live ancestor instead (ADR-0249).
+    /// That walk costs O(depth) and runs only for a subtree whose root was
+    /// released.
     private func treeRoot() -> TVM {
+        if let root = rootLink { return root }
         var current = selfNode
         while let parent = node(current).parent { current = parent }
         return current
@@ -794,8 +854,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         if alreadySame { return }
 
         childNode.parent = newParent
-        childNode._pathCache = nil
-        invalidatePathCacheDescendants(of: child)
+        // The moved subtree takes the root of its new parent, or stands alone
+        // as a root when it is detached (ADR-0247 D1).
+        restampSubtree(child, root: newParent.map { node($0).treeRoot() } ?? child)
         childNode.hub.send(PropertyChangedMessage(
             sender: child,
             senderName: childNode.name,
@@ -803,17 +864,16 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         ))
     }
 
-    /// Clears `_pathCache` for all materialized descendants of `vm`. An explicit
-    /// stack visits the subtree, so the depth of the subtree is not limited by
-    /// the call stack.
-    private func invalidatePathCacheDescendants(of vm: TVM) {
+    /// Stamps `vm` and every materialized descendant with `root` and clears
+    /// their path caches (ADR-0247 D1). One explicit stack visits the subtree,
+    /// so neither its depth nor the call stack limits the walk.
+    private func restampSubtree(_ vm: TVM, root: TVM) {
         var pending: [TVM] = [vm]
         while let current = pending.popLast() {
-            guard let kids = node(current)._children else { continue }
-            for kid in kids {
-                node(kid)._pathCache = nil
-                pending.append(kid)
-            }
+            let currentNode = node(current)
+            currentNode.rootLink = root
+            currentNode._pathCache = nil
+            if let kids = currentNode._children { pending.append(contentsOf: kids) }
         }
     }
 }

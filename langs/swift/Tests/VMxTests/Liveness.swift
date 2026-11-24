@@ -25,6 +25,11 @@ import Foundation
 /// - **Blocking holds** that a positive wait on another thread must time out
 ///   before, such as a hook parked until the test releases it, also use a
 ///   multiple, so a regression cannot pass because the hold expired first.
+/// - **Hang probes** are the one positive wait with a shorter bound. A body
+///   that does constant work on a tiny tree, such as the HIER-018 reparent
+///   guard (about 2 ms), uses a 5 s bound, so a hang fails within seconds
+///   instead of after `hangGuard`. The bound still leaves a 2,500-fold margin
+///   over the body's cost.
 /// - **Negative windows** assert that something did *not* happen, such as
 ///   `XCTAssertEqual(done.wait(timeout: .now() + 0.05), .timedOut)` or an
 ///   inverted expectation. They keep their short spans, because the full span
