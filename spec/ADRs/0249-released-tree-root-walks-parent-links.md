@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-11-23
 - **Spec version:** 3.30.0 (chapter 18 §7, `HIER-018`; no conformance ID change; no library behavior change in this pull request)
-- **Amends:** [ADR-0248](0248-attach-cycle-check-by-tree-root.md) §2.3. Related:
-  [ADR-0247](0247-hierarchy-root-pointer.md) §2.3 and §3,
+- **Amends:** [ADR-0248](0248-attach-cycle-check-by-tree-root.md) §2.1, §2.2, §2.3 and §3.
+  Related: [ADR-0247](0247-hierarchy-root-pointer.md) §2.3 and §3,
   [ADR-0037](0037-v2.5-maintenance-clarifications.md) (`HIER-018`), #1912.
 
 ## 1. Context
@@ -27,6 +27,13 @@ a correctness fault: the walk returns the top of the surviving chain, which is
 the correct answer for the cycle check. It is a contract fault, because the text
 forbids the walk that the code performs.
 
+The same link sets the cost of the cycle checks. Factory materialization (R1)
+reads the stored root of the node that receives the children. An explicit add or
+reparent (R2) reads the stored root of the receiver, and, when the candidate has
+a parent, the stored root of the candidate. A released stored root therefore adds
+one O(depth) walk to each such read. ADR-0248 §2.1, §2.2 (b) and (c), and §3
+state O(1) costs that hold only while those stored roots are live.
+
 ## 2. Decision
 
 ### 2.1 Stored root and released root (ADR-0248 §2.3 amended)
@@ -41,8 +48,9 @@ A lookup of a node's tree root reads the stored root first.
   lookup changes no state.
 
 The rule for a stored root is: correct while its node is live, and answered by the
-parent links after it is released. ADR-0248 §2.3 keeps the rest of its text. Its
-restamp, its traversal and its cost in §3 are unchanged.
+parent links after it is released. Section 2.5 gives the amended text of ADR-0248
+§2.1, §2.2, §2.3 and §3. The restamp and the traversal of ADR-0248 §2.3 are
+unchanged.
 
 ### 2.2 Choice among the options (decision record)
 
@@ -74,13 +82,47 @@ must not take a different rule.
 ### 2.4 Scope
 
 This ADR adds no public API, no error text, no conformance ID and no version bump.
-It changes no library code. Its changes under `spec/` are this file, the Status
-back-link of ADR-0248, the registry cell of ADR-0248, and the registry row of this
-ADR. No spec chapter changes.
+It changes no library behavior. Its only library change is a comment in
+`ensure_not_reparenting_cycle_unlocked` (`langs/rust/src/hierarchical.rs`), which
+states the O(1) cost with its condition. Its changes under `spec/` are this file,
+the Status back-link and the registry cell of ADR-0248, the registry row of this
+ADR, and the sentence of section 39 of `spec/HISTORY.md` that names this ADR and
+states the rule. No spec chapter, fixture or conformance file changes.
+
+### 2.5 Amended sections of ADR-0248
+
+ADR-0248 keeps its decision text. From this ADR on, its amended sections read as
+follows.
+
+- **§2.1, §2.2 (b) and (c), and the cost bullets of §3** keep their cases and
+  their results. Each O(1) cost in them holds while the stored roots that the
+  check reads are live. A read of a released stored root costs one O(depth) walk
+  of parent links, as §2.1 above states.
+
+- **§2.3** reads: "Every `HierarchicalVM` node stores its tree root. A root stores
+  itself. Attach, reparent, detach and materialization set the stored root. The
+  root of every materialized node in an attached or moved subtree is restamped in
+  one iterative traversal, which also clears path caches where the flavor already
+  does so. While its node is live, the stored root is correct, and a lookup
+  returns it in O(1). After the stored root is released, a lookup walks parent
+  links to the top of the surviving chain (ADR-0249 §2.1)."
+
+- **§3**, its first two bullets read:
+
+  - "Each node stores one more reference, to its tree root. While its node is
+    live, a lookup reads it in O(1). After the root is released, a lookup walks
+    parent links (ADR-0249 §2.1)."
+  - "An explicit add or reparent costs O(1) for its cycle check while the stored
+    roots it reads are live, except case (d) of R2, which costs O(depth of the
+    receiver). Case (d) is a move within one tree. A released stored root adds one
+    O(depth) walk for the node that holds it."
+
+  The other bullets of §3 are unchanged.
 
 ## 3. Consequences
 
-- The text of ADR-0248 §2.3 matches the Rust and Swift code and the Rust test.
+- The text of ADR-0248 §2.1, §2.2, §2.3 and §3, as amended in §2.5 above, matches
+  the Rust and Swift code and the Rust tests.
 - The cost of a lookup on a node whose root was released is O(depth) until the
   subtree is restamped. The cost of every other lookup is O(1), as before.
 - The walk answers with the top of the surviving chain. The cycle check of

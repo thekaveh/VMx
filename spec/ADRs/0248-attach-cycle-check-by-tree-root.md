@@ -1,6 +1,6 @@
 # ADR 0248 — Attach cycle check by tree root
 
-- **Status:** Accepted (§2.3 amended by ADR-0249)
+- **Status:** Accepted (§2.1, §2.2, §2.3 and §3 amended by ADR-0249)
 - **Date:** 2026-11-23
 - **Spec version:** 3.30.0 (chapter 18 §7, `HIER-018`; no conformance ID change; no library behavior change in this pull request)
 - **Amends:** [ADR-0247](0247-hierarchy-root-pointer.md) §2.2, §2.9 and §3. Related:

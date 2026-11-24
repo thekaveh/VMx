@@ -1247,7 +1247,8 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         let self_root = self.root_unlocked();
         if child.parent_unlocked().is_none() {
             // A parentless child is an ancestor of this node only as its tree
-            // root, so the check is O(1) (ADR-0247 D2).
+            // root, so the check is O(1) while the stored roots are live
+            // (ADR-0247 D2, ADR-0248 §2.2 (c), ADR-0249 §2.5).
             return if child.id() == self_root.id() {
                 Err(cycle())
             } else {

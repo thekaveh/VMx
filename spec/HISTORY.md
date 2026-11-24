@@ -745,10 +745,11 @@ recoverable error, which is a source break for Swift and Rust callers
 `InvalidateSubtree` applies its invalidation to this node and every currently
 materialized descendant, at any depth. The traversal is not specified
 (ADR-0247). An explicit `AddChild` or reparent checks for a cycle through a
-stored tree root, so only a move within one tree walks the receiver's ancestors
-(ADR-0248, which amends ADR-0247 §2.2, §2.9 and §3). A stored tree root whose
-node has been released is answered from the parent links (ADR-0249, which amends
-ADR-0248 §2.3).
+stored tree root, so a move within one tree walks the receiver's ancestors, and
+the check costs O(1) while the stored roots are live (ADR-0248, which amends
+ADR-0247 §2.2, §2.9 and §3). A stored tree root whose node has been released is
+answered from the parent links, which adds one O(depth) walk to each check that
+reads it (ADR-0249, which amends ADR-0248 §2.1, §2.2, §2.3 and §3).
 
 v3.30.0 also defines failing subscribers and notification order. A delivery on
 a library channel reaches every attached subscriber once, even when an earlier
