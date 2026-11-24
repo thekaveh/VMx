@@ -139,6 +139,30 @@ fn factory_hydration_rejects_invalid_topology() {
     assert!(old_parent.children() == vec![attached.clone()]);
 }
 
+/// HIER-031 — a factory that returns its node's tree root is a cycle, so the
+/// root is refused with the ancestor text and nothing moves (ADR-0248 R1).
+#[test]
+fn factory_returning_the_tree_root_is_a_cycle() {
+    let root = leaf("root");
+    let returned = root.clone();
+    let mid = HierarchicalVm::with_children_factory(
+        "mid",
+        "mid".to_string(),
+        move |_| vec![returned.clone()],
+        false,
+        MessageHub::new(),
+    );
+    root.add_child(mid.clone()).unwrap();
+
+    assert!(matches!(
+        mid.try_children(),
+        Err(VmxError::InvalidArgument(message)) if message == FACTORY_CYCLE_MESSAGE
+    ));
+    assert!(root.parent().is_none());
+    assert!(mid.parent().as_ref() == Some(&root));
+    assert!(root.children() == vec![mid.clone()]);
+}
+
 /// HIER-032 — structural factory reentry rejects atomically and remains retryable.
 #[test]
 fn factory_structural_reentry_is_rejected_and_retryable() {
@@ -1411,6 +1435,46 @@ fn reparent_rejects_self_and_ancestor_cycles() {
         vec![(TreeStructureChange::Reparented, leaf_node.id())],
         "AddChild transfer publishes one Reparented message"
     );
+}
+
+/// HIER-018 — an explicit add of a parented ancestor is a cycle, and a move of a
+/// parented sibling within the same tree is not (ADR-0248 R2 (d)).
+#[test]
+fn explicit_add_of_a_parented_ancestor_is_a_cycle() {
+    let root = leaf("root");
+    let mid = leaf("mid");
+    let deep = leaf("deep");
+    let side = leaf("side");
+    root.add_child(mid.clone()).unwrap();
+    root.add_child(side.clone()).unwrap();
+    mid.add_child(deep.clone()).unwrap();
+
+    // An admitted cycle never returns from the restamp, so the add runs on a
+    // worker and a missing answer fails the test instead of hanging it.
+    let (sent, received) = mpsc::channel();
+    let (worker, ancestor) = (deep.clone(), mid.clone());
+    std::thread::spawn(move || {
+        let _ = sent.send(worker.add_child(ancestor));
+    });
+    let outcome = received
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the cycle is refused, not admitted");
+    assert!(matches!(
+        outcome,
+        Err(VmxError::InvalidArgument(message)) if message == CYCLE_MESSAGE
+    ));
+    assert!(matches!(
+        deep.reparent_child(&mid),
+        Err(VmxError::InvalidArgument(message)) if message == CYCLE_MESSAGE
+    ));
+    assert!(mid.parent().as_ref() == Some(&root));
+    assert!(deep.parent().as_ref() == Some(&mid));
+    assert_eq!(deep.depth(), 2);
+
+    // `side` is parented in the same tree, but it is no ancestor of `deep`.
+    deep.add_child(side.clone()).unwrap();
+    assert!(side.parent().as_ref() == Some(&deep));
+    assert!(root.children() == vec![mid.clone()]);
 }
 
 /// HIER-019 — InvalidateChildren reloads on next access
