@@ -130,6 +130,65 @@ public class HierarchicalVMTests
         messages.Items.Should().BeEmpty("reparent to same parent is a no-op");
     }
 
+    [Fact]
+    public void Move_Under_A_Parented_Ancestor_In_The_Same_Tree_Is_Rejected()
+    {
+        var hub = new TestHub();
+        var leaf = Leaf(hub, "leaf");
+        var mid = Parent([leaf], hub);
+        var root = Parent([mid, Leaf(hub, "sibling")], hub);
+        // Materialize the tree, so every node holds its parent link and tree root.
+        root.Children.Should().HaveCount(2);
+        mid.Children.Should().ContainSingle().Which.Should().BeSameAs(leaf);
+
+        // mid has a parent and is an ancestor of leaf in the same tree (ADR-0248 R2, case d).
+        // The exception is caught without a lambda, and the parents are compared as
+        // booleans: a failure would format the nodes, and a move that formed a loop would
+        // never finish formatting them.
+        Exception? cycle = null;
+        try
+        {
+            leaf.AddChild(mid);
+        }
+        catch (InvalidOperationException caught)
+        {
+            cycle = caught;
+        }
+
+        cycle.Should().NotBeNull("a parented ancestor in the same tree is a cycle");
+        cycle!.Message.Should().Contain("HIER-018");
+        ReferenceEquals(mid.HierarchicalParent, root).Should().BeTrue("a rejected move changes nothing");
+        ReferenceEquals(leaf.HierarchicalParent, mid).Should().BeTrue("a rejected move changes nothing");
+    }
+
+    [Fact]
+    public void Move_Of_A_Parented_Node_Within_A_Tree_And_Across_Trees_Succeeds()
+    {
+        var hub = new TestHub();
+        var leaf = Leaf(hub, "leaf");
+        var mid = Parent([leaf], hub);
+        var sibling = Leaf(hub, "sibling");
+        var root = Parent([mid, sibling], hub);
+        root.Children.Should().HaveCount(2);
+        mid.Children.Should().ContainSingle();
+
+        // sibling has a parent in the same tree and is not an ancestor of leaf (ADR-0248 R2, case d).
+        sibling.AddChild(leaf);
+        leaf.HierarchicalParent.Should().BeSameAs(sibling);
+        leaf.Depth.Should().Be(2);
+        leaf.Path[0].Should().BeSameAs(root);
+        leaf.Path[1].Should().BeSameAs(sibling);
+        mid.Children.Should().BeEmpty();
+
+        // other is in a different tree, so no cycle is possible (ADR-0248 R2, case b).
+        var other = Leaf(hub, "other");
+        other.AddChild(leaf);
+        leaf.HierarchicalParent.Should().BeSameAs(other);
+        leaf.Depth.Should().Be(1);
+        leaf.Path[0].Should().BeSameAs(other);
+        sibling.Children.Should().BeEmpty();
+    }
+
     // ── Multiple lazy accesses ───────────────────────────────────────────────
 
     [Fact]
@@ -415,8 +474,9 @@ public class HierarchicalVMTests
 
         root.InvalidateSubtree();
 
-        // The deepest node was dropped from its parent, so it is a root again.
-        last.HierarchicalParent.Should().BeNull();
+        // The deepest node was dropped from its parent, so it is a root again. The null
+        // check is a boolean, so a failure does not format the 10,000-node graph.
+        (last.HierarchicalParent is null).Should().BeTrue("the deepest node was dropped from its parent");
         last.IsRoot.Should().BeTrue();
         last.Depth.Should().Be(0);
         // The root's own cache was dropped too: its next read invokes the factory again.

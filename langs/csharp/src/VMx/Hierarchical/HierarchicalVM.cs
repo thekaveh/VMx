@@ -712,14 +712,19 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
 
     private TVM GetTreeRoot() => _treeRoot;
 
-    // True when candidate is this node or one of its ancestors (HIER-018). A parentless
-    // candidate is an ancestor only as the root of this tree, so that check is O(1) and
-    // the ancestor walk runs only for a candidate that already has a parent (ADR-0247 §2.2).
+    // True when candidate is this node or one of its ancestors (HIER-018). The checks run
+    // in the order of ADR-0248 §2.2 (R2). The stored tree roots decide every case except
+    // a move within one tree, and only that case walks the receiver's ancestors.
     private bool IsSelfOrAncestor(TVM candidate)
     {
-        if (candidate._hierarchicalParent is null)
-            return ReferenceEquals(candidate, this) || ReferenceEquals(candidate, _treeRoot);
-        for (TVM? node = (TVM)this; node is not null; node = node._hierarchicalParent)
+        // (a) The candidate is this node.
+        if (ReferenceEquals(candidate, this)) return true;
+        // (b) The candidate is in another tree, so no cycle is possible.
+        if (!ReferenceEquals(candidate._treeRoot, _treeRoot)) return false;
+        // (c) The same tree and no parent: the candidate is that tree's root, an ancestor.
+        if (candidate._hierarchicalParent is null) return true;
+        // (d) The same tree and a parent: a cycle only if the candidate is an ancestor.
+        for (TVM? node = _hierarchicalParent; node is not null; node = node._hierarchicalParent)
             if (ReferenceEquals(node, candidate)) return true;
         return false;
     }
