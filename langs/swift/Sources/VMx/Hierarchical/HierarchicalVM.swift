@@ -148,7 +148,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// root of a node is read in O(1). The link is weak, like `parent`: a strong
     /// link would form an ARC cycle with the children array, and a root does not
     /// keep itself alive. A nil link means the root was released with its tree,
-    /// and `treeRoot()` then walks the parent links.
+    /// and `treeRoot()` then walks the parent links to the topmost live
+    /// ancestor, the root of the surviving subtree (ADR-0249, which amends
+    /// ADR-0248 §2.3).
     private weak var rootLink: TVM?
 
     private var materializingChildren = false
@@ -766,7 +768,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
     /// The root of this node's tree, read from the root link in O(1) (ADR-0247
     /// D1). A nil link means the stored root was released with its tree, so the
-    /// parent links are walked from here instead.
+    /// parent links are walked up to the topmost live ancestor instead (ADR-0249).
+    /// That walk costs O(depth) and runs only for a subtree whose root was
+    /// released.
     private func treeRoot() -> TVM {
         if let root = rootLink { return root }
         var current = selfNode

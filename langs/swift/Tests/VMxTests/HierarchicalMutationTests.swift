@@ -284,4 +284,126 @@ final class HierarchicalMutationTests: XCTestCase {
         XCTAssertEqual(leaf.path.count, 3)
         XCTAssertTrue(leaf.path.first === newRoot)
     }
+
+    // ── ADR-0249: cycle check after the stored root is released ──────────
+
+    /// ADR-0249: a root released while its subtree is still held leaves the
+    /// surviving subtree with a nil root link. The cycle check then walks the
+    /// parent links to the topmost live ancestor, so that ancestor still cannot
+    /// move under its own descendant. Without the walk, the move is accepted,
+    /// a children cycle forms, and the subtree restamp never finishes.
+    func testHier018CycleCheckSurvivesReleaseOfTheRoot() {
+        runWatched {
+            let hub = MessageHub()
+            let leaf = self.makeNode(hub, name: "leaf")
+            let mid = self.makeNode(hub, name: "mid", children: [leaf])
+            weak var weakRoot: MyNode?
+            do {
+                let root = self.makeNode(hub, name: "root", children: [mid])
+                _ = root.children
+                _ = mid.children
+                weakRoot = root
+            }
+            XCTAssertNil(weakRoot, "the root is released with no other reference")
+            XCTAssertNil(mid.parent, "the surviving subtree has no parent")
+            XCTAssertTrue(leaf.parent === mid, "leaf.parent should remain mid")
+
+            self.assertInvalidReparent(leaf.addChild(mid), "addChild(surviving ancestor)")
+            XCTAssertThrowsError(try leaf.reparentChild(mid),
+                "reparentChild(surviving ancestor) should throw HierarchyError.invalidReparent") { error in
+                XCTAssertEqual(error as? HierarchyError, .invalidReparent)
+            }
+            XCTAssertTrue(leaf.parent === mid, "leaf.parent should remain mid")
+            XCTAssertNil(mid.parent)
+        }
+    }
+
+    // ── ADR-0248 R2 cases (b) and (c): cost-only shortcuts ───────────────
+
+    /// ADR-0248 R2 case (b) is an O(1) shortcut. Its result equals the ancestor
+    /// walk it skips, so only the cost shows it. This test times the same
+    /// cross-tree transfers under a deep receiver and under a shallow one. A
+    /// missing shortcut makes every deep transfer walk the receiver's ancestors.
+    func testHier018CrossTreeTransferCostDoesNotGrowWithReceiverDepth() {
+        let hub = MessageHub()
+        let transfers = 20_000
+        let (deepRoot, deepTail) = makeChain(hub, depth: 5_000)
+        let (shallowRoot, shallowTail) = makeChain(hub, depth: 1)
+        let deepOwners = makeParentedCandidates(hub, count: transfers)
+        let shallowOwners = makeParentedCandidates(hub, count: transfers)
+        let shallowSeconds = elapsedSeconds {
+            for candidate in shallowOwners { _ = shallowTail.addChild(candidate.leaf) }
+        }
+        let deepSeconds = elapsedSeconds {
+            for candidate in deepOwners { _ = deepTail.addChild(candidate.leaf) }
+        }
+        XCTAssertTrue(deepOwners.allSatisfy { $0.leaf.parent === deepTail },
+            "every cross-tree transfer should land under the deep receiver")
+        XCTAssertEqual(deepRoot.children.count, 1, "the deep chain keeps its one child")
+        XCTAssertEqual(shallowRoot.children.count, 1, "the shallow chain keeps its one child")
+        XCTAssertLessThan(deepSeconds, 4 * shallowSeconds + 0.25,
+            "a cross-tree transfer into a deep receiver should cost about the same as into a shallow one")
+    }
+
+    /// ADR-0248 R2 case (c) is an O(1) shortcut: a parentless candidate that is
+    /// the receiver's tree root is refused without an ancestor walk. Its result
+    /// equals the walk it skips, so only the cost shows it. This test times the
+    /// same refused moves under a deep receiver and under a shallow one.
+    func testHier018RootCandidateRefusalCostDoesNotGrowWithReceiverDepth() {
+        let hub = MessageHub()
+        let refusals = 20_000
+        let (deepRoot, deepTail) = makeChain(hub, depth: 5_000)
+        let (shallowRoot, shallowTail) = makeChain(hub, depth: 1)
+        XCTAssertThrowsError(try deepTail.reparentChild(deepRoot),
+            "reparentChild(tree root) should throw HierarchyError.invalidReparent") { error in
+            XCTAssertEqual(error as? HierarchyError, .invalidReparent)
+        }
+        let shallowSeconds = elapsedSeconds {
+            for _ in 0..<refusals { _ = try? shallowTail.reparentChild(shallowRoot) }
+        }
+        let deepSeconds = elapsedSeconds {
+            for _ in 0..<refusals { _ = try? deepTail.reparentChild(deepRoot) }
+        }
+        XCTAssertNil(deepRoot.parent, "a refused tree root stays a root")
+        XCTAssertNil(shallowRoot.parent, "a refused tree root stays a root")
+        XCTAssertTrue(deepTail.path.first === deepRoot, "the deep chain is unchanged")
+        XCTAssertLessThan(deepSeconds, 4 * shallowSeconds + 0.25,
+            "a refused root candidate under a deep receiver should cost about the same as under a shallow one")
+    }
+
+    // ── Cost-test helpers ────────────────────────────────────────────────
+
+    /// Builds a chain of `depth` edges with `addChild` and returns its root and
+    /// tail. The caller keeps the root alive, or the chain loses its ancestors.
+    private func makeChain(_ hub: MessageHubProtocol, depth: Int) -> (root: MyNode, tail: MyNode) {
+        let root = makeNode(hub, name: "chain0")
+        var tail = root
+        for level in 1...depth {
+            let next = makeNode(hub, name: "chain\(level)")
+            _ = tail.addChild(next)
+            tail = next
+        }
+        return (root, tail)
+    }
+
+    /// Builds `count` leaves, each owned by its own parent in another tree. The
+    /// caller keeps the owners alive, or each leaf would lose its parent.
+    private func makeParentedCandidates(
+        _ hub: MessageHubProtocol,
+        count: Int
+    ) -> [(owner: MyNode, leaf: MyNode)] {
+        (0..<count).map { index in
+            let leaf = makeNode(hub, name: "leaf\(index)")
+            let owner = makeNode(hub, name: "owner\(index)", children: [leaf])
+            _ = owner.children
+            return (owner: owner, leaf: leaf)
+        }
+    }
+
+    /// Runs `body` once and returns its wall-clock time in seconds.
+    private func elapsedSeconds(_ body: () -> Void) -> Double {
+        let start = DispatchTime.now().uptimeNanoseconds
+        body()
+        return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
+    }
 }

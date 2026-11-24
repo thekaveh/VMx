@@ -223,9 +223,13 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   ADR-0248, #1912). Attaching a child, materializing children and moving a
   child from another tree read that root in O(1) instead of walking up to it,
   so building a chain of N nodes takes time linear in N. Only a move within the
-  same tree walks the ancestors, to check for a cycle. Moving or detaching a
-  subtree restamps it with its new root in the traversal that clears its path
-  caches. Walk order, error texts and the cycle rule (HIER-018) are unchanged.
+  same tree walks the ancestors, to check for a cycle. When a root is released
+  while its subtree is still held, the subtree's root link is nil, and a lookup
+  walks the parent links up to the topmost live ancestor, the root of the
+  surviving subtree, at O(depth) per lookup (ADR-0249, which amends
+  ADR-0248 §2.3). Moving or detaching a subtree restamps it with its new root in
+  the traversal that clears its path caches. Walk order, error texts and the
+  cycle rule (HIER-018) are unchanged.
 
 - `AsyncResourceVM.load()` and `reload()` start no loader when they run from an
   observer of the `Disposed` publication. The VM's `status` already reads
