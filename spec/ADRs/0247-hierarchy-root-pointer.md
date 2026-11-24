@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (§2.2, §2.9 and §3 amended by ADR-0248)
 - **Date:** 2026-11-23
-- **Spec version:** 3.30.0 (chapter 18 §5 clarified; no conformance ID change; no library behavior change)
+- **Spec version:** 3.30.0 (chapter 18 §5 wording only; no conformance ID change; no library behavior change)
 - **Clarifies:** [ADR-0073](0073-hierarchical-child-cache-invalidation.md) §2 (the reach of `InvalidateSubtree`; the traversal is not specified). Related: [ADR-0028](0028-hierarchical-vm.md) §3 item 5, [ADR-0037](0037-v2.5-maintenance-clarifications.md) §2.3, [ADR-0127](0127-validate-hierarchy-factory-hydration-atomically.md), [ADR-0170](0170-tree-walks-report-invalid-factory-output.md), [ADR-0189](0189-disposed-children-leave-current-and-container-walks.md), [ADR-0190](0190-disposed-tree-nodes-refuse-structural-calls.md), #1912.
 
 ## 1. Context
@@ -66,8 +66,10 @@ explicit stack. They are: Python `_invalidate_subtree_nodes`; TypeScript
 `invalidate_subtree_from_live_ancestor`. The traversal visits nodes in the same
 order as the recursive code and skips disposed nodes exactly as it does now. The
 reach does not change: every currently materialized descendant, at any depth.
-ADR-0247 clarifies that the word "recursively" in chapter 18 §5 names that reach,
-not the call mechanism. The clarifying sentence is part of this pull request.
+Chapter 18 §5 states that reach as "at any depth", which replaced "recursively"
+in commit 45cd711e (#2221). The spec states no call mechanism. This ADR adds no
+sentence to chapter 18 to say so: such a sentence would change `spec/` in a pull
+request that needs its own new ADR, and the reach is already stated (see §2.5).
 
 ### 2.4 Storage (D4)
 
@@ -80,11 +82,11 @@ already hold their parent, so there is no `Rc` cycle.
 ### 2.5 Scope (D5)
 
 This change adds no public API, no conformance ID and no version bump. The only
-change under `spec/` is the clarification in chapter 18 §5, made in the same pull
-request as this ADR. The flavor pull requests change no file under `spec/`. Each
-flavor pull request adds a `### Fixed` entry under its unreleased source version
-heading in its CHANGELOG. This pull request changes no library code, so it adds no
-CHANGELOG entry.
+change under `spec/` is chapter 18 §5, which says "at any depth" in place of
+"recursively" (commit 45cd711e, #2221). The pull request that merged this ADR
+changed no library code, so it added no CHANGELOG entry. The flavor pull requests
+change no file under `spec/`. Each flavor pull request adds a `### Fixed` entry
+under its unreleased source version heading in its CHANGELOG.
 
 ### 2.6 Tests (D6)
 

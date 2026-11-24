@@ -189,6 +189,78 @@ public class HierarchicalVMTests
         sibling.Children.Should().BeEmpty();
     }
 
+    // The three texts below are pinned exactly, so a changed or re-worded error is a failing
+    // test. ADR-0248 §2.4 keeps the existing texts. The exception is caught without a lambda
+    // and compared as a string, so a failure does not format a deep or looping graph.
+
+    [Fact]
+    public void Explicit_Cycle_Error_Names_The_Child_And_The_Receiver()
+    {
+        var hub = new TestHub();
+        var leaf = Leaf(hub, "leaf");
+        var mid = new Node(new Model(), _ => [leaf], hub, name: "mid");
+        var root = new Node(new Model(), _ => [mid], hub, name: "root");
+        root.Children.Should().ContainSingle();
+        mid.Children.Should().ContainSingle();
+
+        Exception? error = null;
+        try
+        {
+            leaf.AddChild(mid);
+        }
+        catch (InvalidOperationException caught)
+        {
+            error = caught;
+        }
+
+        error.Should().NotBeNull("a parented ancestor in the same tree is a cycle");
+        error!.Message.Should().Be(
+            "Cannot reparent 'mid' under 'leaf': it is this node or one of its ancestors (HIER-018).");
+    }
+
+    [Fact]
+    public void Factory_Returning_This_Node_Error_Has_The_Pinned_Text()
+    {
+        var node = new Node(new Model(), self => [self], new TestHub(), name: "self");
+
+        Exception? error = null;
+        try
+        {
+            _ = node.Children;
+        }
+        catch (InvalidOperationException caught)
+        {
+            error = caught;
+        }
+
+        error.Should().NotBeNull("a factory that returns its own node is a cycle");
+        error!.Message.Should().Be("The children factory returned this node or one of its ancestors.");
+    }
+
+    [Fact]
+    public void Factory_Returning_A_Parented_Child_Error_Has_The_Pinned_Text()
+    {
+        var hub = new TestHub();
+        var taken = Leaf(hub, "taken");
+        var owner = Parent([taken], hub);
+        owner.Children.Should().ContainSingle().Which.Should().BeSameAs(taken);
+
+        var node = new Node(new Model(), _ => [taken], hub, name: "node");
+        Exception? error = null;
+        try
+        {
+            _ = node.Children;
+        }
+        catch (InvalidOperationException caught)
+        {
+            error = caught;
+        }
+
+        error.Should().NotBeNull("a factory child that already has a parent is rejected");
+        error!.Message.Should().Be("The children factory returned an already-parented child.");
+        ReferenceEquals(taken.HierarchicalParent, owner).Should().BeTrue("the rejected factory changes nothing");
+    }
+
     // ── Multiple lazy accesses ───────────────────────────────────────────────
 
     [Fact]
