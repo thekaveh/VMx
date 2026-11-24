@@ -329,6 +329,106 @@ describe("ParentedAncestorFactory", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Parented children in factory output keep the already-parented message
+// ---------------------------------------------------------------------------
+
+describe("ParentedChildFactory", () => {
+  it("a children factory that returns a child of another parent is refused with the pinned message", () => {
+    const hub = makeHub();
+    const owned = leaf(hub, "owned");
+    const owner = parentOf([owned], hub);
+    expect(owner.children).toHaveLength(1);
+    expect(owned.parent).toBe(owner);
+
+    const thief = new Node({ hub, name: "thief", childrenFactory: () => [owned] });
+    expect(() => thief.children).toThrow(
+      /^children factory returned an already-parented child$/,
+    );
+
+    expect(owned.parent).toBe(owner);
+    expect(owner.children[0]).toBe(owned);
+  });
+
+  it("a same-tree child that is not an ancestor also gets the pinned message", () => {
+    const hub = makeHub();
+    const a = leaf(hub, "a");
+    const b = new Node({ hub, name: "b", childrenFactory: () => [a] });
+    const root = parentOf([a, b], hub);
+    expect(root.children).toHaveLength(2);
+
+    expect(() => b.children).toThrow(
+      /^children factory returned an already-parented child$/,
+    );
+    expect(a.parent).toBe(root);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HIER-018 cycle guard by stored tree root (ADR-0248 R2, cases a to d)
+// ---------------------------------------------------------------------------
+
+describe("CycleGuardByStoredRoot", () => {
+  it("R2 (a): a node cannot be added under itself", () => {
+    const node = leaf(makeHub(), "solo");
+
+    expect(() => node.addChild(node)).toThrow(/HIER-018/);
+    expect(node.parent).toBeNull();
+  });
+
+  it("R2 (b): a parented candidate from another tree transfers with no cycle error", () => {
+    const hub = makeHub();
+    const moved = leaf(hub, "moved");
+    const oldRoot = parentOf([moved], hub);
+    expect(oldRoot.children).toHaveLength(1);
+    expect(moved.parent).toBe(oldRoot);
+    const newRoot = leaf(hub, "new-root");
+
+    newRoot.addChild(moved);
+
+    expect(moved.parent).toBe(newRoot);
+    expect(oldRoot.children).toHaveLength(0);
+    expect(moved.path.map((n) => n.name)).toEqual(["new-root", "moved"]);
+  });
+
+  it("R2 (c): a parentless candidate that is this tree's root is a cycle", () => {
+    const hub = makeHub();
+    const child = leaf(hub, "child");
+    const root = parentOf([child], hub);
+    expect(root.children).toHaveLength(1);
+
+    expect(() => child.addChild(root)).toThrow(/HIER-018/);
+    expect(root.parent).toBeNull();
+    expect(child.parent).toBe(root);
+  });
+
+  it("R2 (d): a parented ancestor in this tree is a cycle, and a parented non-ancestor transfers", () => {
+    const hub = makeHub();
+    const sibling = leaf(hub, "sibling");
+    const deep = leaf(hub, "deep");
+    const mid = parentOf([deep], hub);
+    const root = parentOf([mid, sibling], hub);
+    expect(root.children).toHaveLength(2);
+    expect(mid.children).toHaveLength(1);
+
+    // mid is parented and is an ancestor of deep: the walk finds it.
+    expect(() => deep.addChild(mid)).toThrow(/HIER-018/);
+    expect(mid.parent).toBe(root);
+    expect(deep.parent).toBe(mid);
+
+    // sibling is parented in the same tree but is not an ancestor of deep.
+    deep.addChild(sibling);
+    expect(sibling.parent).toBe(deep);
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0]).toBe(mid);
+    expect(sibling.path).toHaveLength(4);
+    expect(sibling.path[0]).toBe(root);
+    expect(sibling.path[1]).toBe(mid);
+    expect(sibling.path[2]).toBe(deep);
+    expect(sibling.path[3]).toBe(sibling);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Deep chains: walks, depth and path invalidation do not recurse
 // ---------------------------------------------------------------------------
 

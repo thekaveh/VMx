@@ -1,6 +1,6 @@
 # ADR 0247 — Hierarchy root pointer and iterative subtree invalidation
 
-- **Status:** Accepted
+- **Status:** Accepted (§2.2, §2.9 and §3 amended by ADR-0248)
 - **Date:** 2026-11-23
 - **Spec version:** 3.30.0 (chapter 18 §5 clarified; no conformance ID change; no library behavior change)
 - **Clarifies:** [ADR-0073](0073-hierarchical-child-cache-invalidation.md) §2 (the reach of `InvalidateSubtree`; the traversal is not specified). Related: [ADR-0028](0028-hierarchical-vm.md) §3 item 5, [ADR-0037](0037-v2.5-maintenance-clarifications.md) §2.3, [ADR-0127](0127-validate-hierarchy-factory-hydration-atomically.md), [ADR-0170](0170-tree-walks-report-invalid-factory-output.md), [ADR-0189](0189-disposed-children-leave-current-and-container-walks.md), [ADR-0190](0190-disposed-tree-nodes-refuse-structural-calls.md), #1912.
@@ -52,19 +52,16 @@ traversal.
 
 A candidate with no parent is a cycle when it is this node or this node's root.
 Otherwise it attaches. A parentless node can be an ancestor of this node only when
-it is the root of this node's tree, so this rule is complete, and its test costs
-O(1). A candidate that already has a parent can be an ancestor of this node, so its
-test walks this node's ancestors, which costs O(depth of this node). Attaching or
-reparenting such a candidate pays that one walk, then moves the child when the walk
-finds no cycle. A lazy children factory that returns an already-parented child is
-still refused with the existing already-parented error, and the walk there only
-chooses which message to raise. Error texts do not change.
+it is the root of this node's tree, so this rule is complete. A candidate that
+already has a parent takes the existing already-parented error path. Only there
+does the code walk the ancestors, to choose the existing message. The success
+path costs O(1). A rejection costs one O(depth) walk. Error texts do not change.
 
 ### 2.3 Iterative subtree invalidation (D3)
 
 `invalidateSubtree` and every other recursion over the materialized subtree use an
 explicit stack. They are: Python `_invalidate_subtree_nodes`; TypeScript
-`invalidateSubtree` (its per-node frame step is `#invalidationFrame`); C# `InvalidateSubtree` and
+`invalidateSubtree` and `invalidateDescendant`; C# `InvalidateSubtree` and
 `DropSubtree`; Swift `invalidateMaterializedSubtree`; and Rust
 `invalidate_subtree_from_live_ancestor`. The traversal visits nodes in the same
 order as the recursive code and skips disposed nodes exactly as it does now. The
@@ -114,19 +111,16 @@ build case and report it in their bodies. The recursive Rust drop is issue #2204
 
 ### 2.9 Rust move trade (D9)
 
-A Rust move keeps its O(depth of the new parent) cycle walk from §2.2. The
-restamp adds an O(materialized subtree) term on top of that walk. The added term is
-accepted for uniformity across flavors.
+The restamp changes Rust move cost from O(depth of the new parent) to
+O(materialized subtree). The change is accepted for uniformity across flavors.
 
 ## 3. Consequences
 
 - Each node stores one more reference, to its root.
-- An attach of a parentless child costs O(1). An attach or reparent of a child that
-  already has a parent costs one O(depth of the new parent) walk for the cycle test.
-  A rejected attach costs no more than that walk, and its error text is unchanged.
-- A move costs O(depth of the new parent + materialized subtree) in every flavor:
-  the cycle walk of §2.2 plus the restamp of §2.1. In Rust the restamp is the added
-  term, as §2.9 records.
+- An attach that succeeds costs O(1). A rejected attach costs one O(depth) walk,
+  and its error text is unchanged.
+- A move costs O(materialized subtree) in every flavor. In Rust this replaces
+  O(depth of the new parent), as §2.9 records.
 - Python's parent link is a strong reference, so a root that holds itself is a
   reference cycle. Python frees such a root with its cyclic collector, not by
   reference counting. A tree with materialized children already forms cycles

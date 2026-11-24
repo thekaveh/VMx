@@ -241,8 +241,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   explicit stack, so a deep chain no longer overflows the call stack. At 5,000
   levels it used to throw `RangeError`. Each node also holds a reference to its
   tree root, so attaching a child that has no parent no longer walks the
-  ancestors, and building an N-level chain costs O(N) instead of O(N²). The visit order, the error texts and
-  the public API are unchanged (ADR-0247, #1912).
+  ancestors, and building an N-level chain costs O(N) instead of O(N²). An
+  explicit reparent checks its cycle by tree root and walks the ancestors only
+  when both nodes share a tree. The visit order, the error texts and the public
+  API are unchanged (ADR-0247 and ADR-0248, #1912).
 
 - `selectCommand` and `deselectCommand` re-raise `canExecuteChanged` when the VM's
   `isCurrent` flag or its parent link changes. A select, a move of `Current`, or a

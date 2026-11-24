@@ -661,8 +661,10 @@ export abstract class HierarchicalVM<
           throw new Error("children factory returned duplicate child identity");
         }
         seen.add(child);
-        // A parentless child is tested in O(1). An already-parented child walks
-        // the ancestors, and the walk only chooses the message (ADR-0247 D2).
+        // The HIER-018 test runs first, so an ancestor keeps its message. A
+        // parentless child is tested in O(1). A parented child walks the
+        // ancestors only when it shares this tree, and the walk only chooses the
+        // message (ADR-0248 R1, which keeps ADR-0247 D2 for factory children).
         if (this.#isSelfOrAncestor(child)) {
           throw new Error("children factory returned this node or one of its ancestors");
         }
@@ -708,15 +710,17 @@ export abstract class HierarchicalVM<
   }
 
   /**
-   * The HIER-018 test for a candidate child (ADR-0247 D2). A candidate with no
-   * parent can be an ancestor of this node only when it is this node or the
-   * root of this node's tree, so that test is O(1). A candidate with a parent
-   * walks this node's ancestors.
+   * The HIER-018 test for a candidate child, in the order of ADR-0248 R2.
+   * (a) The receiver itself is a cycle. (b) A candidate with another stored
+   * root is in another tree, so no cycle is possible and the test is O(1).
+   * (c) In this tree, a parentless candidate is the root, which is an ancestor
+   * of the receiver, so the test is O(1). (d) Otherwise the candidate has a
+   * parent in this tree, and only this case walks the receiver's ancestors.
    */
   #isSelfOrAncestor(candidate: TVM): boolean {
-    if (candidate.#hierarchicalParent === null) {
-      return candidate === this.#self || candidate === this.#root;
-    }
+    if (candidate === this.#self) return true;
+    if (candidate.#root !== this.#root) return false;
+    if (candidate.#hierarchicalParent === null) return true;
     for (
       let node: TVM | null = this.#self;
       node !== null;
