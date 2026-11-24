@@ -157,20 +157,20 @@ final class HierarchicalMutationTests: XCTestCase {
         _ = mid.children
         _ = leaf.path
 
-        // Self-reparenting must throw.
+        // Self-reparenting must throw HierarchyError.invalidReparent exactly.
         XCTAssertThrowsError(try leaf.reparentChild(leaf),
-            "reparentChild(self) should throw HierarchyError.invalidReparent")
+            "reparentChild(self) should throw HierarchyError.invalidReparent") { error in
+            XCTAssertEqual(error as? HierarchyError, .invalidReparent)
+        }
 
-        // Reparenting an ancestor under its own descendant must throw.
+        // Reparenting an ancestor under its own descendant must throw the same error.
         XCTAssertThrowsError(try leaf.reparentChild(root),
-            "reparentChild(ancestor) should throw HierarchyError.invalidReparent")
+            "reparentChild(ancestor) should throw HierarchyError.invalidReparent") { error in
+            XCTAssertEqual(error as? HierarchyError, .invalidReparent)
+        }
 
-        if case .success = leaf.addChild(leaf) {
-            XCTFail("addChild(self) should return HierarchyError.invalidReparent")
-        }
-        if case .success = leaf.addChild(root) {
-            XCTFail("addChild(ancestor) should return HierarchyError.invalidReparent")
-        }
+        assertInvalidReparent(leaf.addChild(leaf), "addChild(self)")
+        assertInvalidReparent(leaf.addChild(root), "addChild(ancestor)")
 
         // Tree structure must be completely unchanged.
         XCTAssertNil(root.parent, "root.parent should remain nil")
@@ -196,5 +196,92 @@ final class HierarchicalMutationTests: XCTestCase {
         XCTAssertTrue(transfer.affected === leaf)
         XCTAssertEqual(transfer.change, .reparented,
                        "HIER-018: the addChild transfer publishes Reparented, not Added")
+    }
+
+    /// Fails the test unless `result` is `.failure(.invalidReparent)`.
+    private func assertInvalidReparent(_ result: Result<Void, HierarchyError>, _ label: String) {
+        guard case .failure(let error) = result else {
+            return XCTFail("\(label) should fail with HierarchyError.invalidReparent")
+        }
+        XCTAssertEqual(error, .invalidReparent, "\(label) error")
+    }
+
+    /// Runs `body` on its own thread and fails the test when it does not finish
+    /// within `seconds`. A move that wrongly creates a children cycle makes the
+    /// subtree restamp loop forever, so the watchdog turns that hang into a
+    /// failure.
+    private func runWatched(seconds: Double = 20, _ body: @escaping () throws -> Void) {
+        let finished = DispatchSemaphore(value: 0)
+        let thread = Thread {
+            do {
+                try body()
+            } catch {
+                XCTFail("the body threw: \(error)")
+            }
+            finished.signal()
+        }
+        thread.start()
+        let result = finished.wait(timeout: .now() + seconds)
+        XCTAssertEqual(result, .success, "the body finishes within \(seconds) s")
+    }
+
+    /// ADR-0248 R2 case (d): a parented node of the receiver's own tree is
+    /// refused when it is an ancestor of the receiver, and the tree is unchanged.
+    func testHier018RefusesAParentedAncestorInTheSameTree() {
+        runWatched {
+            let hub = MessageHub()
+            let leaf = self.makeNode(hub, name: "leaf")
+            let mid = self.makeNode(hub, name: "mid", children: [leaf])
+            let root = self.makeNode(hub, name: "root", children: [mid])
+            _ = root.children
+            _ = mid.children
+
+            self.assertInvalidReparent(leaf.addChild(mid), "addChild(parented ancestor)")
+            XCTAssertThrowsError(try leaf.reparentChild(mid),
+                "reparentChild(parented ancestor) should throw HierarchyError.invalidReparent") { error in
+                XCTAssertEqual(error as? HierarchyError, .invalidReparent)
+            }
+            XCTAssertTrue(mid.parent === root, "mid.parent should remain root")
+            XCTAssertTrue(leaf.parent === mid, "leaf.parent should remain mid")
+        }
+    }
+
+    /// ADR-0248 R2 case (d), no cycle: a parented node of the same tree that is
+    /// not an ancestor of the receiver transfers under it.
+    func testHier018TransfersAParentedNodeWithinItsTree() {
+        let hub = MessageHub()
+        let b = makeNode(hub, name: "b")
+        let a = makeNode(hub, name: "a", children: [b])
+        let c = makeNode(hub, name: "c")
+        let root = makeNode(hub, name: "root", children: [a, c])
+        _ = root.children
+        _ = a.children
+
+        guard case .success = b.addChild(c) else {
+            return XCTFail("moving a non-ancestor within one tree should succeed")
+        }
+        XCTAssertTrue(c.parent === b)
+        XCTAssertEqual(root.children.map(\.name), ["a"])
+        XCTAssertEqual(c.path.count, 4)
+    }
+
+    /// ADR-0248 R2 case (b): a parented node of another tree transfers, and its
+    /// own subtree moves with it.
+    func testHier018TransfersAParentedNodeFromAnotherTree() {
+        let hub = MessageHub()
+        let leaf = makeNode(hub, name: "leaf")
+        let mid = makeNode(hub, name: "mid", children: [leaf])
+        let oldRoot = makeNode(hub, name: "oldRoot", children: [mid])
+        _ = oldRoot.children
+        _ = mid.children
+
+        let newRoot = makeNode(hub, name: "newRoot")
+        guard case .success = newRoot.addChild(mid) else {
+            return XCTFail("transferring a parented node from another tree should succeed")
+        }
+        XCTAssertTrue(mid.parent === newRoot)
+        XCTAssertTrue(oldRoot.children.isEmpty)
+        XCTAssertEqual(leaf.path.count, 3)
+        XCTAssertTrue(leaf.path.first === newRoot)
     }
 }

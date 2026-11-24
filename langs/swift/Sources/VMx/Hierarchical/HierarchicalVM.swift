@@ -425,15 +425,8 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         if let oldParent = node(child).parent, node(oldParent).isDisposedNode {
             return .failure(.disposed)
         }
-        // HIER-018: child is self or one of self's ancestors → cycle. A
-        // parentless child can be an ancestor only when it is the root of this
-        // tree, so that check is O(1) (ADR-0247 D2). A child that already has a
-        // parent walks the ancestors, as before.
-        if node(child).parent == nil {
-            if child === selfNode || child === treeRoot() {
-                return .failure(.invalidReparent)
-            }
-        } else if path.contains(where: { $0 === child }) {
+        // HIER-018: child is self or one of self's ancestors → cycle (ADR-0248 R2).
+        if createsCycle(child) {
             return .failure(.invalidReparent)
         }
 
@@ -467,6 +460,29 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             index: reparented ? -1 : newIndex
         ))
         return .success(())
+    }
+
+    /// `true` when attaching `child` under this node would create a parent
+    /// cycle (HIER-018, ADR-0248 R2). The cases run in order, and only case (d)
+    /// walks ancestors:
+    /// (a) `child` is this node;
+    /// (b) the stored roots differ, so no cycle is possible;
+    /// (c) the roots agree and `child` has no parent, so `child` is that root;
+    /// (d) the roots agree and `child` has a parent: a cycle exists only when
+    ///     `child` is one of this node's ancestors.
+    private func createsCycle(_ child: TVM) -> Bool {
+        if child === selfNode { return true }
+        let receiverRoot = treeRoot()
+        if node(child).parent == nil {
+            return child === receiverRoot
+        }
+        if node(child).treeRoot() !== receiverRoot { return false }
+        var ancestor = parent
+        while let current = ancestor {
+            if current === child { return true }
+            ancestor = node(current).parent
+        }
+        return false
     }
 
     /// Number of missing-parent items retained on the structural root.

@@ -219,11 +219,11 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 - `HierarchicalVM.invalidateSubtree()` no longer recurses once per tree level,
   so a materialized tree of any depth can be invalidated on a thread with a
-  small stack. Each node keeps a weak link to its tree root (ADR-0247, #1912).
-  Attaching a parentless node, materializing children and checking a parentless
-  candidate for a cycle read that root in O(1) instead of walking up to it, so
-  building a chain of N nodes takes time linear in N. Transferring a child that
-  already has a parent still walks the ancestors once. Moving or detaching a
+  small stack. Each node keeps a weak link to its tree root (ADR-0247,
+  ADR-0248, #1912). Attaching a child, materializing children and moving a
+  child from another tree read that root in O(1) instead of walking up to it,
+  so building a chain of N nodes takes time linear in N. Only a move within the
+  same tree walks the ancestors, to check for a cycle. Moving or detaching a
   subtree restamps it with its new root in the traversal that clears its path
   caches. Walk order, error texts and the cycle rule (HIER-018) are unchanged.
 
