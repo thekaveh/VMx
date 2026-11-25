@@ -237,6 +237,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `FormVM` default equality compares `Blob`, `File` and `CryptoKey` values by the
+  state their clone keeps (ADR-0253, #1913). Two different values of these types
+  used to compare equal, so `setModel` dropped a replacement: the model kept the
+  old value, `isDirty` stayed false, and no change was published. A `Blob` is
+  compared by size and type, a `File` also by name and `lastModified`, and a
+  `CryptoKey` by type, extractability, algorithm and usages. Their bytes and key
+  material are not compared.
+
 - `PagedComposition`: a page move clamps a stale `currentPageIndex` before it picks
   its target (ADR-0251, #1917). After an unobserved source shrinks, `moveToLastPage`,
   `moveToNextPage` and `moveToPreviousPage` land on a page in range, where a stale

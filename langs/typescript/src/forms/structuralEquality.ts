@@ -2,7 +2,7 @@
  * Structural equality for FormVM (internal).
  *
  * `deepEquals` is the default dirty-tracking predicate of FormVM (ADR-0113,
- * ADR-0135, ADR-0152). Nothing here is part of the public API; the package
+ * ADR-0135, ADR-0152, ADR-0253). Nothing here is part of the public API; the package
  * index does not export this module.
  */
 
@@ -97,6 +97,54 @@ function boxedValuesEqual(a: { valueOf(): unknown }, b: { valueOf(): unknown }):
   return x === y || (x !== x && y !== y);
 }
 
+// A Blob, File, or CryptoKey clones as a value of the same kind. It has no own
+// enumerable keys, so the plain-object fallback would call any two of them
+// equal. These values are compared by the state the clone keeps instead. The
+// bytes of a Blob and the key material of a CryptoKey are not compared, because
+// reading them is asynchronous (ADR-0253).
+
+type ClonedKind = "File" | "Blob" | "CryptoKey";
+
+/** The kind a structured clone keeps for a value, or undefined for any other value. */
+function clonedKind(value: object): ClonedKind | undefined {
+  // A File is also a Blob, so the File test comes first.
+  if (typeof File !== "undefined" && value instanceof File) return "File";
+  if (typeof Blob !== "undefined" && value instanceof Blob) return "Blob";
+  if (typeof CryptoKey !== "undefined" && value instanceof CryptoKey) return "CryptoKey";
+  return undefined;
+}
+
+/**
+ * The state a clone of a Blob, File, or CryptoKey keeps, read through the base
+ * prototype accessors as the clone reads it. Undefined when an accessor throws,
+ * as it does for a value that only inherits the prototype.
+ */
+function clonedState(value: object, kind: ClonedKind): unknown[] | undefined {
+  try {
+    if (kind === "CryptoKey") {
+      return [
+        Reflect.get(CryptoKey.prototype, "type", value),
+        Reflect.get(CryptoKey.prototype, "extractable", value),
+        Reflect.get(CryptoKey.prototype, "algorithm", value),
+        Reflect.get(CryptoKey.prototype, "usages", value),
+      ];
+    }
+    const state: unknown[] = [
+      Reflect.get(Blob.prototype, "size", value),
+      Reflect.get(Blob.prototype, "type", value),
+    ];
+    if (kind === "File") {
+      state.push(
+        Reflect.get(File.prototype, "name", value),
+        Reflect.get(File.prototype, "lastModified", value),
+      );
+    }
+    return state;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Structural deep-equality used by {@link FormVM.isDirty} when no custom
  * `equals` is supplied. It mirrors the depth the default `structuredClone`
@@ -113,6 +161,11 @@ function boxedValuesEqual(a: { valueOf(): unknown }, b: { valueOf(): unknown }):
  *   `message`, and the own `cause`, compared recursively. The stack, custom
  *   properties, and subclass identity are not kept by the clone, so they are
  *   not compared;
+ * - compares `Blob`, `File`, and `CryptoKey` by the kind and state the clone
+ *   keeps: a `Blob`'s size and type, a `File`'s name and lastModified as well,
+ *   and a `CryptoKey`'s type, extractable flag, algorithm, and usages. Their
+ *   bytes and key material are not compared (ADR-0253), and none of them is
+ *   equal to a value of another kind;
  * - distinguishes an `undefined`-valued key from a missing key (as
  *   `structuredClone` preserves it);
  * - treats `NaN` as equal to `NaN` (and `+0`/`-0` as equal) for dirty-tracking.
@@ -247,6 +300,19 @@ export function deepEquals(
       if (!b.has(v)) return false;
     }
     return true;
+  }
+
+  // A Blob, File, or CryptoKey is never equal to a value of another kind, and
+  // two of the same kind are equal when the state their clone keeps is equal.
+  const aKind = clonedKind(a);
+  const bKind = clonedKind(b);
+  if (aKind !== undefined || bKind !== undefined) {
+    if (aKind === undefined || aKind !== bKind) return false;
+    const aState = clonedState(a, aKind);
+    const bState = clonedState(b, aKind);
+    return aState !== undefined
+      && bState !== undefined
+      && deepEquals(aState, bState, visited);
   }
 
   // Plain objects: own enumerable string keys, including undefined-valued keys.

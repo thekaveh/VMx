@@ -209,6 +209,14 @@ the `JSON.stringify` comparison used before v3 it:
   its clone on Node 22 and later is a `DOMException` that keeps both. A
   `DOMException` never equals another error, and its `cause` and custom
   properties are not compared;
+- compares a `Blob`, `File`, or `CryptoKey` by the state its clone keeps
+  (ADR-0253): a `Blob`'s `size` and `type`, a `File`'s `name` and
+  `lastModified` as well, and a `CryptoKey`'s `type`, `extractable` flag,
+  `algorithm`, and `usages`. Two values of one kind are equal when that state
+  is equal, and none equals a value of another kind. Their bytes and key
+  material are not compared, so a replacement with the same state is not a
+  change. `FileList`, `ImageData`, and `ImageBitmap` are not covered, and a
+  consumer injects `equals` for them;
 - preserves an `undefined`-valued key as distinct from a missing key (matching what
   `structuredClone` preserves), and treats `NaN` as equal to `NaN` and `+0`/`-0` as
   equal, for stable dirty-tracking;

@@ -267,6 +267,7 @@ cross-references each ADR carries.
 | [0250](0250-scope-of-the-invalidation-change.md)                                    | Scope of the invalidation change; ADR-0247 section 1 corrected                                                        | 3.30.0       | Accepted                                                                                      |
 | [0251](0251-paged-composition-moves-clamp-a-stale-index.md)                         | A page move clamps a stale index before it picks its target; `COL-074`                                                | 3.30.0       | Accepted (amends the stale-index rule of 0168 §2)                                             |
 | [0252](0252-container-hook-dispose-skips-population.md)                             | A dispose from a container's own construct hook skips population                                                      | 3.30.0       | Accepted                                                                                      |
+| [0253](0253-typescript-blob-file-cryptokey-structural-equality.md)                  | Compare TypeScript `Blob`, `File`, and `CryptoKey` form values by their clone state                                   | 3.30.0       | Accepted                                                                                      |
 
 ### 1.1 Consolidation opportunities (informative — VMX-120)
 
