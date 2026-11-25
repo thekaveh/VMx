@@ -228,8 +228,10 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   `init(...) where Model: Equatable` in the class body and sets `modelEquals`
   to `==`. Builder-built view models and the identity default for non-`Equatable`
   class models are unchanged. The Swift API check reports the new initializer
-  as added to `ReadonlyComponentVMOf` and `ForwardingComponentVM`, which inherit
-  it; both reports are allowlisted in `langs/swift/api/breakage-allowlist.txt`.
+  as added to `ReadonlyComponentVMOf`, which inherits it, and to
+  `ForwardingComponentVM`, which declares its own `init(_:)` and does not inherit
+  it. The digester reports both, so both are allowlisted in
+  `langs/swift/api/breakage-allowlist.txt`.
 
 - `TokenPagedComposition.loadMoreCommand` and `refreshCommand` no longer race
   when a first read runs with `dispose()` on another thread (#1922). Both were
