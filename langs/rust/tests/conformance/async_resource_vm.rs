@@ -157,11 +157,27 @@ fn async_resource_initial_state_and_commands() {
     assert!(!vm.cancel_command().can_execute());
 }
 
+/// Counts the `state` property messages the VM published to its hub.
+fn hub_state_count(recorder: &vmx::MessageRecorder, vm: &AsyncResourceVm<i32>) -> usize {
+    recorder
+        .messages()
+        .into_iter()
+        .filter(|message| {
+            matches!(
+                message,
+                Message::PropertyChanged(change)
+                    if change.sender_id == vm.id() && change.property_name == "state"
+            )
+        })
+        .count()
+}
+
 /// ARES-002 — Successful load and ordinary state notification
 #[test]
 fn async_resource_success_notifies_loading_and_ready() {
     let (send, receive) = channel();
     let (vm, starts) = controlled_vm(vec![receive], AsyncResourceRetention::DiscardPrevious, None);
+    let recorder = vm.hub().record(1024);
     let changes = Arc::new(Mutex::new(Vec::new()));
     let seen = changes.clone();
     let _subscription = vm.property_changed().subscribe(move |name| {
@@ -170,10 +186,20 @@ fn async_resource_success_notifies_loading_and_ready() {
 
     let load = vm.load_async();
     wait_until(|| starts.load(Ordering::SeqCst) == 1);
+    assert_eq!(
+        hub_state_count(&recorder, &vm),
+        1,
+        "the Loading transition publishes one hub state pair"
+    );
     send.send(Ok(42)).unwrap();
     load.join().unwrap().unwrap();
 
     assert_eq!(vm.state(), AsyncResourceState::Ready { value: 42 });
+    assert_eq!(
+        hub_state_count(&recorder, &vm),
+        2,
+        "the Ready transition adds one hub state pair"
+    );
     assert_eq!(*changes.lock().unwrap(), vec!["state", "state"]);
     assert!(!vm.load_command().can_execute());
     assert!(vm.reload_command().can_execute());
@@ -480,8 +506,24 @@ fn async_resource_discard_cleans_at_reload_start() {
     wait_until(|| starts.load(Ordering::SeqCst) == 1);
     send1.send(Ok(5)).unwrap();
     first.join().unwrap().unwrap();
+
+    // Snapshot the cleanup list at each Loading notification of the reload.
+    let observer = vm.clone();
+    let loading_snapshots = Arc::new(Mutex::new(Vec::<Vec<i32>>::new()));
+    let snapshots = loading_snapshots.clone();
+    let seen_cleaned = cleaned.clone();
+    let _subscription = vm.property_changed().subscribe(move |name| {
+        if name == "state" && observer.resource_status() == AsyncResourceStatus::Loading {
+            snapshots
+                .lock()
+                .unwrap()
+                .push(seen_cleaned.lock().unwrap().clone());
+        }
+    });
+
     let reload = vm.reload_async();
     wait_until(|| starts.load(Ordering::SeqCst) == 2);
+    assert_eq!(*loading_snapshots.lock().unwrap(), vec![vec![5]]);
     assert_eq!(*cleaned.lock().unwrap(), vec![5]);
     assert_eq!(vm.state(), AsyncResourceState::Loading { previous: None });
     assert_eq!(vm.value(), None);

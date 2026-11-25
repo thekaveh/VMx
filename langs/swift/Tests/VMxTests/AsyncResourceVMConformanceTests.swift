@@ -252,18 +252,30 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
     }
 
     /// ARES-004 — reload retries an Error state and may reach Ready.
+    /// Catalog clauses: state progresses through Loading to Ready(newValue),
+    /// and the prior error is absent from both later snapshots.
     func testAres004RetryReplacesError() async {
+        let deferred = DeferredValue<Int>()
         let queue = LoaderQueue<Int>([
             { throw AsyncResourceTestError.failed },
-            { 9 },
+            { await deferred.get() },
         ])
         let vm = makeAsyncResourceVM(loader: queue.load)
 
         await vm.load()
-        await vm.reload()
+        XCTAssertEqual(vm.state.status, .error)
+        let intent = Task { await vm.reload() }
+        await fulfillment(of: [deferred.parked], timeout: hangGuard)
+
+        XCTAssertEqual(vm.state.status, .loading)
+        XCTAssertNil(vm.state.value)
+        XCTAssertNil(vm.state.error)
+        deferred.resolve(9)
+        await intent.value
 
         XCTAssertEqual(vm.state.status, .ready)
         XCTAssertEqual(vm.state.value, 9)
+        XCTAssertNil(vm.state.error)
     }
 
     /// ARES-005 — cancellation restores the prior stable state without Error.

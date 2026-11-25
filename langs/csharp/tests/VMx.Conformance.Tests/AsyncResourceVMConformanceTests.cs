@@ -283,14 +283,20 @@ public sealed class AsyncResourceVMConformanceTests
     public async Task ARES_004_Retry_Replaces_Error_With_Ready()
     {
         using var hub = new MessageHub();
+        var second = NewSource<int>();
         var attempt = 0;
         var vm = Create(hub, _ => ++attempt == 1
             ? Task.FromException<int>(new InvalidOperationException("first"))
-            : Task.FromResult(7));
+            : second.Task);
 
         await vm.LoadAsync();
         vm.State.Status.Should().Be(AsyncResourceStatus.Error);
-        await vm.ReloadAsync();
+        var reload = vm.ReloadAsync();
+        vm.State.Status.Should().Be(AsyncResourceStatus.Loading);
+        vm.State.HasValue.Should().BeFalse();
+        vm.State.Error.Should().BeNull();
+        second.SetResult(7);
+        await reload;
         vm.State.Status.Should().Be(AsyncResourceStatus.Ready);
         vm.State.Value.Should().Be(7);
         vm.State.Error.Should().BeNull();
