@@ -127,12 +127,13 @@ private final class WeakAsyncResourceBox<Value>: @unchecked Sendable {
 private func makeAsyncResourceVM<Value>(
     loader: @escaping () async throws -> Value,
     retention: AsyncResourceRetention = .discardPrevious,
-    cleanup: ((Value) -> Void)? = nil
+    cleanup: ((Value) -> Void)? = nil,
+    hub: MessageHub = MessageHub()
 ) -> AsyncResourceVM<Value> {
     AsyncResourceVM(
         name: "resource",
         loader: loader,
-        hub: MessageHub(),
+        hub: hub,
         dispatcher: ImmediateDispatcher.INSTANCE,
         retention: retention,
         cleanupValue: cleanup
@@ -142,12 +143,27 @@ private func makeAsyncResourceVM<Value>(
 final class AsyncResourceVMConformanceTests: XCTestCase {
     /// ARES-001 — initial state and command eligibility.
     func testAres001InitialStateAndCommands() {
-        let vm = makeAsyncResourceVM { 1 }
+        let hub = MessageHub()
+        let stateNotifications = LockedValues<String>()
+        let hubCancellable = hub.messages
+            .compactMap { $0 as? PropertyChangedMessage }
+            .filter { $0.propertyName == "state" }
+            .sink { stateNotifications.append($0.propertyName) }
+        let calls = LockedCount()
+        let vm: AsyncResourceVM<Int> = makeAsyncResourceVM(loader: {
+            calls.increment()
+            return 1
+        }, hub: hub)
 
         XCTAssertEqual(vm.state.status, .idle)
+        XCTAssertNil(vm.state.value)
+        XCTAssertNil(vm.state.error)
+        XCTAssertEqual(calls.value, 0)
+        XCTAssertEqual(stateNotifications.values, [])
         XCTAssertTrue(vm.loadCommand.canExecute())
         XCTAssertFalse(vm.reloadCommand.canExecute())
         XCTAssertFalse(vm.cancelCommand.canExecute())
+        withExtendedLifetime(hubCancellable) {}
     }
 
     /// ARES-002 — successful load reaches Ready and notifies state.
