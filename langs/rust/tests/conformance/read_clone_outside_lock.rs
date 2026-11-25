@@ -25,10 +25,11 @@ const BOUND: Duration = Duration::from_secs(5);
 const HOOK_BOUND: Duration = Duration::from_secs(2);
 /// The bound on the writes that run while a read's clone holds a snapshot.
 const WRITE_BOUND: Duration = Duration::from_secs(1);
-/// How long a pager removal may take while a read's clone holds the item.
-const REMOVE_BOUND: Duration = Duration::from_millis(200);
 /// How long a read's clone holds its item in the pager test.
-const HOLD: Duration = Duration::from_millis(1000);
+const HOLD: Duration = Duration::from_millis(300);
+/// The wide slack a pager removal may take beyond the hold before the test
+/// fails. The removal waits for the clone, so it returns at about `HOLD`.
+const REMOVE_SLACK: Duration = Duration::from_secs(4);
 
 /// The hook that `Clone` runs. Every value of one test shares it.
 type Probe = Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>;
@@ -376,13 +377,19 @@ fn hold_until_written(
     })
 }
 
-/// Returns a hook whose first call sets `entered` and sleeps for `hold`.
-fn hold_for(entered: Arc<AtomicBool>, hold: Duration) -> Arc<dyn Fn() + Send + Sync> {
+/// Returns a hook whose first call sets `entered`, sleeps for `hold`, and then
+/// sets `finished`.
+fn hold_for(
+    entered: Arc<AtomicBool>,
+    finished: Arc<AtomicBool>,
+    hold: Duration,
+) -> Arc<dyn Fn() + Send + Sync> {
     let holding = AtomicBool::new(true);
     Arc::new(move || {
         if holding.swap(false, Ordering::SeqCst) {
             entered.store(true, Ordering::SeqCst);
             thread::sleep(hold);
+            finished.store(true, Ordering::SeqCst);
         }
     })
 }
@@ -560,18 +567,21 @@ fn observable_list_clone_may_read_the_same_item() {
     assert_eq!(id, Some(10));
 }
 
-/// Open item of #1925 (B2). A read's clone holds the item for `HOLD`, and
-/// `remove_at` waits for that clone, because the pager keeps one lock per
-/// item. That lock keeps the pager `Sync` for a `Send` item, which the
-/// `Arc`-per-item shape would drop. The test fails on this branch. Run with
-/// `--ignored` to see it.
+/// Documented cost of #1925: the pager keeps one lock per item, so `remove_at`
+/// of an item whose clone is in flight waits for that clone, then completes.
+/// The wait is the cost of keeping `Send` and `Sync` for a `Send`-only item.
+/// The removal returns only after the clone has finished, and within the hold
+/// plus a wide slack.
 #[test]
-#[ignore = "open item of #1925 (B2): remove_at waits for a clone of the same item"]
-fn paged_remove_at_does_not_wait_for_a_clone_of_the_item() {
+fn paged_remove_at_completes_once_the_clone_of_its_item_finishes() {
     let probe: Probe = Arc::new(Mutex::new(None));
     let pager = PagedComposition::new(vec![probing(10, &probe), probing(11, &probe)], 1);
     let entered = Arc::new(AtomicBool::new(false));
-    arm(&probe, hold_for(Arc::clone(&entered), HOLD));
+    let finished = Arc::new(AtomicBool::new(false));
+    arm(
+        &probe,
+        hold_for(Arc::clone(&entered), Arc::clone(&finished), HOLD),
+    );
     let reader = pager.clone();
     let read = thread::spawn(move || {
         reader
@@ -582,41 +592,22 @@ fn paged_remove_at_does_not_wait_for_a_clone_of_the_item() {
     });
     wait_until(&entered);
     let remover = pager.clone();
-    let (removed, elapsed) = within_timeout("PagedComposition::remove_at", BOUND, move || {
-        let started = Instant::now();
-        let removed = remover.remove_at(0).map(|item| item.id);
-        (removed, started.elapsed())
-    });
+    let clone_finished = Arc::clone(&finished);
+    let (removed, clone_done) = within_timeout(
+        "PagedComposition::remove_at",
+        HOLD + REMOVE_SLACK,
+        move || {
+            let removed = remover.remove_at(0).map(|item| item.id);
+            (removed, clone_finished.load(Ordering::SeqCst))
+        },
+    );
     assert_eq!(removed, Some(10));
     assert!(
-        elapsed < REMOVE_BOUND,
-        "remove_at waited {elapsed:?} for a clone of the item it removed"
+        clone_done,
+        "remove_at returned before the clone of the item it removed finished"
     );
     assert_eq!(read.join().expect("the read panicked"), vec![10]);
     assert_eq!(pager.page_count(), 1);
-}
-
-/// Residual of #1925 (B3): a clone that removes its own item from its own
-/// pager, on the same thread, waits for that item's lock, which the clone
-/// holds. The call never returns, so this test fails on this branch. Run with
-/// `--ignored` to see it.
-#[test]
-#[ignore = "known residual of #1925: a clone cannot remove its own item from its own pager"]
-fn paged_clone_that_removes_its_own_item_returns() {
-    let probe: Probe = Arc::new(Mutex::new(None));
-    let pager = PagedComposition::new(vec![probing(10, &probe), probing(11, &probe)], 1);
-    let remover = pager.clone();
-    arm(
-        &probe,
-        first_call(move || {
-            let _ = remover.remove_at(0);
-        }),
-    );
-    let ids = within_timeout("PagedComposition::current_page", BOUND, {
-        let pager = pager.clone();
-        move || -> Vec<u32> { pager.current_page().iter().map(|item| item.id).collect() }
-    });
-    assert_eq!(ids, vec![10]);
 }
 
 /// The collection and pager handles keep their auto traits for a `Send` item

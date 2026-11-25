@@ -530,6 +530,17 @@ pub trait SelectableVmCollection<T: VmNode>: VmCollection<T> {
 ///
 /// Membership transfers are atomic, selection is restricted to constructed
 /// children, and lifecycle transitions propagate through the child snapshot.
+///
+/// Membership changes run under the membership gate. Detaching a child, and
+/// `remove`, `remove_at`, `replace` and their rollbacks, remove or replace the
+/// child's stored value under that gate. Detach already clones every child
+/// through `to_vec` under the gate. When a read of the children that started
+/// earlier still holds a snapshot that contains the removed or replaced child,
+/// that removal also clones the child under the gate, so the child's `Clone`
+/// runs while the gate is held. A child whose `Clone` calls back into this
+/// composite's membership operations may then block or deadlock. The detach
+/// path is the parent registration's detach closure in `with_destruct_order`.
+/// This residual of #1925 is documented here and is not changed.
 pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
     commands: Arc<ComponentCommands>,
@@ -630,6 +641,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                         .iter()
                         .position(|item| item.id() == child_id)
                         .ok_or(VmxError::InconsistentParent)?;
+                    // This removal may clone the child under the membership
+                    // gate; see the residual in the `CompositeVm` rustdoc (#1925).
                     let removed = items
                         .remove_at_silent(index)
                         .ok_or(VmxError::InconsistentParent)?;

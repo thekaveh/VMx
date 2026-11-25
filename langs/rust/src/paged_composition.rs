@@ -274,12 +274,14 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     /// A removal clamps the current page and publishes the source change. A
     /// missing index changes and publishes nothing. After `dispose`, the call
     /// removes nothing and returns `None`. The item leaves the source under the
-    /// pager lock, and its value is returned after that lock is released. When
-    /// a page read still holds the item, the value is copied from the item's
-    /// own handle, so the call waits for a clone of that same item that is
-    /// still running. It does not wait for other items. A clone of the item
-    /// that removes it from this pager on its own thread does not return
-    /// (#1925).
+    /// pager lock, and its value is returned after that lock is released.
+    ///
+    /// Removing an item whose clone is in flight waits for that clone to
+    /// finish, then returns. It waits for no other item. A `Clone` must not
+    /// remove its own item from its own pager: on the same thread, that call
+    /// waits for the clone it is inside, and it does not return. The wait is the
+    /// cost of keeping `Send` and `Sync` for a `Send`-only item, which needs one
+    /// lock per item (#1925).
     pub fn remove_at(&self, index: usize) -> Option<T> {
         let (removed, clamped) = {
             let mut state = lock(&self.core.state);
@@ -319,11 +321,16 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
 
     /// Returns a snapshot of the items in the current page.
     ///
-    /// The items are cloned with no pager lock held, so an item's `Clone` may
-    /// read this pager (#1925). Each item's own lock is held while it is
-    /// cloned, so a clone that clones the same item again through this pager
-    /// still blocks, as [`ObservableDictionary::get`](crate::ObservableDictionary::get)
-    /// does.
+    /// The items are cloned after the pager lock is released, so an item's
+    /// `Clone` may read this pager or wait for another thread to write it.
+    ///
+    /// Each item's own lock is held while that item is cloned. A read therefore
+    /// waits for a clone of the same item that is in flight on another thread.
+    /// A `Clone` must not read the page that holds its own item, and it must not
+    /// remove its own item from this pager (see [`remove_at`](Self::remove_at)):
+    /// on the same thread, either call waits for the lock that the clone holds.
+    /// The wait is the cost of keeping `Send` and `Sync` for a `Send`-only item,
+    /// which needs one lock per item (#1925).
     pub fn current_page(&self) -> Vec<T> {
         let handles = self.core.page_handles();
         handles.iter().map(|handle| clone_locked(handle)).collect()

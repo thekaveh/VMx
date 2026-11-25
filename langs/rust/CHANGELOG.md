@@ -178,11 +178,13 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   pager, or that waited for another thread to write it, deadlocked, because the
   read cloned under the lock (#1925). The three collections store each item
   behind an `Arc`, so a write that copies a snapshot copies pointers and runs no
-  user `Clone` under the lock. `PagedComposition` keeps one lock per item, so
-  `remove_at` still waits for a clone of the same item that is running, and a
-  clone that removes its own item from its own pager does not return. Those two
-  cases are open and their tests are ignored (#1925). `AsyncResourceVm` is not
-  changed. The regression tests are `read_clone_outside_lock.rs`.
+  user `Clone` under the lock. Documented residuals (#1925):
+  `PagedComposition` keeps one lock per item, so removing an item whose clone is
+  in flight waits for that clone, and a `Clone` must not remove its own item from
+  its own pager. The wait keeps `Send` and `Sync` for a `Send`-only item.
+  Composite membership changes clone a removed or replaced child under the
+  membership gate when a read still holds it. `AsyncResourceVm` is not changed.
+  The regression tests are `read_clone_outside_lock.rs`.
 
 ## [0.36.0] — unreleased source version
 
