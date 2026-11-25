@@ -121,8 +121,10 @@ open class FilteredCompositeVM<Child: ComponentVMBase> {
         setCurrent(visibleStorage[max(index - 1, 0)])
     }
 
+    /// Reads the source once with `snapshot()`, so a removal on another thread
+    /// cannot trap the read (ADR-0187).
     open func orderedVisible() -> [Child] {
-        (0..<source.count).map { source.at($0) }.filter(predicate)
+        source.snapshot().filter(predicate)
     }
 
     func recompute() {
