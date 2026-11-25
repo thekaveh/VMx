@@ -91,7 +91,7 @@ fn predicate_is_user_supplied() {
 
 /// COMP-018 — Filtered recomputes when Items source changes
 #[test]
-fn filtered_reads_live_items_provider() {
+fn search_returns_and_pushes_recomputed_projection() {
     let items = Arc::new(Mutex::new(vec!["one"]));
     let source = items.clone();
     let state = SearchableState::from_items(
