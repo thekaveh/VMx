@@ -438,6 +438,16 @@ final class ObservableDictionaryTests: XCTestCase {
 
         // Key2=2 disappeared when ("alpha",2) was removed
         XCTAssertTrue(keys2Removed.contains(2))
+
+        // Catalog scenario on a fresh dictionary: key2 leaves while key1 stays.
+        // The dictionary above keeps key2=1 alive through ("beta", 1), so the
+        // catalog values are asserted on their own dictionary.
+        let catalog = ObservableDictionary<String, Int, String>()
+        catalog.set("a", 1, "x")
+        catalog.set("a", 2, "y")
+        catalog.delete("a", 1)
+        XCTAssertEqual(catalog.keys1.toArray(), ["a"])
+        XCTAssertEqual(catalog.keys2.toArray(), [2])
     }
 
     // ── COL-014 ──────────────────────────────────────────────────────────────

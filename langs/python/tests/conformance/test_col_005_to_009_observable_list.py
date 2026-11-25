@@ -89,14 +89,23 @@ def test_COL_008_count_property_changed_ordering_after_add() -> None:
     """COL-008: ItemAdded fires before PropertyChanged('Count') on every add."""
     sut: ObservableList[int] = ObservableList()
     call_order: list[str] = []
+    counts_at_count_notification: list[int] = []
 
     sut.on_item_added.subscribe(lambda _: call_order.append("item_added"))
-    sut.on_property_changed.subscribe(lambda name: call_order.append(f"property_changed:{name}"))
+
+    def on_property_changed(name: str) -> None:
+        call_order.append(f"property_changed:{name}")
+        if name == "Count":
+            counts_at_count_notification.append(len(sut))
+
+    sut.on_property_changed.subscribe(on_property_changed)
 
     sut.append(42)
 
     # ItemAdded must fire before PropertyChanged("Count")
     assert call_order == ["item_added", "property_changed:Count"]
+    # Count already reflects the new value when PropertyChanged("Count") fires
+    assert counts_at_count_notification == [1]
 
 
 # ---------------------------------------------------------------------------
