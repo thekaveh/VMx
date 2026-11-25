@@ -105,6 +105,10 @@ public enum ObservableDictionaryError: Error, CustomStringConvertible {
     }
 }
 
+extension ObservableDictionaryError: LocalizedError {
+    public var errorDescription: String? { description }
+}
+
 public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue> {
 
     /// Composite map key combining both axes. Synthesised `Hashable` because

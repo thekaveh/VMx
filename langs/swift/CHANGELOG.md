@@ -159,6 +159,14 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   background child is waited for in that order. Construct order does not
   change, and every child is still disposed before the container publishes
   `.disposed` (LIFE-013). The default, `.insertion`, keeps today's order.
+- `LocalizedError` conformance for the seven public error types that have a
+  `description`: `BuilderValidationError`, `StatusTransitionError`,
+  `CompositeMembershipError`, `ContainerRollbackError`, `ChildTransitionError`,
+  `MessageHubOverflowError` and `ObservableDictionaryError`. Each
+  `errorDescription` returns the type's `description`, so
+  `error.localizedDescription` names the missing builder field (spec/10 §3)
+  and no longer shows Foundation's generic text (#1596). `description`,
+  `missingField` and every initializer are unchanged.
 
 ### Changed
 
