@@ -237,6 +237,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `PagedComposition`: a page move clamps a stale `currentPageIndex` before it picks
+  its target (ADR-0251, #1917). After an unobserved source shrinks, `moveToLastPage`,
+  `moveToNextPage` and `moveToPreviousPage` land on a page in range, where a stale
+  index used to leave the pager on an empty page. A move that changes no index
+  publishes nothing, as before.
+
 - `HierarchicalVM.invalidateSubtree` walks the materialized subtree with an
   explicit stack, so a deep chain no longer overflows the call stack. At 5,000
   levels it used to throw `RangeError`. Each node also holds a reference to its

@@ -240,3 +240,48 @@ def test_COL_021_composition_with_searchable_state() -> None:
 
     sut.dispose()
     searchable.dispose()
+
+
+# ---------------------------------------------------------------------------
+# COL-074 — a page move clamps a stale current_page_index first
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("COL-074")
+@pytest.mark.parametrize(
+    ("move", "expected_index", "expected_items"),
+    [
+        ("move_to_first_page", 0, [0, 1, 2]),
+        ("move_to_previous_page", 0, [0, 1, 2]),
+        ("move_to_next_page", 1, [3, 4]),
+        ("move_to_last_page", 1, [3, 4]),
+    ],
+)
+def test_COL_074_page_move_clamps_stale_index_after_unobserved_shrink(
+    move: str, expected_index: int, expected_items: list[int]
+) -> None:
+    """COL-074: a page move clamps a stale current_page_index before it picks its target.
+
+    Given a PagedComposition over a plain list (no change stream), page_size=3,
+    and current_page_index=3 (last page of 10 items). When the list shrinks to
+    5 items without the pager seeing it, then each move lands on a page in
+    [0, page_count-1], shows that page's items, and publishes
+    current_page_index and items once.
+    """
+    source: list[int] = list(range(10))
+    sut: PagedComposition[int] = PagedComposition(source, page_size=3)
+    sut.move_to_last_page()
+    assert sut.current_page_index == 3
+
+    del source[5:]
+    notified: list[str] = []
+    subscription = sut.on_property_changed.subscribe(notified.append)
+
+    getattr(sut, move)()
+
+    assert sut.current_page_index == expected_index
+    assert sut.items == expected_items
+    assert notified == ["current_page_index", "items"]
+
+    subscription.dispose()
+    sut.dispose()
