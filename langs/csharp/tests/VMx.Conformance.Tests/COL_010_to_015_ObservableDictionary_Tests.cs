@@ -172,6 +172,16 @@ public class COL_010_to_015_ObservableDictionaryTests
 
         // Key2=2 disappeared when ("alpha",2) was removed
         keys2Removed.Should().Contain(2);
+
+        // Catalog scenario on a fresh dictionary: key2 leaves while key1 stays.
+        // The dictionary above keeps key2=1 alive through ("beta", 1), so the
+        // catalog values are asserted on their own dictionary.
+        var catalog = new ObservableDictionary<string, int, string>();
+        catalog.Add("a", 1, "x");
+        catalog.Add("a", 2, "y");
+        catalog.Remove("a", 1);
+        catalog.Keys1.Should().Equal("a");
+        catalog.Keys2.Should().Equal(2);
     }
 
     // ── COL-014 ──────────────────────────────────────────────────────────────
