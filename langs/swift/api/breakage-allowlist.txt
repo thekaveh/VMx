@@ -1,0 +1,2 @@
+API breakage: constructor ReadonlyComponentVMOf.init(name:hint:initialModel:modeledHinter:onModelChanged:hub:dispatcher:onConstruct:onDestruct:background:) has been added as a designated initializer to an open class
+API breakage: constructor ForwardingComponentVM.init(name:hint:initialModel:modeledHinter:onModelChanged:hub:dispatcher:onConstruct:onDestruct:background:) has been added as a designated initializer to an open class
