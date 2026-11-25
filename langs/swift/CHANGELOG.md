@@ -220,6 +220,19 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Fixed
 
+- A subclass of `ComponentVMOf` whose model is `Equatable` no longer has to pass
+  `modelEquals` to its initializer (#1600). The `Equatable` initializer was a
+  convenience initializer, so a subclass that called
+  `super.init(name:initialModel:hub:dispatcher:)` either failed to compile or,
+  with a stored property, failed to link. The initializer is now a designated
+  `init(...) where Model: Equatable` in the class body and sets `modelEquals`
+  to `==`. Builder-built view models and the identity default for non-`Equatable`
+  class models are unchanged. The Swift API check reports the new initializer
+  as added to `ReadonlyComponentVMOf`, which inherits it, and to
+  `ForwardingComponentVM`, which declares its own `init(_:)` and does not inherit
+  it. The digester reports both, so both are allowlisted in
+  `langs/swift/api/breakage-allowlist.txt`.
+
 - `TokenPagedComposition.loadMoreCommand` and `refreshCommand` no longer race
   when a first read runs with `dispose()` on another thread (#1922). Both were
   `lazy var` properties, so each thread could create its own command, and
