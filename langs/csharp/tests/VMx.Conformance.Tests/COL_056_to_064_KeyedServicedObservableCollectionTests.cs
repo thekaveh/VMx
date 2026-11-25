@@ -165,6 +165,7 @@ public class COL_056_to_064_KeyedServicedObservableCollectionTests
             second,
             third,
         };
+        var local = ObserveLocal(sut);
 
         sut.Remove(new Item("unused", "equal")).Should().BeTrue();
         sut.ContainsKey("a").Should().BeFalse();
@@ -174,7 +175,10 @@ public class COL_056_to_064_KeyedServicedObservableCollectionTests
         sut.ContainsKey("c").Should().BeFalse();
 
         second.Key = "rekeyed";
+        var localBeforeRekey = local.Count;
         sut[0] = second;
+        local.Should().HaveCount(localBeforeRekey + 1);
+        local[^1].Action.Should().Be(NotifyCollectionChangedAction.Replace);
         sut.ContainsKey("b").Should().BeFalse();
         sut.TryGetValue("rekeyed", out var rekeyed).Should().BeTrue();
         rekeyed.Should().BeSameAs(second);
