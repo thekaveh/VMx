@@ -92,14 +92,26 @@ fn predicate_is_user_supplied() {
 /// COMP-018 — Filtered recomputes when Items source changes
 #[test]
 fn filtered_reads_live_items_provider() {
-    let items = Arc::new(Mutex::new(vec!["alpha"]));
+    let items = Arc::new(Mutex::new(vec!["one"]));
     let source = items.clone();
-    let state = SearchableState::from_items(move || source.lock().unwrap().clone(), contains);
-    state.set_search_term("a");
+    let state = SearchableState::from_items(
+        move || source.lock().unwrap().clone(),
+        |_: &&'static str, _: &str| true,
+    )
+    .with_debounce(Duration::ZERO);
+    state.set_search_term("x");
 
-    items.lock().unwrap().push("gamma");
+    let snapshots = Arc::new(Mutex::new(Vec::new()));
+    let seen = snapshots.clone();
+    let observed = state.clone();
+    let _subscription = state.filtered_changed().subscribe(move |_| {
+        seen.lock().unwrap().push(observed.filtered());
+    });
 
-    assert_eq!(state.filtered(), vec!["alpha", "gamma"]);
+    *items.lock().unwrap() = vec!["one", "two"];
+    assert_eq!(state.search(), vec!["one", "two"]);
+
+    assert_eq!(snapshots.lock().unwrap().as_slice(), &[vec!["one", "two"]]);
 }
 
 /// GRP-007 — SearchableState defaults to empty search term (group context)

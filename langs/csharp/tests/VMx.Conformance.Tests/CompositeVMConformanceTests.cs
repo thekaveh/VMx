@@ -350,15 +350,28 @@ public class CompositeVMConformanceTests
         composite.Add(vmA);
         composite.Construct();
 
+        var currentMessages = new List<IMessage>();
+        hub.Messages.Subscribe(m =>
+        {
+            if (m is IPropertyChangedMessage<IComponentVM> pcm &&
+                pcm.PropertyName == "Current" &&
+                ReferenceEquals(pcm.SenderObject, composite))
+                currentMessages.Add(m);
+        });
+
         // Act: select synchronously — Current should NOT change yet.
         composite.SelectComponent(vmA);
 
         composite.Current.Should().BeNull("Current must not change synchronously with AsyncSelection");
+        currentMessages.Should().BeEmpty(
+            "the hub receives no PropertyChangedMessage(\"Current\") before the foreground dispatch runs");
 
         // After advancing the foreground scheduler, Current is set.
         dispatcher.ForegroundScheduler.AdvanceBy(1);
 
         composite.Current.Should().BeSameAs(vmA);
+        currentMessages.Should().HaveCount(1,
+            "exactly one Current change is published after the foreground dispatch");
     }
 
     // ── COMP-011 — deselect_component raises when vm is not Current ───────────
@@ -1429,6 +1442,8 @@ public class CompositeVMConformanceTests
         var (parent, hub, dispatcher) = BuildComposite();
         var child = BuildChild(hub, dispatcher);
         parent.Add(child);
+        parent.Construct();
+        parent.SelectComponent(child);
         var events = 0;
         parent.CollectionChanged += (_, _) => events++;
 
@@ -1436,6 +1451,10 @@ public class CompositeVMConformanceTests
 
         duplicate.Should().Throw<InvalidOperationException>();
         parent.Should().ContainSingle(item => ReferenceEquals(item, child));
+        // Parent is not observable; the parent link is asserted through selection.
+        parent.Current.Should().BeSameAs(child);
+        child.IsCurrent.Should().BeTrue();
+        child.Status.Should().Be(ConstructionStatus.Constructed);
         events.Should().Be(0);
 
         var outer = CompositeVM<IComponentVM>.Builder()
@@ -1467,6 +1486,29 @@ public class CompositeVMConformanceTests
         outer.Status.Should().Be(outerStatus);
         outer.Current.Should().BeNull();
         selfEvents.Should().Be(0);
+
+        // A group refuses a duplicate add with the same mutation-free guarantee.
+        var group = GroupVM<ComponentVM<string>>.Builder()
+            .Name("group")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
+        var groupChild = BuildChild(hub, dispatcher, "grouped");
+        group.Add(groupChild);
+        var groupStatus = groupChild.Status;
+        var groupEvents = 0;
+        group.CollectionChanged += (_, _) => groupEvents++;
+
+        Action groupDuplicate = () => group.Add(groupChild);
+
+        groupDuplicate.Should().Throw<InvalidOperationException>();
+        group.Should().ContainSingle(item => ReferenceEquals(item, groupChild));
+        groupChild.Status.Should().Be(groupStatus);
+        groupEvents.Should().Be(0);
+
+        // The parent link survived the refused add: once deselected, the child is selectable again.
+        child.Deselect();
+        child.CanSelect().Should().BeTrue("the refused add leaves the parent link in place");
     }
 
     [Fact, Trait("Conformance", "COMP-039")]

@@ -320,15 +320,29 @@ describe("COMP-010", () => {
       .build();
     composite.construct();
 
+    const currentMessages: PropertyChangedMessage<unknown>[] = [];
+    hub.messages.subscribe((m) => {
+      if (
+        m instanceof PropertyChangedMessage &&
+        m.propertyName === "current" &&
+        m.sender === composite
+      ) {
+        currentMessages.push(m);
+      }
+    });
+
     composite.selectComponent(vmA);
 
     // With AsyncSelection, Current does NOT change synchronously.
     expect(composite.current, "Current must not change synchronously").toBeNull();
+    // The hub receives no Current change before the foreground dispatch runs.
+    expect(currentMessages, "no PropertyChangedMessage(current) before the dispatch").toEqual([]);
 
     // Advancing the foreground scheduler completes the dispatch.
     foreground.flush();
 
     expect(composite.current).toBe(vmA);
+    expect(currentMessages, "one Current change is published after the dispatch").toHaveLength(1);
   });
 
   it("drops the selection when the child is removed before the foreground dispatch", () => {
@@ -947,11 +961,18 @@ describe("COMP-039", () => {
       .name("parent").services(hub, dispatcher).children(() => []).build();
     const child = makeChild(hub, "child");
     parent.add(child);
+    parent.construct();
+    parent.selectComponent(child);
+    const parentLink = child._parent;
     const events: CollectionChangedEvent[] = [];
     parent.collectionChanged.subscribe((event) => events.push(event));
 
     expect(() => parent.add(child)).toThrow(/already contains/);
     expect(parent.snapshot()).toEqual([child]);
+    expect(child._parent).toBe(parentLink);
+    expect(parent.current).toBe(child);
+    expect(child.isCurrent).toBe(true);
+    expect(child.status).toBe(ConstructionStatus.Constructed);
     expect(events).toEqual([]);
 
     const outer = CompositeVM.builder<ComponentVMBase>()
@@ -971,6 +992,22 @@ describe("COMP-039", () => {
     expect(outer._parent).toBeNull();
     expect(outer.status).toBe(ConstructionStatus.Destructed);
     expect(selfEvents).toEqual([]);
+
+    // A group refuses a duplicate add with the same mutation-free guarantee.
+    const group = GroupVM.builder<ComponentVM>()
+      .name("group").services(hub, dispatcher).children(() => []).build();
+    const groupChild = makeChild(hub, "grouped");
+    group.add(groupChild);
+    const groupLink = groupChild._parent;
+    const groupStatus = groupChild.status;
+    const groupEvents: CollectionChangedEvent[] = [];
+    group.collectionChanged.subscribe((event) => groupEvents.push(event));
+
+    expect(() => group.add(groupChild)).toThrow(/already contains/);
+    expect(group.snapshot()).toEqual([groupChild]);
+    expect(groupChild._parent).toBe(groupLink);
+    expect(groupChild.status).toBe(groupStatus);
+    expect(groupEvents).toEqual([]);
   });
 });
 
