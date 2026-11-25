@@ -106,7 +106,11 @@ function boxedValuesEqual(a: { valueOf(): unknown }, b: { valueOf(): unknown }):
 
 type ClonedKind = "File" | "Blob" | "CryptoKey";
 
-/** A File against a Blob: the one mixed pair, which only a degraded File clone produces. */
+/**
+ * A File against a Blob: the one mixed pair. A degraded File clone produces it,
+ * and a user's replacement of a File with a Blob, or of a Blob with a File,
+ * produces it on every runtime (ADR-0253 §2.1).
+ */
 function isFileAndBlob(a: ClonedKind, b: ClonedKind): boolean {
   return (a === "File" && b === "Blob") || (a === "Blob" && b === "File");
 }
@@ -171,8 +175,9 @@ function clonedState(value: object, kind: ClonedKind): unknown[] | undefined {
  *   keeps: a `Blob`'s size and type, a `File`'s name and lastModified as well,
  *   and a `CryptoKey`'s type, extractable flag, algorithm, and usages. Their
  *   bytes and key material are not compared (ADR-0253). A `File` against a
- *   `Blob` compares by size and type only, the pairing that a clone degrading a
- *   `File` produces; any other two kinds are unequal;
+ *   `Blob` compares by size and type only, a pairing that a clone degrading a
+ *   `File` produces and that a user's replacement produces on every runtime
+ *   (ADR-0253 §2.1); any other two kinds are unequal;
  * - distinguishes an `undefined`-valued key from a missing key (as
  *   `structuredClone` preserves it);
  * - treats `NaN` as equal to `NaN` (and `+0`/`-0` as equal) for dirty-tracking.
@@ -311,7 +316,8 @@ export function deepEquals(
 
   // A Blob, File, or CryptoKey is compared with a value of its own kind by the
   // state its clone keeps. A File is also compared with a Blob by the Blob state
-  // (size and type), the pairing a degraded File clone produces (ADR-0253 §2.1).
+  // (size and type), in either direction: a degraded File clone produces the
+  // pairing, and a user's replacement produces it on every runtime (ADR-0253 §2.1).
   // Any other mixed pair is unequal, and so is a value of these kinds against a
   // plain value.
   const aKind = clonedKind(a);

@@ -213,13 +213,14 @@ the `JSON.stringify` comparison used before v3 it:
   (ADR-0253): a `Blob`'s `size` and `type`, a `File`'s `name` and
   `lastModified` as well, and a `CryptoKey`'s `type`, `extractable` flag,
   `algorithm`, and `usages`. Two values of one kind are equal when that state
-  is equal. Values of different kinds are not equal, except that a `File`
-  compared with a `Blob` of the same size and type is equal, because that
-  pairing arises when a runtime's `structuredClone` degrades the `File`, and
-  the comparator cannot tell that `Blob` from one a user puts in place of a
-  `File` (ADR-0253). Their bytes and key material are not compared, so a
-  replacement with the same state is not a change. `FileList`, `ImageData`,
-  and `ImageBitmap` are not covered, and a consumer injects `equals` for them;
+  is equal. Values of different kinds are not equal, except that a `File` and a
+  `Blob` of the same size and type are equal in either direction (a `File` in
+  the model against a `Blob`, or a `Blob` in the model against a `File`), on
+  every runtime for a user's replacement, and a degraded `File` clone produces
+  the `File`-in-the-model case; ADR-0253 §2.1 and §3 record this residual. Their
+  bytes and key material are not compared, so a replacement with the same state
+  is not a change. `FileList`, `ImageData`, and `ImageBitmap` are not covered,
+  and a consumer injects `equals` for them;
 - preserves an `undefined`-valued key as distinct from a missing key (matching what
   `structuredClone` preserves), and treats `NaN` as equal to `NaN` and `+0`/`-0` as
   equal, for stable dirty-tracking;

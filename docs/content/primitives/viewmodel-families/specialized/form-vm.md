@@ -404,9 +404,11 @@ compared, so two values with the same state are equal even when their contents
 differ. Inject `equals` for a domain that needs the contents. Node 20.5 and 22
 clone a `File` as a `Blob`, which keeps no name or `lastModified`. On those
 runtimes a replacement that differs only in name or `lastModified` is committed
-but does not make the form dirty. Node 24 and 26 keep the `File`. The
-`CryptoKey` clean-start check runs only where the runtime's clone keeps a
-`CryptoKey`.
+but does not make the form dirty. Node 24 and 26 keep the `File`. On every
+runtime, a `File` and a `Blob` of the same size and type are equal in either
+direction, so a replacement of a `Blob` by a same-size, same-type `File` is
+dropped, and so is the reverse replacement. The `CryptoKey` clean-start check
+runs where the runtime's clone keeps a `CryptoKey`.
 
 Field localization inspects data-property descriptors, performs no writes, and
 does not invoke getters a second time. User-defined accessors or proxy traps can

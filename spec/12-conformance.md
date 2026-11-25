@@ -4525,12 +4525,17 @@ buffers and views compare by concrete constructor and visible bytes (ADR-0113),
 `Error` values by cloneable kind, own `message`, and own `cause` (ADR-0135),
 `DOMException` values by `name` and `message` (ADR-0152), and `Blob`, `File`,
 and `CryptoKey` values by the state their clone keeps (ADR-0253; their bytes and
-key material are not compared). The equal-values guarantee holds for
+key material are not compared). The equal-values guarantee (values that differ
+in a field are dirty, and structurally equal values are clean) holds for
 value-equality-capable models in C#, Python, Swift, and Rust, and for TypeScript
-on runtimes whose clone keeps `File`. On a runtime whose clone degrades a `File`
-to a `Blob`, a `File` compares against that `Blob` by size and type, so a change
-to only its name or `lastModified` does not make the model dirty. ADR-0253 §2.1
-and §3 describe that case.
+for any two values of one kind. It does not hold for a `File` against a `Blob`
+on any runtime. Two of them with the same size and type are equal in either
+direction (ADR-0253 §2.1), so a change to only the name or `lastModified` is not
+seen. A user's replacement produces the pair on every runtime, and a clone that
+degrades a `File` to a `Blob` (Node 20.5 and 22) produces it between a `File`
+model and its `Blob` snapshot. A `Blob` replaced by a `File` of the same size
+and type is dropped, not only undetected. ADR-0253 §3 records what is and is not
+committed in each case.
 Consumers needing field-subset or reference semantics inject a custom `equals`
 (TypeScript/Swift) or define their model's own equality
 (C#/Python/Rust `PartialEq`).

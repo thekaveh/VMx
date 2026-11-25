@@ -73,17 +73,24 @@ exists. Neither rule can compare these values correctly, for these reasons:
 - **The state a clone keeps is chosen.** It is the simplest rule that keeps a
   fresh form clean and that matches chapter 20 §4, which compares to the depth
   the snapshotter clones.
-- **A `File` against a `Blob`.** The verification of this change found that Node
-  20.5 and 22 clone a `File` as a `Blob`, which keeps the size and type and drops
-  the name and `lastModified`. Node 26.12.1 keeps all four fields, so this
-  degraded clone is not reproduced in this environment. On a runtime that
-  degrades the `File`, the default snapshot of a `File` is a `Blob`, so a form
-  holding a `File` compares a `File` against a `Blob` at construction and after
-  each approve. A `File` against a `Blob` therefore compares by size and type
-  only, and the two are equal when those match. The rule does not depend on the
-  runtime, because the comparator cannot tell which clone made the `Blob`. A
-  `Blob` that a user puts in the model in place of a `File` is compared the same
-  way on every runtime, which is what develop already does (§3).
+- **A `File` in the model against a `Blob` (File to Blob).** On a runtime whose
+  clone degrades a `File` (Node 20.5 and 22), the default snapshot of a `File` is
+  a `Blob` that keeps the size and type and drops the name and `lastModified`.
+  A form holding a `File` therefore compares it with that `Blob` at construction
+  and after each approve. This is the degraded-clone case. A user's replacement
+  of a `File` by a `Blob` is compared the same way on every runtime. In both
+  cases a `File` against a `Blob` compares by size and type only, so the two are
+  equal when those match, and a replacement that differs only in name or
+  `lastModified` is not seen as a change to the dirty state.
+- **A `Blob` in the model against a `File` (Blob to File).** A user's
+  replacement of a `Blob` by a `File` is compared the same way on every runtime,
+  so the two are equal when size and type match, and the replacement is not
+  committed (§3).
+
+The rule does not depend on the runtime, because the comparator cannot tell a
+degraded `Blob` snapshot from a `Blob` that a user put in the model. The probes
+in the PR body show which runtimes degrade a `File`: Node 20.5.0 and 22.23.5
+clone it as a `Blob`, and Node 24.22.3 and 26.12.1 keep it.
 
 ## 3. Consequences
 
@@ -92,18 +99,29 @@ exists. Neither rule can compare these values correctly, for these reasons:
   edit whose value has the same state is suppressed, as before. A `File` replaced
   by a `Blob` of the same size and type is suppressed on every runtime, as develop
   suppresses it (§2.1). Without the §2.1 rule, that replacement would commit on
-  Node 24 and 26, where the clone keeps the `File`, so there the suppression is a
-  behavior change from the earlier revision of this fix; develop already
-  suppresses it.
+  every runtime, so the suppression is a behavior change from the earlier
+  revision of this fix; develop already suppresses it.
 - **Residual: a degraded `File` (Node 20.5 and 22).** On a runtime whose clone
   degrades a `File`, the snapshot keeps neither the name nor `lastModified`. A
   replacement that differs only in name or `lastModified` is committed: the model
   takes the new `File`, and one model change is published. `isDirty` stays false,
   because a `File` against a `Blob` compares size and type only. Develop drops
   such a replacement entirely, so the model keeps the old `File` and no change is
-  published. The gap is therefore a missed dirty state, not a dropped model
-  change. The unit test that builds a `Blob` snapshot pins this limit, and it runs
-  on every runtime.
+  published. In this File-to-Blob direction the gap is therefore a missed dirty
+  state, not a dropped model change. The replacement of a `File` by a `Blob` of
+  the same size and type is still dropped, as the first bullet records. The unit
+  test that builds a `Blob` snapshot pins this limit, and it runs on every
+  runtime.
+- **Residual: a `Blob` replaced by a `File` (every runtime).** A `File` of the
+  same size and type as the model's `Blob` is equal to it, so `setModel` drops
+  the replacement. The model keeps the `Blob`, no model change is published, and
+  `isDirty` is unchanged, which is false for a clean form, even though the
+  `File`'s name or `lastModified` differs. This is a dropped model change, not
+  only an undetected dirty state, and it happens on every runtime. Develop also
+  drops it, since its plain-object fallback equates any two of these values, so
+  relative to develop nothing changes. The earlier revision of this fix committed
+  it on every runtime, so this is a behavior change from that revision. The unit
+  test named `documented residual (ADR-0253 §3)` pins it.
 - **Residual equal case.** Two values of one kind with the same compared state
   and different bytes or key material are equal, so a replacement that differs
   only there is dropped. Examples are two `Blob` values of the same size and type
@@ -121,11 +139,13 @@ exists. Neither rule can compare these values correctly, for these reasons:
   that the clone does not keep a `CryptoKey`. On a runtime whose clone does not
   keep a `CryptoKey`, the form needs an injected `snapshotter` and `equals`, as
   ADR-0152 §3 records for `DOMException`.
-- **Not verified on Node 20.5 and 22.** This environment has only Node 26.12.1,
-  which keeps every field of a `File` and a `CryptoKey`. The degraded `File` path
-  is covered by unit tests that build the `Blob` snapshot directly. Those tests
-  simulate the clone and do not reproduce it. The `CryptoKey` behavior of Node
-  20.5 and 22 is not checked.
+- **Runtime probes.** A one-line `structuredClone` probe, run with
+  `npx node@VERSION`, shows that Node 20.5.0 and 22.23.5 clone a `File` as a
+  `Blob` (no name or `lastModified`) and keep a `CryptoKey` (type, `extractable`,
+  algorithm, and usages). Node 24.22.3 and 26.12.1 keep both kinds. The probe
+  results are cited in the PR body. The degraded `File` path is still covered by
+  unit tests that build the `Blob` snapshot directly, on every runtime. Those
+  tests simulate the clone, and the probe is what reproduces it.
 - **C#.** `FormVM` compares with `Equals(model, snapshot)`
   (`langs/csharp/src/VMx/Forms/FormVM.cs`, near line 180), which is the model's
   own equality. C# therefore has no structured-clone gap of this kind. C#,

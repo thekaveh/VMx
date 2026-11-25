@@ -244,7 +244,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   compared by size and type, a `File` also by name and `lastModified`, and a
   `CryptoKey` by type, extractability, algorithm and usages. Their bytes and key
   material are not compared. Where a clone degrades a `File` to a `Blob` (Node
-  20.5 and 22), a `File` compares against that `Blob` by size and type.
+  20.5 and 22), a `File` compares against that `Blob` by size and type. A `File`
+  and a `Blob` of the same size and type are equal in either direction on every
+  runtime, so a replacement across that pair is dropped (ADR-0253 §3).
 
 - `PagedComposition`: a page move clamps a stale `currentPageIndex` before it picks
   its target (ADR-0251, #1917). After an unobserved source shrinks, `moveToLastPage`,

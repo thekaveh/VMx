@@ -1509,8 +1509,9 @@ describe("FormVM default equality – supported snapshot domain", () => {
     }
   });
 
-  // ADR-0253 §2.1: a File against a Blob compares by size and type only. That
-  // is the pairing a degraded File clone produces, so it is built directly here.
+  // ADR-0253 §2.1: a File against a Blob compares by size and type only, in
+  // either direction. A degraded File clone and a user's replacement both produce
+  // the pairing, so it is built directly here.
   it("compares a File with a Blob by size and type only, as a degraded clone does", () => {
     const file = new File(["abc"], "a.txt", { type: "text/plain", lastModified: 1000 });
     const snapshot = new Blob(["abc"], { type: "text/plain" });
@@ -1603,6 +1604,82 @@ describe("FormVM default equality – supported snapshot domain", () => {
     expect(sut.model.file).toBe(renamed);
     expect(sut.isDirty).toBe(false);
     expect(modelChanges).toHaveLength(1);
+    sut.dispose();
+  });
+
+  // Runs on every runtime through the default snapshotter. On Node 20.5 and 22
+  // the approve snapshot is a Blob, and on Node 24 and 26 it is the File. Either
+  // way the form is clean after approve, and a change in size is dirty.
+  it("keeps a File model clean after approve with the default snapshotter", async () => {
+    const sut = makeAny({ file: new File(["abc"], "a.txt", { type: "text/plain", lastModified: 1000 }) });
+    expect(sut.isDirty).toBe(false);
+
+    await sut.approveAsync();
+
+    expect(sut.isDirty).toBe(false);
+    sut.setModel({ file: new File(["abcd"], "a.txt", { type: "text/plain", lastModified: 1000 }) });
+    expect(sut.isDirty).toBe(true);
+    await sut.approveAsync();
+    expect(sut.isDirty).toBe(false);
+    sut.dispose();
+  });
+
+  // ADR-0253 §3, File to Blob: a File model replaced by a Blob of the same size
+  // and type is dropped on every runtime, because the two compare equal. The
+  // snapshot is the degraded Blob built directly.
+  it("documented residual (ADR-0253 §3): a File model replaced by a same-size, same-type Blob is dropped", () => {
+    const hub = new MessageHub();
+    const modelChanges: unknown[] = [];
+    hub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage && message.propertyName === "model") {
+        modelChanges.push(message);
+      }
+    });
+    const file = new File(["abc"], "a.txt", { type: "text/plain", lastModified: 1000 });
+    const sut = new FormVM<AnyModel>({
+      initial: { file },
+      persister: noop,
+      hub,
+      snapshotter: degradedSnapshot,
+    });
+
+    sut.setModel({ file: new Blob(["abc"], { type: "text/plain" }) });
+
+    expect(sut.model.file).toBe(file);
+    expect(sut.isDirty).toBe(false);
+    expect(modelChanges).toHaveLength(0);
+    sut.dispose();
+  });
+
+  // ADR-0253 §3, Blob to File: a Blob model replaced by a File of the same size
+  // and type is dropped on every runtime. The model keeps the Blob, no model change
+  // is published, and the form is not dirty, although the File differs in name and
+  // lastModified. The objects are built directly, and the snapshot is a Blob built
+  // by hand, so the test does not depend on the runtime's structuredClone.
+  it("documented residual (ADR-0253 §3): a Blob model replaced by a same-size, same-type File is dropped and not dirty", () => {
+    const hub = new MessageHub();
+    const modelChanges: unknown[] = [];
+    hub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage && message.propertyName === "model") {
+        modelChanges.push(message);
+      }
+    });
+    const blob = new Blob(["abc"], { type: "text/plain" });
+    const sut = new FormVM<AnyModel>({
+      initial: { file: blob },
+      persister: noop,
+      hub,
+      snapshotter: (model: AnyModel): AnyModel => {
+        const current = model.file as Blob;
+        return { file: new Blob([current], { type: current.type }) };
+      },
+    });
+
+    sut.setModel({ file: new File(["abc"], "b.txt", { type: "text/plain", lastModified: 2000 }) });
+
+    expect(sut.model.file).toBe(blob);
+    expect(sut.isDirty).toBe(false);
+    expect(modelChanges).toHaveLength(0);
     sut.dispose();
   });
 
