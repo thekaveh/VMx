@@ -107,6 +107,39 @@ open class ComponentVMOf<Model>: ComponentVMBase {
         )
     }
 
+    /// Equatable designated initializer — defaults `modelEquals` to `==`,
+    /// so a subclass that calls it passes no `modelEquals` argument. (The
+    /// builder path gets the same default via the constraint-overloaded
+    /// `ComponentVMOfBuilder.build()`; a static `builder()` overload here
+    /// made annotation-free call sites ambiguous, which CI caught.)
+    public init(
+        name: String,
+        hint: String = "",
+        initialModel: Model,
+        modeledHinter: @escaping (Model) -> String = { _ in "" },
+        onModelChanged: ((Model) -> Void)? = nil,
+        hub: MessageHubProtocol,
+        dispatcher: Dispatcher,
+        onConstruct: (() throws -> Void)? = nil,
+        onDestruct: (() -> Void)? = nil,
+        background: Bool = false
+    ) where Model: Equatable {
+        self._model = initialModel
+        self.modeledHinter = modeledHinter
+        self.modelEquals = (==)
+        self.onModelChangedCb = onModelChanged
+        self._modeledHint = modeledHinter(initialModel)
+        super.init(
+            name: name,
+            hint: hint,
+            hub: hub,
+            dispatcher: dispatcher,
+            onConstruct: onConstruct,
+            onDestruct: onDestruct,
+            background: background
+        )
+    }
+
     open override var type: ViewModelType { .component }
 
     public var model: Model {
@@ -160,11 +193,12 @@ open class ComponentVMOf<Model>: ComponentVMBase {
     }
 }
 
-// ─── Equatable convenience overload ──────────────────────────────────────
+// ─── Equatable `create(_:)` overload ─────────────────────────────────────
 //
-// When the model conforms to `Equatable`, `ComponentVMOf<M>.builder()`
+// When the model conforms to `Equatable`, `ComponentVMOf<M>.create(_:)`
 // callers don't need to pass an explicit `.modelEquals(...)` predicate —
-// the builder defaults to `==`. See `ComponentVMOfBuilder` for details.
+// the builder it uses defaults to `==`. The initializer's `==` default is
+// in the class body. See `ComponentVMOfBuilder` for details.
 
 extension ComponentVMOf where Model: Equatable {
     public static func create(_ options: ComponentVMOfOptions<Model>) throws -> ComponentVMOf<Model> {
@@ -181,37 +215,5 @@ extension ComponentVMOf where Model: Equatable {
         if let onConstruct = options.onConstruct { b = b.onConstruct(onConstruct) }
         if let onDestruct = options.onDestruct { b = b.onDestruct(onDestruct) }
         return try b.build()
-    }
-
-    /// Equatable-aware initializer convenience — defaults `modelEquals`
-    /// to `==`. (The builder path gets the same default via the
-    /// constraint-overloaded `ComponentVMOfBuilder.build()` — a static
-    /// `builder()` overload here made annotation-free call sites
-    /// ambiguous, which CI caught.)
-    public convenience init(
-        name: String,
-        hint: String = "",
-        initialModel: Model,
-        modeledHinter: @escaping (Model) -> String = { _ in "" },
-        onModelChanged: ((Model) -> Void)? = nil,
-        hub: MessageHubProtocol,
-        dispatcher: Dispatcher,
-        onConstruct: (() throws -> Void)? = nil,
-        onDestruct: (() -> Void)? = nil,
-        background: Bool = false
-    ) {
-        self.init(
-            name: name,
-            hint: hint,
-            initialModel: initialModel,
-            modeledHinter: modeledHinter,
-            modelEquals: ==,
-            onModelChanged: onModelChanged,
-            hub: hub,
-            dispatcher: dispatcher,
-            onConstruct: onConstruct,
-            onDestruct: onDestruct,
-            background: background
-        )
     }
 }
