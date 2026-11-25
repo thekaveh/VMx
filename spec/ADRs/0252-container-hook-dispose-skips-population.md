@@ -45,10 +45,11 @@ Only the admitted case changes (§2.4).
 ### 1.3 What the other flavors do
 
 Before this ADR, C#, Python, Swift and Rust returned from the construct path when an admitted
-dispose superseded the hook. Their population and walk did not run, and `construct()` returned
-without an error. Their same-thread tests covered this path. The C#, Python and Swift tests
-discarded the `construct()` outcome, and the Rust test asserted `Ok(())`. Section 3.3 records
-those test changes.
+dispose superseded the hook, and `construct()` returned without an error. Their population did not
+run, and no child was constructed: C# and Swift return before the walk, Rust skips its whole
+construct action, and Python's walk may start but stops before any child (§2.5). Their same-thread
+tests covered this path. The C#, Python and Swift tests discarded the `construct()` outcome, and
+the Rust test asserted `Ok(())`. Section 3.3 records those test changes.
 
 The flavors did not agree on a dispose that a membership transaction or a current publication of
 the container defers during the hook. Before this ADR:
@@ -79,7 +80,8 @@ not supersede the hook.
    superseded:
 
    1. does not call its children factory, and attaches nothing;
-   1. does not run the child construct walk;
+   1. constructs no child. The walk does not run in C#, TypeScript, Swift or Rust. In Python it
+      may run, but it starts no child (§2.5);
    1. returns from `construct()` without an error;
    1. ends with status `Disposed` and no children.
 
@@ -97,7 +99,8 @@ selection during disposal, which is a different rule. This ADR, chapter 02 §2.4
 clause state the attach refusal directly.
 
 Chapter 02 §2.4 and the `LIFE-015` clause name both cases. The code follows them in all five
-flavors (§2.4).
+flavors for population (§2.4). For the walk, the outcome is the same in all five flavors, but the
+mechanism differs: Python's walk may run and starts no child (§2.5).
 
 ### 2.2 Why the rule covers a dispose from the hook's own body
 
@@ -128,7 +131,9 @@ it does not mean that a maintainer accepted it. This ADR records the choice and 
 - **Option A (chosen).** The rule in §2.1 covers any admitted supersession, from the hook's own
   body or from another thread. TypeScript gains the supersession check that the other four
   flavors already have. The admitted case changes TypeScript. The deferred case changes only
-  in Rust's composite and group population (§2.4).
+  in Rust's composite and group population (§2.4). The Rust change departs from option A of
+  issue #1805, which says "Only TypeScript changes", on purpose, because it keeps all five
+  flavors with the same outcome for a deferred dispose.
 - **Option B (rejected, see §5.2).** A same-thread dispose from the hook makes `construct()`
   throw. Four flavors change.
 
@@ -187,18 +192,22 @@ every flavor. The composite's membership case is tested in Rust by
 
 The reachability was checked by running the public API. The TypeScript probe gave the same
 deferred result on develop and on this branch: one factory call, the disposing error, and status
-`Disposed`. The Rust membership results were observed the same way on this branch, before the
-composite change: the composite refused with `OwnershipTransactionInProgress`, and the group with
-`Disposed`, each after one factory call. The Python populated cases in §2.5 were observed too.
+`Disposed`. The Rust develop results were read from the source on `origin/develop`, not run. The
+composite's `populate` returns `Ok(())` before its factory call for a publication-deferred and for a
+membership-deferred dispose, because `disposal_pending()` reads the deferred flag
+(`composites.rs` lines 163 to 165 and 1601 to 1603; `runtime.rs` lines 62 to 65). The group's
+`populate` calls the factory once, and then `attach_population` fails with
+`OwnershipTransactionInProgress` (`groups.rs` lines 906 to 917 and 448; `runtime.rs` lines 614 to
+616). The Python populated cases in §2.5 were observed too.
 
 **The guards before and after this ADR:**
 
 | Flavor         | Guard that gates population in the construct hook                                                                                                                                             | Deferred case before this ADR                                                 | Deferred case after this ADR                                                                              |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | TypeScript     | `#disposeRequested` and `Disposed`, in `CompositeVMBase._onConstruct` (`compositeVMBase.ts` line 640) and `GroupVM._onConstruct` (`groupVM.ts` line 412). Before this ADR there was no guard. | Factory once, attach throws                                                   | Unchanged: factory once, attach throws                                                                    |
-| Rust composite | `CompositeVm::populate` (`composites.rs` line 1604): `dispose_requested` and `Disposed`                                                                                                       | Publication: no factory call, `Ok(())`. Membership: no factory call, `Ok(())` | Publication: factory once, `Err(VmxError::Disposed)`. Membership: factory once, `Err(VmxError::Disposed)` |
-| Rust group     | `GroupVm::populate` (`groups.rs` line 906): `dispose_requested` and `Disposed`                                                                                                                | Membership: factory once, `Err(OwnershipTransactionInProgress)`               | Membership: factory once, `Err(VmxError::Disposed)`. Other cases unchanged                                |
-| C#             | `DisposalStarted()` (requested or Disposed): `CompositeVMBase.cs` line 1404 and `GroupVMBase.cs` line 588                                                                                     | Factory once, attach throws                                                   | Unchanged                                                                                                 |
+| Rust composite | `CompositeVm::populate` (`composites.rs` line 1605): `dispose_requested` and `Disposed`                                                                                                       | Publication: no factory call, `Ok(())`. Membership: no factory call, `Ok(())` | Publication: factory once, `Err(VmxError::Disposed)`. Membership: factory once, `Err(VmxError::Disposed)` |
+| Rust group     | `GroupVm::populate` (`groups.rs` line 907): `dispose_requested` and `Disposed`                                                                                                                | Membership: factory once, `Err(OwnershipTransactionInProgress)`               | Membership: factory once, `Err(VmxError::Disposed)`. Other cases unchanged                                |
+| C#             | `DisposalStarted()` (requested or Disposed), defined at `CompositeVMBase.cs` line 1810 and called at line 1404; `GroupVMBase.cs` line 588 inlines the same check                              | Factory once, attach throws                                                   | Unchanged                                                                                                 |
 | Python         | `_population_superseded()` (requested or Disposed), reached only while not populated: `composite_vm.py` lines 882 to 884 and `group_vm.py` line 534                                           | Factory once, attach raises                                                   | Unchanged                                                                                                 |
 | Swift          | `_isDisposalRequested()` (requested or Disposed): `CompositeVM.swift` line 875 and `GroupVM.swift` line 651                                                                                   | Factory once, attach throws                                                   | Unchanged                                                                                                 |
 
@@ -243,12 +252,27 @@ in Rust (the table above), and `Error` with the message `Cannot attach a child w
 - A dispose after population, outside the hook, follows the rules it followed before.
 - **An admitted dispose on a populated container.** Population runs once, so after a first
   `construct()` a second `construct()` skips population. In Python, the admitted check sits
-  inside `if not self._populated:` (`composite_vm.py` lines 882 to 884). After a prior population,
-  an admitted dispose in the hook therefore still reaches the child walk. Observed in Python: the
-  second `construct()` returns without an error, the child is not constructed again (its construct
-  count stays at 1), and the status is `Disposed`. The walk skips the child because the cascade
-  has already disposed it (chapter 06 §5: both walks skip a `Disposed` child). The guards in
-  TypeScript, C# and Swift return before the walk, so their result is the same.
+  inside `if not self._populated:` (`composite_vm.py` lines 882 to 884), and the child walk after
+  that block has no guard (lines 905 to 928). So for a populated container the Python walk does
+  run. It starts no child. `stopped()` (`base.py` lines 1682 to 1692) returns true when the owner
+  is `Disposed`, and `advance()` checks it before it starts a child or runs the initial-current
+  `after` step (`base.py` lines 1697 and 1709). Nothing is committed either. `GroupVM` has the same
+  shape (`group_vm.py` line 534 guards only the population, and the walk runs after it). Observed
+  in Python: the second `construct()` returns without an error, the child is not constructed again
+  (its construct count stays at 1), and the status is `Disposed`. In TypeScript, C# and Swift the
+  guards return before the walk (`compositeVMBase.ts` line 640, `groupVM.ts` line 412,
+  `CompositeVMBase.cs` line 1404, `GroupVMBase.cs` line 588, `CompositeVM.swift` line 875,
+  `GroupVM.swift` line 651). In Rust the whole construct action is skipped. `CompositeConstruct::run`
+  (`composites.rs` lines 453 to 477) and `construct_group` (`groups.rs` lines 49 to 64) pass
+  `populate` and `construct_children` to `transition_with` as one action. `transition_with_body`
+  runs that action only when `action_allowed` holds (`runtime.rs` lines 4492 to 4497). An admitted
+  dispose has already set the core status to `Disposed` and advanced `transition_generation`
+  (`runtime.rs` lines 4422 to 4425) before the hook returns, so `action_allowed` is false, and no
+  walk runs. The `construct_member` check that skips a `Disposed` child (`runtime.rs` line 4957) is
+  not reached. In all five flavors the observable outcome is the same: no error, no factory call
+  from the superseded hook, no child constructed, and status `Disposed`. That outcome is the rule.
+  Whether a guard, the action gate, or the walk's own stop skips the walk is an implementation
+  detail.
 - **A deferred dispose on a populated container.** Population does not run, so there is no
   factory call and no attach. The child walk constructs the children that already exist, and
   `construct()` returns without an error. The deferred disposal then completes when its
@@ -256,8 +280,12 @@ in Rust (the table above), and `Error` with the message `Cannot attach a child w
   selection inside a publication calls `construct()`. That `construct()` returns without an error,
   the existing child is constructed again, the factory is not called again, and the status is
   `Disposed` once the publication ends. The guard changes in this ADR do not touch the walk, and
-  population had already committed, so develop gives the same result. No conformance test covers
-  this case. The `LIFE-015` clause covers the unpopulated container only (chapter 12).
+  population had already committed, so develop gives the same result. Rust takes the same path,
+  read from the source and not run. The deferred dispose changes neither the core status nor
+  `transition_generation`, so the construct action runs. `populate` returns `Ok(())`, because the
+  factory slot is cleared when the population commits (`composites.rs` lines 1610 to 1612, and the
+  `on_committed` closure at line 1620). `construct_children` then constructs the existing children.
+  No conformance test covers this case. The `LIFE-015` clause covers the unpopulated container only (chapter 12).
 
 ## 3. Consequences
 
@@ -270,7 +298,7 @@ in Rust (the table above), and `Error` with the message `Cannot attach a child w
   ran and `construct()` threw. The deferred case is unchanged: the factory runs once and
   `construct()` throws the disposing error. The public API does not change, so
   `langs/typescript/api/vmx.api.txt` does not change.
-- **Rust.** `CompositeVm::populate` (`composites.rs` line 1604) checks `dispose_requested` and the
+- **Rust.** `CompositeVm::populate` (`composites.rs` line 1605) checks `dispose_requested` and the
   `Disposed` status, as `GroupVm::populate` does. A dispose deferred by a publication now returns
   `Err(VmxError::Disposed)` from `construct()`, after one factory call. A dispose deferred by a
   membership transaction now also returns `Err(VmxError::Disposed)`, after one factory call and
@@ -289,11 +317,15 @@ clause in chapter 12 names the same cases, and it scopes the refusal to a contai
 population has not run. §2.5 gives the populated outcome. No conformance ID is added, and
 `spec/VERSION` does not change.
 
-`spec/HISTORY.md` §39 gets one sentence that names this ADR and states the admitted case. Issue
-#1805 asked for no edit to `spec/HISTORY.md`, and this ADR keeps the edit anyway. The release-record
-test (rule B in `tools/tests/test_adr_release_records.py`) requires the 3.30.0 section to name
-every 3.30.0 ADR, and it fails without this sentence. The recent ADR-0248 to ADR-0250 pull requests
-did the same.
+`spec/HISTORY.md` §39 gets two sentences. The first states the admitted case and names no ADR. The
+second names ADR-0252 and `LIFE-015`, and states the deferred case. Issue #1805 asked for no edit to
+`spec/HISTORY.md`, and this ADR keeps the edit anyway. The release-record test (rule B in
+`tools/tests/test_adr_release_records.py`) requires the 3.30.0 section to name every ADR labelled
+3.30.0, which includes ADR-0252, and the catalog IDs that 3.30.0 adds over 3.29.0. The second
+sentence supplies the ADR. It does not supply a catalog ID: `LIFE-015` is already in the
+`spec-v3.29.0` catalog (`spec/12-conformance.md` line 201), so rule B does not require it. Without
+the second sentence, rule B reports `B 3.30.0 ADR-0252`. The recent ADR-0248 to ADR-0250 pull
+requests did the same.
 
 ### 3.3 Tests
 
@@ -307,7 +339,9 @@ discards it.
   `construct()` does not throw, that the factory ran 0 times, that `count` is 0, and that the
   status is `Disposed`. Two more tests cover the deferred case: `CompositeVM` through a current
   publication, and `GroupVM` through its membership transaction. Each asserts the disposing error,
-  one factory call, and the final status. The TypeScript tests are unchanged by this ADR.
+  one factory call, and the final status. The PR adds these five TypeScript tests in
+  `lifecycle.test.ts`, all under `describe("LIFE-015")`: the three admitted-supersession tests and
+  the two deferred-case tests.
 - **C#.** `LIFE_015_Same_Thread_Container_Disposal_Inside_Hook_Cascades_Immediately` asserts that
   `Record.Exception(composite.Construct)` is null and that the factory ran 0 times.
   `CompositeVMConformanceTests` opposing-container test and `GroupVMConformanceTests` child-cascade
@@ -357,19 +391,21 @@ and each now also names the GroupVM deferred test. No other package changes.
   deferred by a membership transaction during a composite's or a group's construct hook now returns
   `Err(VmxError::Disposed)` from `construct()`, after one factory call. `CompositeVm::populate` and
   `GroupVm::populate` check the deferred dispose before `attach_population` begins its transaction,
-  and the attach keeps its own check. Before, each population's transaction began first, and the
-  composite and the group both returned `OwnershipTransactionInProgress`. The composite and group
-  tests assert `Disposed`. All five flavors now refuse a deferred dispose with their disposing error
-  (§2.4).
+  and the attach keeps its own check. Before, the composite returned `Ok(())` without a factory call
+  (§3.1). The group began its population transaction first, so it called the factory once and then
+  returned `OwnershipTransactionInProgress`. The composite and group tests assert `Disposed`. All
+  five flavors now refuse a deferred dispose with their disposing error (§2.4).
 - **Registry gap.** The number 0251 is held by open PR #2236 (ADR-0251, #1917), which is not on
   develop yet. So the registry goes from 0250 to 0252 until that PR merges. This ADR does not depend
   on ADR-0251.
 
 ## 4. Conformance
 
-- Before the change, the deferred cases diverged. In Rust the composite returned `Ok(())` without a
-  factory call. TypeScript, C#, Python and Swift called the factory once and refused the attach.
-  The Rust mutation below shows the old Rust result: `Ok(())`.
+- Before the change, the deferred cases diverged. On `origin/develop`, Rust's composite returned
+  `Ok(())` without a factory call for both deferral kinds, and Rust's group called the factory once
+  and returned `OwnershipTransactionInProgress`. TypeScript, C#, Python and Swift called the factory
+  once and refused the attach. The Rust mutations below do not reproduce the develop composite
+  result. They remove a check that this change adds, and show the failure that removal causes.
 - Mutation, TypeScript composite: removing the guard from `CompositeVMBase._onConstruct` fails
   the two superseded tests, "skips CompositeVM population when its construct hook disposes it"
   and "skips CompositeVMOf population when its construct hook disposes it". The deferred case
@@ -378,8 +414,10 @@ and each now also names the GroupVM deferred test. No other package changes.
   fails "refuses CompositeVM population when its construct hook's dispose is deferred by a
   publication". Adding it to the `GroupVM` guard fails "refuses GroupVM population when its
   construct hook's dispose is deferred by a membership transaction".
-- Mutation, Rust composite: removing the deferred check from `CompositeVm::populate`, which
-  restores the order before the composite change, fails
+- Mutation, Rust composite: removing the post-factory deferred check from `CompositeVm::populate`
+  (`composites.rs` lines 1617 to 1619) leaves the population to `attach_population`, which begins
+  its membership transaction. This is the group's order before its change, not develop's composite
+  order (§3.5). It fails
   `deferred_composite_membership_dispose_in_hook_refuses_population_attach` with
   `left: Some(Err(OwnershipTransactionInProgress))` and `right: Some(Err(Disposed))`. The
   publication test still passes, because the attach refuses a publication-deferred dispose.
