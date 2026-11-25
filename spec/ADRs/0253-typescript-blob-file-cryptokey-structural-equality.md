@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-24
 - **Spec version:** 3.30.0 (clarification of chapter 20 §4 and the `FORM-003` note; no conformance ID). The spec version does not move.
-- **Clarifies:** [ADR-0113](0113-typescript-binary-structural-equality.md), [ADR-0152](0152-typescript-domexception-structural-equality.md). Issue #1913.
+- **Clarifies:** [ADR-0048](0048-v3-form-vm-semantics.md), [ADR-0113](0113-typescript-binary-structural-equality.md), [ADR-0152](0152-typescript-domexception-structural-equality.md). Issue #1913.
 
 ## 1. Context
 
@@ -96,7 +96,7 @@ clone it as a `Blob`, and Node 24.22.3 and 26.12.1 keep it.
 ## 3. Consequences
 
 - An edit that replaces one of these values with a value that differs in the
-  compared state commits and publishes one model change. `isDirty` is set too, except on a runtime that degrades a `File` (see the degraded-`File` residual below). An
+  compared state commits and publishes one model change, and `isDirty` is set. The one exception is a name-only or `lastModified`-only change to a `File` on a runtime that degrades a `File`: it commits and `isDirty` stays false (see the degraded-`File` residual below). An
   edit whose value has the same state is suppressed, as before. A `File` replaced
   by a `Blob` of the same size and type is suppressed on every runtime, as develop
   suppresses it (§2.1). Without the §2.1 rule, that replacement would commit on
@@ -131,7 +131,7 @@ clone it as a `Blob`, and Node 24.22.3 and 26.12.1 keep it.
   `lastModified` with different contents, and two keys with the same type,
   extractability, algorithm, and usages with different key material. The unit test `compares Blob values by size and type, not by bytes` checks comparator equality for the `Blob` example only. The `File` and
   `CryptoKey` examples were checked at the comparator level (the PR body records
-  the check). No test pins a dropped replacement in the equal case: not for a
+  the check). For two values of one kind, no test pins a dropped replacement in the equal case: not for a
   `Blob`, not for a `File` with the same name, size, type, and `lastModified` and
   different contents, and not for a `CryptoKey` with the same state and different
   key material.
