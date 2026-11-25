@@ -1290,6 +1290,12 @@ the VM class
 **And** other (non-additive) setters such as `Name` and `Task` continue to overwrite
 on repeated calls per BLD-001's standard semantics
 
+> **Rust deviation (owner review pending, #1799).** The Rust public API cannot observe
+> the insertion-order clause. Each trigger publishes the same `can_execute_changed`
+> message, and `RelayCommandBuilder` keeps its trigger list private, so the delivery
+> order is not visible without a library change. The Rust test asserts the cumulative
+> and overwrite clauses only. The order clause is unchanged for the other flavors.
+
 ### BLD-006 — Common VM options factories match builder semantics
 
 **Given** the common VM types `ComponentVM`, modeled `ComponentVM<M>`,
