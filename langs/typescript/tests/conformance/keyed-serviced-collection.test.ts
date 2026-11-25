@@ -187,7 +187,7 @@ describe("COL-060", () => {
     const equalA = item("a2", "same");
     const b = item("b");
     const c = item("c");
-    const { sut } = observed(a, equalA, b, c);
+    const { sut, local } = observed(a, equalA, b, c);
 
     expect(sut.remove(a)).toBe(true);
     sut.removeAt(1);
@@ -198,9 +198,12 @@ describe("COL-060", () => {
     expect(sut.get("c")).toBe(c);
 
     equalA.key = "rekeyed";
+    const localBeforeRekey = local.length;
     sut.replace(0, equalA);
     expect(sut.get("a2")).toBeUndefined();
     expect(sut.get("rekeyed")).toBe(equalA);
+    expect(local).toHaveLength(localBeforeRekey + 1);
+    expect(local.at(-1)?.action).toBe("replace");
     expect(() => sut.replace(0, item("c"))).toThrow(Error);
     expect(sut.get("rekeyed")).toBe(equalA);
 
@@ -289,9 +292,18 @@ describe("COL-062", () => {
     expect(sut.pop()).toBe(a);
     expect(sut.toArray()).toEqual([c]);
     expect(sut.splice(0, 0)).toEqual([]);
+    const beforeNoopLocal = local.length;
+    const beforeNoopHub = hubMessages.length;
     sut.move(0, 0);
+    expect(local).toHaveLength(beforeNoopLocal);
+    expect(hubMessages).toHaveLength(beforeNoopHub);
     sut.clear();
+    expect(local.at(-1)?.action).toBe("reset");
+    const beforeEmptyClearLocal = local.length;
+    const beforeEmptyClearHub = hubMessages.length;
     sut.clear();
+    expect(local).toHaveLength(beforeEmptyClearLocal);
+    expect(hubMessages).toHaveLength(beforeEmptyClearHub);
     expect(sut.length).toBe(0);
     expect(sut.has("c")).toBe(false);
     expect(lifecycle).toEqual([]);
