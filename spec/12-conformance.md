@@ -4527,15 +4527,20 @@ buffers and views compare by concrete constructor and visible bytes (ADR-0113),
 and `CryptoKey` values by the state their clone keeps (ADR-0253; their bytes and
 key material are not compared). The equal-values guarantee (values that differ
 in a field are dirty, and structurally equal values are clean) holds for
-value-equality-capable models in C#, Python, Swift, and Rust, and for TypeScript
-for any two values of one kind. It does not hold for a `File` against a `Blob`
-on any runtime. Two of them with the same size and type are equal in either
-direction (ADR-0253 §2.1), so a change to only the name or `lastModified` is not
-seen. A user's replacement produces the pair on every runtime, and a clone that
-degrades a `File` to a `Blob` (Node 20.5 and 22) produces it between a `File`
-model and its `Blob` snapshot. A `Blob` replaced by a `File` of the same size
-and type is dropped, not only undetected. ADR-0253 §3 records what is and is not
-committed in each case.
+value-equality-capable models in C#, Python, Swift, and Rust. For TypeScript the
+guarantee is scoped as ADR-0253 §3 records. Two values of one kind are equal when
+their compared state is equal, and values that differ only in bytes or key
+material are equal (ADR-0253 §3, residual equal case). A `File` and a `Blob` of
+the same size and type are equal in either direction (ADR-0253 §2.1 and §3), so
+the guarantee does not hold for that pair on any runtime. A user's replacement
+produces the pair on every runtime. A clone that degrades a `File` to a `Blob`
+(Node 20.5 and 22) produces it between a `File` model and its `Blob` snapshot, so
+a replacement that differs only in name or `lastModified` is committed and
+publishes one model change, but `isDirty` stays false (ADR-0253 §3, residual: a
+degraded `File`). A `Blob` replaced by a `File` of the same size and type is
+dropped on every runtime, so no model change is published and `isDirty` is
+unchanged, although the `File` differs in name or `lastModified` (ADR-0253 §3,
+residual: a `Blob` replaced by a `File`).
 Consumers needing field-subset or reference semantics inject a custom `equals`
 (TypeScript/Swift) or define their model's own equality
 (C#/Python/Rust `PartialEq`).

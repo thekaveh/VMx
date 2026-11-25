@@ -15,8 +15,9 @@ compared any two of them as equal. `setModel` returns before the commit when the
 equality reports no change, so a replacement was dropped: the model kept the old
 value, `isDirty` stayed false, and no model change was published.
 
-A probe on Node 26.12.1, run against the develop build before this change,
-showed the drop for each type:
+A probe on Node 26.12.1, run against the develop build before this change
+(develop at 983e11b7; the commands and output are in the PR body), showed the
+drop for each type:
 
 - a `Blob` replaced by a `Blob` of another size and type kept the old value,
   with `isDirty` false;
@@ -62,9 +63,9 @@ The orchestrator's first option was identity, with a host equality where one
 exists. Neither rule can compare these values correctly, for these reasons:
 
 - **Identity is rejected.** The snapshot is a structured clone, a new object, so
-  the snapshot's `Blob` is never the model's `Blob`. The probe showed that with
-  identity equality a fresh `FormVM` whose initial model holds a `File` reports
-  `isDirty` true before any edit. Identity would dirty every form that holds one
+  the snapshot's `Blob` is never the model's `Blob`. A probe (commands in the PR
+  body) showed that with identity equality a fresh `FormVM` whose initial model
+  holds a `File` reports `isDirty` true before any edit. Identity would dirty every form that holds one
   of these values.
 - **A host equality does not exist.** `Blob`, `File`, and `CryptoKey` define no
   `equals` method. Their bytes and key material are read asynchronously
@@ -127,8 +128,12 @@ clone it as a `Blob`, and Node 24.22.3 and 26.12.1 keep it.
   only there is dropped. Examples are two `Blob` values of the same size and type
   with different contents, two `File` values with the same name, size, type, and
   `lastModified` with different contents, and two keys with the same type,
-  extractability, algorithm, and usages with different key material. The unit
-  tests pin this limit. A domain that needs more keeps a comparable identifier,
+  extractability, algorithm, and usages with different key material. Only the
+  `Blob` example is pinned, at the comparator level, by the unit test
+  `compares Blob values by size and type, not by bytes`. The `File` and
+  `CryptoKey` examples were checked at the comparator level (the PR body records
+  the check), and no test pins them or a dropped replacement of any of the three.
+  A domain that needs more keeps a comparable identifier,
   such as a content digest computed when the value is set, in the model and
   injects `equals` on it.
 - **Clean start.** A form whose initial model holds a `Blob`, a `File`, or a
