@@ -621,7 +621,10 @@ public sealed class AggregateChangeStreamConformanceTests
         var source = new TestSource<TestItem>(new TestItem("first"));
         using var aggregate = CreateAggregate(source);
         var order = new List<int>();
-        IDisposable Observe(int label) => aggregate.Observe().Subscribe(_ => order.Add(label));
+        var completions = new List<int>();
+        IDisposable Observe(int label) => aggregate.Observe().Subscribe(
+            _ => order.Add(label),
+            () => completions.Add(label));
         var subscriptions = Enumerable.Range(0, 5).Select(Observe).ToList();
 
         subscriptions[1].Dispose();
@@ -632,6 +635,9 @@ public sealed class AggregateChangeStreamConformanceTests
         order.Clear();
         aggregate.Batch(() => source.Add(new TestItem("batched")));
         Assert.Equal(ResubscribedOrder, order);
+
+        aggregate.Dispose();
+        Assert.Equal(ResubscribedOrder, completions);
         subscriptions.ForEach(subscription => subscription.Dispose());
     }
 

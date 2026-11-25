@@ -739,12 +739,18 @@ def test_AGCH_011_resubscription_receives_last() -> None:
     source = _TestSource(Item("first"))
     sut = aggregate(source)
     order: list[int] = []
-    subscriptions = [
-        sut.observe().subscribe(lambda _, label=label: order.append(label)) for label in range(5)
-    ]
+    completions: list[int] = []
+
+    def subscribe_labelled(label: int) -> DisposableBase:
+        return sut.observe().subscribe(
+            on_next=lambda _: order.append(label),
+            on_completed=lambda: completions.append(label),
+        )
+
+    subscriptions = [subscribe_labelled(label) for label in range(5)]
 
     subscriptions[1].dispose()
-    sut.observe().subscribe(lambda _: order.append(1))
+    subscribe_labelled(1)
 
     source.add(Item("plain"))
     assert order == [0, 2, 3, 4, 1]
@@ -754,6 +760,7 @@ def test_AGCH_011_resubscription_receives_last() -> None:
         source.add(Item("batched"))
     assert order == [0, 2, 3, 4, 1]
     sut.dispose()
+    assert completions == [0, 2, 3, 4, 1]
 
 
 # AGCH-012 (ADR-0214, #1325): the aggregate holds no gate while it calls the

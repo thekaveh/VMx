@@ -786,7 +786,7 @@ fn aggregate_successful_batch_propagates_delivery_panic() {
     let source = TestSource::new(vec![item.clone()]);
     let aggregate = aggregate(source.clone());
     let (changes, _subscription) = collect(&aggregate, AggregateObserveOptions::default());
-    let _throwing = aggregate
+    let throwing = aggregate
         .observe(AggregateObserveOptions::default())
         .subscribe(|change| {
             if change.reason == AggregateChangeReason::Batch {
@@ -801,6 +801,9 @@ fn aggregate_successful_batch_propagates_delivery_panic() {
     let delivery = outcome.unwrap_err();
     assert_eq!(delivery.downcast_ref::<&str>(), Some(&"delivery"));
     assert_eq!(reasons(&changes), vec![AggregateChangeReason::Batch]);
+    drop(throwing);
+    item.emit();
+    assert_eq!(reasons(&changes).last(), Some(&AggregateChangeReason::Item));
 }
 
 /// AGCH-008 — empty batches are silent and Move preserves item observation
@@ -1140,11 +1143,16 @@ fn aggregate_resubscription_receives_last() {
     let source = TestSource::new(vec![TestNode::new(1111, "first")]);
     let aggregate = aggregate(source.clone());
     let order = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let completed = Arc::new(Mutex::new(Vec::<usize>::new()));
     let subscribe = |label: usize| {
         let sink = Arc::clone(&order);
+        let done = Arc::clone(&completed);
         aggregate
             .observe(AggregateObserveOptions::default())
-            .subscribe(move |_| locked(&sink).push(label))
+            .subscribe_with_completion(
+                move |_| locked(&sink).push(label),
+                move || locked(&done).push(label),
+            )
     };
     let mut subscriptions = (0..5).map(subscribe).collect::<Vec<_>>();
 
@@ -1158,6 +1166,7 @@ fn aggregate_resubscription_receives_last() {
     aggregate.batch(|| source.add(TestNode::new(1113, "batched")));
     assert_eq!(*locked(&order), vec![0, 2, 3, 4, 1]);
     aggregate.dispose();
+    assert_eq!(*locked(&completed), vec![0, 2, 3, 4, 1]);
 }
 
 // AGCH-012 (ADR-0214, #1325): the aggregate holds no state lock while it calls

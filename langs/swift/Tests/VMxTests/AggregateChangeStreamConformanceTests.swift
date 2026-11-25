@@ -699,12 +699,19 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
             let source = AggregateTestSource([item])
             let sut = aggregate(source)
             var delivered: [Int] = []
+            var completed: [Int] = []
             var subscriptions: [AnyCancellable] = []
             for label in 0..<5 {
-                subscriptions.append(sut.observe().sink { _ in delivered.append(label) })
+                subscriptions.append(sut.observe().sink(
+                    receiveCompletion: { _ in completed.append(label) },
+                    receiveValue: { _ in delivered.append(label) }
+                ))
             }
             subscriptions[1].cancel()
-            subscriptions[1] = sut.observe().sink { _ in delivered.append(1) }
+            subscriptions[1] = sut.observe().sink(
+                receiveCompletion: { _ in completed.append(1) },
+                receiveValue: { _ in delivered.append(1) }
+            )
 
             item.changes.emit()
             XCTAssertEqual(delivered, [0, 2, 3, 4, 1])
@@ -712,6 +719,7 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
             sut.withBatch { item.changes.emit() }
             XCTAssertEqual(delivered, [0, 2, 3, 4, 1])
             sut.dispose()
+            XCTAssertEqual(completed, [0, 2, 3, 4, 1])
             subscriptions.removeAll()
         }
     }
