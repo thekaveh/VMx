@@ -1020,8 +1020,10 @@ gives the rest of the disposal rule.
 After `dispose()`, a pager's paging and source calls change no state and
 publish nothing. The calls are the page-size and page-index writes, the four
 page move calls, and the calls that change the stored copy: `setSource(_:)` in
-Swift, and `set_source`, `push` and `remove_at` in Rust. A Rust `remove_at`
-removes nothing and returns `None`. Reads keep the last page size, page index,
+Swift, and `set_source`, `push` and `remove_at` in Rust. Rust also has
+`next_page` and `previous_page`, so its page move calls number six, and all six
+change no state after disposal. A Rust `remove_at` removes nothing and returns
+`None`. Reads keep the last page size, page index,
 page count and items. All five flavors follow this rule (ADR-0214 rule 1,
 corrected by ADR-0254). It is the post-disposal behavior that `DISP-006`
 requires of this helper.

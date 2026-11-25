@@ -157,5 +157,15 @@ fn disposed_pager_paging_calls_change_no_state_and_publish_nothing() {
     assert_eq!(pager_state(&pages), frozen, "push");
     assert_eq!(pages.remove_at(0), None, "remove_at");
     assert_eq!(pager_state(&pages), frozen, "remove_at state");
+
+    // The source fills its pages exactly, so one push would add a page. The
+    // page count then shows whether the disposed push changed the source.
+    let full = PagedComposition::with_hub(vec![1, 2, 3, 4], 2, hub.clone());
+    let full_frozen = pager_state(&full);
+    assert_eq!(full_frozen, (2, 0, 2, vec![1, 2]));
+    full.dispose();
+    full.push(5);
+    assert_eq!(pager_state(&full), full_frozen, "push adds a page");
+
     assert_eq!(published.load(Ordering::SeqCst), 0, "nothing is published");
 }

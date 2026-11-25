@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-24
-- **Spec version:** 3.30.0 (chapter 21 §5.5, a new §5.6, and the §8 `DISP-006` row; chapter 12 is unchanged, see §2.6)
+- **Spec version:** 3.30.0 (chapter 21 §5.5, a new §5.6, and the §8 `DISP-006` row; chapter 12 is unchanged, see §2.4)
 - **Related:** [ADR-0214](0214-collection-paging-keyed-add-and-aggregate-gate-rules.md) (rule 1 is corrected here for Rust), [ADR-0208](0208-rust-collection-local-events-and-paging-notifications.md) (gives the Rust pager `dispose()`), [ADR-0168](0168-swift-and-rust-paged-composition-page-a-stored-copy.md), [ADR-0023](0023-paging-capability-and-paged-composition.md), issue #1783. Also #1299 (the C#, TypeScript and Swift rule) and #1782 (the §5 notification section).
 
 ## 1. Context
