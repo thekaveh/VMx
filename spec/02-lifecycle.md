@@ -188,10 +188,15 @@ superseded does not call its children factory and attaches nothing. The
 supersession counts whether the `dispose()` is foreign or comes from the hook's
 own body (ADR-0252). A `dispose()` that a membership transaction or current
 publication of the container defers is not admitted yet, so it does not
-supersede the hook: population runs, and its attach is refused with the disposing
-error (chapter 06 §4.3 rule 1, ADR-0252 §2.4). The superseded `construct()`
-returns without an error, as §7.2 says for a superseded call (ADR-0218,
-ADR-0252, `LIFE-015`). An `add()` during disposal still fails.
+supersede the hook. For a container whose population has not run, population
+runs, and its attach is refused with the disposing error (ADR-0252 §2.4). The
+attach refusal is stated here and in `LIFE-015`; no chapter 06 rule states it.
+In Rust, a deferral by a membership transaction is refused with
+`OwnershipTransactionInProgress` instead (ADR-0252 §2.4). A container that is
+already populated does not run population again, and its walk constructs the
+children that exist (ADR-0252 §2.5). The `construct()` that an admitted dispose
+superseded returns without an error, as §7.2 says for a superseded call
+(ADR-0218, ADR-0252, `LIFE-015`). An `add()` during disposal still fails.
 
 If two active hooks
 cross-dispose their peers, the flavor's wait-for graph breaks the cycle by

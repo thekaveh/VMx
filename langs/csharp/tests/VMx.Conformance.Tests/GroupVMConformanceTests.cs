@@ -274,4 +274,50 @@ public class GroupVMConformanceTests
         constructedNames.Should().BeEmpty(
             "terminal supersession prevents post-hook container lifecycle work");
     }
+
+    /// <summary>
+    /// LIFE-015 (ADR-0252 §2.4): a dispose that the group's membership
+    /// transaction defers during the construct hook is not an admitted
+    /// supersession. Population still runs: the factory is called once and its
+    /// attach is refused with the disposing error, which Construct() reports.
+    /// Nothing attaches, and the deferred disposal completes when the
+    /// transaction ends.
+    /// </summary>
+    [Fact, Trait("Conformance", "LIFE-015")]
+    public void LIFE_015_Deferred_Group_Dispose_In_Hook_Refuses_Population_Attach()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var kept = new HookCleanupProbeVM("kept", hub, dispatcher, log);
+        var factoryCalls = 0;
+        var notifications = 0;
+        Exception? constructError = null;
+        GroupVM<IComponentVM>? group = null;
+        group = GroupVM<IComponentVM>.Builder()
+            .Name("group").Services(hub, dispatcher)
+            .Children(() =>
+            {
+                factoryCalls++;
+                return new IComponentVM[] { new HookCleanupProbeVM("late", hub, dispatcher, log) };
+            })
+            .OnConstruct(() => group!.Dispose())
+            .Build();
+        // The add's collection-changed event runs inside its membership transaction.
+        group.CollectionChanged += (_, _) =>
+        {
+            notifications++;
+            if (notifications > 1) return;
+            constructError = Record.Exception(group!.Construct);
+        };
+
+        group.Add(kept);
+
+        constructError.Should().BeOfType<ObjectDisposedException>(
+            "the deferred disposal refuses the population attach");
+        constructError!.Message.Should().Contain("Cannot attach a child while the container is disposing");
+        factoryCalls.Should().Be(1, "a deferred disposal does not skip population");
+        group.Should().Equal(kept);
+        group.Status.Should().Be(ConstructionStatus.Disposed);
+    }
 }

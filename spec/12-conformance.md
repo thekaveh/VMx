@@ -220,9 +220,12 @@ reaches `Constructed`
 or from the hook's own body, does not call its children factory, and its
 `construct()` returns without an error (ADR-0218, ADR-0252)
 **And** a `dispose()` that a membership transaction or current publication of the
-container defers during that hook does not supersede it: population runs, its
-attach is refused with the disposing error, and `construct()` reports that error
-(ADR-0252)
+container defers during that hook does not supersede it. For a container whose
+population has not run, population runs, its attach is refused with the disposing
+error, and `construct()` reports that error (ADR-0252; in Rust, a deferral by a
+membership transaction reports `OwnershipTransactionInProgress`). For a container
+that is already populated, population does not run again, its walk constructs the
+children that exist, and `construct()` returns without an error (ADR-0252 §2.5)
 **And** opposing foreign hook waits cannot deadlock
 
 ### LIFE-016 — The child-transition helper waits for a background child

@@ -24,6 +24,30 @@ private final class EventLog: @unchecked Sendable {
     func index(_ entry: String) -> Int? { all.firstIndex(of: entry) }
 }
 
+/// The error a `construct()` call threw, kept for the test thread.
+private final class ThrownError: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Error?
+    func set(_ error: Error) { lock.withLock { value = error } }
+    var error: Error? { lock.withLock { value } }
+}
+
+/// Asserts that `error` is the disposal refusal of an attach: a
+/// `ContainerOwnershipError.attachmentFailed`.
+private func assertAttachRefusedByDisposal(
+    _ error: Error?, file: StaticString = #filePath, line: UInt = #line
+) {
+    guard let error else {
+        return XCTFail("construct() must throw the disposal refusal", file: file, line: line)
+    }
+    guard let ownershipError = error as? ContainerOwnershipError,
+          case .attachmentFailed = ownershipError else {
+        return XCTFail(
+            "expected ContainerOwnershipError.attachmentFailed, got \(error)",
+            file: file, line: line)
+    }
+}
+
 /// A child that logs `cleanup:<name>` from `_onDispose()`.
 private final class CleanupProbe: ComponentVM {
     let log: EventLog
@@ -278,7 +302,7 @@ final class ContainerHookDisposalTests: XCTestCase {
         let hub = MessageHub()
         let factoryCalls = EventLog()
         let publications = EventLog()
-        let constructOutcome = EventLog()
+        let constructError = ThrownError()
         var owner: CompositeVM<CleanupProbe>?
         let composite = CompositeVM<CleanupProbe>(
             name: "composite", hub: hub, dispatcher: NullDispatcher.INSTANCE,
@@ -291,7 +315,7 @@ final class ContainerHookDisposalTests: XCTestCase {
                 guard let vm else { return }
                 publications.add(vm.name)
                 guard publications.all.count == 1 else { return }
-                do { try owner?.construct() } catch { constructOutcome.add("\(error)") }
+                do { try owner?.construct() } catch { constructError.set(error) }
             })
         owner = composite
         let kept = CleanupProbe("kept", hub: hub, log: EventLog())
@@ -299,13 +323,47 @@ final class ContainerHookDisposalTests: XCTestCase {
 
         composite.current = kept
 
-        XCTAssertEqual(constructOutcome.all.count, 1, "the deferred disposal refuses the attach")
-        XCTAssertTrue(
-            constructOutcome.all.first?.contains("ContainerDisposalAdmissionError") == true,
-            "\(constructOutcome.all)")
+        assertAttachRefusedByDisposal(constructError.error)
         XCTAssertEqual(factoryCalls.all, ["factory"], "a deferred disposal does not skip population")
         XCTAssertEqual(composite.count, 1)
         XCTAssertEqual(composite.status, .disposed)
+        owner = nil
+    }
+
+    /// LIFE-015 (ADR-0252 §2.4) — the same for a `GroupVM`, deferred by its own
+    /// membership transaction. The add's collection-changed event runs inside
+    /// that transaction. Population still runs: the factory is called once, and
+    /// its attach is refused with `ContainerOwnershipError.attachmentFailed`.
+    /// Nothing attaches, and the deferred disposal completes when the
+    /// transaction ends.
+    func testDeferredGroupDisposeInsideOwnHookRefusesPopulationAttach() {
+        let hub = MessageHub()
+        let factoryCalls = EventLog()
+        let notifications = EventLog()
+        let constructError = ThrownError()
+        var owner: GroupVM<CleanupProbe>?
+        let group = GroupVM<CleanupProbe>(
+            name: "group", hub: hub, dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: {
+                factoryCalls.add("factory")
+                return [CleanupProbe("late", hub: hub, log: EventLog())]
+            },
+            onConstruct: { owner?.dispose() })
+        owner = group
+        let subscription = group.collectionChanged.sink { _ in
+            notifications.add("event")
+            guard notifications.all.count == 1 else { return }
+            do { try owner?.construct() } catch { constructError.set(error) }
+        }
+        let kept = CleanupProbe("kept", hub: hub, log: EventLog())
+
+        group.add(kept)
+
+        assertAttachRefusedByDisposal(constructError.error)
+        XCTAssertEqual(factoryCalls.all, ["factory"], "a deferred disposal does not skip population")
+        XCTAssertEqual(group.count, 1)
+        XCTAssertEqual(group.status, .disposed)
+        subscription.cancel()
         owner = nil
     }
 

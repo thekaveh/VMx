@@ -739,3 +739,66 @@ fn superseded_group_construct_calls_no_factory() {
     });
     assert_eq!(result, Ok(()));
 }
+
+/// LIFE-015 (ADR-0252 §2.4) — the same for a built `GroupVm`. A dispose that the
+/// group's membership transaction defers during the construct hook is not an
+/// admitted supersession. The factory is called once. The population attach
+/// begins a membership transaction before its disposal check, and the add's
+/// transaction is still open, so the attach is refused with
+/// `VmxError::OwnershipTransactionInProgress`, not `VmxError::Disposed`
+/// (`groups.rs` `attach_population`; ADR-0252 §2.4). Nothing attaches, and the
+/// deferred disposal completes when the transaction ends.
+#[test]
+fn deferred_group_dispose_in_hook_refuses_population_attach() {
+    let hub = MessageHub::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let child_hub = hub.clone();
+    let group = GroupVm::<ComponentVm>::builder()
+        .name("container")
+        .services(hub.clone(), NullDispatcher::new())
+        .children({
+            let calls = Arc::clone(&calls);
+            move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                vec![ComponentVm::with_services(
+                    "late",
+                    child_hub.clone(),
+                    NullDispatcher::new(),
+                )]
+            }
+        })
+        .build()
+        .unwrap();
+    let handle = group.clone();
+    group.on_construct(move || handle.dispose());
+    let notifications = Arc::new(AtomicUsize::new(0));
+    let outcome: Arc<Mutex<Option<VmxResult<()>>>> = Arc::default();
+    // The add's collection-changed message is delivered inside its membership transaction.
+    let _subscription = group.collection_changed().subscribe({
+        let handle = group.clone();
+        let notifications = Arc::clone(&notifications);
+        let outcome = Arc::clone(&outcome);
+        move |_message: &Message| {
+            if notifications.fetch_add(1, Ordering::SeqCst) > 0 {
+                return;
+            }
+            *outcome.lock().unwrap() = Some(handle.construct());
+        }
+    });
+    let kept = ComponentVm::with_services("kept", hub.clone(), NullDispatcher::new());
+
+    group.add(kept).unwrap();
+
+    assert_eq!(
+        outcome.lock().unwrap().take(),
+        Some(Err(VmxError::OwnershipTransactionInProgress)),
+        "the population attach is refused inside the add's open transaction"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "a deferred disposal does not skip population"
+    );
+    assert_eq!(group.len(), 1);
+    assert_eq!(group.status(), ConstructionStatus::Disposed);
+}
