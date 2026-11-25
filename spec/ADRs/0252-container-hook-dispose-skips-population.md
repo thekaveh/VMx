@@ -179,6 +179,11 @@ transaction defers the dispose, that transaction is still open, so the begin fai
 publication holds no transaction, so the disposal check is reached and returns `Disposed`. This
 ADR does not change the library. §3.5 records the decision that the owner has to make.
 
+The other flavors check disposal before they begin a transaction, so the membership column holds
+for their composites as well. The code shows it: TypeScript `#requireChildAdmission`, Python
+`_require_child_admission`, C# `EnsureChildAdmission` and Swift `beginMembershipTransactionLocked`.
+The tests cover the group case there, not the composite case.
+
 The reachability was checked by running the public API. The TypeScript probe gave the same
 deferred result on develop and on this branch: one factory call, the disposing error, and status
 `Disposed`. The Rust membership result in the table above was observed the same way, and the
