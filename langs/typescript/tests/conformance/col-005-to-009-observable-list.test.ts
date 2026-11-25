@@ -61,15 +61,19 @@ describe("COL-008", () => {
   it("ObservableList ItemAdded fires before PropertyChanged('Count') on every add", () => {
     const sut = new ObservableList<number>();
     const callOrder: string[] = [];
+    const countsAtCountNotification: number[] = [];
 
     sut.itemAdded.subscribe(() => callOrder.push("item_added"));
-    sut.propertyChanged.subscribe((name) =>
-      callOrder.push(`property_changed:${name}`),
-    );
+    sut.propertyChanged.subscribe((name) => {
+      callOrder.push(`property_changed:${name}`);
+      if (name === "Count") countsAtCountNotification.push(sut.length);
+    });
 
     sut.push(42);
 
     expect(callOrder).toEqual(["item_added", "property_changed:Count"]);
+    // Count already reflects the new value when PropertyChanged("Count") fires
+    expect(countsAtCountNotification).toEqual([1]);
   });
 });
 
