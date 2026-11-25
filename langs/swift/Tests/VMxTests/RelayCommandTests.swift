@@ -204,18 +204,21 @@ final class RelayCommandTests: XCTestCase {
         XCTAssertEqual(fires, 2)
         cancel.cancel()
 
-        // Insertion order: derive both triggers from ONE parent emission and
-        // record which trigger's chain delivers first. A sequential send probe
-        // passes regardless of subscription order, so it cannot show this.
+        // Insertion order: each trigger records when the command subscribes to
+        // it. The command subscribes its triggers in init, in insertion order,
+        // so the build-time subscription sequence is the insertion order. This
+        // probes the subscription order directly; Combine's fan-out order to
+        // several subscribers of one subject is unspecified, so a delivery-order
+        // probe is not a valid check.
         let parent = PassthroughSubject<Void, Never>()
-        var via: [String] = []
-        let o1 = parent.handleEvents(receiveOutput: { via.append("via-o1") }).eraseToAnyPublisher()
-        let o2 = parent.handleEvents(receiveOutput: { via.append("via-o2") }).eraseToAnyPublisher()
+        var subscribed: [String] = []
+        let o1 = parent.handleEvents(receiveSubscription: { _ in subscribed.append("o1") })
+            .eraseToAnyPublisher()
+        let o2 = parent.handleEvents(receiveSubscription: { _ in subscribed.append("o2") })
+            .eraseToAnyPublisher()
         let orderCmd = RelayCommand.builder().triggers(o1).triggers(o2).build()
-        let orderCancel = orderCmd.canExecuteChanged.sink { _ in }
-        parent.send(())
-        XCTAssertEqual(via, ["via-o1", "via-o2"], "o1 must precede o2 (insertion order)")
-        orderCancel.cancel()
+        XCTAssertEqual(subscribed, ["o1", "o2"], "o1 must be subscribed before o2 (insertion order)")
+        withExtendedLifetime(orderCmd) {}
 
         // A non-additive setter overwrites: only the second task runs.
         var ranFirst = 0
