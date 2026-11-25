@@ -893,10 +893,10 @@ PagedComposition<TVM>:
     PageCount        : int     # derived: ceil(source.Count / PageSize), or 1 when PageSize == 0
     IsPagingEnabled  : bool    # derived: PageSize > 0
 
-    move_to_first_page()       # clamps a stale index first (ADR-0251); no-op when at first page
+    move_to_first_page()       # targets 0 (ADR-0251); no-op when at first page
     move_to_previous_page()    # clamps a stale index first (ADR-0251); no-op at lower bound
     move_to_next_page()        # clamps a stale index first (ADR-0251); no-op at upper bound
-    move_to_last_page()        # clamps a stale index first (ADR-0251); no-op when at last page
+    move_to_last_page()        # targets max(0, PageCount-1) (ADR-0251); no-op when at last page
 
     Items : Iterable<TVM>      # read-only; current page slice
     Count : int                # count of items in current page (not total)
@@ -938,9 +938,11 @@ index clamps to `0` rather than to `-1` (§5.4).
 In C#, Python and TypeScript, a change to a live source that the pager does not
 observe shows on the next read. The pager does not clamp `CurrentPageIndex`
 until a delivered change, the next `CurrentPageIndex` assignment, a `PageSize`
-assignment that changes the page size, or a page move call. A move clamps a
-stale index before it picks its target, so it lands on a page in
-`[0, max(0, PageCount-1)]` and publishes only when the index changes (ADR-0251).
+assignment that changes the page size, or a page move call. A previous or next
+move clamps a stale index before it picks its target. A first or last move
+targets `0` or `max(0, PageCount-1)` without reading the stored index. Each move
+lands on a page in `[0, max(0, PageCount-1)]` and publishes only when the index
+changes (ADR-0251).
 
 In Python and TypeScript, a source that can be enumerated only once is the one
 exception to on-demand slices. In TypeScript, a one-shot source is a direct

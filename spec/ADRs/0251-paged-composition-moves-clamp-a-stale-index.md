@@ -30,18 +30,18 @@ Chapter 14 §3 (the `can_*` rule) says that the `IPageable` `move_to_*` methods 
 
 Swift and Rust page a stored copy, and their index cannot go stale this way. Every write to the stored copy clamps the index in the same step:
 
-- Swift `setSource(_:)` clamps. `init(sourceComposite:)` and the composite's change stream reach the copy through `setSource(_:)`. The Swift moves still compare the raw index, but that index is always in range.
+- Swift `setSource(_:)` clamps. `init(sourceComposite:)` builds the copy from `snapshot()`, with the index at `0`, and the composite's change stream reaches the copy through `setSource(_:)`. The Swift moves still compare the raw index, but that index is always in range.
 - Rust `set_source`, `push` and `remove_at` clamp. Rust's moves clamp the target in `move_to`, which `navigate` calls.
 
 ## 2. Decision
 
-### 2.1 Each page move clamps a stale index before it picks its target
+### 2.1 Previous and next moves clamp a stale index before they pick their target
 
-In C#, Python and TypeScript, every move does the following:
+In C#, Python and TypeScript, `move_to_previous_page` and `move_to_next_page` do the following:
 
 1. Read `PageCount` once and compute `last = max(0, PageCount - 1)`.
 1. Clamp the stored index to `[0, last]`, which gives `current`.
-1. Choose the target from `current`, or from `last`.
+1. Choose the target from `current`.
 1. Store and publish the move only when the target differs from the **stored** index, which is the value observers last saw.
 
 The four targets are:
@@ -53,7 +53,7 @@ The four targets are:
 | `move_to_next_page`     | `min(current + 1, last)` | yes, through the clamp  |
 | `move_to_last_page`     | `last`                   | no                      |
 
-The clamp changes a target only for `move_to_previous_page`. For `move_to_next_page`, `min(current + 1, last)` already bounds a stale index to `last`, so the clamp leaves that target unchanged. The clamp stays there so that the two relative moves share one rule. `move_to_first_page` and `move_to_last_page` do not read the index. All four moves use the same publish rule, so a stale index still publishes once.
+The clamp changes a target only for `move_to_previous_page`. For `move_to_next_page`, `min(current + 1, last)` already bounds a stale index to `last`, so the clamp leaves that target unchanged. The clamp stays there so that the two relative moves share one rule. `move_to_first_page` and `move_to_last_page` do not read the stored index. `move_to_first_page` targets `0`, and `move_to_last_page` targets `last`, computed from `PageCount` as in step 1. All four moves publish under the rule in step 4, so a stale index still publishes once.
 
 A stale index is compared with the target, not with the clamped value. The stored index changes from the stale value to the target, so observers receive the change. A move that only clamped the stored value and did not publish would change state silently, and that is rejected.
 
@@ -61,9 +61,9 @@ Each flavor has a small private helper (`MoveTo` in C#, `_move_to` in Python, `#
 
 ### 2.2 Amendment to ADR-0168 and chapter 21 §5.2
 
-ADR-0168 §2 and chapter 21 §5.2 list the events that clamp a stale index. The list gains a fifth: **a page move call**. A move clamps the index before it moves. The index stays stale in the other cases until the events the chapter already names.
+ADR-0168 §2 and chapter 21 §5.2 list the events that clamp a stale index. The list gains a fourth: **a page move call**. Every move call resolves a stale index, because each one stores an in-range target. A previous or next move clamps the index before it picks its target. A first or last move sets the index to its own target without reading the stored index. The index stays stale in the other cases until the events the chapter already names.
 
-Chapter 21 §5.1 changes the four move comments to say that each move clamps a stale index first. Chapter 21 §5.2 names the moves in the sentence that lists the triggers.
+Chapter 21 §5.1 changes the move comments. The previous and next comments say that each clamps a stale index first. The first and last comments say that they target `0` and `max(0, PageCount-1)`. Chapter 21 §5.2 names the moves in the sentence that lists the triggers.
 
 ### 2.3 What does not change
 
@@ -87,7 +87,7 @@ The markers are:
 
 ### 2.5 Versions
 
-No `spec-v3.30.0` tag exists on origin at this change. `git ls-remote --tags origin spec-v3.30.0` returns nothing. Following the precedent of ADR-0214 to ADR-0227, `spec/VERSION` stays at `3.30.0`. The change adds no public member, so `compatibility-matrix.md` does not change. Each package records the fix under its unreleased source version in its CHANGELOG. The C#, Python and TypeScript flavors each get a `### Fixed` entry. Swift and Rust change only their test suites.
+No `spec-v3.30.0` tag exists on origin at this change. `git ls-remote --tags origin spec-v3.30.0` returns nothing. Following the precedent of ADR-0214 to ADR-0227, `spec/VERSION` stays at `3.30.0`. The change adds no public member, so `compatibility-matrix.md` does not change. Each package records the fix under its unreleased source version in its CHANGELOG. The C#, Python and TypeScript flavors each get a `### Fixed` entry. Swift and Rust change no library code. Each adds its tests and a `COL-074` entry under `### Added`.
 
 ## 3. Consequences
 
