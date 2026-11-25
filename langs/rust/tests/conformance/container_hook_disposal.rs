@@ -742,12 +742,12 @@ fn superseded_group_construct_calls_no_factory() {
 
 /// LIFE-015 (ADR-0252 §2.4) — the same for a built `GroupVm`. A dispose that the
 /// group's membership transaction defers during the construct hook is not an
-/// admitted supersession. The factory is called once. The population attach
-/// begins a membership transaction before its disposal check, and the add's
-/// transaction is still open, so the attach is refused with
-/// `VmxError::OwnershipTransactionInProgress`, not `VmxError::Disposed`
-/// (`groups.rs` `attach_population`; ADR-0252 §2.4). Nothing attaches, and the
-/// deferred disposal completes when the transaction ends.
+/// admitted supersession. The factory is called once. Population checks the
+/// deferred dispose before it begins its membership transaction (`groups.rs`
+/// `GroupVm::populate`), so the population is refused with
+/// `VmxError::Disposed`, the error the composite's publication case returns.
+/// Nothing attaches, and the deferred disposal completes when the add's
+/// transaction ends.
 #[test]
 fn deferred_group_dispose_in_hook_refuses_population_attach() {
     let hub = MessageHub::new();
@@ -791,8 +791,8 @@ fn deferred_group_dispose_in_hook_refuses_population_attach() {
 
     assert_eq!(
         outcome.lock().unwrap().take(),
-        Some(Err(VmxError::OwnershipTransactionInProgress)),
-        "the population attach is refused inside the add's open transaction"
+        Some(Err(VmxError::Disposed)),
+        "the deferred disposal refuses the population attach"
     );
     assert_eq!(
         calls.load(Ordering::SeqCst),

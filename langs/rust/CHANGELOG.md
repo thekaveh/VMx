@@ -69,6 +69,11 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   returned `Ok(())`. Only an admitted dispose supersedes the construct hook, as in
   the other flavors (ADR-0252, #1805, `LIFE-015`).
 
+- A `GroupVm` whose construct hook's dispose is deferred by a membership
+  transaction now returns `Err(VmxError::Disposed)` from `construct()`, as a
+  composite's publication-deferred dispose does, instead of
+  `Err(VmxError::OwnershipTransactionInProgress)` (ADR-0252, #1805, `LIFE-015`).
+
 - `HierarchicalVm::invalidate_subtree()` no longer recurses once per tree level,
   so a deep materialized chain no longer overflows the thread's stack. Every
   materialized descendant is still invalidated, in the same order. Each node now
