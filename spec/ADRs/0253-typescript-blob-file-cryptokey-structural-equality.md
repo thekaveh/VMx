@@ -91,7 +91,10 @@ exists. Neither rule can compare these values correctly, for these reasons:
   compared state commits, sets `isDirty`, and publishes one model change. An
   edit whose value has the same state is suppressed, as before. A `File` replaced
   by a `Blob` of the same size and type is suppressed on every runtime, as develop
-  suppresses it (§2.1).
+  suppresses it (§2.1). Without the §2.1 rule, that replacement would commit on
+  Node 24 and 26, where the clone keeps the `File`, so there the suppression is a
+  behavior change from the earlier revision of this fix; develop already
+  suppresses it.
 - **Residual: a degraded `File` (Node 20.5 and 22).** On a runtime whose clone
   degrades a `File`, the snapshot keeps neither the name nor `lastModified`. A
   replacement that differs only in name or `lastModified` is committed: the model
