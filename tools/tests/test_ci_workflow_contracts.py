@@ -588,9 +588,15 @@ _UNSEEN_INPUTS: dict[str, tuple[str, ...]] = {
         # langs/typescript prebuild: langs/typescript/scripts/sync-fixtures.mjs copies these.
         "spec/fixtures/*.json",
         "spec/schemas/*.json",
-        # `uv --project langs/python sync`: pyproject.toml's readme and version path.
+        # `uv --project langs/python sync` reads each project file by name. The directory input
+        # langs/python is covered by any one file under it, so each file is required here.
+        "langs/python/uv.lock",
+        "langs/python/pyproject.toml",
         "langs/python/README.md",
         "langs/python/src/vmx/__about__.py",
+        "langs/python/LICENSE",
+        "langs/python/NOTICE",
+        "langs/python/src/vmx/lifecycle/_data/lifecycle-transitions.json",
         # The pytest run: conftest.py preloads a list of top-level tools/ scripts (the whole
         # top-level set is declared, so the list can change), and
         # test_example_accessibility.py reads every workflow file.

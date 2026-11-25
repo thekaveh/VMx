@@ -43,9 +43,12 @@ on:
       - "spec/fixtures/*.json"
       - "spec/schemas/*.json"
       # `uv --project langs/python sync` reads the readme and the version path of
-      # pyproject.toml (#1836).
+      # pyproject.toml, the license files, and the force-included lifecycle data (#1836).
       - "langs/python/README.md"
       - "langs/python/src/vmx/__about__.py"
+      - "langs/python/LICENSE"
+      - "langs/python/NOTICE"
+      - "langs/python/src/vmx/lifecycle/_data/lifecycle-transitions.json"
       # The pytest run loads conftest.py, which preloads a list of top-level tools/ scripts;
       # the whole top-level set is listed so the list can change without a workflow edit.
       # test_example_accessibility.py reads every workflow file (#1836).
