@@ -1,6 +1,6 @@
 # ADR 0152 — Compare TypeScript `DOMException` form values by name and message
 
-- **Status:** Accepted
+- **Status:** Accepted (clarified by ADR-0253)
 - **Date:** 2026-10-25
 - **Spec version:** 3.30.0 (clarification)
 - **Clarifies:** [ADR-0135](0135-typescript-error-structural-equality.md)

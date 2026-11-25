@@ -1095,6 +1095,26 @@ describe("FormVM isDirty – structural deep equality (VMX-003)", () => {
 // Default equality mirrors the default snapshotter (#353)
 // ---------------------------------------------------------------------------
 
+// Node 20.5 and 22 clone a File as a Blob, which keeps no name or lastModified
+// (ADR-0253 §2.1). These probes decide the tests that need a clone to keep a
+// type. The CryptoKey probe awaits a key, so it is a top-level await.
+const cloneKeepsFile = ((): boolean => {
+  try {
+    return structuredClone(new File(["x"], "x.txt")) instanceof File;
+  } catch {
+    return false;
+  }
+})();
+
+const cloneKeepsCryptoKey = await (async (): Promise<boolean> => {
+  try {
+    const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+    return structuredClone(key) instanceof CryptoKey;
+  } catch {
+    return false;
+  }
+})();
+
 describe("FormVM default equality – supported snapshot domain", () => {
   type AnyModel = Record<string, unknown>;
 
@@ -1401,25 +1421,64 @@ describe("FormVM default equality – supported snapshot domain", () => {
     }
   });
 
-  it("replaces a File that differs in name, size, type, or lastModified", () => {
+  it("replaces a File whose size or type differs and publishes one model change", () => {
     for (const next of [
-      new File(["abc"], "b.txt", { type: "text/plain", lastModified: 1000 }),
       new File(["abcd"], "a.txt", { type: "text/plain", lastModified: 1000 }),
       new File(["abc"], "a.txt", { type: "text/csv", lastModified: 1000 }),
-      new File(["abc"], "a.txt", { type: "text/plain", lastModified: 2000 }),
     ]) {
+      const hub = new MessageHub();
+      const modelChanges: unknown[] = [];
+      hub.messages.subscribe((message) => {
+        if (message instanceof PropertyChangedMessage && message.propertyName === "model") {
+          modelChanges.push(message);
+        }
+      });
       const sut = new FormVM<AnyModel>({
         initial: { file: new File(["abc"], "a.txt", { type: "text/plain", lastModified: 1000 }) },
         persister: noop,
+        hub,
       });
 
       sut.setModel({ file: next });
 
       expect(sut.model.file).toBe(next);
       expect(sut.isDirty).toBe(true);
+      expect(modelChanges).toHaveLength(1);
       sut.dispose();
     }
   });
+
+  // A File's name and lastModified are compared only when the clone keeps the
+  // File. Node 20.5 and 22 degrade it to a Blob (see the residual test below).
+  it.skipIf(!cloneKeepsFile)(
+    "replaces a File whose name or lastModified differs and publishes one model change",
+    () => {
+      for (const next of [
+        new File(["abc"], "b.txt", { type: "text/plain", lastModified: 1000 }),
+        new File(["abc"], "a.txt", { type: "text/plain", lastModified: 2000 }),
+      ]) {
+        const hub = new MessageHub();
+        const modelChanges: unknown[] = [];
+        hub.messages.subscribe((message) => {
+          if (message instanceof PropertyChangedMessage && message.propertyName === "model") {
+            modelChanges.push(message);
+          }
+        });
+        const sut = new FormVM<AnyModel>({
+          initial: { file: new File(["abc"], "a.txt", { type: "text/plain", lastModified: 1000 }) },
+          persister: noop,
+          hub,
+        });
+
+        sut.setModel({ file: next });
+
+        expect(sut.model.file).toBe(next);
+        expect(sut.isDirty).toBe(true);
+        expect(modelChanges).toHaveLength(1);
+        sut.dispose();
+      }
+    },
+  );
 
   it("replaces a CryptoKey that differs in algorithm, key length, or usages", async () => {
     const hmac = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, true, ["sign", "verify"]);
@@ -1432,27 +1491,46 @@ describe("FormVM default equality – supported snapshot domain", () => {
       [aes256, aes256Encrypt],
     ];
     for (const [initialKey, next] of pairs) {
-      const sut = new FormVM<AnyModel>({ initial: { key: initialKey }, persister: noop });
+      const hub = new MessageHub();
+      const modelChanges: unknown[] = [];
+      hub.messages.subscribe((message) => {
+        if (message instanceof PropertyChangedMessage && message.propertyName === "model") {
+          modelChanges.push(message);
+        }
+      });
+      const sut = new FormVM<AnyModel>({ initial: { key: initialKey }, persister: noop, hub });
 
       sut.setModel({ key: next });
 
       expect(sut.model.key).toBe(next);
       expect(sut.isDirty).toBe(true);
+      expect(modelChanges).toHaveLength(1);
       sut.dispose();
     }
   });
 
-  it("never equates a Blob, File, or CryptoKey with a value of another kind", async () => {
+  // ADR-0253 §2.1: a File against a Blob compares by size and type only. That
+  // is the pairing a degraded File clone produces, so it is built directly here.
+  it("compares a File with a Blob by size and type only, as a degraded clone does", () => {
+    const file = new File(["abc"], "a.txt", { type: "text/plain", lastModified: 1000 });
+    const snapshot = new Blob(["abc"], { type: "text/plain" });
+    expect(deepEquals(file, snapshot)).toBe(true);
+    expect(deepEquals(snapshot, file)).toBe(true);
+    expect(deepEquals(file, new Blob(["abcd"], { type: "text/plain" }))).toBe(false);
+    expect(deepEquals(file, new Blob(["abc"], { type: "text/csv" }))).toBe(false);
+  });
+
+  it("never equates a Blob, File, or CryptoKey with a plain value, or a CryptoKey with a Blob or File", async () => {
     const equalsCase = (x: unknown, y: unknown) => deepEquals({ value: x }, { value: y });
     const blob = new Blob(["a"], { type: "text/plain" });
     const file = new File(["a"], "a.txt", { type: "text/plain" });
-    expect(equalsCase(blob, file)).toBe(false);
-    expect(equalsCase(file, blob)).toBe(false);
     expect(equalsCase(blob, { size: 1, type: "text/plain" })).toBe(false);
     expect(equalsCase(file, {})).toBe(false);
     const key = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, true, ["sign"]);
     expect(equalsCase(key, {})).toBe(false);
     expect(equalsCase({}, key)).toBe(false);
+    expect(equalsCase(key, blob)).toBe(false);
+    expect(equalsCase(file, key)).toBe(false);
   });
 
   // Documented limit (ADR-0253): the bytes of a Blob are not compared, so two
@@ -1463,42 +1541,80 @@ describe("FormVM default equality – supported snapshot domain", () => {
     expect(deepEquals(new Blob(["aaa"]), new Blob(["aaaa"]))).toBe(false);
   });
 
-  // Node may not keep these types through structuredClone, so a probe decides.
-  const cloneKeepsBlobTypes = ((): boolean => {
-    try {
-      return structuredClone(new Blob(["x"])) instanceof Blob
-        && structuredClone(new File(["x"], "x.txt")) instanceof File;
-    } catch {
-      return false;
-    }
-  })();
+  // Runs on every runtime: on Node 20.5 and 22 the File snapshots as a Blob,
+  // and the File-against-Blob rule keeps the form clean (ADR-0253 §2.1).
+  it("keeps a model holding a Blob or File clean against its own snapshot", () => {
+    const sut = makeAny({
+      blob: new Blob(["abc"], { type: "text/plain" }),
+      file: new File(["abc"], "a.txt", { type: "text/plain", lastModified: 1000 }),
+    });
+    expect(sut.isDirty).toBe(false);
+    expect(deepEquals(sut.model, sut.snapshot)).toBe(true);
+    sut.dispose();
+  });
 
-  it.skipIf(!cloneKeepsBlobTypes)(
-    "keeps a model holding a Blob or File clean against its own snapshot",
-    () => {
-      const sut = makeAny({
-        blob: new Blob(["abc"], { type: "text/plain" }),
-        file: new File(["abc"], "a.txt", { type: "text/plain", lastModified: 1000 }),
-      });
-      expect(sut.isDirty).toBe(false);
-      expect(deepEquals(sut.model, sut.snapshot)).toBe(true);
-      sut.dispose();
-    },
-  );
+  // The snapshot a clone that degrades a File produces (Node 20.5 and 22): a
+  // Blob with the same bytes and type, and no name or lastModified. Built
+  // directly, so the degraded path runs on every runtime.
+  const degradedSnapshot = (model: AnyModel): AnyModel => {
+    const file = model.file as File;
+    return { file: new Blob([file], { type: file.type }) };
+  };
 
-  it("keeps a model holding a CryptoKey clean against its own snapshot", async (context) => {
-    const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
-    let cloneKeepsKey: boolean;
-    try {
-      cloneKeepsKey = structuredClone(key) instanceof CryptoKey;
-    } catch {
-      cloneKeepsKey = false;
-    }
-    if (!cloneKeepsKey) context.skip();
-    const sut = makeAny({ key });
+  it("keeps a File model clean after approve when its snapshot is a Blob (ADR-0253 §2.1)", async () => {
+    const sut = new FormVM<AnyModel>({
+      initial: { file: new File(["abc"], "a.txt", { type: "text/plain", lastModified: 1000 }) },
+      persister: noop,
+      snapshotter: degradedSnapshot,
+    });
+    expect(sut.isDirty).toBe(false);
+
+    await sut.approveAsync();
+
+    expect(sut.isDirty).toBe(false);
+    sut.setModel({ file: new File(["abcd"], "a.txt", { type: "text/plain", lastModified: 1000 }) });
+    expect(sut.isDirty).toBe(true);
+    await sut.approveAsync();
     expect(sut.isDirty).toBe(false);
     sut.dispose();
   });
+
+  // ADR-0253 §3 residual, on a degraded snapshot: a File that differs only in
+  // name is committed as the model and publishes one change, but isDirty stays
+  // false, because the Blob snapshot does not keep the name.
+  it("on a degraded snapshot, a File that differs only in name commits but stays clean (ADR-0253 §3)", () => {
+    const hub = new MessageHub();
+    const modelChanges: unknown[] = [];
+    hub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage && message.propertyName === "model") {
+        modelChanges.push(message);
+      }
+    });
+    const sut = new FormVM<AnyModel>({
+      initial: { file: new File(["abc"], "a.txt", { type: "text/plain", lastModified: 1000 }) },
+      persister: noop,
+      hub,
+      snapshotter: degradedSnapshot,
+    });
+    const renamed = new File(["abc"], "b.txt", { type: "text/plain", lastModified: 1000 });
+
+    sut.setModel({ file: renamed });
+
+    expect(sut.model.file).toBe(renamed);
+    expect(sut.isDirty).toBe(false);
+    expect(modelChanges).toHaveLength(1);
+    sut.dispose();
+  });
+
+  it.skipIf(!cloneKeepsCryptoKey)(
+    "keeps a model holding a CryptoKey clean against its own snapshot",
+    async () => {
+      const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+      const sut = makeAny({ key });
+      expect(sut.isDirty).toBe(false);
+      sut.dispose();
+    },
+  );
 
   it("tracks a changed Error through setModel, strict approval, deny, and reset", async () => {
     const approved: AnyModel[] = [];

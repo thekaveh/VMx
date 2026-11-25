@@ -362,8 +362,9 @@ domain needs reference identity or a different binary policy.
 A model and its default snapshot compare clean for every value the default
 comparator supports: primitives (`NaN` equals `NaN`, `-0` equals `0`), `BigInt`,
 `Date` by instant (an invalid `Date` equals another invalid `Date`), `RegExp`
-by source and flags, the binary values above, arrays, plain objects by own
-enumerable keys including `undefined`-valued keys, and cycles. `Map` keys and
+by source and flags, the binary values above, `Blob`, `File`, and `CryptoKey`
+(see below), arrays, plain objects by own enumerable keys including
+`undefined`-valued keys, and cycles. `Map` keys and
 `Set` members keep SameValueZero membership, so object keys, which
 `structuredClone` copies, make a fresh form dirty; inject `equals` to compare
 them structurally.
@@ -393,6 +394,19 @@ clone keeps on Node 22 and later. It never equals another error, and its
 `cause` and custom properties are not compared. Node 20's `structuredClone`
 returns a plain object for a `DOMException`, so on Node 20 a model holding one
 needs an injected `snapshotter` and `equals`.
+
+A `Blob`, `File`, or `CryptoKey` compares by the state its clone keeps
+(ADR-0253). A `Blob` compares by `size` and `type`. A `File` also compares by
+`name` and `lastModified` when it is compared with another `File`; against a
+`Blob` it compares by `size` and `type` only. A `CryptoKey` compares by `type`,
+`extractable`, `algorithm`, and `usages`. Their bytes and key material are not
+compared, so two values with the same state are equal even when their contents
+differ. Inject `equals` for a domain that needs the contents. Node 20.5 and 22
+clone a `File` as a `Blob`, which keeps no name or `lastModified`. On those
+runtimes a replacement that differs only in name or `lastModified` is committed
+but does not make the form dirty. Node 24 and 26 keep the `File`. The
+`CryptoKey` clean-start check runs only where the runtime's clone keeps a
+`CryptoKey`.
 
 Field localization inspects data-property descriptors, performs no writes, and
 does not invoke getters a second time. User-defined accessors or proxy traps can

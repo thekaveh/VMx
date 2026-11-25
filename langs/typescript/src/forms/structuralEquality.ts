@@ -97,13 +97,19 @@ function boxedValuesEqual(a: { valueOf(): unknown }, b: { valueOf(): unknown }):
   return x === y || (x !== x && y !== y);
 }
 
-// A Blob, File, or CryptoKey clones as a value of the same kind. It has no own
-// enumerable keys, so the plain-object fallback would call any two of them
-// equal. These values are compared by the state the clone keeps instead. The
+// A Blob, File, or CryptoKey clones as a value of the same kind, except that a
+// clone may degrade a File to a Blob (Node 20.5 and 22; ADR-0253 §2.1). These
+// values have no own enumerable keys, so the plain-object fallback would call
+// any two of them equal. They are compared by the state the clone keeps. The
 // bytes of a Blob and the key material of a CryptoKey are not compared, because
 // reading them is asynchronous (ADR-0253).
 
 type ClonedKind = "File" | "Blob" | "CryptoKey";
+
+/** A File against a Blob: the one mixed pair, which only a degraded File clone produces. */
+function isFileAndBlob(a: ClonedKind, b: ClonedKind): boolean {
+  return (a === "File" && b === "Blob") || (a === "Blob" && b === "File");
+}
 
 /** The kind a structured clone keeps for a value, or undefined for any other value. */
 function clonedKind(value: object): ClonedKind | undefined {
@@ -164,8 +170,9 @@ function clonedState(value: object, kind: ClonedKind): unknown[] | undefined {
  * - compares `Blob`, `File`, and `CryptoKey` by the kind and state the clone
  *   keeps: a `Blob`'s size and type, a `File`'s name and lastModified as well,
  *   and a `CryptoKey`'s type, extractable flag, algorithm, and usages. Their
- *   bytes and key material are not compared (ADR-0253), and none of them is
- *   equal to a value of another kind;
+ *   bytes and key material are not compared (ADR-0253). A `File` against a
+ *   `Blob` compares by size and type only, the pairing that a clone degrading a
+ *   `File` produces; any other two kinds are unequal;
  * - distinguishes an `undefined`-valued key from a missing key (as
  *   `structuredClone` preserves it);
  * - treats `NaN` as equal to `NaN` (and `+0`/`-0` as equal) for dirty-tracking.
@@ -302,14 +309,22 @@ export function deepEquals(
     return true;
   }
 
-  // A Blob, File, or CryptoKey is never equal to a value of another kind, and
-  // two of the same kind are equal when the state their clone keeps is equal.
+  // A Blob, File, or CryptoKey is compared with a value of its own kind by the
+  // state its clone keeps. A File is also compared with a Blob by the Blob state
+  // (size and type), the pairing a degraded File clone produces (ADR-0253 §2.1).
+  // Any other mixed pair is unequal, and so is a value of these kinds against a
+  // plain value.
   const aKind = clonedKind(a);
   const bKind = clonedKind(b);
   if (aKind !== undefined || bKind !== undefined) {
-    if (aKind === undefined || aKind !== bKind) return false;
-    const aState = clonedState(a, aKind);
-    const bState = clonedState(b, aKind);
+    if (aKind === undefined || bKind === undefined) return false;
+    let kind: ClonedKind = aKind;
+    if (aKind !== bKind) {
+      if (!isFileAndBlob(aKind, bKind)) return false;
+      kind = "Blob";
+    }
+    const aState = clonedState(a, kind);
+    const bState = clonedState(b, kind);
     return aState !== undefined
       && bState !== undefined
       && deepEquals(aState, bState, visited);

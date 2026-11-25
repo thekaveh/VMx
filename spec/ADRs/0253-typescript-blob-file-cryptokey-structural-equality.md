@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-24
 - **Spec version:** 3.30.0 (clarification of chapter 20 §4 and the `FORM-003` note; no conformance ID). The spec version does not move.
-- **Related:** [ADR-0113](0113-typescript-binary-structural-equality.md), [ADR-0152](0152-typescript-domexception-structural-equality.md), #1913.
+- **Clarifies:** [ADR-0113](0113-typescript-binary-structural-equality.md), [ADR-0152](0152-typescript-domexception-structural-equality.md). Issue #1913.
 
 ## 1. Context
 
@@ -35,12 +35,13 @@ compare to the depth the snapshotter clones. These three types are not covered.
   branch is guarded, so the code runs where a global is absent. `File` is tested
   before `Blob`, because a `File` is a `Blob`.
 - **Compared state.** The state is what the clone keeps. A `Blob` compares its
-  `size` and `type`. A `File` also compares its `name` and `lastModified`. A
-  `CryptoKey` compares its `type`, its `extractable` flag, its `algorithm`, and
-  its `usages`, the last two by `deepEquals`.
+  `size` and `type`. A `File` also compares its `name` and `lastModified` when
+  it is compared with a `File`. Against a `Blob` it compares size and type only
+  (§2.1). A `CryptoKey` compares its `type`, its `extractable` flag, its
+  `algorithm`, and its `usages`, the last two by `deepEquals`.
 - **Kind.** A value of one of these kinds is never equal to a value of another
-  kind. A `Blob` is never equal to a `File`, and none of them is equal to a plain
-  object.
+  kind, with one exception: a `File` against a `Blob`, which compares by size and
+  type (§2.1). None of them is equal to a plain object.
 - **Accessors.** The state is read through the base prototype accessors, as the
   clone reads it. A value whose accessor throws, such as a value that only
   inherits the prototype, is not equal to any other value, and the comparator
@@ -48,9 +49,12 @@ compare to the depth the snapshotter clones. These three types are not covered.
 - **Not compared.** The bytes of a `Blob` and the key material of a `CryptoKey`
   are not compared.
 - **Out of scope.** `FileList`, `ImageData`, and `ImageBitmap` are not handled.
-  They keep the plain-object fallback, and a consumer injects `equals` for them.
+  They keep the plain-object fallback, so a form that holds one of them should
+  inject `equals`. Whether that fallback compares two of them as equal, and
+  whether a browser's `structuredClone` keeps each one, is not checked here.
   Their tests would need a browser-like environment, and the Node test suite has
-  none of these globals.
+  none of these globals. This choice (option A of the issue) is recorded for the
+  owner's confirmation. It is not an owner decision that has already been made.
 
 ### 2.1 Why the state, and not identity or a host equality
 
@@ -69,12 +73,34 @@ exists. Neither rule can compare these values correctly, for these reasons:
 - **The state a clone keeps is chosen.** It is the simplest rule that keeps a
   fresh form clean and that matches chapter 20 §4, which compares to the depth
   the snapshotter clones.
+- **A `File` against a `Blob`.** The verification of this change found that Node
+  20.5 and 22 clone a `File` as a `Blob`, which keeps the size and type and drops
+  the name and `lastModified`. Node 26.12.1 keeps all four fields, so this
+  degraded clone is not reproduced in this environment. On a runtime that
+  degrades the `File`, the default snapshot of a `File` is a `Blob`, so a form
+  holding a `File` compares a `File` against a `Blob` at construction and after
+  each approve. A `File` against a `Blob` therefore compares by size and type
+  only, and the two are equal when those match. The rule does not depend on the
+  runtime, because the comparator cannot tell which clone made the `Blob`. A
+  `Blob` that a user puts in the model in place of a `File` is compared the same
+  way on every runtime, which is what develop already does (§3).
 
 ## 3. Consequences
 
 - An edit that replaces one of these values with a value that differs in the
   compared state commits, sets `isDirty`, and publishes one model change. An
-  edit whose value has the same state is suppressed, as before.
+  edit whose value has the same state is suppressed, as before. A `File` replaced
+  by a `Blob` of the same size and type is suppressed on every runtime, as develop
+  suppresses it (§2.1).
+- **Residual: a degraded `File` (Node 20.5 and 22).** On a runtime whose clone
+  degrades a `File`, the snapshot keeps neither the name nor `lastModified`. A
+  replacement that differs only in name or `lastModified` is committed: the model
+  takes the new `File`, and one model change is published. `isDirty` stays false,
+  because a `File` against a `Blob` compares size and type only. Develop drops
+  such a replacement entirely, so the model keeps the old `File` and no change is
+  published. The gap is therefore a missed dirty state, not a dropped model
+  change. The unit test that builds a `Blob` snapshot pins this limit, and it runs
+  on every runtime.
 - **Residual equal case.** Two values of one kind with the same compared state
   and different bytes or key material are equal, so a replacement that differs
   only there is dropped. Examples are two `Blob` values of the same size and type
@@ -84,14 +110,19 @@ exists. Neither rule can compare these values correctly, for these reasons:
   tests pin this limit. A domain that needs more keeps a comparable identifier,
   such as a content digest computed when the value is set, in the model and
   injects `equals` on it.
-- **Clean start.** A form whose initial model holds these values starts clean
-  against its default snapshot wherever the runtime's `structuredClone` keeps
-  the type. Node 26 keeps it, and the unit tests check it there. Tests are
-  skipped where the probe fails. This environment has only Node 26, so Node 20,
-  the package floor, is not checked. As ADR-0152 §3 records for `DOMException`,
-  on a runtime whose clone drops the type, a model holding such a value compares
-  a kind against a non-matching snapshot and starts dirty unless it injects
-  `snapshotter` and `equals`.
+- **Clean start.** A form whose initial model holds a `Blob`, a `File`, or a
+  `CryptoKey` starts clean against its default snapshot wherever the runtime's
+  `structuredClone` keeps the value's kind. A `File` that the clone degrades to a
+  `Blob` also starts clean (§2.1). The `Blob` and `File` clean-start test runs on
+  every runtime. The `CryptoKey` clean-start test is skipped where the probe finds
+  that the clone does not keep a `CryptoKey`. On a runtime whose clone does not
+  keep a `CryptoKey`, the form needs an injected `snapshotter` and `equals`, as
+  ADR-0152 §3 records for `DOMException`.
+- **Not verified on Node 20.5 and 22.** This environment has only Node 26.12.1,
+  which keeps every field of a `File` and a `CryptoKey`. The degraded `File` path
+  is covered by unit tests that build the `Blob` snapshot directly. Those tests
+  simulate the clone and do not reproduce it. The `CryptoKey` behavior of Node
+  20.5 and 22 is not checked.
 - **C#.** `FormVM` compares with `Equals(model, snapshot)`
   (`langs/csharp/src/VMx/Forms/FormVM.cs`, near line 180), which is the model's
   own equality. C# therefore has no structured-clone gap of this kind. C#,
@@ -111,5 +142,7 @@ exists. Neither rule can compare these values correctly, for these reasons:
 - **A snapshotter that keeps references to the originals.** Rejected: it changes
   the snapshot semantics of every model, which is out of scope.
 - **Branches for `FileList`, `ImageData`, and `ImageBitmap`, with browser-like
-  tests.** Rejected for this change. Node has none of these globals, so the
-  suite would need a new environment. Consumers inject `equals` for them.
+  tests.** Rejected for this change. This is option A of the issue. It is
+  recorded for the owner's confirmation and is not an owner decision that has
+  already been made. Node has none of these globals, so the suite would need a
+  new environment. Consumers inject `equals` for them.
