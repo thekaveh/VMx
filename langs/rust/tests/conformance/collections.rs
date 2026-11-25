@@ -1757,6 +1757,40 @@ fn paged_composition_navigation_clamps_at_bounds() {
     assert_eq!(pages.current_page(), vec![7, 8]);
 }
 
+/// COL-074 — PagedComposition<TVM> page moves stay in range after the stored copy shrinks
+#[test]
+fn paged_composition_moves_stay_in_range_after_source_shrink() {
+    type PageMove = fn(&PagedComposition<i32>);
+    let moves: [(&str, PageMove, usize); 4] = [
+        (
+            "move_to_first_page",
+            PagedComposition::move_to_first_page,
+            0,
+        ),
+        (
+            "move_to_previous_page",
+            PagedComposition::move_to_previous_page,
+            0,
+        ),
+        ("move_to_next_page", PagedComposition::move_to_next_page, 1),
+        ("move_to_last_page", PagedComposition::move_to_last_page, 1),
+    ];
+    for (name, move_page, expected_index) in moves {
+        // Given: PageSize 3 over 10 items, on the last page (index 3).
+        let pages = PagedComposition::new((1..=10).collect::<Vec<i32>>(), 3);
+        pages.move_to_last_page();
+        assert_eq!(pages.current_page_index(), 3, "{name}");
+
+        // When: the stored copy shrinks to 5 items, and then the move runs.
+        pages.set_source((1..=5).collect());
+        move_page(&pages);
+
+        // Then: the index is in range and the page shows its items.
+        assert_eq!(pages.current_page_index(), expected_index, "{name}");
+        assert!(pages.current_page_index() < pages.page_count(), "{name}");
+    }
+}
+
 /// COL-019 — PagedComposition<TVM> PageSize == 0 passes through all items
 #[test]
 fn page_size_zero_returns_all_items() {

@@ -237,6 +237,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `PagedComposition`: a page move clamps a stale `currentPageIndex` before it picks
+  its target (ADR-0251, #1917). After an unobserved source shrinks, `moveToLastPage`,
+  `moveToNextPage` and `moveToPreviousPage` land on a page in range, where a stale
+  index used to leave the pager on an empty page. A move that changes no index
+  publishes nothing, as before.
+
 - A `CompositeVM`, `CompositeVMOf` or `GroupVM` whose construct hook admits a
   dispose no longer calls its children factory. Its `construct()` used to call
   the factory and then throw

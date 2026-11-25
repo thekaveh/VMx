@@ -25,6 +25,11 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `COL-072` and `FWD-006`: each subscriber runs inside `catch_unwind`, and the
   forwarding decorators' `notify_property_changed` already called the wrapped
   VM's helper.
+- `COL-074` conformance tests (ADR-0251, #1917). After the stored copy shrinks
+  through `set_source`, each of the four page moves lands on a page in range,
+  and `current_page_index` stays in `[0, max(0, page_count - 1)]`. Rust already
+  met the rule: `set_source` clamps the index on every write, so no Rust code
+  changed.
 - `DelayedTask`: a disposable helper that holds at most one delayed action on
   an injected scheduler. `schedule` replaces a pending action and restarts its
   delay, `cancel` stops it, `is_pending()` reports it, and disposal cancels it

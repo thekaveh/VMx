@@ -6,7 +6,7 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests: COL-016..COL-021 — PagedComposition&lt;TVM&gt;.
+/// Conformance tests: COL-016..COL-021 and COL-074 — PagedComposition&lt;TVM&gt;.
 /// See spec/21-collections.md §5 and ADR-0023.
 /// </summary>
 public class COL_016_to_021_PagedCompositionTests
@@ -225,6 +225,52 @@ public class COL_016_to_021_PagedCompositionTests
 
         // Items on page 0 must NOT include any Zeta items
         sut.Items.Should().NotContain(s => s.StartsWith("Zeta"));
+    }
+
+    // ── COL-074 ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// COL-074: a page move clamps a stale CurrentPageIndex before it picks its target.
+    ///
+    /// Given a PagedComposition over a plain list (no change stream), PageSize == 3,
+    /// and CurrentPageIndex == 3 (last page of 10 items),
+    /// When the list shrinks to 5 items without the pager seeing it,
+    /// Then each move lands on a page in [0, PageCount-1], shows that page's items,
+    /// and publishes CurrentPageIndex and Items once.
+    /// </summary>
+    [Fact, Trait("Conformance", "COL-074")]
+    public void COL_074_PageMoves_ClampStaleIndex_AfterUnobservedShrink()
+    {
+        var cases = new (string Name, Action<PagedComposition<int>> Move, int ExpectedIndex, int[] ExpectedItems)[]
+        {
+            ("MoveToFirstPage", p => p.MoveToFirstPage(), 0, new[] { 0, 1, 2 }),
+            ("MoveToPreviousPage", p => p.MoveToPreviousPage(), 0, new[] { 0, 1, 2 }),
+            ("MoveToNextPage", p => p.MoveToNextPage(), 1, new[] { 3, 4 }),
+            ("MoveToLastPage", p => p.MoveToLastPage(), 1, new[] { 3, 4 }),
+        };
+
+        var expectedNotifications = new[] { "CurrentPageIndex", "Items" };
+
+        foreach (var (name, move, expectedIndex, expectedItems) in cases)
+        {
+            // Arrange: a plain list is not observed. Ten items, PageSize 3, last page.
+            var source = Enumerable.Range(0, 10).ToList();
+            using var sut = new PagedComposition<int>(source, pageSize: 3);
+            sut.MoveToLastPage();
+            sut.CurrentPageIndex.Should().Be(3);
+
+            // Act: the list shrinks to 5 items and the pager gets no notice.
+            source.RemoveRange(5, 5);
+            var notified = new List<string>();
+            sut.PropertyChanged += (_, e) => notified.Add(e.PropertyName!);
+            move(sut);
+
+            // Assert: the stored index is in range, the page shows its items,
+            // and each changed property is published once.
+            sut.CurrentPageIndex.Should().Be(expectedIndex, because: name);
+            sut.Items.Should().Equal(expectedItems, because: name);
+            notified.Should().Equal(expectedNotifications, because: name);
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -32,6 +32,11 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   ADR-0222). `FWD-006` covers the #1352 fix below. Swift already met `COL-072`
   and `CMDD-019`: list and key-view publishers cannot fail, and a disposed
   wrapper notifies its own subscribers once.
+- `COL-074` conformance tests (ADR-0251, #1917). After the stored copy shrinks
+  through `setSource(_:)`, each of the four page moves lands on a page in
+  range, and `currentPageIndex` stays in `[0, max(0, pageCount - 1)]`. Swift
+  already met the rule: `setSource(_:)` clamps the index on every write, so no
+  Swift code changed.
 - `DelayedTask`: a disposable helper that holds at most one delayed action on
   an injected scheduler. `schedule(after:_:)` replaces a pending action and
   restarts its delay, `cancel()` stops it, `isPending` reports it, and

@@ -130,40 +130,28 @@ class PagedComposition(Pageable, Generic[TVM]):
     def move_to_first_page(self) -> None:
         if self._disposed:
             return
-        if self._current_page_index == 0:
-            return
-        self._current_page_index = 0
-        self._prop_changed.on_next("current_page_index")
-        self._prop_changed.on_next("items")
+        self._move_to(0)
 
     def move_to_previous_page(self) -> None:
         if self._disposed:
             return
-        if self._current_page_index <= 0:
-            return
-        self._current_page_index -= 1
-        self._prop_changed.on_next("current_page_index")
-        self._prop_changed.on_next("items")
+        # Clamp a stale index first (ADR-0251), so the target is on a page in range.
+        last = max(0, self.page_count - 1)
+        current = min(max(self._current_page_index, 0), last)
+        self._move_to(max(0, current - 1))
 
     def move_to_next_page(self) -> None:
         if self._disposed:
             return
-        max_idx = self.page_count - 1
-        if self._current_page_index >= max_idx:
-            return
-        self._current_page_index += 1
-        self._prop_changed.on_next("current_page_index")
-        self._prop_changed.on_next("items")
+        # Clamp a stale index first (ADR-0251), so the target is on a page in range.
+        last = max(0, self.page_count - 1)
+        current = min(max(self._current_page_index, 0), last)
+        self._move_to(min(current + 1, last))
 
     def move_to_last_page(self) -> None:
         if self._disposed:
             return
-        last = self.page_count - 1
-        if self._current_page_index >= last:
-            return
-        self._current_page_index = last
-        self._prop_changed.on_next("current_page_index")
-        self._prop_changed.on_next("items")
+        self._move_to(max(0, self.page_count - 1))
 
     # ── PagedComposition-specific surface ─────────────────────────────────────
 
@@ -227,6 +215,14 @@ class PagedComposition(Pageable, Generic[TVM]):
             return len(src)  # type: ignore[arg-type]
         except TypeError:
             return sum(1 for _ in src)
+
+    def _move_to(self, target: int) -> None:
+        """Store a page move and publish it only when it changes the stored index (ADR-0251)."""
+        if self._current_page_index == target:
+            return
+        self._current_page_index = target
+        self._prop_changed.on_next("current_page_index")
+        self._prop_changed.on_next("items")
 
     def _clamp_index(self, index: int) -> int:
         # When page_count == 0 (empty source + paging enabled), index stays at 0

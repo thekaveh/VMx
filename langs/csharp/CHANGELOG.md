@@ -263,6 +263,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- `PagedComposition`: a page move clamps a stale `CurrentPageIndex` before it picks
+  its target (ADR-0251, #1917). After an unobserved source shrinks, `MoveToLastPage`,
+  `MoveToNextPage` and `MoveToPreviousPage` land on a page in range, where a stale
+  index used to leave the pager on an empty page. A move that changes no index
+  publishes nothing, as before.
+
 - `HierarchicalVM.InvalidateSubtree` no longer recurses once per tree level, so a
   materialized subtree deeper than the call stack no longer overflows it. Each node
   holds a reference to its tree root. Factory and batch attach check for a cycle in
