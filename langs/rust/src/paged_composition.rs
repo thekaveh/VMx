@@ -95,6 +95,9 @@ impl<T> PagerCore<T> {
     fn replace_source(&self, source: Vec<T>) {
         let (previous, clamped) = {
             let mut state = lock(&self.state);
+            if self.disposed.load(Ordering::Acquire) {
+                return;
+            }
             state.source_generation = state.source_generation.wrapping_add(1);
             let previous = std::mem::replace(&mut state.source, source);
             (previous, state.clamp())
@@ -108,6 +111,9 @@ impl<T> PagerCore<T> {
     fn navigate(&self, target: impl FnOnce(&PagerState<T>) -> usize) {
         let moved = {
             let mut state = lock(&self.state);
+            if self.disposed.load(Ordering::Acquire) {
+                return;
+            }
             let index = target(&state);
             state.move_to(index)
         };
@@ -129,7 +135,8 @@ impl<T> PagerCore<T> {
 /// nothing. A pager made with [`from_composite`](Self::from_composite)
 /// replaces its copy with the composite's children after each composite
 /// collection change. After [`dispose`](Self::dispose), the pager stops
-/// following the composite and publishes nothing (spec/21 §5.5, ADR-0208).
+/// following the composite, and its paging and source calls change nothing
+/// and publish nothing (spec/21 §5.5 and §5.6, ADR-0208, ADR-0254).
 #[derive(Clone)]
 pub struct PagedComposition<T: Clone + Send + 'static> {
     core: Arc<PagerCore<T>>,
@@ -172,10 +179,18 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
         self.core.hub.clone()
     }
 
-    /// Stops following a composite source and stops all publication.
-    /// Repeated calls are inert.
+    /// Stops following a composite source and stops all publication. After the
+    /// call, paging and source calls change no state and publish nothing, and
+    /// reads keep the last values (spec/21 §5.6, ADR-0214, ADR-0254). Repeated
+    /// calls are inert.
     pub fn dispose(&self) {
-        self.core.disposed.store(true, Ordering::Release);
+        {
+            // Set under the state lock, so a mutator that takes the lock after
+            // this call returns sees the flag, and one that held it finished
+            // its change before this call returned.
+            let _state = lock(&self.core.state);
+            self.core.disposed.store(true, Ordering::Release);
+        }
         let subscription = lock(&self.source_subscription).take();
         drop(subscription);
     }
@@ -192,7 +207,7 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     pub fn set_page_size(&self, page_size: usize) {
         {
             let mut state = lock(&self.core.state);
-            if state.page_size == page_size {
+            if self.core.disposed.load(Ordering::Acquire) || state.page_size == page_size {
                 return;
             }
             state.page_size = page_size;
@@ -216,6 +231,9 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     pub fn push(&self, item: T) {
         let clamped = {
             let mut state = lock(&self.core.state);
+            if self.core.disposed.load(Ordering::Acquire) {
+                return;
+            }
             state.source.push(item);
             state.clamp()
         };
@@ -225,11 +243,12 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     /// Removes and returns the item at `index`, or returns `None` when absent.
     ///
     /// A removal clamps the current page and publishes the source change. A
-    /// missing index changes and publishes nothing.
+    /// missing index changes and publishes nothing. After `dispose`, the call
+    /// removes nothing and returns `None`.
     pub fn remove_at(&self, index: usize) -> Option<T> {
         let (removed, clamped) = {
             let mut state = lock(&self.core.state);
-            if index >= state.source.len() {
+            if self.core.disposed.load(Ordering::Acquire) || index >= state.source.len() {
                 return None;
             }
             let removed = state.source.remove(index);

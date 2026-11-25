@@ -304,9 +304,8 @@ flavor unless the exceptions below say otherwise.
 ### 6.8.5.5. Rust
 
 - `PagedComposition::dispose` drops the composite-source subscription and
-  stops all publication (ADR-0208). Page reads remain. Unlike the inventory
-  row, later paging calls still change the pager's state, but they publish
-  nothing.
+  stops all publication (ADR-0208). Page reads remain. After disposal, paging
+  and source calls change no state and emit nothing (ADR-0254).
 - `ModeledCrudCommands::dispose` detaches the `current_changed` trigger and
   disposes the confirmation decorators, which completes their error streams. It
   also disposes the create, update and delete relays that it built, which makes

@@ -1012,7 +1012,19 @@ caller updates through the calls that §5.2 names. Rust publishes each paging
 change as a `PropertyChangedMessage` on the pager's hub, with the snake_case
 names `page_size`, `is_paging_enabled`, `page_count`, `current_page_index`,
 and `items`, in the Swift order. A call that changes nothing publishes nothing.
-`dispose` stops the source observation and the publication (ADR-0208).
+`dispose` stops the source observation and the publication (ADR-0208). §5.6
+gives the rest of the disposal rule.
+
+### 5.6 Disposal
+
+After `dispose()`, a pager's paging and source calls change no state and
+publish nothing. The calls are the page-size and page-index writes, the four
+page move calls, and the calls that change the stored copy: `setSource(_:)` in
+Swift, and `set_source`, `push` and `remove_at` in Rust. A Rust `remove_at`
+removes nothing and returns `None`. Reads keep the last page size, page index,
+page count and items. All five flavors follow this rule (ADR-0214 rule 1,
+corrected by ADR-0254). It is the post-disposal behavior that `DISP-006`
+requires of this helper.
 
 ## 6. Token paging: `TokenPagedComposition<TVM, TToken>`
 
@@ -1175,18 +1187,18 @@ Chapter 12 §24 holds the `COL` IDs, §31 the `AGCH` IDs, and §30 the `DISP` ID
 The table maps each ID to the rules of this chapter, and chapter 12 states the
 behavior of each ID.
 
-| IDs                                                                         | Rules                                                                                            |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `COL-001`..`COL-004`, `COL-048`..`COL-055`                                  | §2.1–§2.6 serviced observable collections (ADR-0024, ADR-0096, ADR-0097)                         |
-| `COL-056`..`COL-064`                                                        | §2.7–§2.14 keyed serviced collection (ADR-0097, ADR-0214)                                        |
-| `COL-005`..`COL-009`, `COL-023`, `COL-040`..`COL-047`                       | §3 `ObservableList<T>` (ADR-0026, ADR-0089)                                                      |
-| `COL-010`..`COL-015`, `COL-022`, `COL-067`, `COL-068`, `COL-070`, `COL-071` | §4 `ObservableDictionary` (ADR-0025, ADR-0177, ADR-0214)                                         |
-| `COL-016`..`COL-021`, `COL-031`, `COL-074`                                  | §5 `PagedComposition<TVM>` (ADR-0023, ADR-0251)                                                  |
-| `COL-024`..`COL-030`, `COL-065`                                             | §6 `TokenPagedComposition<TVM, TToken>` (ADR-0069, ADR-0202)                                     |
-| `COL-032`..`COL-039`                                                        | chapter 01 §1.4 shared `Move` (ADR-0085)                                                         |
-| `COL-066`, `COL-069`, `COL-072`, `COL-073`                                  | §2, §3, §4 and §6.2 failing subscribers (ADR-0171, ADR-0191, ADR-0220, ADR-0239)                 |
-| `AGCH-001`..`AGCH-012`                                                      | §9 dynamic aggregate change stream (ADR-0098, ADR-0192, ADR-0214)                                |
-| `DISP-006`                                                                  | §2.6 and §6 repeated disposal of the collection, paging, batch, aggregate and projection helpers |
+| IDs                                                                         | Rules                                                                                                  |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `COL-001`..`COL-004`, `COL-048`..`COL-055`                                  | §2.1–§2.6 serviced observable collections (ADR-0024, ADR-0096, ADR-0097)                               |
+| `COL-056`..`COL-064`                                                        | §2.7–§2.14 keyed serviced collection (ADR-0097, ADR-0214)                                              |
+| `COL-005`..`COL-009`, `COL-023`, `COL-040`..`COL-047`                       | §3 `ObservableList<T>` (ADR-0026, ADR-0089)                                                            |
+| `COL-010`..`COL-015`, `COL-022`, `COL-067`, `COL-068`, `COL-070`, `COL-071` | §4 `ObservableDictionary` (ADR-0025, ADR-0177, ADR-0214)                                               |
+| `COL-016`..`COL-021`, `COL-031`, `COL-074`                                  | §5 `PagedComposition<TVM>` (ADR-0023, ADR-0251)                                                        |
+| `COL-024`..`COL-030`, `COL-065`                                             | §6 `TokenPagedComposition<TVM, TToken>` (ADR-0069, ADR-0202)                                           |
+| `COL-032`..`COL-039`                                                        | chapter 01 §1.4 shared `Move` (ADR-0085)                                                               |
+| `COL-066`, `COL-069`, `COL-072`, `COL-073`                                  | §2, §3, §4 and §6.2 failing subscribers (ADR-0171, ADR-0191, ADR-0220, ADR-0239)                       |
+| `AGCH-001`..`AGCH-012`                                                      | §9 dynamic aggregate change stream (ADR-0098, ADR-0192, ADR-0214)                                      |
+| `DISP-006`                                                                  | §2.6, §5.6 and §6 repeated disposal of the collection, paging, batch, aggregate and projection helpers |
 
 ## 9. Dynamic aggregate change stream
 

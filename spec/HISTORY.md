@@ -755,6 +755,9 @@ A page move clamps a stale stored index before it chooses a target, so the
 previous and next moves stay in range after an unobserved source shrink
 (ADR-0251, which amends ADR-0168 section 2 and chapter 21 section 5.2). The
 conformance ID COL-074 pins that behavior in all five flavors.
+After `dispose()`, a Rust `PagedComposition` paging or source call changes no
+state and publishes nothing, as in the other four flavors. Chapter 21 §5.6
+states the rule (ADR-0254, which corrects the Rust premise of ADR-0214 rule 1).
 
 v3.30.0 also makes an admitted dispose from a container's own construct hook skip
 its children factory, and `construct()` return without an error, in every flavor.
