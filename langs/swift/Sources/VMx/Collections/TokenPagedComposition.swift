@@ -22,17 +22,8 @@ public final class TokenPagedComposition<TVM, TToken> {
     private let propertyChangedSubject = PassthroughSubject<String, Never>()
     private let commandChangedSubject = PassthroughSubject<Void, Never>()
 
-    public lazy var loadMoreCommand: AsyncRelayCommand = AsyncRelayCommand.builder()
-        .predicate { [weak self] in self?.hasMore == true && self?.isDisposed == false }
-        .triggers(commandChangedSubject.eraseToAnyPublisher())
-        .task { [weak self] in try await self?.loadMore() }
-        .build()
-
-    public lazy var refreshCommand: AsyncRelayCommand = AsyncRelayCommand.builder()
-        .predicate { [weak self] in self?.isDisposed == false }
-        .triggers(commandChangedSubject.eraseToAnyPublisher())
-        .task { [weak self] in try await self?.refresh() }
-        .build()
+    public var loadMoreCommand: AsyncRelayCommand
+    public var refreshCommand: AsyncRelayCommand
 
     public init(
         fetchNext: @escaping FetchNext,
@@ -42,6 +33,29 @@ public final class TokenPagedComposition<TVM, TToken> {
         self.fetchNext = fetchNext
         self.autoConstructOnAdd = autoConstructOnAdd
         self.pagesEqual = pagesEqual
+
+        // Phase 1: placeholders, so every stored property is set before the
+        // self-capturing commands are built. Placeholders have no task and
+        // a predicate that is always false (#1922).
+        loadMoreCommand = AsyncRelayCommand(
+            body: nil, predicate: { false }, triggers: [], throwOnCancel: false
+        )
+        refreshCommand = AsyncRelayCommand(
+            body: nil, predicate: { false }, triggers: [], throwOnCancel: false
+        )
+
+        // Phase 2: the real commands, assigned before `init` returns, so no
+        // thread can read a command that `init` has not finished (#1922).
+        loadMoreCommand = AsyncRelayCommand.builder()
+            .predicate { [weak self] in self?.hasMore == true && self?.isDisposed == false }
+            .triggers(commandChangedSubject.eraseToAnyPublisher())
+            .task { [weak self] in try await self?.loadMore() }
+            .build()
+        refreshCommand = AsyncRelayCommand.builder()
+            .predicate { [weak self] in self?.isDisposed == false }
+            .triggers(commandChangedSubject.eraseToAnyPublisher())
+            .task { [weak self] in try await self?.refresh() }
+            .build()
     }
 
     public var items: [TVM] { stateQueue.sync { _items } }

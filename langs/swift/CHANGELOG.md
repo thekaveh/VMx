@@ -214,6 +214,13 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Fixed
 
+- `TokenPagedComposition.loadMoreCommand` and `refreshCommand` no longer race
+  when a first read runs with `dispose()` on another thread (#1922). Both were
+  `lazy var` properties, so each thread could create its own command, and
+  Thread Sanitizer reported the race. `init` now builds both commands, with the
+  same predicates and tasks as before. The declarations keep their type and
+  access level, and the public API is unchanged.
+
 - `walk(_:)`, `walkExpanded(_:)`, `find(_:where:)`, `HierarchicalVM.depth` and
   the path-cache invalidation of a `HierarchicalVM` no longer recurse once per
   tree level. A tree deeper than the call stack no longer overflows it. Walk
