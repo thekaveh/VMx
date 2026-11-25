@@ -195,7 +195,7 @@ deferred result on develop and on this branch: one factory call, the disposing e
 `Disposed`. The Rust develop results were read from the source on `origin/develop`, not run. The
 composite's `populate` returns `Ok(())` before its factory call for a publication-deferred and for a
 membership-deferred dispose, because `disposal_pending()` reads the deferred flag
-(`composites.rs` lines 163 to 165 and 1601 to 1603; `runtime.rs` lines 62 to 65). The group's
+(`composites.rs` lines 163 to 165 and 1601 to 1603; `runtime.rs` lines 401 to 404). The group's
 `populate` calls the factory once, and then `attach_population` fails with
 `OwnershipTransactionInProgress` (`groups.rs` lines 906 to 917 and 448; `runtime.rs` lines 614 to
 616). The Python populated cases in §2.5 were observed too.
