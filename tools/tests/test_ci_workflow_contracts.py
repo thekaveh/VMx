@@ -171,7 +171,7 @@ def test_netstandard_conformance_job_restores_the_switched_graph() -> None:
     ), restores
 
 
-def test_every_workflow_change_triggers_the_pin_inventory() -> None:
+def test_conformance_has_no_push_path_filter_and_runs_the_pin_inventory() -> None:
     conformance = (WORKFLOWS / "conformance.yml").read_text(encoding="utf-8")
 
     assert push_path_patterns(conformance) is None, "conformance.yml runs on every push (#1836)"
@@ -566,6 +566,40 @@ def test_examples_contract_runs_when_the_catalog_or_coverage_tool_changes() -> N
 _SCRIPT_SUFFIXES = (".py", ".mjs", ".js", ".sh")
 _Repo = tuple[frozenset[str], frozenset[str], re.Pattern[str]]
 
+# The flavor trees that each workflow with a push path filter owns. Its jobs read these
+# as their own inputs. A `langs/` path outside them is left out of the derivation; see
+# _other_flavor_tree. Listing the trees by hand keeps a new workflow from skipping the check.
+_OWNED_FLAVOR_TREES: dict[str, tuple[str, ...]] = {
+    "csharp.yml": ("langs/csharp",),
+    "docs.yml": (),
+    "examples-contract-checks.yml": ("langs/python", "langs/typescript"),
+    "python.yml": ("langs/python",),
+    "rust.yml": ("langs/rust",),
+    "swift.yml": ("langs/swift",),
+    "typescript.yml": ("langs/typescript",),
+    "wiki.yml": (),
+}
+
+# Inputs the derivation cannot see: a path built from parts, a copy made by an npm lifecycle
+# hook, or a preload or glob that loads a file. Each entry is a glob of tracked files. Every
+# file it matches must be covered by the workflow's push filter.
+_UNSEEN_INPUTS: dict[str, tuple[str, ...]] = {
+    "examples-contract-checks.yml": (
+        # langs/typescript prebuild: langs/typescript/scripts/sync-fixtures.mjs copies these.
+        "spec/fixtures/*.json",
+        "spec/schemas/*.json",
+        # `uv --project langs/python sync`: pyproject.toml's readme and version path.
+        "langs/python/README.md",
+        "langs/python/src/vmx/__about__.py",
+        # The pytest run: conftest.py preloads a list of top-level tools/ scripts (the whole
+        # top-level set is declared, so the list can change), and
+        # test_example_accessibility.py reads every workflow file.
+        "tools/tests/conftest.py",
+        "tools/*.py",
+        ".github/workflows/*.yml",
+    ),
+}
+
 
 def _github_glob(pattern: str) -> re.Pattern[str]:
     """Compile a push path pattern with GitHub's rules: `*` stays inside one path
@@ -617,11 +651,13 @@ def _named_paths(text: str, working: tuple[str, ...], repo: _Repo) -> set[str]:
     return named
 
 
-def _other_flavor_tree(name: str, workflow_name: str) -> bool:
-    """True for a path inside another flavor's tree, such as `langs/rust/tests/...` read by
-    the C# job. Those reads are coverage counts, and conformance.yml checks every flavor."""
-    own = "langs/" + workflow_name.removesuffix(".yml")
-    return name.startswith("langs/") and not name.startswith(own + "/")
+def _other_flavor_tree(name: str, owned: tuple[str, ...]) -> bool:
+    """True for a `langs/` path outside the flavor trees that the workflow owns, such as
+    `langs/rust/tests/...` named by the C# job through the execution script's flavor table.
+    Those names are coverage counts, and conformance.yml checks every flavor on every push."""
+    if not name.startswith("langs/"):
+        return False
+    return not any(name == tree or name.startswith(tree + "/") for tree in owned)
 
 
 def _job_inputs(workflow_name: str, workflow: str, repo: _Repo) -> set[str]:
@@ -642,7 +678,8 @@ def _job_inputs(workflow_name: str, workflow: str, repo: _Repo) -> set[str]:
     for script in sorted(n for n in named if n in repo[0] and n.endswith(_SCRIPT_SUFFIXES)):
         code = _code_lines((REPO_ROOT / script).read_text(encoding="utf-8"))
         named |= _named_paths(code, (), repo)
-    return {name for name in named if not _other_flavor_tree(name, workflow_name)}
+    owned = _OWNED_FLAVOR_TREES.get(workflow_name, ())
+    return {name for name in named if not _other_flavor_tree(name, owned)}
 
 
 def _code_lines(text: str) -> str:
@@ -676,32 +713,46 @@ def test_push_path_filters_cover_every_file_their_jobs_read() -> None:
        that its code names; its comment lines are skipped. The examples job runs
        `check-showcase-parity.py`, which opens a `docs/` file, so that file is an
        input of the job.
-    4. Other flavors' trees are left out: `langs/<other>/...` reads are coverage
-       counts, and conformance.yml, which runs on every push, checks every flavor.
-    5. A file input is covered when a push pattern matches its path. A directory
+    4. Flavor trees: a `langs/` path inside a tree that the workflow owns
+       (`_OWNED_FLAVOR_TREES`) is an input. Any other `langs/` path is left out, since
+       it is a coverage count. conformance.yml, which runs on every push, checks every
+       flavor.
+    5. Declared inputs: the globs of `_UNSEEN_INPUTS` add the files that the derivation
+       cannot see, such as the copies made by the TypeScript prebuild hook.
+    6. A file input is covered when a push pattern matches its path. A directory
        input is covered when a push pattern matches some tracked file under it.
 
-    Limits: a path built from parts (`ROOT / "langs" / name`) is not seen, scripts
-    are followed one level only, and the patterns come from the workflow text, not
-    a YAML parser. A workflow without a push path filter runs on every push, so it
-    is not checked here.
+    Limits: a path built from parts (`ROOT / "langs" / name`) is not seen, npm hooks
+    are not followed, scripts are followed one level only, and the patterns come
+    from the workflow text, not a YAML parser. A workflow without a push path filter
+    runs on every push, so it is not checked here, and the owned-tree table must list
+    exactly the workflows that have a filter.
     """
     repo = _repository()
-    missed: dict[str, list[str]] = {}
+    filtered: dict[str, tuple[str, list[str]]] = {}
     for path in sorted(WORKFLOWS.glob("*.yml")):
         workflow = path.read_text(encoding="utf-8")
         patterns = push_path_patterns(workflow)
-        if patterns is None:
-            continue
+        if patterns is not None:
+            filtered[path.name] = (workflow, patterns)
+    unlisted = sorted(set(filtered) - set(_OWNED_FLAVOR_TREES))
+    stale = sorted(set(_OWNED_FLAVOR_TREES) - set(filtered))
+    missed: dict[str, list[str]] = {}
+    for name, (workflow, patterns) in filtered.items():
         matchers = [_github_glob(pattern) for pattern in patterns]
-        uncovered = sorted(
-            name
-            for name in _job_inputs(path.name, workflow, repo)
-            if not _covered(name, repo, matchers)
-        )
+        inputs = _job_inputs(name, workflow, repo)
+        for glob in _UNSEEN_INPUTS.get(name, ()):
+            matched = {f for f in repo[0] if _github_glob(glob).match(f)}
+            assert matched, f"{name}: declared input {glob!r} matches no tracked file"
+            inputs |= matched
+        uncovered = sorted(n for n in inputs if not _covered(n, repo, matchers))
         if uncovered:
-            missed[path.name] = uncovered
-    assert missed == {}, f"push path filters miss files their jobs read: {missed}"
+            missed[name] = uncovered
+    assert missed == {} and unlisted == [] and stale == [], (
+        f"push path filters miss files their jobs read: {missed}; "
+        f"workflows with a push filter missing from _OWNED_FLAVOR_TREES: {unlisted}; "
+        f"_OWNED_FLAVOR_TREES entries without a push filter: {stale}"
+    )
 
 
 def test_push_path_derivation_follows_jobs_into_the_scripts_they_run() -> None:
@@ -722,6 +773,10 @@ def test_push_path_derivation_follows_jobs_into_the_scripts_they_run() -> None:
         "docs/content/stylesheets/extra.css",
         "docs/content/examples/rust-tui-notes-showcase.md",
     } <= examples
+    # The examples job builds langs/typescript and syncs langs/python: both are its own trees.
+    assert {"langs/typescript", "langs/python"} <= examples
+    # The TypeScript job names the other flavors' trees through the execution script's table.
+    assert not [name for name in typescript if name.startswith("langs/rust")]
 
 
 def test_github_glob_matches_the_way_github_path_filters_do() -> None:

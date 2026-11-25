@@ -112,7 +112,7 @@ def test_swift_release_uses_the_shared_release_notes_extractor() -> None:
     )
 
 
-def test_release_contract_suite_triggers_on_swift_workflow_changes() -> None:
+def test_conformance_runs_on_every_push_including_swift_release_changes() -> None:
     workflow = _workflow("conformance.yml")
 
     assert push_path_patterns(workflow) is None, "conformance.yml runs on every push (#1836)"

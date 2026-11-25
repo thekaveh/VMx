@@ -190,7 +190,7 @@ def test_branch_rust_ci_treats_rustdoc_warnings_as_errors() -> None:
     ) in workflow
 
 
-def test_contract_suite_triggers_on_rust_and_release_workflow_changes() -> None:
+def test_conformance_runs_on_every_push_including_rust_release_changes() -> None:
     workflow = _workflow("conformance.yml")
 
     assert push_path_patterns(workflow) is None, "conformance.yml runs on every push (#1836)"

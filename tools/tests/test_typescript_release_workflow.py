@@ -82,7 +82,7 @@ def test_typescript_ci_verifies_floor_lts_and_current_node_lines() -> None:
     assert 'require("../dist/index.cjs")' in floor_probe
 
 
-def test_contract_suite_triggers_on_typescript_and_release_workflow_changes() -> None:
+def test_conformance_runs_on_every_push_including_typescript_release_changes() -> None:
     workflow = _workflow("conformance.yml")
 
     assert push_path_patterns(workflow) is None, "conformance.yml runs on every push (#1836)"

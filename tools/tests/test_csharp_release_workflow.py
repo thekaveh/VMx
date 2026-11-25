@@ -63,7 +63,7 @@ def test_csharp_restore_enforces_low_severity_transitive_auditing() -> None:
     assert "<NuGetAuditLevel>low</NuGetAuditLevel>" in props
 
 
-def test_conformance_triggers_on_csharp_and_release_workflow_changes() -> None:
+def test_conformance_runs_on_every_push_including_csharp_release_changes() -> None:
     workflow = _workflow("conformance.yml")
 
     assert push_path_patterns(workflow) is None, "conformance.yml runs on every push (#1836)"
