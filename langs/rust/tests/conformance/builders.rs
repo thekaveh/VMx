@@ -94,11 +94,10 @@ fn field_defaults_are_applied() {
 /// Rust public API: `RelayCommandBuilder` keeps its trigger list private and
 /// each trigger raises an indistinguishable eligibility change, so only the
 /// cumulative count and per-trigger delivery are asserted. The non-additive
-/// overwrite clause is pinned through `action`. The Rust deviation from the
-/// order clause is recorded under BLD-005 in spec/12-conformance.md and is
-/// pending owner review.
+/// overwrite clause is pinned through `action`.
 #[test]
 fn relay_command_trigger_setter_is_additive() {
+    // BLD-005 insertion order is not asserted in Rust, pending an owner decision under #1799.
     let trigger_a = MessageHub::new();
     let trigger_b = MessageHub::new();
     let builder = RelayCommand::builder()
