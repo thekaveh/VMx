@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-from .workflow_jobs import run_commands, workflow_job
+from .workflow_jobs import push_path_patterns, run_commands, workflow_job
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -193,7 +193,7 @@ def test_branch_rust_ci_treats_rustdoc_warnings_as_errors() -> None:
 def test_contract_suite_triggers_on_rust_and_release_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 
-    assert workflow.count('- ".github/workflows/**"') == 1
+    assert push_path_patterns(workflow) is None, "conformance.yml runs on every push (#1836)"
 
 
 _RUST_RELEASE_JOBS = (

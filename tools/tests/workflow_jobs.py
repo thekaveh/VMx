@@ -14,6 +14,8 @@ _COMMENT_LINE = re.compile(r"(?m)^\s*#.*\n")
 _RUN_KEY = re.compile(r"^(?P<lead>\s*(?:-\s+)?)run:(?:[ \t]+(?P<value>.*?))?\s*$")
 _BLOCK_HEADER = re.compile(r"(?P<style>[|>])[-+0-9]*")
 _QUOTING_WORDS = frozenset({"echo", "printf"})
+_PUSH_BLOCK = re.compile(r"(?ms)^  push:\n(.*?)(?=^\S|^  \S|\Z)")
+_PUSH_PATH = re.compile(r'^      - "([^"]+)"$', re.M)
 
 
 def workflow_jobs(text: str) -> dict[str, str]:
@@ -21,6 +23,15 @@ def workflow_jobs(text: str) -> dict[str, str]:
     body = _COMMENT_LINE.sub("", text.split("\njobs:\n", maxsplit=1)[1])
     parts = _JOB_HEADER.split(body)
     return dict(zip(parts[1::2], parts[2::2], strict=True))
+
+
+def push_path_patterns(text: str) -> list[str] | None:
+    """Return the `on.push.paths` patterns of a workflow, or None when it has no push
+    path filter. A workflow without the filter runs on every push to its branches."""
+    block = _PUSH_BLOCK.search(text)
+    if block is None or not re.search(r"(?m)^    paths:$", block.group(1)):
+        return None
+    return _PUSH_PATH.findall(block.group(1))
 
 
 def workflow_job(workflow: str, name: str) -> str:

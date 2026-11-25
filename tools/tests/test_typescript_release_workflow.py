@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from .workflow_jobs import run_commands, workflow_job
+from .workflow_jobs import push_path_patterns, run_commands, workflow_job
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -85,7 +85,7 @@ def test_typescript_ci_verifies_floor_lts_and_current_node_lines() -> None:
 def test_contract_suite_triggers_on_typescript_and_release_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 
-    assert workflow.count('- ".github/workflows/**"') == 1
+    assert push_path_patterns(workflow) is None, "conformance.yml runs on every push (#1836)"
 
 
 def test_test_tsconfig_uses_es2022_without_raising_production_target() -> None:

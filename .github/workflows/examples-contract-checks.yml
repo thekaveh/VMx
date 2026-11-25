@@ -33,6 +33,11 @@ on:
       - "langs/python/pyproject.toml"
       - "langs/typescript/**"
       - "packages/react/**"
+      # The npm ci steps run through this script (#1836).
+      - "tools/ci-retry.mjs"
+      # Read by tools/tests/test_example_accessibility.py and tools/check-showcase-parity.py (#1836).
+      - "docs/content/stylesheets/extra.css"
+      - "docs/content/examples/rust-tui-notes-showcase.md"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:

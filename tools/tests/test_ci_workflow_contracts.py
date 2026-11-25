@@ -2,9 +2,10 @@
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
-from .workflow_jobs import run_commands, workflow_job, workflow_jobs
+from .workflow_jobs import push_path_patterns, run_commands, workflow_job, workflow_jobs
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
@@ -173,7 +174,7 @@ def test_netstandard_conformance_job_restores_the_switched_graph() -> None:
 def test_every_workflow_change_triggers_the_pin_inventory() -> None:
     conformance = (WORKFLOWS / "conformance.yml").read_text(encoding="utf-8")
 
-    assert conformance.count('- ".github/workflows/**"') == 1
+    assert push_path_patterns(conformance) is None, "conformance.yml runs on every push (#1836)"
     assert "-- tools/check-workflow-pins.py" in conformance
 
 
@@ -560,3 +561,172 @@ def test_examples_contract_runs_when_the_catalog_or_coverage_tool_changes() -> N
 
     assert '"spec/12-conformance.md"' in push
     assert '"tools/check-conformance-coverage.py"' in push
+
+
+_SCRIPT_SUFFIXES = (".py", ".mjs", ".js", ".sh")
+_Repo = tuple[frozenset[str], frozenset[str], re.Pattern[str]]
+
+
+def _github_glob(pattern: str) -> re.Pattern[str]:
+    """Compile a push path pattern with GitHub's rules: `*` stays inside one path
+    segment, `**` crosses segments, and the pattern must match the whole path."""
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out, i = out + "(?:.*/)?", i + 3
+        elif pattern.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif pattern[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        else:
+            out, i = out + re.escape(pattern[i]), i + 1
+    return re.compile(out + r"\Z")
+
+
+def _repository() -> _Repo:
+    """Tracked files, the directories above them, and a pattern that finds a path
+    which starts with one of the top-level directories."""
+    files = frozenset(
+        subprocess.run(
+            ["git", "ls-files"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout.splitlines()
+    )
+    dirs: set[str] = set()
+    for path in files:
+        head = path.rpartition("/")[0]
+        while head:
+            dirs.add(head)
+            head = head.rpartition("/")[0]
+    tops = "|".join(sorted(re.escape(d) for d in dirs if "/" not in d))
+    return files, frozenset(dirs), re.compile(rf"(?<![\w.-])((?:{tops})/[\w./@-]+)")
+
+
+def _named_paths(text: str, working: tuple[str, ...], repo: _Repo) -> set[str]:
+    files, dirs, token = repo
+    named: set[str] = set()
+    for match in token.findall(text):
+        name = match.rstrip("/")
+        for candidate in (name, *(f"{base}/{name}" for base in working)):
+            if candidate in files or candidate in dirs:
+                named.add(candidate)
+    return named
+
+
+def _other_flavor_tree(name: str, workflow_name: str) -> bool:
+    """True for a path inside another flavor's tree, such as `langs/rust/tests/...` read by
+    the C# job. Those reads are coverage counts, and conformance.yml checks every flavor."""
+    own = "langs/" + workflow_name.removesuffix(".yml")
+    return name.startswith("langs/") and not name.startswith(own + "/")
+
+
+def _job_inputs(workflow_name: str, workflow: str, repo: _Repo) -> set[str]:
+    """The tracked files and directories that the jobs of one workflow read."""
+    working = tuple(
+        sorted(
+            {
+                value
+                for value in re.findall(r"working-directory:\s*(\S+)", workflow)
+                if "$" not in value and value != "."
+            }
+        )
+    )
+    commands = "\n".join(
+        command for job in workflow_jobs(workflow).values() for command in run_commands(job)
+    )
+    named = _named_paths(commands, working, repo)
+    for script in sorted(n for n in named if n in repo[0] and n.endswith(_SCRIPT_SUFFIXES)):
+        code = _code_lines((REPO_ROOT / script).read_text(encoding="utf-8"))
+        named |= _named_paths(code, (), repo)
+    return {name for name in named if not _other_flavor_tree(name, workflow_name)}
+
+
+def _code_lines(text: str) -> str:
+    """A script's text without its comment lines: a comment that names a file is not a read."""
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith(("#", "//"))
+    )
+
+
+def _covered(name: str, repo: _Repo, matchers: list[re.Pattern[str]]) -> bool:
+    """A file is covered by a pattern that matches it; a directory by one that matches
+    any tracked file under it."""
+    files = repo[0]
+    members = [name] if name in files else [f for f in files if f.startswith(name + "/")]
+    return any(matcher.match(member) for member in members for matcher in matchers)
+
+
+def test_push_path_filters_cover_every_file_their_jobs_read() -> None:
+    """Each `on.push.paths` filter lists every repository file that its jobs read.
+
+    Derivation, for each workflow whose `on.push` has a `paths:` filter:
+    1. Commands: the live `run:` commands of its jobs. Comment lines and lines that
+       only quote a command with `echo` or `printf` are dropped (`run_commands`),
+       so an error message that names a doc is not a read.
+    2. Named paths: each token in those commands that starts with a top-level
+       directory of the repository (`tools/`, `docs/`, `packages/`, ...). A token
+       also counts under each `working-directory:` value of the file. A name counts
+       only when it is a tracked file or a tracked directory, so untracked output
+       such as `.venv` never counts.
+    3. One level into scripts: a named Python, Node or shell script adds the paths
+       that its code names; its comment lines are skipped. The examples job runs
+       `check-showcase-parity.py`, which opens a `docs/` file, so that file is an
+       input of the job.
+    4. Other flavors' trees are left out: `langs/<other>/...` reads are coverage
+       counts, and conformance.yml, which runs on every push, checks every flavor.
+    5. A file input is covered when a push pattern matches its path. A directory
+       input is covered when a push pattern matches some tracked file under it.
+
+    Limits: a path built from parts (`ROOT / "langs" / name`) is not seen, scripts
+    are followed one level only, and the patterns come from the workflow text, not
+    a YAML parser. A workflow without a push path filter runs on every push, so it
+    is not checked here.
+    """
+    repo = _repository()
+    missed: dict[str, list[str]] = {}
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        workflow = path.read_text(encoding="utf-8")
+        patterns = push_path_patterns(workflow)
+        if patterns is None:
+            continue
+        matchers = [_github_glob(pattern) for pattern in patterns]
+        uncovered = sorted(
+            name
+            for name in _job_inputs(path.name, workflow, repo)
+            if not _covered(name, repo, matchers)
+        )
+        if uncovered:
+            missed[path.name] = uncovered
+    assert missed == {}, f"push path filters miss files their jobs read: {missed}"
+
+
+def test_push_path_derivation_follows_jobs_into_the_scripts_they_run() -> None:
+    # Anchors the derivation: a file named only inside a script must be found,
+    # or the coverage test above would pass vacuously.
+    repo = _repository()
+    typescript = _job_inputs(
+        "typescript.yml", (WORKFLOWS / "typescript.yml").read_text(encoding="utf-8"), repo
+    )
+    examples = _job_inputs(
+        "examples-contract-checks.yml",
+        (WORKFLOWS / "examples-contract-checks.yml").read_text(encoding="utf-8"),
+        repo,
+    )
+    assert {"tools/ci-retry.mjs", "packages/react-18-deps/package.json"} <= typescript
+    assert {
+        "tools/ci-retry.mjs",
+        "docs/content/stylesheets/extra.css",
+        "docs/content/examples/rust-tui-notes-showcase.md",
+    } <= examples
+
+
+def test_github_glob_matches_the_way_github_path_filters_do() -> None:
+    assert _github_glob("tools/**").match("tools/tests/test_x.py")
+    assert _github_glob("**/uv.lock").match("langs/python/uv.lock")
+    assert _github_glob("*.md").match("README.md")
+    assert not _github_glob("*.md").match("docs/guide.md")
+    assert not _github_glob("packages/*/x").match("packages/a/b/x")
