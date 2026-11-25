@@ -101,7 +101,8 @@ clone it as a `Blob`, and Node 24.22.3 and 26.12.1 keep it.
   by a `Blob` of the same size and type is suppressed on every runtime, as develop
   suppresses it (§2.1). Without the §2.1 rule, that replacement would commit on
   every runtime, so the suppression is a behavior change from the earlier
-  revision of this fix; develop already suppresses it.
+  revision of this fix; develop already suppresses it. The unit test
+  `documented residual (ADR-0253 §3): a File model replaced by a same-size, same-type Blob is dropped` pins that suppression.
 - **Residual: a degraded `File` (Node 20.5 and 22).** On a runtime whose clone
   degrades a `File`, the snapshot keeps neither the name nor `lastModified`. A
   replacement that differs only in name or `lastModified` is committed: the model
@@ -111,8 +112,8 @@ clone it as a `Blob`, and Node 24.22.3 and 26.12.1 keep it.
   published. In this File-to-Blob direction the gap is therefore a missed dirty
   state, not a dropped model change. The replacement of a `File` by a `Blob` of
   the same size and type is still dropped, as the first bullet records. The unit
-  test that builds a `Blob` snapshot pins this limit, and it runs on every
-  runtime.
+  test `on a degraded snapshot, a File that differs only in name commits but stays clean (ADR-0253 §3)` pins this limit. It builds the `Blob` snapshot
+  directly and runs on every runtime.
 - **Residual: a `Blob` replaced by a `File` (every runtime).** A `File` of the
   same size and type as the model's `Blob` is equal to it, so `setModel` drops
   the replacement. The model keeps the `Blob`, no model change is published, and
@@ -122,7 +123,7 @@ clone it as a `Blob`, and Node 24.22.3 and 26.12.1 keep it.
   drops it, since its plain-object fallback equates any two of these values, so
   relative to develop nothing changes. The earlier revision of this fix committed
   it on every runtime, so this is a behavior change from that revision. The unit
-  test named `documented residual (ADR-0253 §3)` pins it.
+  test `documented residual (ADR-0253 §3): a Blob model replaced by a same-size, same-type File is dropped and not dirty` pins it.
 - **Residual equal case.** Two values of one kind with the same compared state
   and different bytes or key material are equal, so a replacement that differs
   only there is dropped. Examples are two `Blob` values of the same size and type
@@ -132,7 +133,10 @@ clone it as a `Blob`, and Node 24.22.3 and 26.12.1 keep it.
   `Blob` example is pinned, at the comparator level, by the unit test
   `compares Blob values by size and type, not by bytes`. The `File` and
   `CryptoKey` examples were checked at the comparator level (the PR body records
-  the check), and no test pins them or a dropped replacement of any of the three.
+  the check). No test pins a dropped replacement in the equal case: not for a
+  `Blob`, not for a `File` with the same name, size, type, and `lastModified` and
+  different contents, and not for a `CryptoKey` with the same state and different
+  key material.
   A domain that needs more keeps a comparable identifier,
   such as a content digest computed when the value is set, in the model and
   injects `equals` on it.
@@ -151,6 +155,9 @@ clone it as a `Blob`, and Node 24.22.3 and 26.12.1 keep it.
   results are cited in the PR body. The degraded `File` path is still covered by
   unit tests that build the `Blob` snapshot directly, on every runtime. Those
   tests simulate the clone, and the probe is what reproduces it.
+- **Out of scope.** `FileList`, `ImageData`, and `ImageBitmap` are not compared
+  by the default equality (§2), so a form that holds one of them injects `equals`
+  (§4).
 - **C#.** `FormVM` compares with `Equals(model, snapshot)`
   (`langs/csharp/src/VMx/Forms/FormVM.cs`, near line 180), which is the model's
   own equality. C# therefore has no structured-clone gap of this kind. C#,

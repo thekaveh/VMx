@@ -4533,14 +4533,18 @@ their compared state is equal, and values that differ only in bytes or key
 material are equal (ADR-0253 §3, residual equal case). A `File` and a `Blob` of
 the same size and type are equal in either direction (ADR-0253 §2.1 and §3), so
 the guarantee does not hold for that pair on any runtime. A user's replacement
-produces the pair on every runtime. A clone that degrades a `File` to a `Blob`
+produces the pair on every runtime. A `File` replaced by a `Blob` of the same
+size and type is dropped on every runtime, and `isDirty` stays false (ADR-0253
+§3). A clone that degrades a `File` to a `Blob`
 (Node 20.5 and 22) produces it between a `File` model and its `Blob` snapshot, so
 a replacement that differs only in name or `lastModified` is committed and
 publishes one model change, but `isDirty` stays false (ADR-0253 §3, residual: a
 degraded `File`). A `Blob` replaced by a `File` of the same size and type is
 dropped on every runtime, so no model change is published and `isDirty` is
 unchanged, although the `File` differs in name or `lastModified` (ADR-0253 §3,
-residual: a `Blob` replaced by a `File`).
+residual: a `Blob` replaced by a `File`). `FileList`, `ImageData`, and
+`ImageBitmap` are out of scope for this comparison, and a consumer injects
+`equals` for them (ADR-0253 §3).
 Consumers needing field-subset or reference semantics inject a custom `equals`
 (TypeScript/Swift) or define their model's own equality
 (C#/Python/Rust `PartialEq`).

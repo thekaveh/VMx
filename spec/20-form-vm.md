@@ -225,11 +225,12 @@ the `JSON.stringify` comparison used before v3 it:
   `structuredClone` preserves), and treats `NaN` as equal to `NaN` and `+0`/`-0` as
   equal, for stable dirty-tracking;
 - is no longer **key-order sensitive**: two objects with the same fields/values
-  compare as clean regardless of key-insertion order, so FORM-003's
-  structurally-equal guarantee ("same fields/values, different object reference")
-  holds in TypeScript for values of one kind, scoped as the `Blob`, `File`, and
-  `CryptoKey` bullet above states (ADR-0253 §3), and not for a `File` against a
-  `Blob` (the pre-v3 `JSON.stringify` caveat in ADR-0037 is retired by ADR-0048).
+  compare as clean regardless of key-insertion order (the pre-v3 `JSON.stringify`
+  caveat in ADR-0037 is retired by ADR-0048). For two values of one kind,
+  FORM-003's structurally-equal guarantee ("same fields/values, different object
+  reference") holds in TypeScript, scoped as the `Blob`, `File`, and `CryptoKey`
+  bullet above states (ADR-0253 §3). A `File` against a `Blob` is the exception
+  (ADR-0253 §2.1).
 
 `Map`/`Set` membership uses the engine's native `has` (SameValueZero), so
 object-typed keys/members compare by reference — adequate for the primitive-keyed
