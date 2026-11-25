@@ -37,6 +37,7 @@ final class ObservableListReplaceAllConformanceTests: XCTestCase {
     func testCOL041Shrink() {
         let (sut, events) = observed([1, 2, 3])
         sut.replaceAll([9])
+        XCTAssertEqual(sut.toArray(), [9])
         XCTAssertEqual(events(), ["reset", "property:Count"])
     }
 
