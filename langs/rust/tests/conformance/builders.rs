@@ -66,6 +66,8 @@ fn repeated_build_calls_produce_equivalent_distinct_vms() {
 
     assert_eq!(first.name(), second.name());
     assert_eq!(first.hint(), second.hint());
+    assert_eq!(first.view_model_type(), second.view_model_type());
+    assert_eq!(first.model(), second.model());
     assert_ne!(first.id(), second.id());
 }
 

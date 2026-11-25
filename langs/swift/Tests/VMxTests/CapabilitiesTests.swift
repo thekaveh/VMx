@@ -267,6 +267,25 @@ final class CapabilitiesTests: XCTestCase {
         XCTAssertFalse(f.canFilter())
     }
 
+    /// CAP-021 — opt-in: a `CompositeVM` subclass that declares `Filterable`
+    /// satisfies the capability query, and a core `CompositeVM` does not.
+    func testCap021CompositeOptInAnswersCapabilityQuery() {
+        final class OptInComposite: CompositeVM<ComponentVM>, Filterable {
+            typealias Item = ComponentVM
+            var filter: ((ComponentVM) -> Bool)?
+            func canFilter() -> Bool { true }
+        }
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+        let optIn = OptInComposite(name: "opt-in", hub: hub, dispatcher: dispatcher)
+        let plain = CompositeVM<ComponentVM>(name: "plain", hub: hub, dispatcher: dispatcher)
+
+        XCTAssertTrue((optIn as AnyObject) is any Filterable)
+        XCTAssertTrue(optIn.canFilter())
+        XCTAssertFalse((plain as AnyObject) is any Filterable,
+                       "a core CompositeVM must not opt in to Filterable")
+    }
+
     /// CAP-022 — Pageable contract: `pageSize` / `currentPageIndex` mutate;
     /// `pageCount` / `isPagingEnabled` derive; `pageSize == 0` disables paging;
     /// navigation clamps and is a no-op at both bounds; resizing re-clamps the

@@ -96,6 +96,8 @@ final class BuilderTests: XCTestCase {
         XCTAssertEqual(vm.hint, "")
         // Catalog BLD-004: Type is the type derived from the VM class.
         XCTAssertEqual(vm.type, .component)
+        // Catalog BLD-004: Parent == null, read through the ownership back-reference.
+        XCTAssertNil(vm._ownershipParent)
         XCTAssertEqual(vm.status, .destructed)
         // Constructing succeeds via the null hub & dispatcher.
         try vm.construct()

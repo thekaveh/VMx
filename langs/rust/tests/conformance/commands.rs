@@ -352,10 +352,17 @@ fn parameterized_imperative_raise_emits_once() {
     assert_eq!(fired.load(Ordering::SeqCst), 1);
 }
 
-/// CMD-018 — async imperative raise while idle emits exactly once
+/// CMD-018 — async imperative raise while idle emits exactly once and starts no execution
 #[test]
 fn async_imperative_raise_while_idle_emits_once() {
-    let command = AsyncRelayCommand::noop();
+    let runs = Arc::new(AtomicUsize::new(0));
+    let runs_in_task = runs.clone();
+    let (started_tx, started_rx) = mpsc::channel::<()>();
+    let command = AsyncRelayCommand::new(move |_token| {
+        runs_in_task.fetch_add(1, Ordering::SeqCst);
+        let _ = started_tx.send(());
+        Ok(())
+    });
     let fired = Arc::new(AtomicUsize::new(0));
     let fired_clone = fired.clone();
     let _subscription = command.can_execute_changed().subscribe(move |_| {
@@ -365,6 +372,12 @@ fn async_imperative_raise_while_idle_emits_once() {
     command.raise_can_execute_changed();
 
     assert_eq!(fired.load(Ordering::SeqCst), 1);
+    // Bounded wait: a start that the raise would schedule has time to run.
+    assert!(matches!(
+        started_rx.recv_timeout(Duration::from_millis(200)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    assert_eq!(runs.load(Ordering::SeqCst), 0);
 }
 
 #[test]
@@ -1081,6 +1094,19 @@ fn disposed_relay_commands_are_inert() {
 
     assert!(!command.can_execute());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+    // The parameterized variant, RelayCommandOf<T>, follows the same clause.
+    let parameterized_calls = Arc::new(AtomicUsize::new(0));
+    let parameterized_clone = parameterized_calls.clone();
+    let parameterized = RelayCommandOf::<u32>::new(move |_value| {
+        parameterized_clone.fetch_add(1, Ordering::SeqCst);
+    });
+
+    parameterized.dispose();
+    parameterized.execute(7);
+
+    assert!(!parameterized.can_execute(&7));
+    assert_eq!(parameterized_calls.load(Ordering::SeqCst), 0);
 }
 
 // Nested execution. The other flavors hold no lock while a relay command's

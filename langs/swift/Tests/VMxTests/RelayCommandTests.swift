@@ -189,7 +189,8 @@ final class RelayCommandTests: XCTestCase {
     }
 
     /// BLD-005 — additive setters: multiple `.triggers(...)` calls retain
-    /// prior values.
+    /// prior values in insertion order; a repeated non-additive `task`
+    /// overwrites the earlier one.
     func testBld005MultipleTriggersAdditive() {
         let t1 = PassthroughSubject<Void, Never>()
         let t2 = PassthroughSubject<Void, Never>()
@@ -202,6 +203,30 @@ final class RelayCommandTests: XCTestCase {
         t1.send(()); t2.send(())
         XCTAssertEqual(fires, 2)
         cancel.cancel()
+
+        // Insertion order: derive both triggers from ONE parent emission and
+        // record which trigger's chain delivers first. A sequential send probe
+        // passes regardless of subscription order, so it cannot show this.
+        let parent = PassthroughSubject<Void, Never>()
+        var via: [String] = []
+        let o1 = parent.handleEvents(receiveOutput: { via.append("via-o1") }).eraseToAnyPublisher()
+        let o2 = parent.handleEvents(receiveOutput: { via.append("via-o2") }).eraseToAnyPublisher()
+        let orderCmd = RelayCommand.builder().triggers(o1).triggers(o2).build()
+        let orderCancel = orderCmd.canExecuteChanged.sink { _ in }
+        parent.send(())
+        XCTAssertEqual(via, ["via-o1", "via-o2"], "o1 must precede o2 (insertion order)")
+        orderCancel.cancel()
+
+        // A non-additive setter overwrites: only the second task runs.
+        var ranFirst = 0
+        var ranSecond = 0
+        let overwritten = RelayCommand.builder()
+            .task { ranFirst += 1 }
+            .task { ranSecond += 1 }
+            .build()
+        overwritten.execute()
+        XCTAssertEqual(ranFirst, 0, "a repeated task() must overwrite, not accumulate")
+        XCTAssertEqual(ranSecond, 1)
     }
 
     /// Dispose is idempotent (no dedicated catalog ID).

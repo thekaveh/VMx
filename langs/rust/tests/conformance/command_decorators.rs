@@ -172,12 +172,12 @@ fn confirmation_decorator_invokes_inner_only_when_confirmed() {
         decided_by(&refusal),
     );
 
-    no.execute();
+    let declined = no.execute_async();
     refusal.resolve(false);
+    declined.join().unwrap();
     assert!(log.lock().unwrap().is_empty());
-    yes.execute();
 
-    assert!(eventually(|| !log.lock().unwrap().is_empty()));
+    yes.execute_async().join().unwrap();
     assert_eq!(*log.lock().unwrap(), vec!["yes"]);
 }
 

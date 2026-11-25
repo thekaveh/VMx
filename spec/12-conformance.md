@@ -1785,7 +1785,8 @@ returning `false`
 
 **Given** a `ConfirmationDecoratorCommand` wrapping `inner` (records) with a confirm
 delegate that resolves `true`
-**When** `decorator.Execute()` is called and the resulting task is awaited
+**When** `decorator.ExecuteAsync()` (the awaitable entry point; spec/04 §8.3.1) is
+called and the resulting task is awaited
 **Then** `inner` records one invocation
 **And** when the confirm delegate resolves `false`, `inner` records zero invocations
 
@@ -1962,6 +1963,16 @@ the inner command's `CanExecuteChanged`
 **Then** the wrapper subscriber receives exactly one notification
 **And** the wrapper's `CanExecute()` returns `false`
 **And** the inner subscriber receives nothing
+
+**Given** a `CompositeCommand`, a `DecoratorCommand`, or a
+`ConfirmationDecoratorCommand`, each over an inner `AsyncRelayCommand`
+**When** the inner command is disposed
+**Then** in Python and TypeScript, the wrapper's change stream completes once, because
+it passes the inner completion through
+**And** in Rust, a decorator's change hub completes when the inner hub completes
+**And** C# and Swift name no completion rule
+**And** whether the wrapper's own change stream completes when the wrapper is disposed
+is flavor-defined (spec/04 §8.4)
 
 ______________________________________________________________________
 

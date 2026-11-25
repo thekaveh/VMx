@@ -92,7 +92,7 @@ describe("BLD-004", () => {
 
     expect(vm.hint).toBe("");
     expect(vm.type).toBe(ViewModelType.Component);
-    expect(vm.isCurrent).toBe(false);
+    expect(vm._parent).toBeNull();
   });
 });
 
