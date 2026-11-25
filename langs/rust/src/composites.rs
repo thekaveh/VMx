@@ -1598,7 +1598,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// of running it again. The factory leaves its slot only when
     /// the population commits.
     fn populate(&self) -> VmxResult<()> {
-        if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+        // Only an admitted dispose supersedes the hook (ADR-0252 §2.4). A dispose
+        // that a membership transaction or publication defers still reaches the
+        // attach below, which refuses it with `VmxError::Disposed`.
+        if self.dispose_requested.load(Ordering::Acquire)
+            || self.status() == ConstructionStatus::Disposed
+        {
             return Ok(());
         }
         let Some(factory) = lock(&self.population).clone() else {

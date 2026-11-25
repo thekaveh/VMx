@@ -21,7 +21,8 @@ prevents any post-hook container lifecycle work". Chapter 02 §7.2 says that a c
 `Disposed` superseded raises nothing.
 
 The sentences that state the general rule name no thread. Only the factory clause and rule 5
-name a foreign dispose.
+name a foreign dispose. None of the sentences says what happens when a dispose is only
+deferred during the hook.
 
 ### 1.2 What TypeScript does
 
@@ -39,42 +40,68 @@ this for `CompositeVM`, `CompositeVMOf` and `GroupVM`.
 
 ### 1.3 What the other flavors do
 
-C#, Python, Swift and Rust return from the construct path when the hook superseded it.
-Their population and walk do not run, and `construct()` returns without an error. Their
-same-thread tests cover this path. Before this ADR, the C#, Python and Swift tests discarded
-the `construct()` outcome, and the Rust test asserted `Ok(())`. Section 3.3 records the
-change to the C#, Python and Swift tests.
+Before this ADR, C#, Python, Swift and Rust returned from the construct path when an admitted
+dispose superseded the hook. Their population and walk did not run, and `construct()` returned
+without an error. Their same-thread tests covered this path. The C#, Python and Swift tests
+discarded the `construct()` outcome, and the Rust test asserted `Ok(())`. Section 3.3 records
+those test changes.
+
+The flavors did not agree on a dispose that a membership transaction or a current publication
+of the container defers during the hook. Before this ADR:
+
+- C#, Python and Swift returned from the construct path only when an admitted dispose had
+  superseded the hook. A deferred dispose still reached population, and the attach refused it
+  with the disposing error.
+- Rust's composite population and TypeScript's guards also checked the deferred flag. They
+  returned without an error and without calling the factory. Rust's group population checked
+  only the admitted flag, as the other flavors do.
+
+After this ADR, one rule holds in all five flavors. §2.1 states it, and §2.4 gives the
+reachability and the guards.
 
 ## 2. Decision
 
 ### 2.1 The rule
 
-A dispose that supersedes a container's construct hook stops population and the child walk.
-The supersession counts whether the `dispose()` is foreign or comes from the hook's own
-body. A container whose construct hook a `dispose()` superseded:
+A dispose supersedes a container's construct hook only when it is admitted. A dispose that a
+membership transaction or current publication of the container defers is not admitted, so it
+does not supersede the hook.
 
-1. does not call its children factory, and attaches nothing;
-1. does not run the child construct walk;
-1. returns from `construct()` without an error;
-1. ends with status `Disposed` and no children.
+1. **Admitted supersession.** A container whose construct hook an admitted `dispose()`
+   superseded:
 
-Chapter 02 §2.4 and the `LIFE-015` clause name this case. The TypeScript code follows it.
+   1. does not call its children factory, and attaches nothing;
+   1. does not run the child construct walk;
+   1. returns from `construct()` without an error;
+   1. ends with status `Disposed` and no children.
+
+   The supersession counts whether the `dispose()` is foreign or comes from the hook's own body.
+
+1. **Deferred dispose.** A `dispose()` that is deferred during the hook does not supersede it.
+   Population runs and calls the children factory once. Its attach is refused with the
+   disposing error that every flavor already raises for an attach during a requested or
+   deferred disposal (chapter 06 §4.3 rule 1), so `construct()` reports that error. Nothing
+   attaches. The deferred disposal completes when its membership transaction or publication
+   ends.
+
+Chapter 02 §2.4 and the `LIFE-015` clause name both cases. The code follows them in all five
+flavors (§2.4).
 
 ### 2.2 Why the rule covers a dispose from the hook's own body
 
 The factory clause names a foreign `dispose()` because ADR-0218 rule 5 was written from the
 foreign-dispose fix in #1369, which covered Python and C#. Three points show that the clause
-was not meant to exclude a same-thread dispose.
+was not meant to exclude an admitted dispose from the hook's own body.
 
 1. The general sentences of §2.4 and `LIFE-015` name no thread. "Terminal supersession
-   prevents any post-hook container lifecycle work" applies to any terminal supersession.
-1. A dispose from the hook's own body sets the same disposal flags and publishes the same
-   `Disposed` status as a foreign dispose in every flavor. A post-hook action that checks the
-   supersession must therefore stop for both. Chapter 02 §7 says that a dispose from the hook's
-   own thread is "not foreign", which decides only how the children are disposed (inline,
-   under §7.2). It does not allow population to run.
+   prevents any post-hook container lifecycle work" applies to any admitted supersession.
+1. An admitted dispose from the hook's own body sets the same disposal flags and publishes the
+   same `Disposed` status as a foreign dispose in every flavor. A post-hook action that checks
+   the supersession must therefore stop for both. Chapter 02 §7 says that a dispose from the
+   hook's own thread is "not foreign", which decides only how the children are disposed
+   (inline, under §7.2). It does not allow population to run.
 1. Chapter 02 §7.2 says a call that `Disposed` superseded raises nothing. A population that
-   throws for a same-thread dispose would break that rule.
+   throws for an admitted same-thread dispose would break that rule.
 
 For TypeScript, point 1 decides the case. The thread-based wording would give TypeScript no
 supersession case at all, because a foreign dispose is impossible there.
@@ -84,34 +111,70 @@ supersession case at all, because a foreign dispose is impossible there.
 Issue #1805 sets two options. Team triage on develop `7d445367` chose option A. This ADR
 records the choice and its reasons.
 
-- **Option A (chosen).** The rule in §2.1 covers any supersession. Only TypeScript changes.
-  The TypeScript code gains the supersession check after the hook that the other four
-  flavors already have.
+- **Option A (chosen).** The rule in §2.1 covers any admitted supersession, from the hook's own
+  body or from another thread. TypeScript gains the supersession check that the other four
+  flavors already have. The deferred case in §2.4 changes TypeScript and Rust.
 - **Option B (rejected, see §5.2).** A same-thread dispose from the hook makes `construct()`
   throw. Four flavors change.
 
 Option A was chosen for three reasons:
 
 - It agrees with chapter 02 §2.4, the factory clause and §7.2, and it changes no rule.
-- It changes one flavor. Option B changes four and makes the TypeScript factory run once before
-  the throw, which the factory clause forbids.
+- It changes fewer flavors than option B, and option B makes the TypeScript factory run once
+  before the throw, which the factory clause forbids.
 - It is the simplest option that gives every flavor the same behavior, which is the goal
   of this wave's triage.
 
-### 2.4 The TypeScript guard
+### 2.4 The deferred case and the guards
 
-`CompositeVMBase._onConstruct` returns after `super._onConstruct()` when
-`#disposePending() || status === ConstructionStatus.Disposed`. `GroupVM._onConstruct` returns
-under the same condition, written as `#disposeRequested || #disposeDeferred`, then `status === Disposed`. `#disposePending()` is the existing check for a requested or deferred dispose.
-The `Disposed` check matches the Python `_population_superseded()` and the C#
-`DisposalStarted()` checks, which both include a disposed status.
+**Reachability.** A dispose is deferred during a construct hook when the container's own
+membership transaction or current publication is open on the disposing thread. The public API
+reaches that state. Setting `current` to a member of a container that is not constructed yet
+publishes the change under the publication lease. The container's `onCurrentChanged` callback
+then calls `construct()`, and the hook calls `dispose()`, which is deferred:
 
-The `#disposeDeferred` part is included, as the issue's default plan says. A dispose that a
-membership transaction or a current publication deferred still stops population in TypeScript.
-Rust uses the same deferred condition. C#, Python and Swift check only the admitted dispose
-flag, so a dispose deferred during the hook still reaches their admission check and throws
-there. No test covers that corner in any flavor. This ADR does not change those flavors. The
-difference is recorded here as an open corner, not as a decided behavior.
+| Flavor     | Where the dispose is deferred                                                                                                                                                                             | Test that reaches it                                                                                                                                                                      |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TypeScript | `langs/typescript/src/composites/compositeVMBase.ts` `dispose()`, when `#activeCurrentPublications > 0` or a transaction is open. The group path is `langs/typescript/src/groups/groupVM.ts` `dispose()`. | `lifecycle.test.ts`: "refuses CompositeVM population when its construct hook's dispose is deferred by a publication" and the GroupVM test that uses the membership transaction of `add()` |
+| Python     | `langs/python/src/vmx/composites/composite_vm.py` `dispose()`, when `get_ident()` is in `_current_publication_threads` or a transaction is open                                                           | `test_composite_vm.py`: `test_LIFE_015_deferred_dispose_in_hook_refuses_population_attach`                                                                                                |
+| C#         | `langs/csharp/src/VMx/Composites/CompositeVMBase.cs` `Dispose()`, when the thread holds a publication or a transaction is open                                                                            | `CompositeVMConformanceTests.cs`: `LIFE_015_Deferred_Dispose_In_Hook_Refuses_Population_Attach`                                                                                           |
+| Swift      | `langs/swift/Sources/VMx/Composites/CompositeVM.swift` `dispose()`, when `currentPublicationThreads` contains the caller or a transaction is open                                                         | `ContainerHookDisposalTests.swift`: `testDeferredDisposeInsideOwnHookRefusesPopulationAttach`                                                                                             |
+| Rust       | `langs/rust/src/composites.rs` `dispose()`, when `dispose_disposition()` returns `PublishingThread` or `Owned` (`langs/rust/src/runtime.rs`)                                                              | `container_hook_disposal.rs`: `deferred_composite_dispose_in_hook_refuses_population_attach`                                                                                              |
+
+The reachability was checked by running the public API. In TypeScript, the sequence with the old
+guard returned without an error and made no factory call. After the change it makes one factory
+call and throws. In Python, before the change, the factory ran once and the attach raised
+`RuntimeError`.
+
+**The guards before and after this ADR:**
+
+| Flavor     | Guard that gates population in the construct hook                               | Deferred case before this ADR | Deferred case after this ADR            |
+| ---------- | ------------------------------------------------------------------------------- | ----------------------------- | --------------------------------------- |
+| TypeScript | `#disposePending()` (requested or deferred), in `CompositeVMBase` and `GroupVM` | No factory call, no error     | Factory once, attach throws             |
+| Rust       | `CompositeVm::populate` checked `disposal_pending()` (requested or deferred)    | No factory call, `Ok(())`     | Factory once, `Err(VmxError::Disposed)` |
+| C#         | `DisposalStarted()` (requested or Disposed)                                     | Factory once, attach throws   | Unchanged                               |
+| Python     | `_population_superseded()` (requested or Disposed)                              | Factory once, attach raises   | Unchanged                               |
+| Swift      | `_isDisposalRequested()` (requested or Disposed)                                | Factory once, attach throws   | Unchanged                               |
+
+`CompositeVm::populate` in Rust and the TypeScript guards now check only the admitted flag and
+the `Disposed` status, which matches C#, Python and Swift. Rust's `GroupVm::populate` already
+did this. The other flavors' guards are unchanged.
+
+**The choice.** The uniform rule is the admitted-flag rule in §2.1. It was chosen for three
+reasons:
+
+- It matches the most flavors. C#, Python and Swift already check only the admitted flag, and
+  Rust's group does too. The other option changes three flavors (C#, Python, Swift).
+- It matches the spec. Chapter 02 §2.4 speaks of "terminal supersession", and a foreign
+  dispose "publishes the terminal status". A deferred dispose is not terminal yet. Chapter 06
+  §4.3 rule 1 distinguishes "requested" from "deferred" and refuses attaches in both.
+- It is the smallest change: two guard edits, and no change to C#, Python or Swift library code.
+
+The attach refusal applies to a deferred dispose in every flavor, so population refuses it the
+same way. The error type is idiomatic per flavor: `ObjectDisposedException` in C#,
+`RuntimeError` in Python, `ContainerOwnershipError.attachmentFailed` in Swift, `VmxError::Disposed`
+in Rust, and `Error` with the message `Cannot attach a child while the container is disposing`
+in TypeScript.
 
 ### 2.5 Behavior that does not change
 
@@ -126,17 +189,22 @@ difference is recorded here as an open corner, not as a decided behavior.
 
 ### 3.1 Flavors
 
-- **TypeScript.** `CompositeVMBase._onConstruct` and `GroupVM._onConstruct` gain the early return.
-  `CompositeVM`, `CompositeVMOf` and `GroupVM` now end with status `Disposed`, no children and no
-  error, and the factory does not run. The public API does not change, so
+- **TypeScript.** `CompositeVMBase._onConstruct` and `GroupVM._onConstruct` check
+  `#disposeRequested` and the `Disposed` status. An admitted supersession of
+  `CompositeVM`, `CompositeVMOf` and `GroupVM` now ends `Disposed` with no children and no
+  error, and the factory does not run. A deferred dispose now calls the factory once and the
+  construct throws the disposing error. The public API does not change, so
   `langs/typescript/api/vmx.api.txt` does not change.
-- **C#, Python, Swift and Rust.** No library code change. Each already returns from the construct
-  path for a superseded hook. The same-thread tests of C#, Python and Swift change, as §3.3 says.
+- **Rust.** `CompositeVm::populate` checks `dispose_requested` and the `Disposed` status, as
+  `GroupVm::populate` does. A deferred dispose now returns `Err(VmxError::Disposed)` from
+  `construct()`, after one factory call. No public member changes.
+- **C#, Python and Swift.** No library code change. Each already follows §2.1. Their
+  same-thread and deferred tests change, as §3.3 says.
 
 ### 3.2 Specification
 
-Chapter 02 §2.4 names the same-thread case. The `LIFE-015` clause in chapter 12 names it too.
-No conformance ID is added, and `spec/VERSION` does not change.
+Chapter 02 §2.4 names the admitted supersession and the deferred case. The `LIFE-015` clause in
+chapter 12 names both too. No conformance ID is added, and `spec/VERSION` does not change.
 
 `spec/HISTORY.md` §39 gets one sentence that names this ADR. Issue #1805 asked for no edit to
 `spec/HISTORY.md`, and this ADR keeps the edit anyway. The release-record test (rule B in
@@ -145,44 +213,61 @@ and it fails without this sentence. The recent ADR-0248 to ADR-0250 pull request
 
 ### 3.3 Tests
 
-The same-thread `LIFE-015` tests of all five flavors now assert the `construct()` outcome. Four
-flavors changed a test. The Rust test already asserted the outcome, so it is unchanged. The
-changes are:
+Each flavor has a test for the admitted supersession and a test for the deferred case. The
+same-thread tests of C#, Python and Swift assert the `construct()` outcome, so no test in those
+flavors discards it.
 
-- **TypeScript.** Three new tests under `describe("LIFE-015")` in `lifecycle.test.ts` cover
-  `CompositeVM`, `CompositeVMOf` and `GroupVM`. Each disposes its container in the construct
-  hook. Each asserts that `construct()` does not throw, that the factory ran 0 times, that
-  `count` is 0, and that the status is `Disposed`.
-- **C#.** `LIFE_015_Same_Thread_Container_Disposal_Inside_Hook_Cascades_Immediately` counts the
-  children factory calls and asserts that `Record.Exception(composite.Construct)` is null. The
-  test discarded that result before. It asserts that the factory ran 0 times.
+- **TypeScript.** Three tests under `describe("LIFE-015")` in `lifecycle.test.ts` cover
+  `CompositeVM`, `CompositeVMOf` and `GroupVM` in an admitted supersession. Each asserts that
+  `construct()` does not throw, that the factory ran 0 times, that `count` is 0, and that the
+  status is `Disposed`. Two more tests cover the deferred case: `CompositeVM` through a current
+  publication, and `GroupVM` through its membership transaction. Each asserts the disposing error,
+  one factory call, and the final status.
+- **C#.** `LIFE_015_Same_Thread_Container_Disposal_Inside_Hook_Cascades_Immediately` asserts that
+  `Record.Exception(composite.Construct)` is null and that the factory ran 0 times.
+  `CompositeVMConformanceTests` opposing-container test and `GroupVMConformanceTests` child-cascade
+  test assert the `construct()` results. `LIFE_015_Deferred_Dispose_In_Hook_Refuses_Population_Attach`
+  is new.
 - **Python.** `test_LIFE_015_same_thread_composite_disposal_inside_hook_cascades_immediately`
-  calls `construct()` without a `try`, so an exception fails the test. It no longer swallows
-  `BaseException`. It counts the children factory calls and asserts that they are 0.
+  calls `construct()` without a `try`, and it asserts that the factory ran 0 times. The opposing,
+  child-cascade and group tests record the `construct()` errors and assert that there are none.
+  `test_LIFE_015_deferred_dispose_in_hook_refuses_population_attach` is new.
 - **Swift.** `testSameThreadDisposeInsideOwnHookCascadesImmediately` calls `construct()` in a
-  `do` block whose `catch` calls `XCTFail`. It asserts that the factory ran 0 times for the
-  composite and for the group. The `Container.make` helper takes an optional `factoryCalls` log,
-  which defaults to none, so the other tests are unchanged.
-- **Rust.** No change. The test already asserts that `composite.construct()` returns `Ok(())`,
-  so it does not discard the result.
-
-Python was checked by mutation. With its superseded-hook early return disabled, the test fails
-with `cannot attach a child while the container is disposing`. The C# and Swift tests were not
-mutated in this change.
+  `do` block whose `catch` calls `XCTFail`. In `ContainerHookDisposalTests` and
+  `LifecycleRaceTests`, the `construct()` and `reconstruct()` results are recorded and asserted to
+  be empty, where the test is about a superseded call. `testNoContainerHookIsAdmittedDuringItsChildCascade`
+  and `testNoAggregateHookIsAdmittedDuringItsSlotCascade` (AggregateVM1 to AggregateVM6) assert the
+  transition error that a construct from the cascade raises after `Disposed`
+  (`Cannot construct from state Disposed.`). The cascade runs after `Disposed` is published, so
+  this is not a superseded call. `testDeferredDisposeInsideOwnHookRefusesPopulationAttach` is new.
+- **Rust.** `child_cascade_waits_for_the_admitted_hook` asserts that the construct returns
+  `Ok(())`, where it discarded the result before. `deferred_composite_dispose_in_hook_refuses_population_attach`
+  is new.
 
 ### 3.4 Changelog
 
-The TypeScript changelog gets a `Fixed` entry under the current `unreleased source version`
-heading. The C#, Python and Swift changelogs each get an `Added` entry for the test change in
-§3.3, under their current `unreleased source version` headings. Rust gets none. No other
-package changes.
+The TypeScript changelog's `Fixed` entry states the admitted supersession and the deferred case.
+The Rust changelog gets a `Fixed` entry for the deferred case. The C#, Python and Swift
+changelogs each get an `Added` entry for their test changes, under their current
+`unreleased source version` headings. No other package changes.
 
 ## 4. Conformance
 
-- The three new tests fail before the fix with `Cannot attach a child while the container is disposing` in each case, and pass after it.
-- Mutation: removing the early returns from `CompositeVMBase._onConstruct` and
-  `GroupVM._onConstruct` makes all three tests fail again with the same error. The
-  library diff is empty after the mutation is reverted.
+- Before the change, the deferred cases diverged. In TypeScript the construct returned without an
+  error and made no factory call. In Python the factory ran once and the attach raised. The Rust
+  mutation below shows the old result: `Ok(())`.
+- Mutation, TypeScript composite: removing the guard from `CompositeVMBase._onConstruct` fails
+  the two superseded tests, "skips CompositeVM population when its construct hook disposes it"
+  and "skips CompositeVMOf population when its construct hook disposes it". The deferred case
+  still passes, because the attach refusal alone gives that outcome.
+- Mutation, TypeScript deferred clause: restoring `#disposeDeferred` to the `CompositeVMBase`
+  guard fails "refuses CompositeVM population when its construct hook's dispose is deferred by a
+  publication". Restoring it to the `GroupVM` guard fails "refuses GroupVM population when its
+  construct hook's dispose is deferred by a membership transaction".
+- Mutation, Rust: restoring `disposal_pending()` to `CompositeVm::populate` fails
+  `deferred_composite_dispose_in_hook_refuses_population_attach` with `left: Some(Ok(()))` and
+  `right: Some(Err(Disposed))`.
+- Each mutation was reverted before the gates ran. The library diff is the intended change only.
 
 ## 5. Rejected alternatives
 
@@ -198,3 +283,11 @@ Rust. This changes four flavors that behave correctly now. In TypeScript the fac
 run once before the throw, which the factory clause forbids. It would also contradict §7.2,
 which says a superseded call raises nothing. A consumer that cancels a screen from its construct
 hook would then get an exception in every flavor. Rejected.
+
+### 5.3 Count a deferred dispose as a supersession
+
+Skipping population for a deferred dispose too would make `construct()` return without an error
+in every flavor, but it changes three flavors (C#, Python and Swift), which check only the admitted
+flag. The deferred dispose also runs only when its transaction or publication ends, so the
+container is not yet `Disposed` when `construct()` returns. §2.1 item 4 does not allow that state
+for a superseded hook. Rejected.

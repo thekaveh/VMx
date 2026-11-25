@@ -313,12 +313,13 @@ def test_LIFE_015_child_cascade_waits_for_admitted_group_hook() -> None:
         )
     )
     dispose_errors: list[BaseException] = []
+    construct_errors: list[BaseException] = []
 
     def construct() -> None:
         try:
             grp.construct()
-        except BaseException:
-            pass
+        except BaseException as error:
+            construct_errors.append(error)
 
     def dispose() -> None:
         try:
@@ -341,6 +342,7 @@ def test_LIFE_015_child_cascade_waits_for_admitted_group_hook() -> None:
     join_thread(disposer)
     assert not constructor.is_alive()
     assert not disposer.is_alive()
+    assert construct_errors == [], "a superseded construct() returns without an error"
     grp.dispose()
 
     assert dispose_errors == []

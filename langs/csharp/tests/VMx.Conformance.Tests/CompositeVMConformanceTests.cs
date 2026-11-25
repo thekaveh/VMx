@@ -1191,7 +1191,8 @@ public class CompositeVMConformanceTests
                 CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default));
         (await Task.WhenAny(transitions, Task.Delay(HangGuard)))
             .Should().BeSameAs(transitions, "opposing container disposals must not deadlock");
-        await transitions;
+        (await transitions).Should().OnlyContain(error => error == null,
+            "each superseded construct returns without an error");
 
         var entries = log.ToList();
         for (var index = 0; index < 2; index++)
@@ -1264,6 +1265,51 @@ public class CompositeVMConformanceTests
         second.Cleanups.Should().Be(1);
         composite.Status.Should().Be(ConstructionStatus.Disposed);
         constructedNames.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// LIFE-015 (ADR-0252 §2.4): a dispose that a current publication defers
+    /// during the construct hook is not an admitted supersession. Population
+    /// still runs: the factory is called once and its attach is refused with
+    /// the disposing error, which Construct() reports. Nothing attaches, and
+    /// the deferred disposal completes when the publication ends.
+    /// </summary>
+    [Fact, Trait("Conformance", "LIFE-015")]
+    public void LIFE_015_Deferred_Dispose_In_Hook_Refuses_Population_Attach()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var kept = new HookCleanupProbeVM("kept", hub, dispatcher, log);
+        CompositeVM<IComponentVM>? composite = null;
+        var factoryCalls = 0;
+        var publications = 0;
+        Exception? constructError = null;
+        composite = CompositeVM<IComponentVM>.Builder()
+            .Name("composite").Services(hub, dispatcher)
+            .Children(() =>
+            {
+                factoryCalls++;
+                return new IComponentVM[] { new HookCleanupProbeVM("late", hub, dispatcher, log) };
+            })
+            .OnConstruct(() => composite!.Dispose())
+            .OnCurrentChanged(vm =>
+            {
+                publications++;
+                if (vm is null || publications > 1) return;
+                constructError = Record.Exception(composite!.Construct);
+            })
+            .Build();
+        composite.Add(kept);
+
+        composite.Current = kept;
+
+        constructError.Should().BeOfType<ObjectDisposedException>(
+            "the deferred disposal refuses the population attach");
+        constructError!.Message.Should().Contain("Cannot attach a child while the container is disposing");
+        factoryCalls.Should().Be(1, "a deferred disposal does not skip population");
+        composite.Should().Equal(kept);
+        composite.Status.Should().Be(ConstructionStatus.Disposed);
     }
 
     /// <summary>

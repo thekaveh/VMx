@@ -255,6 +255,7 @@ public class GroupVMConformanceTests
             "terminal cleanup must not overlap the admitted hook");
         release.Set();
         await Task.WhenAll(construct, dispose).WaitAsync(HangGuard);
+        (await construct).Should().BeNull("a superseded construct returns without an error");
         (await dispose).Should().BeNull();
         group.Dispose();
 

@@ -180,7 +180,11 @@ fn child_cascade_waits_for_the_admitted_hook<C: Container>() {
     );
     release.send(()).unwrap();
     assert_eq!(disposed_rx.recv_timeout(BOUND).unwrap(), Ok(()));
-    let _ = constructor.join().unwrap();
+    assert_eq!(
+        constructor.join().unwrap(),
+        Ok(()),
+        "a superseded construct returns without an error"
+    );
     disposer.join().unwrap();
 
     let log = entries(&log);
@@ -652,6 +656,66 @@ fn superseded_composite_construct_calls_no_factory() {
             .unwrap()
     });
     assert_eq!(result, Ok(()));
+}
+
+/// LIFE-015 (ADR-0252 §2.4) — a dispose that a current publication defers
+/// during the construct hook is not an admitted supersession. Population still
+/// runs: the factory is called once, its attach is refused with
+/// `VmxError::Disposed`, and `construct()` returns that error. Nothing attaches,
+/// and the deferred disposal completes when the publication ends.
+#[test]
+fn deferred_composite_dispose_in_hook_refuses_population_attach() {
+    let hub = MessageHub::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let child_hub = hub.clone();
+    let container = CompositeVm::<ComponentVm>::builder()
+        .name("container")
+        .services(hub.clone(), NullDispatcher::new())
+        .children({
+            let calls = Arc::clone(&calls);
+            move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                vec![ComponentVm::with_services(
+                    "late",
+                    child_hub.clone(),
+                    NullDispatcher::new(),
+                )]
+            }
+        })
+        .build()
+        .unwrap();
+    let kept = ComponentVm::with_services("kept", hub.clone(), NullDispatcher::new());
+    container.add(kept.clone()).unwrap();
+    let handle = container.clone();
+    container.on_construct(move || handle.dispose());
+    let publications = Arc::new(AtomicUsize::new(0));
+    let outcome: Arc<Mutex<Option<VmxResult<()>>>> = Arc::default();
+    container.on_current_changed({
+        let handle = container.clone();
+        let publications = Arc::clone(&publications);
+        let outcome = Arc::clone(&outcome);
+        move |item: Option<ComponentVm>| {
+            if item.is_none() || publications.fetch_add(1, Ordering::SeqCst) > 0 {
+                return;
+            }
+            *outcome.lock().unwrap() = Some(handle.construct());
+        }
+    });
+
+    container.set_current(Some(kept)).unwrap();
+
+    assert_eq!(
+        outcome.lock().unwrap().take(),
+        Some(Err(VmxError::Disposed)),
+        "the deferred disposal refuses the population attach"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "a deferred disposal does not skip population"
+    );
+    assert_eq!(container.len(), 1);
+    assert_eq!(container.status(), ConstructionStatus::Disposed);
 }
 
 /// LIFE-015 — the same for a built `GroupVm` (ADR-0218 rule 5).

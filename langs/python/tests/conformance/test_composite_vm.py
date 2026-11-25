@@ -2165,11 +2165,13 @@ def test_LIFE_015_opposing_hook_disposals_do_not_deadlock() -> None:
         )
         composites.append(composite)
 
+    construct_errors: list[BaseException] = []
+
     def construct(vm: CompositeVM[ComponentVM]) -> None:
         try:
             vm.construct()
-        except BaseException:
-            pass
+        except BaseException as error:
+            construct_errors.append(error)
 
     threads = [Thread(target=construct, args=(vm,), daemon=True) for vm in composites]
     for thread in threads:
@@ -2178,6 +2180,7 @@ def test_LIFE_015_opposing_hook_disposals_do_not_deadlock() -> None:
         join_thread(thread, 2 * HANG_GUARD)
 
     assert all(not thread.is_alive() for thread in threads)
+    assert construct_errors == [], "each superseded construct() returns without an error"
     assert all(vm.status is ConstructionStatus.DISPOSED for vm in composites)
     assert disposed_counts == [1, 1]
 
@@ -2237,12 +2240,13 @@ def test_LIFE_015_child_cascade_waits_for_admitted_composite_hook() -> None:
     constructed: list[str] = []
     _record_constructed(hub, constructed)
     dispose_errors: list[BaseException] = []
+    construct_errors: list[BaseException] = []
 
     def construct() -> None:
         try:
             composite.construct()
-        except BaseException:
-            pass
+        except BaseException as error:
+            construct_errors.append(error)
 
     def dispose() -> None:
         try:
@@ -2267,6 +2271,7 @@ def test_LIFE_015_child_cascade_waits_for_admitted_composite_hook() -> None:
     assert not disposer.is_alive()
     composite.dispose()
 
+    assert construct_errors == [], "a superseded construct() returns without an error"
     assert dispose_errors == []
     hook_exit = log.index("hook-exit")
     assert log.index("cleanup:first") > hook_exit
@@ -2314,11 +2319,13 @@ def test_LIFE_015_opposing_composite_disposal_defers_child_cascade() -> None:
         composites.append(composite)
         children.append(pair)
 
+    construct_errors: list[BaseException] = []
+
     def construct(vm: CompositeVM[ComponentVM]) -> None:
         try:
             vm.construct()
-        except BaseException:
-            pass
+        except BaseException as error:
+            construct_errors.append(error)
 
     threads = [Thread(target=construct, args=(vm,), daemon=True) for vm in composites]
     for thread in threads:
@@ -2327,6 +2334,7 @@ def test_LIFE_015_opposing_composite_disposal_defers_child_cascade() -> None:
         join_thread(thread, 2 * HANG_GUARD)
 
     assert all(not thread.is_alive() for thread in threads), "disposals must not deadlock"
+    assert construct_errors == [], "each superseded construct() returns without an error"
     for index in range(2):
         hook_exit = log.index(f"hook-exit:{index}")
         for child in children[index]:
@@ -2383,6 +2391,57 @@ def test_LIFE_015_same_thread_composite_disposal_inside_hook_cascades_immediatel
     assert second.cleanups == 1
     assert composite.status is ConstructionStatus.DISPOSED
     assert constructed == []
+
+
+@pytest.mark.conformance("LIFE-015")
+def test_LIFE_015_deferred_dispose_in_hook_refuses_population_attach() -> None:
+    """LIFE-015 (ADR-0252 §2.4): a dispose that a current publication defers
+    during the construct hook is not an admitted supersession. Population
+    still runs: the factory is called once, its attach is refused with the
+    disposing error, and construct() raises that error. Nothing attaches, and
+    the deferred dispose completes when the publication ends."""
+    factory_calls: list[str] = []
+    publications: list[ComponentVM | None] = []
+    construct_errors: list[BaseException] = []
+    holder: list[CompositeVM[ComponentVM]] = []
+
+    def hook() -> None:
+        holder[0].dispose()
+
+    def children() -> tuple[ComponentVM, ...]:
+        factory_calls.append("factory")
+        return (_build_child("late"),)
+
+    def on_current(vm: ComponentVM | None) -> None:
+        publications.append(vm)
+        if vm is None or len(publications) > 1:
+            return
+        try:
+            holder[0].construct()
+        except BaseException as error:
+            construct_errors.append(error)
+
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("comp")
+        .services(_hub(), _dispatcher())
+        .on_construct(hook)
+        .children(children)
+        .on_current_changed(on_current)
+        .build()
+    )
+    holder.append(composite)
+    kept = _build_child("kept")
+    composite.add(kept)
+
+    composite.current = kept
+
+    assert len(construct_errors) == 1
+    assert isinstance(construct_errors[0], RuntimeError)
+    assert "cannot attach a child while the container is disposing" in str(construct_errors[0])
+    assert factory_calls == ["factory"], "the deferred dispose does not skip population"
+    assert list(composite) == [kept]
+    assert composite.status is ConstructionStatus.DISPOSED
 
 
 @pytest.mark.conformance("COMP-041")

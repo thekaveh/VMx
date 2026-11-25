@@ -16,9 +16,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Added
 
-- `LIFE-015` same-thread test now asserts the `Construct()` outcome: it does not
-  throw, and the children factory runs 0 times when the hook disposes the
-  composite (ADR-0252, #1805). This flavor already behaved this way.
+- `LIFE-015` tests now assert the `Construct()` outcome. An admitted dispose
+  from the construct hook skips population: the factory runs 0 times and
+  `Construct()` does not throw. A dispose that a current publication defers
+  during the hook still reaches population: the factory runs once and the attach
+  is refused with `ObjectDisposedException`. This flavor already behaved this
+  way (ADR-0252, #1805).
 
 - `ComponentVMBase.Dispatcher`: a protected read-only property that gives a
   subclass in any assembly the dispatcher its base was constructed with
