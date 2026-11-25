@@ -6,6 +6,8 @@ use super::{
     lock, next_id, Arc, AtomicBool, CompositeVm, Dispatcher, Message, MessageHub, Mutex, Ordering,
     Pageable, PropertyChangedMessage, Subscription, VmNode, Weak,
 };
+use crate::clone_locked;
+use crate::collections::{store_value, take_value, StoredValue};
 
 const PAGE_SIZE: &str = "page_size";
 const IS_PAGING_ENABLED: &str = "is_paging_enabled";
@@ -13,8 +15,16 @@ const PAGE_COUNT: &str = "page_count";
 const CURRENT_PAGE_INDEX: &str = "current_page_index";
 const ITEMS: &str = "items";
 
+/// Wraps each item in its own handle. It runs before any lock is taken.
+fn store_all<T>(items: Vec<T>) -> Vec<StoredValue<T>> {
+    items.into_iter().map(store_value).collect()
+}
+
 struct PagerState<T> {
-    source: Vec<T>,
+    /// Each item behind its own handle. A read copies the handles of its page
+    /// under the state lock and clones the items after that lock is released
+    /// (#1925).
+    source: Vec<StoredValue<T>>,
     page_size: usize,
     current_page_index: usize,
     /// Counts the source replacements, so a stale copy never overwrites a
@@ -93,6 +103,7 @@ impl<T> PagerCore<T> {
     /// Replaces the stored copy, clamps the index, and publishes the change.
     /// The old items drop after the lock is released.
     fn replace_source(&self, source: Vec<T>) {
+        let source = store_all(source);
         let (previous, clamped) = {
             let mut state = lock(&self.state);
             if self.disposed.load(Ordering::Acquire) {
@@ -120,6 +131,23 @@ impl<T> PagerCore<T> {
         if moved {
             self.publish(&[CURRENT_PAGE_INDEX, ITEMS]);
         }
+    }
+
+    /// Copies the handles of the current page under the state lock. The
+    /// caller clones the items with no lock held.
+    fn page_handles(&self) -> Vec<StoredValue<T>> {
+        let state = lock(&self.state);
+        if state.page_size == 0 {
+            return state.source.clone();
+        }
+        let start = state.current_page_index * state.page_size;
+        state
+            .source
+            .iter()
+            .skip(start)
+            .take(state.page_size)
+            .cloned()
+            .collect()
     }
 }
 
@@ -156,7 +184,7 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
         Self {
             core: Arc::new(PagerCore {
                 state: Mutex::new(PagerState {
-                    source,
+                    source: store_all(source),
                     page_size,
                     current_page_index: 0,
                     source_generation: 0,
@@ -229,6 +257,7 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
 
     /// Appends an item to the source.
     pub fn push(&self, item: T) {
+        let item = store_value(item);
         let clamped = {
             let mut state = lock(&self.core.state);
             if self.core.disposed.load(Ordering::Acquire) {
@@ -244,7 +273,8 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     ///
     /// A removal clamps the current page and publishes the source change. A
     /// missing index changes and publishes nothing. After `dispose`, the call
-    /// removes nothing and returns `None`.
+    /// removes nothing and returns `None`. When a page read still holds the
+    /// item, the returned copy is cloned with no pager lock held (#1925).
     pub fn remove_at(&self, index: usize) -> Option<T> {
         let (removed, clamped) = {
             let mut state = lock(&self.core.state);
@@ -255,7 +285,7 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
             (removed, state.clamp())
         };
         self.core.publish_source_change(clamped);
-        Some(removed)
+        Some(take_value(removed))
     }
 
     /// Returns the number of available pages.
@@ -283,19 +313,15 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     }
 
     /// Returns a snapshot of the items in the current page.
+    ///
+    /// The items are cloned with no pager lock held, so an item's `Clone` may
+    /// read this pager (#1925). Each item's own lock is held while it is
+    /// cloned, so a clone that clones the same item again through this pager
+    /// still blocks, as [`ObservableDictionary::get`](crate::ObservableDictionary::get)
+    /// does.
     pub fn current_page(&self) -> Vec<T> {
-        let state = lock(&self.core.state);
-        if state.page_size == 0 {
-            return state.source.clone();
-        }
-        let start = state.current_page_index * state.page_size;
-        state
-            .source
-            .iter()
-            .skip(start)
-            .take(state.page_size)
-            .cloned()
-            .collect()
+        let handles = self.core.page_handles();
+        handles.iter().map(|handle| clone_locked(handle)).collect()
     }
 
     /// Advances one page, remaining at the final page when already there.
@@ -368,7 +394,7 @@ impl<T: VmNode> PagedComposition<T> {
         // change. If a callback replaced the copy after this read began, its
         // copy is kept, so an older read never overwrites it.
         let generation = lock(&pager.core.state).source_generation;
-        let current = source.children_reader()();
+        let current = store_all(source.children_reader()());
         let previous = {
             let mut state = lock(&pager.core.state);
             if state.source_generation == generation {

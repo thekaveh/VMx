@@ -171,6 +171,17 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   worker. A refused `try_children()` returns the overlap error, and `children()`
   panics with it (#1923).
 
+- `ObservableList::get`, the `get` and `to_vec` of `ServicedObservableCollection`
+  and `KeyedServicedObservableCollection`, and `PagedComposition::current_page`
+  run the item's `T::clone` with no owner lock held. Before, a `Clone` that read
+  its own collection or pager, or that waited for another thread to write it,
+  deadlocked, because the read cloned under the lock. A read now copies a handle
+  under the lock and clones after the lock is released (#1925). A pager item's
+  own lock is held while it is cloned, so a `Clone` that clones the same item
+  again through the pager still blocks. `PagedComposition::remove_at` clones the
+  removed item only when a page read still holds it. The regression tests are
+  `read_clone_outside_lock.rs`.
+
 ## [0.36.0] — unreleased source version
 
 0.36.0 implements spec 3.30.0.

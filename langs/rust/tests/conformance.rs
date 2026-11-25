@@ -101,6 +101,7 @@ mod conformance {
     mod paged_composition_notifications;
     mod post_dispose_modeled_assignment;
     mod property_change;
+    mod read_clone_outside_lock;
     // Every case here observes the wait-for graph through a test seam.
     #[cfg(feature = "test-seams")]
     mod recompute_wait_cycle;

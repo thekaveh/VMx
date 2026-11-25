@@ -306,14 +306,18 @@ where
         self.len() == 0
     }
 
-    /// Returns the item at `index`, if present.
+    /// Returns the item at `index`, if present. `T::clone` runs with no lock
+    /// held, so a clone may read this collection (#1925).
     pub fn get(&self, index: usize) -> Option<T> {
-        lock(&self.inner).get(index).cloned()
+        let snapshot = Arc::clone(&lock(&self.inner));
+        snapshot.get(index).cloned()
     }
 
-    /// Returns an ordered snapshot of all items.
+    /// Returns an ordered snapshot of all items. `T::clone` runs with no lock
+    /// held (#1925).
     pub fn to_vec(&self) -> Vec<T> {
-        Vec::clone(&lock(&self.inner))
+        let snapshot = Arc::clone(&lock(&self.inner));
+        Vec::clone(&snapshot)
     }
 
     /// Appends an item and synchronously publishes an add change.
@@ -707,8 +711,10 @@ where
     }
 
     /// Returns the item at `index`, preserving the unkeyed collection's read API.
+    /// `T::clone` runs with no lock held (#1925).
     pub fn get(&self, index: usize) -> Option<T> {
-        lock(&self.inner).items.get(index).cloned()
+        let items = Arc::clone(&lock(&self.inner).items);
+        items.get(index).cloned()
     }
 
     /// Hashes `key` with no lock held. `K::hash` is user code.
@@ -748,9 +754,11 @@ where
         find_key(&candidates, key).is_some()
     }
 
-    /// Returns an insertion-ordered item snapshot.
+    /// Returns an insertion-ordered item snapshot. `T::clone` runs with no
+    /// lock held (#1925).
     pub fn to_vec(&self) -> Vec<T> {
-        Vec::clone(&lock(&self.inner).items)
+        let items = Arc::clone(&lock(&self.inner).items);
+        Vec::clone(&items)
     }
 
     /// Projects and appends `item`, rejecting duplicate keys atomically.
@@ -1498,9 +1506,11 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         Vec::clone(&snapshot)
     }
 
-    /// Returns the item at `index`, if present.
+    /// Returns the item at `index`, if present. `T::clone` runs with no lock
+    /// held, so a clone may read this list (#1925).
     pub fn get(&self, index: usize) -> Option<T> {
-        lock(&self.inner).get(index).cloned()
+        let snapshot = Arc::clone(&lock(&self.inner));
+        snapshot.get(index).cloned()
     }
 
     /// Appends an item and publishes add and count changes.
@@ -2073,15 +2083,15 @@ struct DictionaryEntries<K, V> {
 /// One stored dictionary value. The lock serializes clones of this value;
 /// no dictionary write takes it. `Mutex<V>` is `Sync` when `V: Send`, so the
 /// dictionaries keep their `V: Clone + Send` bound.
-type StoredValue<V> = Arc<Mutex<V>>;
+pub(crate) type StoredValue<V> = Arc<Mutex<V>>;
 
-fn store_value<V>(value: V) -> StoredValue<V> {
+pub(crate) fn store_value<V>(value: V) -> StoredValue<V> {
     Arc::new(Mutex::new(value))
 }
 
 /// Returns the value of a removed entry. When a reader still holds the
 /// value's handle, the value is cloned with no dictionary lock held.
-fn take_value<V: Clone>(stored: StoredValue<V>) -> V {
+pub(crate) fn take_value<V: Clone>(stored: StoredValue<V>) -> V {
     match Arc::try_unwrap(stored) {
         Ok(value) => value
             .into_inner()
