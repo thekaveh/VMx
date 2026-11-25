@@ -273,8 +273,13 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     ///
     /// A removal clamps the current page and publishes the source change. A
     /// missing index changes and publishes nothing. After `dispose`, the call
-    /// removes nothing and returns `None`. When a page read still holds the
-    /// item, the returned copy is cloned with no pager lock held (#1925).
+    /// removes nothing and returns `None`. The item leaves the source under the
+    /// pager lock, and its value is returned after that lock is released. When
+    /// a page read still holds the item, the value is copied from the item's
+    /// own handle, so the call waits for a clone of that same item that is
+    /// still running. It does not wait for other items. A clone of the item
+    /// that removes it from this pager on its own thread does not return
+    /// (#1925).
     pub fn remove_at(&self, index: usize) -> Option<T> {
         let (removed, clamped) = {
             let mut state = lock(&self.core.state);

@@ -319,9 +319,12 @@ fn observable_list_remove_at_publishes_its_remove_before_a_drop_panic_with_a_rea
     let unarmed = Arc::new(AtomicBool::new(false));
     let hub = MessageHub::new();
     let list = Arc::new(ObservableList::with_hub(1, hub.clone()));
-    list.push(SnapshotItem::new(1, &unarmed, &sequence));
+    // The armed item is the one the call removes. Items are shared between a
+    // snapshot and the list (#1925), so an item that stays in the list is not
+    // dropped with the displaced snapshot.
+    list.push(SnapshotItem::new(1, &armed, &sequence));
     list.push(SnapshotItem::new(2, &unarmed, &sequence));
-    list.push(SnapshotItem::new(3, &armed, &sequence));
+    list.push(SnapshotItem::new(3, &unarmed, &sequence));
     let (external, _external) = record(&hub);
 
     sequence.set(1);
@@ -348,9 +351,10 @@ fn observable_list_replace_publishes_its_replace_before_a_drop_panic_with_a_read
     let unarmed = Arc::new(AtomicBool::new(false));
     let hub = MessageHub::new();
     let list = Arc::new(ObservableList::with_hub(1, hub.clone()));
-    list.push(SnapshotItem::new(1, &unarmed, &sequence));
+    // The armed item is the one the call replaces (see the remove test).
+    list.push(SnapshotItem::new(1, &armed, &sequence));
     list.push(SnapshotItem::new(2, &unarmed, &sequence));
-    list.push(SnapshotItem::new(3, &armed, &sequence));
+    list.push(SnapshotItem::new(3, &unarmed, &sequence));
     let (external, _external) = record(&hub);
 
     sequence.set(1);

@@ -1436,7 +1436,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             let removed = self.items.take_silent();
             let current = lock(&self.current).clone();
             let cleared = current
-                .filter(|current| removed.iter().any(|item| same_node(item, current)))
+                .filter(|current| removed.iter().any(|item| same_node(item.as_ref(), current)))
                 .and_then(|current| self.selection.clear_if_current_locked(&current));
             (removed, cleared)
         };

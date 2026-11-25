@@ -24,6 +24,18 @@ type Shared<T> = Arc<Vec<T>>;
 /// A displaced snapshot that a writer must drop after releasing its lock.
 type Retired<T> = Option<Shared<T>>;
 
+/// The stored items of a collection. Each item sits behind its own `Arc`, so
+/// a snapshot or a copy-on-write copy copies pointers and runs no user
+/// `Clone` under the owner's lock (#1925).
+type Items<T> = Shared<Arc<T>>;
+
+/// Returns the item behind `item`. A handle that a reader still holds is
+/// cloned instead, so a caller uses this only after it has released the
+/// owner's lock (#1925).
+fn into_item<T: Clone>(item: Arc<T>) -> T {
+    Arc::try_unwrap(item).unwrap_or_else(|shared| (*shared).clone())
+}
+
 /// Returns `shared` for mutation, copying it first when a reader still holds
 /// a snapshot. The displaced `Arc` goes to `retired`, never dropped here: a
 /// reader may release its snapshot meanwhile, which makes the displaced
@@ -258,7 +270,7 @@ pub struct ServicedObservableCollection<T>
 where
     T: Clone + Send + 'static,
 {
-    inner: Arc<Mutex<Shared<T>>>,
+    inner: Arc<Mutex<Items<T>>>,
     local_hub: MessageHub,
     external_hub: Option<MessageHub>,
     delivery: Arc<ServicedCollectionDelivery>,
@@ -310,14 +322,14 @@ where
     /// held, so a clone may read this collection (#1925).
     pub fn get(&self, index: usize) -> Option<T> {
         let snapshot = Arc::clone(&lock(&self.inner));
-        snapshot.get(index).cloned()
+        snapshot.get(index).map(|item| (**item).clone())
     }
 
     /// Returns an ordered snapshot of all items. `T::clone` runs with no lock
     /// held (#1925).
     pub fn to_vec(&self) -> Vec<T> {
         let snapshot = Arc::clone(&lock(&self.inner));
-        Vec::clone(&snapshot)
+        snapshot.iter().map(|item| (**item).clone()).collect()
     }
 
     /// Appends an item and synchronously publishes an add change.
@@ -327,7 +339,7 @@ where
         {
             let mut inner = lock(&self.inner);
             let items = cow_mut(&mut inner, &mut retired);
-            items.push(item);
+            items.push(Arc::new(item));
             let index = items.len() - 1;
             self.queue(&admission, CollectionChangeAction::Add, None, Some(index));
         }
@@ -349,7 +361,9 @@ where
         loop {
             let revision = self.delivery.revision();
             let snapshot = Arc::clone(&lock(&self.inner));
-            let found = snapshot.iter().position(|candidate| candidate == item);
+            let found = snapshot
+                .iter()
+                .position(|candidate| candidate.as_ref() == item);
             drop(snapshot);
             let Some(index) = found else {
                 self.deliver(admission);
@@ -395,7 +409,7 @@ where
             removed
         };
         publish_then_drop(retired, || self.deliver(admission));
-        Ok(removed)
+        Ok(into_item(removed))
     }
 
     /// Replaces and returns the item at `index`.
@@ -407,7 +421,10 @@ where
             if index >= inner.len() {
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
-            let old = std::mem::replace(&mut cow_mut(&mut inner, &mut retired)[index], item);
+            let old = std::mem::replace(
+                &mut cow_mut(&mut inner, &mut retired)[index],
+                Arc::new(item),
+            );
             self.queue(
                 &admission,
                 CollectionChangeAction::Replace,
@@ -417,7 +434,7 @@ where
             old
         };
         publish_then_drop(retired, || self.deliver(admission));
-        Ok(old)
+        Ok(into_item(old))
     }
 
     /// Atomically replaces the collection from a materialized input snapshot.
@@ -425,7 +442,7 @@ where
     where
         I: IntoIterator<Item = T>,
     {
-        let snapshot = items.into_iter().collect::<Vec<_>>();
+        let snapshot = items.into_iter().map(Arc::new).collect::<Vec<_>>();
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         // Old items are dropped after the reset is published, with no lock
         // held: a user `Drop` may read this collection or panic (#1295).
@@ -547,7 +564,7 @@ impl<K> Clone for CapturedKey<K> {
 type KeyBucket<K> = Vec<(Arc<K>, usize)>;
 
 struct KeyedServicedCollectionState<K, T> {
-    items: Shared<T>,
+    items: Items<T>,
     keys: Vec<CapturedKey<K>>,
     index_by_hash: HashMap<u64, KeyBucket<K>>,
 }
@@ -714,7 +731,7 @@ where
     /// `T::clone` runs with no lock held (#1925).
     pub fn get(&self, index: usize) -> Option<T> {
         let items = Arc::clone(&lock(&self.inner).items);
-        items.get(index).cloned()
+        items.get(index).map(|item| (**item).clone())
     }
 
     /// Hashes `key` with no lock held. `K::hash` is user code.
@@ -741,7 +758,7 @@ where
             (inner.candidates(hash), Arc::clone(&inner.items))
         };
         let position = find_key(&candidates, key);
-        position.and_then(|position| items.get(position).cloned())
+        position.and_then(|position| items.get(position).map(|item| (**item).clone()))
     }
 
     /// Reports whether `key` identifies a captured membership.
@@ -758,7 +775,7 @@ where
     /// lock held (#1925).
     pub fn to_vec(&self) -> Vec<T> {
         let items = Arc::clone(&lock(&self.inner).items);
-        Vec::clone(&items)
+        items.iter().map(|item| (**item).clone()).collect()
     }
 
     /// Projects and appends `item`, rejecting duplicate keys atomically.
@@ -784,7 +801,7 @@ where
                     continue;
                 }
                 let position = inner.items.len();
-                cow_mut(&mut inner.items, &mut retired).push(item);
+                cow_mut(&mut inner.items, &mut retired).push(Arc::new(item));
                 inner.index_key(&key, position);
                 inner.keys.push(key);
                 self.queue(
@@ -810,7 +827,9 @@ where
         loop {
             let revision = self.delivery.revision();
             let snapshot = Arc::clone(&lock(&self.inner).items);
-            let found = snapshot.iter().position(|candidate| candidate == item);
+            let found = snapshot
+                .iter()
+                .position(|candidate| candidate.as_ref() == item);
             drop(snapshot);
             let Some(position) = found else {
                 self.deliver(admission);
@@ -854,7 +873,7 @@ where
         };
         let (removed, old_key, retired) = removed;
         publish_then_drop((old_key, retired), || self.deliver(admission));
-        Ok(removed)
+        Ok(into_item(removed))
     }
 
     /// Removes and returns the membership captured under `key`.
@@ -886,7 +905,7 @@ where
             };
             let (removed, old_key, retired) = removed;
             publish_then_drop((old_key, retired), || self.deliver(admission));
-            return Some(removed);
+            return Some(into_item(removed));
         }
     }
 
@@ -927,7 +946,7 @@ where
                 replaced
             };
             publish_then_drop((old_key, retired), || self.deliver(admission));
-            return Ok(old);
+            return Ok(into_item(old));
         }
     }
 
@@ -948,7 +967,7 @@ where
             fresh.index_key(&key, position);
             fresh.keys.push(key);
         }
-        fresh.items = Arc::new(snapshot);
+        fresh.items = Arc::new(snapshot.into_iter().map(Arc::new).collect());
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         // Old memberships and keys are dropped after the change is published,
         // with no lock held.
@@ -994,7 +1013,7 @@ where
                     (Some(replaced), false)
                 } else {
                     let index = inner.items.len();
-                    cow_mut(&mut inner.items, &mut retired).push(item);
+                    cow_mut(&mut inner.items, &mut retired).push(Arc::new(item));
                     inner.index_key(&key, index);
                     inner.keys.push(key);
                     self.queue(&admission, CollectionChangeAction::Add, None, Some(index));
@@ -1064,7 +1083,7 @@ where
     fn remove_membership(
         inner: &mut KeyedServicedCollectionState<K, T>,
         index: usize,
-    ) -> (T, CapturedKey<K>, Retired<T>) {
+    ) -> (Arc<T>, CapturedKey<K>, Retired<Arc<T>>) {
         let mut retired = None;
         let removed = cow_mut(&mut inner.items, &mut retired).remove(index);
         let old_key = inner.keys.remove(index);
@@ -1080,13 +1099,16 @@ where
         index: usize,
         key: CapturedKey<K>,
         item: T,
-        retired: &mut Retired<T>,
-    ) -> (T, CapturedKey<K>) {
+        retired: &mut Retired<Arc<T>>,
+    ) -> (Arc<T>, CapturedKey<K>) {
         inner.index_key(&key, index);
         let old_key = std::mem::replace(&mut inner.keys[index], key);
         inner.unindex_key(&old_key);
         let items = cow_mut(&mut inner.items, retired);
-        (std::mem::replace(&mut items[index], item), old_key)
+        (
+            std::mem::replace(&mut items[index], Arc::new(item)),
+            old_key,
+        )
     }
 
     /// Queues the change of a commit. The caller holds `inner`, so the queue
@@ -1326,7 +1348,7 @@ fn run_batch_probe(slot: &Mutex<Option<BatchProbe>>) {
 pub struct ObservableList<T: Clone + Send + 'static> {
     /// The items. A value removal compares a shared snapshot with no lock
     /// held, so writes copy when a snapshot is outstanding (#765).
-    inner: Arc<Mutex<Shared<T>>>,
+    inner: Arc<Mutex<Items<T>>>,
     hub: Option<MessageHub>,
     local: MessageHub,
     streams: Arc<ListStreams<T>>,
@@ -1458,7 +1480,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         let inner = Arc::clone(&self.inner);
         move || {
             let snapshot = Arc::clone(&lock(&inner));
-            Vec::clone(&snapshot)
+            snapshot.iter().map(|item| (**item).clone()).collect()
         }
     }
 
@@ -1503,14 +1525,14 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     /// Returns an ordered snapshot of all items.
     pub fn to_vec(&self) -> Vec<T> {
         let snapshot = Arc::clone(&lock(&self.inner));
-        Vec::clone(&snapshot)
+        snapshot.iter().map(|item| (**item).clone()).collect()
     }
 
     /// Returns the item at `index`, if present. `T::clone` runs with no lock
     /// held, so a clone may read this list (#1925).
     pub fn get(&self, index: usize) -> Option<T> {
         let snapshot = Arc::clone(&lock(&self.inner));
-        snapshot.get(index).cloned()
+        snapshot.get(index).map(|item| (**item).clone())
     }
 
     /// Appends an item and publishes add and count changes.
@@ -1524,7 +1546,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         let index = {
             let mut inner = lock(&self.inner);
             let items = cow_mut(&mut inner, &mut retired);
-            items.push(item);
+            items.push(Arc::new(item));
             items.len() - 1
         };
         // A displaced snapshot drops after the change is published (#1295).
@@ -1552,7 +1574,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             if index > inner.len() {
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
-            cow_mut(&mut inner, &mut retired).insert(index, item);
+            cow_mut(&mut inner, &mut retired).insert(index, Arc::new(item));
         }
         // A displaced snapshot drops after the change is published (#1295).
         publish_then_drop(retired, || {
@@ -1578,11 +1600,14 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     {
         loop {
             let snapshot = Arc::clone(&lock(&self.inner));
-            let Some(index) = snapshot.iter().position(|candidate| candidate == item) else {
+            let Some(index) = snapshot
+                .iter()
+                .position(|candidate| candidate.as_ref() == item)
+            else {
                 return false;
             };
             let mut retired = None;
-            let removed = {
+            let removed = into_item({
                 let mut inner = lock(&self.inner);
                 // A write copies while the snapshot is held, so an unchanged
                 // pointer means that no write happened since the search.
@@ -1594,7 +1619,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 // The store still holds the items, so this drops no item.
                 drop(snapshot);
                 cow_mut(&mut inner, &mut retired).remove(index)
-            };
+            });
             // The removed item drops after the change is published (#1295).
             publish_then_drop(retired, || {
                 self.publish(
@@ -1617,6 +1642,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         let (item, retired) = self
             .remove_at_committed(index)
             .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
+        let item = into_item(item);
         let event_item = self
             .streams
             .item_removed
@@ -1638,13 +1664,13 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     pub(crate) fn remove_at_silent(&self, index: usize) -> Option<T> {
         self.remove_at_committed(index).map(|(item, retired)| {
             drop(retired);
-            item
+            into_item(item)
         })
     }
 
     /// Removes the item at `index` and returns it with the displaced snapshot.
     /// The caller drops the snapshot after it publishes the change (#1295).
-    fn remove_at_committed(&self, index: usize) -> Option<(T, Retired<T>)> {
+    fn remove_at_committed(&self, index: usize) -> Option<(Arc<T>, Retired<Arc<T>>)> {
         let mut retired = None;
         let removed = {
             let mut inner = lock(&self.inner);
@@ -1664,7 +1690,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             if index > inner.len() {
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
-            cow_mut(&mut inner, &mut retired).insert(index, item);
+            cow_mut(&mut inner, &mut retired).insert(index, Arc::new(item));
         }
         drop(retired);
         Ok(())
@@ -1687,20 +1713,23 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     pub(crate) fn replace_silent(&self, index: usize, item: T) -> VmxResult<T> {
         let (old, retired) = self.replace_committed(index, item)?;
         drop(retired);
-        Ok(old)
+        Ok(into_item(old))
     }
 
     /// Replaces the item at `index` and returns the old item with the
     /// displaced snapshot. The caller drops the snapshot after it publishes
     /// the change (#1295).
-    fn replace_committed(&self, index: usize, item: T) -> VmxResult<(T, Retired<T>)> {
+    fn replace_committed(&self, index: usize, item: T) -> VmxResult<(Arc<T>, Retired<Arc<T>>)> {
         let mut retired = None;
         let old = {
             let mut inner = lock(&self.inner);
             if index >= inner.len() {
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
-            std::mem::replace(&mut cow_mut(&mut inner, &mut retired)[index], item)
+            std::mem::replace(
+                &mut cow_mut(&mut inner, &mut retired)[index],
+                Arc::new(item),
+            )
         };
         Ok((old, retired))
     }
@@ -1723,6 +1752,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             .has_subscribers()
             .then(|| item.clone());
         let (old, retired) = self.replace_committed(index, item)?;
+        let old = into_item(old);
         let event = new_item.map(|new_item| {
             ItemEvent::Replaced(ItemReplacedEvent {
                 new_item,
@@ -1748,7 +1778,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     where
         I: IntoIterator<Item = T>,
     {
-        let snapshot: Vec<T> = items.into_iter().collect();
+        let snapshot: Vec<Arc<T>> = items.into_iter().map(Arc::new).collect();
         let new_count = snapshot.len();
         let previous = {
             let mut inner = lock(&self.inner);
@@ -1813,7 +1843,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
 
     /// Empties the list without notifying and returns the removed items, so
     /// the caller drops them after releasing any lock it holds.
-    pub(crate) fn take_silent(&self) -> Shared<T> {
+    pub(crate) fn take_silent(&self) -> Items<T> {
         std::mem::take(&mut *lock(&self.inner))
     }
 
