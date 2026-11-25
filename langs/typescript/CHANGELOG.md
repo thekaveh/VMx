@@ -243,6 +243,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   index used to leave the pager on an empty page. A move that changes no index
   publishes nothing, as before.
 
+- A `CompositeVM`, `CompositeVMOf` or `GroupVM` whose construct hook admits a
+  dispose no longer calls its children factory. Its `construct()` used to call
+  the factory and then throw
+  `Cannot attach a child while the container is disposing`. It now returns
+  without an error and ends `Disposed` with no children, as the other four
+  flavors already do. A dispose that a membership transaction or a current
+  publication defers during the hook is not admitted, and TypeScript handles it
+  as before: the factory runs once, and `construct()` throws the disposing error
+  (ADR-0252, #1805, `LIFE-015`).
+
 - `HierarchicalVM.invalidateSubtree` walks the materialized subtree with an
   explicit stack, so a deep chain no longer overflows the call stack. At 5,000
   levels it used to throw `RangeError`. Each node also holds a reference to its

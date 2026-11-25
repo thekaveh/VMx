@@ -216,9 +216,16 @@ reaches `Constructed`
 **Then** terminal cleanup does not overlap the admitted hook
 **And** cleanup completes exactly once after the hook releases its lease
 **And** terminal supersession prevents any post-hook container lifecycle work
-**And** a container whose construct hook a foreign `dispose()` superseded does
-not call its children factory, and its `construct()` returns without an error
-(ADR-0218)
+**And** a container whose construct hook an admitted `dispose()` superseded, foreign
+or from the hook's own body, does not call its children factory, and its
+`construct()` returns without an error (ADR-0218, ADR-0252)
+**And** a `dispose()` that a membership transaction or current publication of the
+container defers during that hook does not supersede it. For a container whose
+population has not run, population runs, its attach is refused with the disposing
+error, and `construct()` reports that error (ADR-0252; in Rust, a composite's and a group's
+deferral by a membership transaction both report `VmxError::Disposed`). For a container
+that is already populated, population does not run again, its walk constructs the
+children that exist, and `construct()` returns without an error (ADR-0252 §2.5)
 **And** opposing foreign hook waits cannot deadlock
 
 ### LIFE-016 — The child-transition helper waits for a background child

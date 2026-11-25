@@ -65,6 +65,16 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   child reads and the factory error rule (ADR-0170) are unchanged (spec/13,
   #1912).
 
+- A `CompositeVm` or `GroupVm` whose construct hook's dispose is deferred now
+  calls its children factory once, and `construct()` returns
+  `Err(VmxError::Disposed)`, the disposing error, for a dispose deferred by a
+  membership transaction or, for a composite, by a current publication. Before,
+  a composite's deferred population was skipped and `construct()` returned
+  `Ok(())`, and a group's membership deferral returned
+  `Err(VmxError::OwnershipTransactionInProgress)`. Only an admitted dispose
+  supersedes the construct hook, as in the other flavors (ADR-0252, #1805,
+  `LIFE-015`).
+
 - `HierarchicalVm::invalidate_subtree()` no longer recurses once per tree level,
   so a deep materialized chain no longer overflows the thread's stack. Every
   materialized descendant is still invalidated, in the same order. Each node now

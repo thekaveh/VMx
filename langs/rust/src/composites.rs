@@ -1598,14 +1598,26 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// of running it again. The factory leaves its slot only when
     /// the population commits.
     fn populate(&self) -> VmxResult<()> {
-        if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+        // Only an admitted dispose supersedes the hook (ADR-0252 §2.4). A dispose
+        // that a membership transaction or publication defers is refused with
+        // `VmxError::Disposed` after the factory call, before attach_population
+        // begins its membership transaction.
+        if self.dispose_requested.load(Ordering::Acquire)
+            || self.status() == ConstructionStatus::Disposed
+        {
             return Ok(());
         }
         let Some(factory) = lock(&self.population).clone() else {
             return Ok(());
         };
         let population = Arc::clone(&self.population);
-        self.attach_population(factory(), false, move || *lock(&population) = None)
+        let candidates = factory();
+        // A dispose that a membership transaction defers is refused here, before
+        // attach_population opens its own transaction (ADR-0252 §2.4).
+        if self.disposal_pending() {
+            return Err(VmxError::Disposed);
+        }
+        self.attach_population(candidates, false, move || *lock(&population) = None)
     }
 
     /// The parts a construct walk needs besides the core.

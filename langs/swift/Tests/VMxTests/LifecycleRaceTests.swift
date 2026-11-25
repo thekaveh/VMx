@@ -156,11 +156,22 @@ final class LifecycleRaceTests: XCTestCase {
         let firstDone = DispatchSemaphore(value: 0)
         let secondDone = DispatchSemaphore(value: 0)
 
-        DispatchQueue.global().async { try? first.construct(); firstDone.signal() }
-        DispatchQueue.global().async { try? second.construct(); secondDone.signal() }
+        let constructLock = NSLock()
+        var constructErrors: [Error] = []
+        DispatchQueue.global().async {
+            do { try first.construct() } catch { constructLock.withLock { constructErrors.append(error) } }
+            firstDone.signal()
+        }
+        DispatchQueue.global().async {
+            do { try second.construct() } catch { constructLock.withLock { constructErrors.append(error) } }
+            secondDone.signal()
+        }
 
         XCTAssertEqual(firstDone.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(secondDone.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(
+            constructLock.withLock { constructErrors.count }, 0,
+            "each superseded construct returns without an error")
         first.dispose()
         second.dispose()
         XCTAssertEqual(first.status, .disposed)
@@ -256,6 +267,8 @@ final class LifecycleRaceTests: XCTestCase {
         let destructEntered = DispatchSemaphore(value: 0)
         let releaseDestruct = DispatchSemaphore(value: 0)
         let reconstructDone = DispatchSemaphore(value: 0)
+        let reconstructLock = NSLock()
+        var reconstructErrors: [Error] = []
         let counterLock = NSLock()
         var constructCalls = 0
         var hookActive = false
@@ -289,7 +302,7 @@ final class LifecycleRaceTests: XCTestCase {
         try vm.construct()
 
         DispatchQueue.global().async {
-            try? vm.reconstruct()
+            do { try vm.reconstruct() } catch { reconstructLock.withLock { reconstructErrors.append(error) } }
             reconstructDone.signal()
         }
         XCTAssertEqual(destructEntered.wait(timeout: .now() + hangGuard), .success)
@@ -317,6 +330,9 @@ final class LifecycleRaceTests: XCTestCase {
         XCTAssertEqual(disposeDone.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(secondDisposeDone.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(reconstructDone.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(
+            reconstructLock.withLock { reconstructErrors.count }, 0,
+            "a reconstruct that the disposal superseded returns without an error")
         vm.dispose()
 
         counterLock.lock()

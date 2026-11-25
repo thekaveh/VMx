@@ -404,6 +404,12 @@ export class GroupVM<VM extends ComponentVMBase>
 
   protected override _onConstruct(): void {
     super._onConstruct();
+    // An admitted dispose that superseded the hook stops population and the child
+    // walk: both are post-hook container actions, and construct() returns without
+    // an error (spec/02 §2.4, ADR-0218 rule 5, ADR-0252). A dispose that only a
+    // membership transaction defers does not supersede it; its population attach
+    // is refused instead (ADR-0252 §2.4).
+    if (this.#disposeRequested || this.status === ConstructionStatus.Disposed) return;
     // Children whose construct population started are joined, not restarted.
     const joined = new Set<ComponentVMBase>();
     this.#populationJoined = joined;

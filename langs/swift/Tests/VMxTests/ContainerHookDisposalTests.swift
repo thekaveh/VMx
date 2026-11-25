@@ -24,6 +24,30 @@ private final class EventLog: @unchecked Sendable {
     func index(_ entry: String) -> Int? { all.firstIndex(of: entry) }
 }
 
+/// The error a `construct()` call threw, kept for the test thread.
+private final class ThrownError: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Error?
+    func set(_ error: Error) { lock.withLock { value = error } }
+    var error: Error? { lock.withLock { value } }
+}
+
+/// Asserts that `error` is the disposal refusal of an attach: a
+/// `ContainerOwnershipError.attachmentFailed`.
+private func assertAttachRefusedByDisposal(
+    _ error: Error?, file: StaticString = #filePath, line: UInt = #line
+) {
+    guard let error else {
+        return XCTFail("construct() must throw the disposal refusal", file: file, line: line)
+    }
+    guard let ownershipError = error as? ContainerOwnershipError,
+          case .attachmentFailed = ownershipError else {
+        return XCTFail(
+            "expected ContainerOwnershipError.attachmentFailed, got \(error)",
+            file: file, line: line)
+    }
+}
+
 /// A child that logs `cleanup:<name>` from `_onDispose()`.
 private final class CleanupProbe: ComponentVM {
     let log: EventLog
@@ -59,17 +83,26 @@ private struct Container {
         _ kind: String,
         hub: MessageHubProtocol,
         factory: Bool,
+        factoryCalls: EventLog? = nil,
         hook: @escaping () throws -> Void
     ) -> Container {
         if kind == "composite" {
             let vm = CompositeVM<CleanupProbe>(
                 name: kind, hub: hub, dispatcher: NullDispatcher.INSTANCE,
-                childrenFactory: factory ? { [] } : nil, onConstruct: hook)
+                childrenFactory: factory ? {
+                    factoryCalls?.add("factory")
+                    return []
+                } : nil,
+                onConstruct: hook)
             return Container(vm: vm, add: { vm.add($0) })
         }
         let vm = GroupVM<CleanupProbe>(
             name: kind, hub: hub, dispatcher: NullDispatcher.INSTANCE,
-            childrenFactory: factory ? { [] } : nil, onConstruct: hook)
+            childrenFactory: factory ? {
+                factoryCalls?.add("factory")
+                return []
+            } : nil,
+            onConstruct: hook)
         return Container(vm: vm, add: { vm.add($0) })
     }
 }
@@ -99,8 +132,8 @@ final class ContainerHookDisposalTests: XCTestCase {
         container.add(first)
         container.add(second)
         if reconstructFirst {
-            try? container.vm.construct()
-            try? container.vm.destruct()
+            XCTAssertNoThrow(try container.vm.construct(), label)
+            XCTAssertNoThrow(try container.vm.destruct(), label)
         }
         let transitions = EventLog()
         let subscription = hub.messages
@@ -112,10 +145,9 @@ final class ContainerHookDisposalTests: XCTestCase {
 
         let constructed = DispatchSemaphore(value: 0)
         let disposed = DispatchSemaphore(value: 0)
-        // A factory container may refuse population after supersession, so
-        // the construct result is not asserted.
+        let constructOutcome = EventLog()
         DispatchQueue.global().async {
-            try? container.vm.construct()
+            do { try container.vm.construct() } catch { constructOutcome.add("\(error)") }
             constructed.signal()
         }
         XCTAssertEqual(entered.wait(timeout: .now() + hangGuard), .success, label)
@@ -132,6 +164,8 @@ final class ContainerHookDisposalTests: XCTestCase {
 
         release.signal()
         XCTAssertEqual(constructed.wait(timeout: .now() + hangGuard), .success, label)
+        XCTAssertEqual(
+            constructOutcome.all, [], "\(label): a superseded construct returns without an error")
         XCTAssertEqual(disposed.wait(timeout: .now() + hangGuard), .success, label)
         container.vm.dispose()
 
@@ -196,15 +230,18 @@ final class ContainerHookDisposalTests: XCTestCase {
             }
             defer { subscriptions.forEach { $0.cancel() } }
             let done = DispatchGroup()
+            let constructOutcome = EventLog()
             for container in containers {
                 done.enter()
                 DispatchQueue.global().async {
-                    try? container.vm.construct()
+                    do { try container.vm.construct() } catch { constructOutcome.add("\(error)") }
                     done.leave()
                 }
             }
 
             XCTAssertEqual(done.wait(timeout: .now() + hangGuard), .success, "\(kind): no deadlock")
+            XCTAssertEqual(
+                constructOutcome.all, [], "\(kind): a superseded construct returns without an error")
             for index in 0..<2 {
                 let hookExit = log.index("hook-exit:\(index)") ?? Int.max
                 for child in children[index] {
@@ -224,8 +261,11 @@ final class ContainerHookDisposalTests: XCTestCase {
         for kind in ["composite", "group"] {
             let hub = MessageHub()
             let log = EventLog()
+            let factoryCalls = EventLog()
             var owner: ComponentVMBase?
-            let container = Container.make(kind, hub: hub, factory: true) {
+            let container = Container.make(
+                kind, hub: hub, factory: true, factoryCalls: factoryCalls
+            ) {
                 log.add("hook-enter")
                 owner?.dispose()
                 log.add("dispose-returned")
@@ -236,16 +276,95 @@ final class ContainerHookDisposalTests: XCTestCase {
             container.add(first)
             container.add(second)
 
-            try? container.vm.construct()
+            do {
+                try container.vm.construct()
+            } catch {
+                XCTFail("\(kind): construct() must not throw after a same-thread dispose: \(error)")
+            }
 
             XCTAssertEqual(
                 Array(log.all.prefix(4)),
                 ["hook-enter", "cleanup:first", "cleanup:second", "dispose-returned"], kind)
+            XCTAssertEqual(factoryCalls.all, [], "\(kind): a superseded hook skips the children factory")
             XCTAssertEqual(container.vm.status, .disposed, kind)
             XCTAssertEqual(first.cleanups, 1, kind)
             XCTAssertEqual(second.cleanups, 1, kind)
             owner = nil
         }
+    }
+
+    /// LIFE-015 (ADR-0252 §2.4) — a dispose that a current publication defers
+    /// during the construct hook is not an admitted supersession. Population
+    /// still runs: the factory is called once and its attach is refused with the
+    /// disposing error, which construct() throws. Nothing attaches, and the
+    /// deferred disposal completes when the publication ends.
+    func testDeferredDisposeInsideOwnHookRefusesPopulationAttach() throws {
+        let hub = MessageHub()
+        let factoryCalls = EventLog()
+        let publications = EventLog()
+        let constructError = ThrownError()
+        var owner: CompositeVM<CleanupProbe>?
+        let composite = CompositeVM<CleanupProbe>(
+            name: "composite", hub: hub, dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: {
+                factoryCalls.add("factory")
+                return [CleanupProbe("late", hub: hub, log: EventLog())]
+            },
+            onConstruct: { owner?.dispose() },
+            onCurrentChanged: { vm in
+                guard let vm else { return }
+                publications.add(vm.name)
+                guard publications.all.count == 1 else { return }
+                do { try owner?.construct() } catch { constructError.set(error) }
+            })
+        owner = composite
+        let kept = CleanupProbe("kept", hub: hub, log: EventLog())
+        composite.add(kept)
+
+        composite.current = kept
+
+        assertAttachRefusedByDisposal(constructError.error)
+        XCTAssertEqual(factoryCalls.all, ["factory"], "a deferred disposal does not skip population")
+        XCTAssertEqual(composite.count, 1)
+        XCTAssertEqual(composite.status, .disposed)
+        owner = nil
+    }
+
+    /// LIFE-015 (ADR-0252 §2.4) — the same for a `GroupVM`, deferred by its own
+    /// membership transaction. The add's collection-changed event runs inside
+    /// that transaction. Population still runs: the factory is called once, and
+    /// its attach is refused with `ContainerOwnershipError.attachmentFailed`.
+    /// Nothing attaches, and the deferred disposal completes when the
+    /// transaction ends.
+    func testDeferredGroupDisposeInsideOwnHookRefusesPopulationAttach() {
+        let hub = MessageHub()
+        let factoryCalls = EventLog()
+        let notifications = EventLog()
+        let constructError = ThrownError()
+        var owner: GroupVM<CleanupProbe>?
+        let group = GroupVM<CleanupProbe>(
+            name: "group", hub: hub, dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: {
+                factoryCalls.add("factory")
+                return [CleanupProbe("late", hub: hub, log: EventLog())]
+            },
+            onConstruct: { owner?.dispose() })
+        owner = group
+        let subscription = group.collectionChanged.sink { _ in
+            notifications.add("event")
+            guard notifications.all.count == 1 else { return }
+            do { try owner?.construct() } catch { constructError.set(error) }
+        }
+        let kept = CleanupProbe("kept", hub: hub, log: EventLog())
+
+        group.add(kept)
+
+        assertAttachRefusedByDisposal(constructError.error)
+        XCTAssertEqual(factoryCalls.all, ["factory"], "a deferred disposal does not skip population")
+        XCTAssertEqual(group.count, 1)
+        XCTAssertEqual(group.status, .disposed)
+        subscription.cancel()
+        owner = nil
     }
 
     /// LIFE-015 — no hook of the container is admitted while its child cascade
@@ -263,10 +382,18 @@ final class ContainerHookDisposalTests: XCTestCase {
             let second = CleanupProbe("second", hub: hub, log: log)
             container.add(first)
             container.add(second)
-            first.onCleanup = { [weak owner = container.vm] in try? owner?.construct() }
+            let reentrantConstruct = EventLog()
+            first.onCleanup = { [weak owner = container.vm] in
+                do { try owner?.construct() } catch { reentrantConstruct.add("\(error)") }
+            }
 
             container.vm.dispose()
 
+            // The cascade runs after Disposed is published, so this construct is
+            // an illegal transition from Disposed, not a superseded call.
+            XCTAssertEqual(
+                reentrantConstruct.all, ["Cannot construct from state Disposed."],
+                "\(kind): a construct from the cascade is refused, and no hook runs")
             XCTAssertEqual(hookRuns.all, [], kind)
             XCTAssertEqual(container.vm.status, .disposed, kind)
             XCTAssertEqual(first.cleanups, 1, kind)
@@ -295,8 +422,9 @@ final class ContainerHookDisposalTests: XCTestCase {
         let member = parent.ownMember(CleanupProbe("member", hub: hub, log: log))
         let constructed = DispatchSemaphore(value: 0)
         let disposed = DispatchSemaphore(value: 0)
+        let constructOutcome = EventLog()
         DispatchQueue.global().async {
-            try? parent.construct()
+            do { try parent.construct() } catch { constructOutcome.add("\(error)") }
             constructed.signal()
         }
         XCTAssertEqual(entered.wait(timeout: .now() + hangGuard), .success)
@@ -309,6 +437,7 @@ final class ContainerHookDisposalTests: XCTestCase {
         XCTAssertNotEqual(member.status, .disposed)
         release.signal()
         XCTAssertEqual(constructed.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(constructOutcome.all, [], "a superseded construct returns without an error")
         XCTAssertEqual(disposed.wait(timeout: .now() + hangGuard), .success)
         XCTAssertGreaterThan(log.index("cleanup:member") ?? -1, log.index("hook-exit") ?? Int.max)
         XCTAssertEqual(member.cleanups, 1)
@@ -570,10 +699,18 @@ final class AggregateHookDisposalTests: XCTestCase {
             XCTAssertNoThrow(try aggregate.vm.construct(), label)
             XCTAssertNoThrow(try aggregate.vm.destruct(), label)
             let slots = aggregate.slots().compactMap { $0 as? CleanupProbe }
-            slots[0].onCleanup = { [weak owner = aggregate.vm] in try? owner?.construct() }
+            let reentrantConstruct = EventLog()
+            slots[0].onCleanup = { [weak owner = aggregate.vm] in
+                do { try owner?.construct() } catch { reentrantConstruct.add("\(error)") }
+            }
 
             aggregate.vm.dispose()
 
+            // As for containers, the slot cascade runs after Disposed is published:
+            // the construct is an illegal transition and creates no candidate.
+            XCTAssertEqual(
+                reentrantConstruct.all, ["Cannot construct from state Disposed."],
+                "\(label): a construct from the slot cascade is refused")
             XCTAssertEqual(factory.created.count, arity, "\(label): no candidate is created")
             XCTAssertEqual(aggregate.vm.status, .disposed, label)
             for slot in slots { XCTAssertEqual(slot.cleanups, 1, label) }
@@ -630,15 +767,17 @@ final class AggregateHookDisposalTests: XCTestCase {
                 }))
         }
         let done = DispatchGroup()
+        let constructOutcome = EventLog()
         for aggregate in aggregates {
             done.enter()
             DispatchQueue.global().async {
-                try? aggregate.construct()
+                do { try aggregate.construct() } catch { constructOutcome.add("\(error)") }
                 done.leave()
             }
         }
 
         XCTAssertEqual(done.wait(timeout: .now() + hangGuard), .success, "no deadlock")
+        XCTAssertEqual(constructOutcome.all, [], "a superseded construct returns without an error")
         for aggregate in aggregates { XCTAssertEqual(aggregate.status, .disposed) }
         let slots = createdLock.withLock { created }
         XCTAssertEqual(slots.count, 2)

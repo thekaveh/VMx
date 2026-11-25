@@ -17,6 +17,12 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- `LIFE-015` tests now assert the `construct()` outcome. An admitted dispose
+  from the construct hook skips population: the factory runs 0 times and
+  `construct()` does not throw. A dispose that a current publication defers
+  during the hook still reaches population: the factory runs once and the attach
+  throws `ContainerOwnershipError.attachmentFailed`. A `GroupVM` deferred case has
+  the same test. Swift already behaved this way (ADR-0252, #1805).
 - `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
   cancelled from a value-less `Error` restores that `Error`.
 - `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
