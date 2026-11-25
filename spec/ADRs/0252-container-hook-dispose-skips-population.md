@@ -64,8 +64,8 @@ the container defers during the hook. Before this ADR:
   `OwnershipTransactionInProgress` (§2.4).
 
 After this ADR, the same rule holds in all five flavors: a deferred dispose does not supersede the
-hook. The refusal is the disposing error in every flavor except one Rust case, which §2.4 records.
-§2.1 states the rule, and §2.4 gives the reachability and the guards.
+hook. The refusal is the disposing error in every flavor. §2.1 states the rule, and §2.4 gives the
+reachability and the guards.
 
 ## 2. Decision
 
@@ -89,8 +89,7 @@ not supersede the hook.
    For a container whose population has not run, population runs and calls the children factory
    once. Its attach is refused with the disposing error, so `construct()` reports that error and
    nothing attaches. The deferred disposal completes when its membership transaction or
-   publication ends. Rust's composite membership-transaction case is refused with a different error
-   (§2.4).
+   publication ends.
    For a container that is already populated, population does not run again (§2.5).
 
 No chapter states the attach refusal in words. Chapter 06 §4.3 rule 3 refuses a non-null
@@ -98,7 +97,7 @@ selection during disposal, which is a different rule. This ADR, chapter 02 §2.4
 clause state the attach refusal directly.
 
 Chapter 02 §2.4 and the `LIFE-015` clause name both cases. The code follows them in all five
-flavors (§2.4), with the one Rust error difference that §2.4 records.
+flavors (§2.4).
 
 ### 2.2 Why the rule covers a dispose from the hook's own body
 
@@ -129,7 +128,7 @@ it does not mean that a maintainer accepted it. This ADR records the choice and 
 - **Option A (chosen).** The rule in §2.1 covers any admitted supersession, from the hook's own
   body or from another thread. TypeScript gains the supersession check that the other four
   flavors already have. The admitted case changes TypeScript. The deferred case changes only
-  Rust's composite population, and Rust's group membership refusal (§2.4).
+  in Rust's composite and group population (§2.4).
 - **Option B (rejected, see §5.2).** A same-thread dispose from the hook makes `construct()`
   throw. Four flavors change.
 
@@ -154,68 +153,68 @@ hook calls `dispose()`, which is deferred. A dispose from the collection-changed
 `add()` is deferred the same way, because that callback runs inside the add's membership
 transaction.
 
-| Flavor     | Where `dispose()` defers                                                                                                                                                                                                                                                              | Tests that reach it (composite, then group)                                                                                                                                                                                      |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| TypeScript | `compositeVMBase.ts` `dispose()` when `#membershipTransactionActive` or `#activeCurrentPublications > 0`. `groupVM.ts` `dispose()` when `#membershipTransactionActive`.                                                                                                               | `lifecycle.test.ts`: "refuses CompositeVM population when its construct hook's dispose is deferred by a publication", and "refuses GroupVM population when its construct hook's dispose is deferred by a membership transaction" |
-| Python     | `composite_vm.py` `dispose()` when `get_ident()` is in `_current_publication_threads`, or, after the foreign-transaction wait, when `_membership_transaction_active` or `_active_current_publications > 0`. `group_vm.py` `dispose()` when `_membership_transaction_active`.          | `test_composite_vm.py`: `test_LIFE_015_deferred_dispose_in_hook_refuses_population_attach`; `test_group_vm.py`: `test_LIFE_015_deferred_group_dispose_in_hook_refuses_population_attach`                                         |
-| C#         | `CompositeVMBase.cs` `Dispose()` when the thread is in `_currentPublicationThreads`, or, after the foreign-transaction wait, when `_membershipTransactionActive` or `_activeCurrentPublications > 0`. `GroupVMBase.cs` `Dispose()` when `_membershipTransactionActive`.               | `CompositeVMConformanceTests.cs`: `LIFE_015_Deferred_Dispose_In_Hook_Refuses_Population_Attach`; `GroupVMConformanceTests.cs`: `LIFE_015_Deferred_Group_Dispose_In_Hook_Refuses_Population_Attach`                               |
-| Swift      | `CompositeVM.swift` `dispose()` when the caller holds a publication lease or owns the membership transaction, or when `activeCurrentPublications > 0`. Another thread's transaction is waited for first. `GroupVM.swift` `dispose()` when the caller owns the membership transaction. | `ContainerHookDisposalTests.swift`: `testDeferredDisposeInsideOwnHookRefusesPopulationAttach`; `testDeferredGroupDisposeInsideOwnHookRefusesPopulationAttach`                                                                    |
-| Rust       | `composites.rs` `dispose()` and `groups.rs` `dispose()` when `dispose_disposition()` returns `Owned` or `PublishingThread` (`runtime.rs`). A composite also defers while a publication of any thread is open (`defer_while_publishing`).                                              | `container_hook_disposal.rs`: `deferred_composite_dispose_in_hook_refuses_population_attach`; `deferred_group_dispose_in_hook_refuses_population_attach`                                                                         |
+| Flavor     | Where `dispose()` defers                                                                                                                                                                                                                                                              | Tests that reach it (composite, then group)                                                                                                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TypeScript | `compositeVMBase.ts` `dispose()` when `#membershipTransactionActive` or `#activeCurrentPublications > 0`. `groupVM.ts` `dispose()` when `#membershipTransactionActive`.                                                                                                               | `lifecycle.test.ts`: "refuses CompositeVM population when its construct hook's dispose is deferred by a publication", and "refuses GroupVM population when its construct hook's dispose is deferred by a membership transaction"    |
+| Python     | `composite_vm.py` `dispose()` when `get_ident()` is in `_current_publication_threads`, or, after the foreign-transaction wait, when `_membership_transaction_active` or `_active_current_publications > 0`. `group_vm.py` `dispose()` when `_membership_transaction_active`.          | `test_composite_vm.py`: `test_LIFE_015_deferred_dispose_in_hook_refuses_population_attach`; `test_group_vm.py`: `test_LIFE_015_deferred_group_dispose_in_hook_refuses_population_attach`                                            |
+| C#         | `CompositeVMBase.cs` `Dispose()` when the thread is in `_currentPublicationThreads`, or, after the foreign-transaction wait, when `_membershipTransactionActive` or `_activeCurrentPublications > 0`. `GroupVMBase.cs` `Dispose()` when `_membershipTransactionActive`.               | `CompositeVMConformanceTests.cs`: `LIFE_015_Deferred_Dispose_In_Hook_Refuses_Population_Attach`; `GroupVMConformanceTests.cs`: `LIFE_015_Deferred_Group_Dispose_In_Hook_Refuses_Population_Attach`                                  |
+| Swift      | `CompositeVM.swift` `dispose()` when the caller holds a publication lease or owns the membership transaction, or when `activeCurrentPublications > 0`. Another thread's transaction is waited for first. `GroupVM.swift` `dispose()` when the caller owns the membership transaction. | `ContainerHookDisposalTests.swift`: `testDeferredDisposeInsideOwnHookRefusesPopulationAttach`; `testDeferredGroupDisposeInsideOwnHookRefusesPopulationAttach`                                                                       |
+| Rust       | `composites.rs` `dispose()` and `groups.rs` `dispose()` when `dispose_disposition()` returns `Owned` or `PublishingThread` (`runtime.rs`). A composite also defers while a publication of any thread is open (`defer_while_publishing`).                                              | `container_hook_disposal.rs`: `deferred_composite_dispose_in_hook_refuses_population_attach`; `deferred_composite_membership_dispose_in_hook_refuses_population_attach`; `deferred_group_dispose_in_hook_refuses_population_attach` |
 
 **The refusal.** Every flavor refuses the population of a deferred dispose with its disposing
-error, except Rust's composite when a membership transaction defers the dispose:
+error:
 
-| Flavor         | Deferred by a publication                                                            | Deferred by a membership transaction       |
-| -------------- | ------------------------------------------------------------------------------------ | ------------------------------------------ |
-| TypeScript     | `Error`: `Cannot attach a child while the container is disposing`                    | same                                       |
-| Python         | `RuntimeError`: `cannot attach a child while the container is disposing`             | same                                       |
-| C#             | `ObjectDisposedException`: `Cannot attach a child while the container is disposing.` | same                                       |
-| Swift          | `ContainerOwnershipError.attachmentFailed`                                           | same                                       |
-| Rust composite | `VmxError::Disposed`                                                                 | `VmxError::OwnershipTransactionInProgress` |
-| Rust group     | not reachable (groups have no publication)                                           | `VmxError::Disposed`                       |
+| Flavor         | Deferred by a publication                                                            | Deferred by a membership transaction |
+| -------------- | ------------------------------------------------------------------------------------ | ------------------------------------ |
+| TypeScript     | `Error`: `Cannot attach a child while the container is disposing`                    | same                                 |
+| Python         | `RuntimeError`: `cannot attach a child while the container is disposing`             | same                                 |
+| C#             | `ObjectDisposedException`: `Cannot attach a child while the container is disposing.` | same                                 |
+| Swift          | `ContainerOwnershipError.attachmentFailed`                                           | same                                 |
+| Rust composite | `VmxError::Disposed`                                                                 | same                                 |
+| Rust group     | not reachable (groups have no publication)                                           | `VmxError::Disposed`                 |
 
-In Rust, a composite's population begins a membership transaction in `attach_population`
-(`composites.rs`) before it checks for disposal. When a membership transaction defers the dispose,
-that transaction is still open, so the begin fails first and the composite returns
-`OwnershipTransactionInProgress`. A publication holds no transaction, so the disposal check is
-reached and returns `Disposed`. A group's population checks the deferred dispose in
-`GroupVm::populate` (`groups.rs`) before it begins its transaction, so a membership-deferred
-dispose returns `Disposed` there as well. §3.5 records that change and the composite case that
-remains.
+In Rust, `CompositeVm::populate` (`composites.rs`) and `GroupVm::populate` (`groups.rs`) check the
+deferred dispose after the children factory call and before `attach_population` begins its
+membership transaction. So a dispose that a membership transaction or a publication defers returns
+`Disposed` from either population. §3.5 records the change.
 
-The other flavors check disposal before they begin a transaction, so the membership column holds
-for their composites as well. The code shows it: TypeScript `#requireChildAdmission`, Python
-`_require_child_admission`, C# `EnsureChildAdmission` and Swift `beginMembershipTransactionLocked`.
-The tests cover the group case there, not the composite case.
+Every flavor checks disposal before it begins a transaction, so the membership column holds for
+every composite. The code shows it: TypeScript `#requireChildAdmission`, Python
+`_require_child_admission`, C# `EnsureChildAdmission`, Swift `beginMembershipTransactionLocked`, and
+Rust `CompositeVm::populate` and `GroupVm::populate`. The tests cover the group's membership case in
+every flavor. The composite's membership case is tested in Rust by
+`deferred_composite_membership_dispose_in_hook_refuses_population_attach`.
 
 The reachability was checked by running the public API. The TypeScript probe gave the same
 deferred result on develop and on this branch: one factory call, the disposing error, and status
-`Disposed`. The Rust membership results in the table above were observed the same way: the
-composite refuses with `OwnershipTransactionInProgress`, and the group with `Disposed`, each after
-one factory call. The Python populated cases in §2.5 were observed too.
+`Disposed`. The Rust membership results were observed the same way on this branch, before the
+composite change: the composite refused with `OwnershipTransactionInProgress`, and the group with
+`Disposed`, each after one factory call. The Python populated cases in §2.5 were observed too.
 
 **The guards before and after this ADR:**
 
-| Flavor         | Guard that gates population in the construct hook                                                                                                                                             | Deferred case before this ADR                                                 | Deferred case after this ADR                                                                                                    |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| TypeScript     | `#disposeRequested` and `Disposed`, in `CompositeVMBase._onConstruct` (`compositeVMBase.ts` line 640) and `GroupVM._onConstruct` (`groupVM.ts` line 412). Before this ADR there was no guard. | Factory once, attach throws                                                   | Unchanged: factory once, attach throws                                                                                          |
-| Rust composite | `CompositeVm::populate` (`composites.rs` line 1604): `dispose_requested` and `Disposed`                                                                                                       | Publication: no factory call, `Ok(())`. Membership: no factory call, `Ok(())` | Publication: factory once, `Err(VmxError::Disposed)`. Membership: factory once, `Err(VmxError::OwnershipTransactionInProgress)` |
-| Rust group     | `GroupVm::populate` (`groups.rs` line 906): `dispose_requested` and `Disposed`                                                                                                                | Membership: factory once, `Err(OwnershipTransactionInProgress)`               | Membership: factory once, `Err(VmxError::Disposed)`. Other cases unchanged                                                      |
-| C#             | `DisposalStarted()` (requested or Disposed): `CompositeVMBase.cs` line 1404 and `GroupVMBase.cs` line 588                                                                                     | Factory once, attach throws                                                   | Unchanged                                                                                                                       |
-| Python         | `_population_superseded()` (requested or Disposed), reached only while not populated: `composite_vm.py` lines 882 to 884 and `group_vm.py` line 534                                           | Factory once, attach raises                                                   | Unchanged                                                                                                                       |
-| Swift          | `_isDisposalRequested()` (requested or Disposed): `CompositeVM.swift` line 875 and `GroupVM.swift` line 651                                                                                   | Factory once, attach throws                                                   | Unchanged                                                                                                                       |
+| Flavor         | Guard that gates population in the construct hook                                                                                                                                             | Deferred case before this ADR                                                 | Deferred case after this ADR                                                                              |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| TypeScript     | `#disposeRequested` and `Disposed`, in `CompositeVMBase._onConstruct` (`compositeVMBase.ts` line 640) and `GroupVM._onConstruct` (`groupVM.ts` line 412). Before this ADR there was no guard. | Factory once, attach throws                                                   | Unchanged: factory once, attach throws                                                                    |
+| Rust composite | `CompositeVm::populate` (`composites.rs` line 1604): `dispose_requested` and `Disposed`                                                                                                       | Publication: no factory call, `Ok(())`. Membership: no factory call, `Ok(())` | Publication: factory once, `Err(VmxError::Disposed)`. Membership: factory once, `Err(VmxError::Disposed)` |
+| Rust group     | `GroupVm::populate` (`groups.rs` line 906): `dispose_requested` and `Disposed`                                                                                                                | Membership: factory once, `Err(OwnershipTransactionInProgress)`               | Membership: factory once, `Err(VmxError::Disposed)`. Other cases unchanged                                |
+| C#             | `DisposalStarted()` (requested or Disposed): `CompositeVMBase.cs` line 1404 and `GroupVMBase.cs` line 588                                                                                     | Factory once, attach throws                                                   | Unchanged                                                                                                 |
+| Python         | `_population_superseded()` (requested or Disposed), reached only while not populated: `composite_vm.py` lines 882 to 884 and `group_vm.py` line 534                                           | Factory once, attach raises                                                   | Unchanged                                                                                                 |
+| Swift          | `_isDisposalRequested()` (requested or Disposed): `CompositeVM.swift` line 875 and `GroupVM.swift` line 651                                                                                   | Factory once, attach throws                                                   | Unchanged                                                                                                 |
 
 The change has three guard edits: two in TypeScript (`CompositeVMBase` and `GroupVM`) and one in
-Rust (`CompositeVm::populate`). `CompositeVm::populate` in Rust now checks only the admitted flag
-and the `Disposed` status, as `GroupVm::populate` already did. The TypeScript guards check the same
+Rust (`CompositeVm::populate`). `CompositeVm::populate` in Rust checks only the admitted flag and
+the `Disposed` status, as `GroupVm::populate` already does. Its refusal of a deferred dispose comes
+after the factory call, as described below. The TypeScript guards check the same
 two conditions. They are new in this change, so the admitted case changes. The deferred case in
 TypeScript does not change, because the guards do not test the deferred flag. The other flavors'
 guards are unchanged.
 
-`GroupVm::populate` keeps its guard and gains a refusal. After the children factory call, a
-deferred dispose returns `Err(VmxError::Disposed)` before `attach_population` begins the
-membership transaction. This is not a supersession: the factory still runs once, and the refusal is
-the disposing error that the rule requires. The admitted case is unchanged.
+`GroupVm::populate` and `CompositeVm::populate` keep their guard and gain a refusal. After the
+children factory call, a deferred dispose returns `Err(VmxError::Disposed)` before
+`attach_population` begins the membership transaction. This is not a supersession: the factory still
+runs once, and the refusal is the disposing error that the rule requires. The admitted case is
+unchanged.
 
 **The choice.** The uniform rule is the admitted-flag rule in §2.1. It was recorded for three
 reasons:
@@ -232,8 +231,7 @@ reasons:
 The attach refusal applies to a deferred dispose in every flavor, so population refuses it the
 same way. The error type is idiomatic per flavor: `ObjectDisposedException` in C#,
 `RuntimeError` in Python, `ContainerOwnershipError.attachmentFailed` in Swift, `VmxError::Disposed`
-or `VmxError::OwnershipTransactionInProgress` in Rust (the table above), and `Error` with the
-message `Cannot attach a child while the container is disposing` in TypeScript.
+in Rust (the table above), and `Error` with the message `Cannot attach a child while the container is disposing` in TypeScript.
 
 ### 2.5 Behavior that does not change, and the populated cases
 
@@ -275,8 +273,9 @@ message `Cannot attach a child while the container is disposing` in TypeScript.
 - **Rust.** `CompositeVm::populate` (`composites.rs` line 1604) checks `dispose_requested` and the
   `Disposed` status, as `GroupVm::populate` does. A dispose deferred by a publication now returns
   `Err(VmxError::Disposed)` from `construct()`, after one factory call. A dispose deferred by a
-  membership transaction now returns `Err(VmxError::OwnershipTransactionInProgress)`, after one
-  factory call. Before, both returned `Ok(())` without calling the factory. `GroupVm::populate`
+  membership transaction now also returns `Err(VmxError::Disposed)`, after one factory call and
+  before its transaction begins, as the group does (§2.4). Before, both returned `Ok(())` without
+  calling the factory. `GroupVm::populate`
   (`groups.rs` line 906) refuses a dispose deferred by a membership transaction with
   `Err(VmxError::Disposed)`, after one factory call and before its transaction begins. Before, it
   returned `Err(VmxError::OwnershipTransactionInProgress)`. No public member changes.
@@ -339,31 +338,29 @@ discards it.
   is new and asserts `Err(VmxError::Disposed)`. `deferred_group_dispose_in_hook_refuses_population_attach`
   is new. It asserts `Err(VmxError::Disposed)`, because the group checks the deferred dispose
   before its population transaction begins (§2.4). It also asserts one factory call and status
-  `Disposed`. The composite's membership case has no test in this PR.
+  `Disposed`. `deferred_composite_membership_dispose_in_hook_refuses_population_attach` is new too.
+  It asserts `Err(VmxError::Disposed)`, one factory call and status `Disposed`, because the composite
+  checks the deferred dispose before its population transaction begins (§2.4).
 
 ### 3.4 Changelog
 
 The TypeScript changelog's `Fixed` entry describes the admitted supersession only. The deferred
-case did not change in TypeScript. The Rust changelog's `Fixed` entry for the deferred
-composite case names both error variants. A second bullet in that entry covers the group's
-membership refusal. The C#, Python and Swift changelogs each get an
+case did not change in TypeScript. The Rust changelog's `Fixed` entry is one bullet for the
+composite and the group. Its deferred refusals all return `VmxError::Disposed`, and the bullet
+states the before-state of each. The C#, Python and Swift changelogs each get an
 `Added` entry for their test changes, under their current `unreleased source version` headings,
 and each now also names the GroupVM deferred test. No other package changes.
 
-### 3.5 Open decision and registry gap
+### 3.5 Resolved decision and registry gap
 
-- **Rust membership-transaction refusal: resolved for the group, open for the composite.** A
-  dispose deferred by a membership transaction during the group's construct hook now returns
-  `Err(VmxError::Disposed)` from `construct()`, after one factory call. `GroupVm::populate`
-  (`groups.rs`) checks the deferred dispose before it begins its transaction, and the attach keeps
-  its own check. Before, the group's transaction began first, and the call returned
-  `OwnershipTransactionInProgress`. The group test asserts `Disposed`. The composite is not changed
-  by this ADR. `CompositeVm::populate` still begins its transaction in `attach_population`, so a
-  dispose deferred by a membership transaction still returns `OwnershipTransactionInProgress`
-  (§2.4), and the composite's membership case does not meet the rule in §2.1. Two options remain,
-  as before, and the owner has to choose one: move the composite's disposal check ahead of its
-  transaction, a Rust library change of the same kind as the group's, or keep the error and amend
-  the spec clause to name it.
+- **Rust membership-transaction refusal: resolved for the composite and the group.** A dispose
+  deferred by a membership transaction during a composite's or a group's construct hook now returns
+  `Err(VmxError::Disposed)` from `construct()`, after one factory call. `CompositeVm::populate` and
+  `GroupVm::populate` check the deferred dispose before `attach_population` begins its transaction,
+  and the attach keeps its own check. Before, each population's transaction began first, and the
+  composite and the group both returned `OwnershipTransactionInProgress`. The composite and group
+  tests assert `Disposed`. All five flavors now refuse a deferred dispose with their disposing error
+  (§2.4).
 - **Registry gap.** The number 0251 is held by open PR #2236 (ADR-0251, #1917), which is not on
   develop yet. So the registry goes from 0250 to 0252 until that PR merges. This ADR does not depend
   on ADR-0251.
@@ -381,9 +378,11 @@ and each now also names the GroupVM deferred test. No other package changes.
   fails "refuses CompositeVM population when its construct hook's dispose is deferred by a
   publication". Adding it to the `GroupVM` guard fails "refuses GroupVM population when its
   construct hook's dispose is deferred by a membership transaction".
-- Mutation, Rust composite: adding `disposal_pending()` to `CompositeVm::populate` fails
-  `deferred_composite_dispose_in_hook_refuses_population_attach` with `left: Some(Ok(()))` and
-  `right: Some(Err(Disposed))`.
+- Mutation, Rust composite: removing the deferred check from `CompositeVm::populate`, which
+  restores the order before the composite change, fails
+  `deferred_composite_membership_dispose_in_hook_refuses_population_attach` with
+  `left: Some(Err(OwnershipTransactionInProgress))` and `right: Some(Err(Disposed))`. The
+  publication test still passes, because the attach refuses a publication-deferred dispose.
 - Mutation, Rust group: removing the deferred check from `GroupVm::populate`, which restores the
   order before this change, fails `deferred_group_dispose_in_hook_refuses_population_attach` with
   `left: Some(Err(OwnershipTransactionInProgress))` and `right: Some(Err(Disposed))`. This is the

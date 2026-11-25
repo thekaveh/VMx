@@ -60,19 +60,15 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   child reads and the factory error rule (ADR-0170) are unchanged (spec/13,
   #1912).
 
-- A `CompositeVm` whose construct hook's dispose is deferred now calls its
-  children factory once, and `construct()` returns the attach refusal. A dispose
-  deferred by a current publication returns `Err(VmxError::Disposed)`. A dispose
-  deferred by a membership transaction returns
-  `Err(VmxError::OwnershipTransactionInProgress)`, because the population's
-  transaction is refused first. Before, population was skipped and `construct()`
-  returned `Ok(())`. Only an admitted dispose supersedes the construct hook, as in
-  the other flavors (ADR-0252, #1805, `LIFE-015`).
-
-- A `GroupVm` whose construct hook's dispose is deferred by a membership
-  transaction now returns `Err(VmxError::Disposed)` from `construct()`, as a
-  composite's publication-deferred dispose does, instead of
-  `Err(VmxError::OwnershipTransactionInProgress)` (ADR-0252, #1805, `LIFE-015`).
+- A `CompositeVm` or `GroupVm` whose construct hook's dispose is deferred now
+  calls its children factory once, and `construct()` returns
+  `Err(VmxError::Disposed)`, the disposing error, for a dispose deferred by a
+  membership transaction or, for a composite, by a current publication. Before,
+  a composite's deferred population was skipped and `construct()` returned
+  `Ok(())`, and a group's membership deferral returned
+  `Err(VmxError::OwnershipTransactionInProgress)`. Only an admitted dispose
+  supersedes the construct hook, as in the other flavors (ADR-0252, #1805,
+  `LIFE-015`).
 
 - `HierarchicalVm::invalidate_subtree()` no longer recurses once per tree level,
   so a deep materialized chain no longer overflows the thread's stack. Every

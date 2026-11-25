@@ -718,6 +718,69 @@ fn deferred_composite_dispose_in_hook_refuses_population_attach() {
     assert_eq!(container.status(), ConstructionStatus::Disposed);
 }
 
+/// LIFE-015 (ADR-0252 §2.4) — the same for a built `CompositeVm`, with the
+/// dispose deferred by a membership transaction. The composite's add opens the
+/// transaction, and its collection-changed message reaches the subscriber
+/// inside it. Population checks the deferred dispose before it begins its own
+/// membership transaction (`composites.rs` `CompositeVm::populate`), so the
+/// population is refused with `VmxError::Disposed`, as the publication case is.
+/// Nothing attaches, and the deferred disposal completes when the add's
+/// transaction ends.
+#[test]
+fn deferred_composite_membership_dispose_in_hook_refuses_population_attach() {
+    let hub = MessageHub::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let child_hub = hub.clone();
+    let container = CompositeVm::<ComponentVm>::builder()
+        .name("container")
+        .services(hub.clone(), NullDispatcher::new())
+        .children({
+            let calls = Arc::clone(&calls);
+            move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                vec![ComponentVm::with_services(
+                    "late",
+                    child_hub.clone(),
+                    NullDispatcher::new(),
+                )]
+            }
+        })
+        .build()
+        .unwrap();
+    let handle = container.clone();
+    container.on_construct(move || handle.dispose());
+    let notifications = Arc::new(AtomicUsize::new(0));
+    let outcome: Arc<Mutex<Option<VmxResult<()>>>> = Arc::default();
+    // The add's collection-changed message is delivered inside its membership transaction.
+    let _subscription = container.collection_changed().subscribe({
+        let handle = container.clone();
+        let notifications = Arc::clone(&notifications);
+        let outcome = Arc::clone(&outcome);
+        move |_message: &Message| {
+            if notifications.fetch_add(1, Ordering::SeqCst) > 0 {
+                return;
+            }
+            *outcome.lock().unwrap() = Some(handle.construct());
+        }
+    });
+    let kept = ComponentVm::with_services("kept", hub.clone(), NullDispatcher::new());
+
+    container.add(kept).unwrap();
+
+    assert_eq!(
+        outcome.lock().unwrap().take(),
+        Some(Err(VmxError::Disposed)),
+        "the deferred disposal refuses the population attach"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "a deferred disposal does not skip population"
+    );
+    assert_eq!(container.len(), 1);
+    assert_eq!(container.status(), ConstructionStatus::Disposed);
+}
+
 /// LIFE-015 — the same for a built `GroupVm` (ADR-0218 rule 5).
 #[test]
 fn superseded_group_construct_calls_no_factory() {

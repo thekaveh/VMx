@@ -191,8 +191,8 @@ publication of the container defers is not admitted yet, so it does not
 supersede the hook. For a container whose population has not run, population
 runs, and its attach is refused with the disposing error (ADR-0252 §2.4). The
 attach refusal is stated here and in `LIFE-015`; no chapter 06 rule states it.
-In Rust, a composite whose deferral comes from a membership transaction is refused with
-`OwnershipTransactionInProgress` instead (ADR-0252 §2.4). A container that is
+In Rust, a composite or group whose deferral comes from a membership transaction is
+refused with the disposing error, `VmxError::Disposed` (ADR-0252 §2.4). A container that is
 already populated does not run population again, and its walk constructs the
 children that exist (ADR-0252 §2.5). The `construct()` that an admitted dispose
 superseded returns without an error, as §7.2 says for a superseded call
