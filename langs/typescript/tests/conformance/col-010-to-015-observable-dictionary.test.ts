@@ -219,6 +219,16 @@ describe("COL-013", () => {
 
     // Key2=2 disappeared when ("alpha",2) was removed
     expect(keys2Removed).toContain(2);
+
+    // Catalog scenario on a fresh dictionary: key2 leaves while key1 stays.
+    // The dictionary above keeps key2=1 alive through ("beta", 1), so the
+    // catalog values are asserted on their own dictionary.
+    const catalog = new ObservableDictionary<string, number, string>();
+    catalog.set("a", 1, "x");
+    catalog.set("a", 2, "y");
+    catalog.delete("a", 1);
+    expect([...catalog.keys1]).toEqual(["a"]);
+    expect([...catalog.keys2]).toEqual([2]);
   });
 });
 

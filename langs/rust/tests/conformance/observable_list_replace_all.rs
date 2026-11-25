@@ -44,6 +44,7 @@ fn replace_all_growth_emits_reset_and_count() {
 fn replace_all_shrink_emits_reset_and_count() {
     let (list, recorder, start) = populated(&[1, 2, 3]);
     list.replace_all([9]);
+    assert_eq!(list.to_vec(), vec![9]);
     assert_eq!(changes_since(&recorder, start), vec!["reset", "Count"]);
 }
 
@@ -107,6 +108,18 @@ fn replace_all_nested_batch_coalesces() {
         assert!(changes_since(&recorder, start).is_empty());
     });
     assert_eq!(changes_since(&recorder, start), vec!["reset", "Count"]);
+}
+
+/// COL-045 — equal-cardinality replacement in a batch emits only the outermost Reset.
+#[test]
+fn replace_all_nested_batch_equal_cardinality_emits_only_reset() {
+    let (list, recorder, start) = populated(&[1, 2]);
+    list.batch_update(|| {
+        list.replace_all([3, 4]);
+        assert!(changes_since(&recorder, start).is_empty());
+    });
+    assert_eq!(changes_since(&recorder, start), vec!["reset"]);
+    assert_eq!(list.to_vec(), vec![3, 4]);
 }
 
 /// COL-046 — panic exit restores batch depth and publishes the mutation.
