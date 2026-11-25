@@ -175,16 +175,19 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   the `get` and `to_vec` of `ServicedObservableCollection` and
   `KeyedServicedObservableCollection`, and `PagedComposition::current_page` runs
   with no owner lock held. Before, a `Clone` that read its own collection or
-  pager, or that waited for another thread to write it, deadlocked, because the
-  read cloned under the lock (#1925). The three collections store each item
-  behind an `Arc`, so a write that copies a snapshot copies pointers and runs no
-  user `Clone` under the lock. Documented residuals (#1925):
-  `PagedComposition` keeps one lock per item, so removing an item whose clone is
-  in flight waits for that clone, and a `Clone` must not remove its own item from
-  its own pager. The wait keeps `Send` and `Sync` for a `Send`-only item.
-  Composite membership changes clone a removed or replaced child under the
-  membership gate when a read still holds it. `AsyncResourceVm` is not changed.
-  The regression tests are `read_clone_outside_lock.rs`.
+  pager, or that waited for another thread to write a collection, deadlocked,
+  because the read cloned under the lock (#1925). The three collections store
+  each item behind an `Arc`, so a write that copies a snapshot copies pointers
+  and runs no user `Clone` under the lock. `PagedComposition` keeps one lock per
+  item, which keeps `Send` and `Sync` for a `Send`-only item, so a `current_page`
+  clone still runs with that item's lock held. Documented residuals (#1925, not
+  fixed): a `Clone` of an item can delay a `remove_at` of that same item on
+  another thread until the clone returns, and a removal of a different item does
+  not wait. A `Clone` must not read the page that holds its own item, and must
+  not remove its own item from its pager. Composite membership changes clone a
+  removed or replaced child under the membership gate when a read still holds
+  it. `AsyncResourceVm` is not changed. The regression tests are
+  `read_clone_outside_lock.rs`.
 
 ## [0.36.0] — unreleased source version
 

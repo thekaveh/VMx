@@ -274,7 +274,9 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     /// A removal clamps the current page and publishes the source change. A
     /// missing index changes and publishes nothing. After `dispose`, the call
     /// removes nothing and returns `None`. The item leaves the source under the
-    /// pager lock, and its value is returned after that lock is released.
+    /// pager lock. The change is published before the value is taken (publish,
+    /// then take_value), so observers see the removal before the wait described
+    /// below ends. The value is returned after that wait.
     ///
     /// Removing an item whose clone is in flight waits for that clone to
     /// finish, then returns. It waits for no other item. A `Clone` must not
@@ -322,15 +324,18 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     /// Returns a snapshot of the items in the current page.
     ///
     /// The items are cloned after the pager lock is released, so an item's
-    /// `Clone` may read this pager or wait for another thread to write it.
+    /// `Clone` does not run under the pager lock. Each item's own lock is held
+    /// while that item is cloned, which gives two limits:
     ///
-    /// Each item's own lock is held while that item is cloned. A read therefore
-    /// waits for a clone of the same item that is in flight on another thread.
-    /// A `Clone` must not read the page that holds its own item, and it must not
-    /// remove its own item from this pager (see [`remove_at`](Self::remove_at)):
-    /// on the same thread, either call waits for the lock that the clone holds.
-    /// The wait is the cost of keeping `Send` and `Sync` for a `Send`-only item,
-    /// which needs one lock per item (#1925).
+    /// - A `Clone` must not read the page that holds its own item, and it must
+    ///   not remove its own item (see [`remove_at`](Self::remove_at)). On the
+    ///   same thread, either call waits for the item lock that the clone already
+    ///   holds, and it does not return.
+    /// - A `Clone` of an item can delay a [`remove_at`](Self::remove_at) of that
+    ///   same item on another thread until the clone returns. A removal of a
+    ///   different item does not wait for it. The wait is the cost of keeping
+    ///   `Send` and `Sync` for a `Send`-only item, which needs one lock per item
+    ///   (#1925).
     pub fn current_page(&self) -> Vec<T> {
         let handles = self.core.page_handles();
         handles.iter().map(|handle| clone_locked(handle)).collect()
