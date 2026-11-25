@@ -77,6 +77,15 @@ describe("BLD-003", () => {
     expect(vmA.name).toBe(vmB.name);
     expect(vmA.hint).toBe(vmB.hint);
     expect(vmA.type).toBe(vmB.type);
+
+    // Catalog BLD-003, modeled variants: vmA.Model == vmB.Model.
+    const modeled = ComponentVMOf.builder<string>().name("m").model("init").services(hub, disp);
+    const modeledA = modeled.build();
+    const modeledB = modeled.build();
+
+    expect(modeledA).not.toBe(modeledB);
+    expect(modeledA.model).toBe(modeledB.model);
+    expect(modeledA.model).toBe("init");
   });
 });
 
