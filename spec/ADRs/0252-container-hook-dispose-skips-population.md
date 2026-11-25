@@ -145,7 +145,9 @@ and it fails without this sentence. The recent ADR-0248 to ADR-0250 pull request
 
 ### 3.3 Tests
 
-The same-thread `LIFE-015` tests of all five flavors changed, as follows.
+The same-thread `LIFE-015` tests of all five flavors now assert the `construct()` outcome. Four
+flavors changed a test. The Rust test already asserted the outcome, so it is unchanged. The
+changes are:
 
 - **TypeScript.** Three new tests under `describe("LIFE-015")` in `lifecycle.test.ts` cover
   `CompositeVM`, `CompositeVMOf` and `GroupVM`. Each disposes its container in the construct
