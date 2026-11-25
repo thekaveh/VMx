@@ -181,6 +181,8 @@ final class KeyedServicedObservableCollectionTests: XCTestCase {
         let b = KeyedItem("b", "b")
         let secondA = KeyedItem("c", "equal")
         try [firstA, b, secondA].forEach(sut.append)
+        var localActions: [CollectionChangedAction] = []
+        sut.collectionChanged.sink { localActions.append($0.action) }.store(in: &cancellables)
 
         firstA.key = "b"
         XCTAssertThrowsError(try sut.replace(at: 0, with: firstA)) {
@@ -197,7 +199,10 @@ final class KeyedServicedObservableCollectionTests: XCTestCase {
         XCTAssertTrue(sut.get("c") === secondA)
 
         secondA.key = "d"
+        let localBeforeRekey = localActions.count
         try sut.replace(at: 0, with: secondA)
+        XCTAssertEqual(localActions.count, localBeforeRekey + 1)
+        XCTAssertEqual(localActions.last, .replace)
         XCTAssertNil(sut.get("c"))
         XCTAssertTrue(sut.get("d") === secondA)
 
@@ -297,22 +302,57 @@ final class KeyedServicedObservableCollectionTests: XCTestCase {
 
     /// COL-062 — move, clear, removeLast, and value removal preserve keys and ownership.
     func testCOL062ConveniencesPreserveInvariantsAndOwnership() throws {
-        let sut = makeCollection()
+        let hub = MessageHub()
+        let sut = makeCollection(hub: hub)
         let a = KeyedItem("a", "a")
         let b = KeyedItem("b", "b")
         let c = KeyedItem("c", "c")
         try [a, b, c].forEach(sut.append)
-        var actions: [CollectionChangedAction] = []
-        sut.collectionChanged.sink { actions.append($0.action) }.store(in: &cancellables)
+        var localActions: [CollectionChangedAction] = []
+        var localMovePositions: [String] = []
+        sut.collectionChanged.sink { message in
+            localActions.append(message.action)
+            if message.action == .move {
+                localMovePositions.append("\(message.oldIndex)->\(message.newIndex)")
+            }
+        }.store(in: &cancellables)
+        var hubActions: [CollectionChangedAction] = []
+        var hubMovePositions: [String] = []
+        hub.messages.compactMap { $0 as? CollectionChangedMessage<KeyedItem> }
+            .sink { message in
+                hubActions.append(message.action)
+                if message.action == .move {
+                    hubMovePositions.append("\(message.oldIndex)->\(message.newIndex)")
+                }
+            }
+            .store(in: &cancellables)
 
         try sut.move(from: 0, to: 2)
         XCTAssertTrue(sut.get("a") === a && sut.at(2) === a)
+        XCTAssertEqual(localMovePositions, ["0->2"])
+        XCTAssertEqual(hubMovePositions, ["0->2"])
+
+        // An equal-index move sends nothing on either channel.
+        let localBeforeNoop = localActions.count
+        let hubBeforeNoop = hubActions.count
+        try sut.move(from: 1, to: 1)
+        XCTAssertEqual(localActions.count, localBeforeNoop)
+        XCTAssertEqual(hubActions.count, hubBeforeNoop)
+
         XCTAssertTrue(sut.remove(b))
         XCTAssertTrue(sut.removeLast() === a)
         sut.clear()
-        sut.clear()
+        XCTAssertEqual(localActions.last, .reset)
 
-        XCTAssertEqual(actions, [.move, .remove, .remove, .reset])
+        // An empty clear sends nothing on either channel.
+        let localBeforeEmptyClear = localActions.count
+        let hubBeforeEmptyClear = hubActions.count
+        sut.clear()
+        XCTAssertEqual(localActions.count, localBeforeEmptyClear)
+        XCTAssertEqual(hubActions.count, hubBeforeEmptyClear)
+
+        XCTAssertEqual(localActions, [.move, .remove, .remove, .reset])
+        XCTAssertEqual(hubActions, [.move, .remove, .remove, .reset])
         XCTAssertEqual(sut.count, 0)
         XCTAssertFalse(["a", "b", "c"].contains(where: sut.containsKey))
         XCTAssertTrue([a, b, c].allSatisfy { $0.lifecycleCalls == 0 })
