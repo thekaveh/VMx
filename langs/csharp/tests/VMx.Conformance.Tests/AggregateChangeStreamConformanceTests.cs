@@ -575,6 +575,17 @@ public sealed class AggregateChangeStreamConformanceTests
             () => completionCount++);
         Assert.Throws<DeliveryException>(completionItem.Changes.Emit);
         Assert.Equal(1, completionCount);
+
+        var silentItem = new TestItem("silent");
+        var silentSource = new TestSource<TestItem>(silentItem);
+        var silentAggregate = CreateAggregate(silentSource);
+        var silentChanges = new List<AggregateChange<TestItem>>();
+        using var silentObserver = silentAggregate.Observe().Subscribe(silentChanges.Add);
+        silentAggregate.Dispose();
+        silentAggregate.Dispose();
+        silentItem.Changes.Emit();
+        silentSource.Add(new TestItem("after-dispose"));
+        Assert.Empty(silentChanges);
     }
 
     [Fact, Trait("Conformance", "AGCH-011")]
@@ -604,7 +615,7 @@ public sealed class AggregateChangeStreamConformanceTests
 
     private static readonly int[] ResubscribedOrder = [0, 2, 3, 4, 1];
 
-    [Fact]
+    [Fact, Trait("Conformance", "AGCH-011")]
     public void AGCH_011_ResubscriptionReceivesEnvelopesLast()
     {
         var source = new TestSource<TestItem>(new TestItem("first"));

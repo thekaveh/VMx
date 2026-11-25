@@ -328,8 +328,10 @@ fn collect(
 /// AGCH-001 — optional initial delivery is atomic and subscriber-local
 #[test]
 fn aggregate_initial_is_subscriber_local_and_precedes_reentrant_work() {
-    let source = TestSource::new(vec![TestNode::new(1, "first")]);
+    let first = TestNode::new(1, "first");
+    let source = TestSource::new(vec![first.clone()]);
     let aggregate = aggregate(source.clone());
+    first.emit();
     let (plain, _plain_subscription) = collect(&aggregate, AggregateObserveOptions::default());
     let seeded = Arc::new(Mutex::new(Vec::new()));
     let seeded_capture = Arc::clone(&seeded);
@@ -352,6 +354,7 @@ fn aggregate_initial_is_subscriber_local_and_precedes_reentrant_work() {
         ]
     );
     assert_eq!(reasons(&plain), vec![AggregateChangeReason::Membership]);
+    assert!(!reasons(&seeded).contains(&AggregateChangeReason::Item));
     drop(subscription);
 }
 
@@ -776,6 +779,30 @@ fn aggregate_nested_exceptional_batch_preserves_body_panic() {
     assert_eq!(reasons(&changes).last(), Some(&AggregateChangeReason::Item));
 }
 
+/// AGCH-007 — a successful batch body whose final Batch delivery panics unwinds with the delivery panic
+#[test]
+fn aggregate_successful_batch_propagates_delivery_panic() {
+    let item = TestNode::new(12, "batched");
+    let source = TestSource::new(vec![item.clone()]);
+    let aggregate = aggregate(source.clone());
+    let (changes, _subscription) = collect(&aggregate, AggregateObserveOptions::default());
+    let _throwing = aggregate
+        .observe(AggregateObserveOptions::default())
+        .subscribe(|change| {
+            if change.reason == AggregateChangeReason::Batch {
+                panic!("delivery");
+            }
+        });
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        aggregate.batch(|| source.add(TestNode::new(13, "added")));
+    }));
+
+    let delivery = outcome.unwrap_err();
+    assert_eq!(delivery.downcast_ref::<&str>(), Some(&"delivery"));
+    assert_eq!(reasons(&changes), vec![AggregateChangeReason::Batch]);
+}
+
 /// AGCH-008 — empty batches are silent and Move preserves item observation
 #[test]
 fn aggregate_empty_batch_and_serviced_move_are_stable() {
@@ -921,15 +948,22 @@ fn aggregate_disposal_ownership_and_normal_adapters_are_bounded() {
     let aggregate = AggregateChangeStream::for_components(source.clone());
     let completions = Arc::new(Mutex::new(0));
     let completions_capture = Arc::clone(&completions);
+    let envelopes = Arc::new(Mutex::new(0));
+    let envelopes_capture = Arc::clone(&envelopes);
     let subscription = aggregate
         .observe(AggregateObserveOptions::default())
-        .subscribe_with_completion(|_| {}, move || *locked(&completions_capture) += 1);
+        .subscribe_with_completion(
+            move |_| *locked(&envelopes_capture) += 1,
+            move || *locked(&completions_capture) += 1,
+        );
 
     item.emit();
     aggregate.dispose();
     aggregate.dispose();
+    let envelopes_after_dispose = *locked(&envelopes);
     item.emit();
     source.add(TestNode::new(16, "ignored"));
+    assert_eq!(*locked(&envelopes), envelopes_after_dispose);
     assert_eq!(*locked(&completions), 1);
     assert_eq!(*locked(&item.dispose_count), 0);
     drop(subscription);

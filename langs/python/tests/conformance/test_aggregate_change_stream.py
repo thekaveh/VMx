@@ -182,6 +182,7 @@ def test_AGCH_001_initial_is_atomic_subscriber_local_and_has_no_replay() -> None
     first = Item("first")
     source = _TestSource(first)
     sut = aggregate(source)
+    first.changes.emit()
     plain: list[AggregateChange[Item]] = []
     seeded: list[AggregateChange[Item]] = []
     sut.observe().subscribe(plain.append)
@@ -198,6 +199,7 @@ def test_AGCH_001_initial_is_atomic_subscriber_local_and_has_no_replay() -> None
         AggregateChangeReason.MEMBERSHIP,
     ]
     assert [change.reason for change in plain] == [AggregateChangeReason.MEMBERSHIP]
+    assert AggregateChangeReason.ITEM not in [change.reason for change in seeded + plain]
     sut.dispose()
 
 
@@ -691,6 +693,18 @@ def test_AGCH_010_failures_disposal_ownership_and_observer_recovery_are_bounded(
     assert any(change.reason is AggregateChangeReason.ITEM for change in safe)
     recovery.dispose()
 
+    silent_item = Item("silent")
+    silent_source = _TestSource(silent_item)
+    silent = aggregate(silent_source)
+    silent_changes: list[AggregateChange[Item]] = []
+    silent.observe().subscribe(silent_changes.append)
+    silent.dispose()
+    silent.dispose()
+    silent_changes.clear()
+    silent_item.changes.emit()
+    silent_source.add(Item("after-dispose"))
+    assert silent_changes == [], "disposed source activity must reach no output subscriber"
+
 
 @pytest.mark.conformance("AGCH-011")
 def test_AGCH_011_subscribers_receive_each_envelope_in_subscription_order() -> None:
@@ -720,6 +734,7 @@ def test_AGCH_011_subscribers_receive_each_envelope_in_subscription_order() -> N
     assert order == [("completed", label) for label in range(5)]
 
 
+@pytest.mark.conformance("AGCH-011")
 def test_AGCH_011_resubscription_receives_last() -> None:
     source = _TestSource(Item("first"))
     sut = aggregate(source)

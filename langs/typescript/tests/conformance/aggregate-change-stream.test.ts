@@ -122,8 +122,10 @@ function reasons(changes: readonly AggregateChange<Item>[]): AggregateChangeReas
 
 describe("AGCH-001", () => {
   it("delivers an atomic subscriber-local initial seed without replay", () => {
-    const source = new TestSource(new Item("first"));
+    const first = new Item("first");
+    const source = new TestSource(first);
     const sut = aggregate(source);
+    first.changes.emit();
     const plain: AggregateChange<Item>[] = [];
     const seeded: AggregateChange<Item>[] = [];
     sut.observe().subscribe((change) => plain.push(change));
@@ -140,6 +142,7 @@ describe("AGCH-001", () => {
       AggregateChangeReason.Membership,
     ]);
     expect(reasons(plain)).toEqual([AggregateChangeReason.Membership]);
+    expect(reasons([...seeded, ...plain])).not.toContain(AggregateChangeReason.Item);
     sut.dispose();
   });
 });
@@ -646,7 +649,11 @@ describe("AGCH-010", () => {
     }
     ownedAggregate.dispose();
     ownedAggregate.dispose();
+    const envelopesBeforeDisposedActivity = safe.length + late.length;
+    owned.changes.emit();
+    reentrantAdded.changes.emit();
     ownedSource.add(new Item("ignored"));
+    expect(safe.length + late.length).toBe(envelopesBeforeDisposedActivity);
     expect(owned.disposeCount).toBe(0);
     expect(owned.changes.unsubscribeCount).toBe(1);
   });

@@ -5597,6 +5597,8 @@ to 4 in subscription order
 **When** the aggregate is disposed
 **Then** the five subscribers complete in the order 0, 1, 2, 3, 4, where the
 host convention supports completion
+**When** a subscriber cancels and subscribes again
+**Then** it is last in the order for each later envelope
 
 > Spec: `21-collections.md` §9.5, §9.6, and §9.7, ADR-0192.
 
