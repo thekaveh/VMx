@@ -30,6 +30,10 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   and `current_page_index` stays in `[0, max(0, page_count - 1)]`. Rust already
   met the rule: `set_source` clamps the index on every write, so no Rust code
   changed.
+- `NOTIF-021` conformance tests (ADR-0257, #1875). The expiry timeline holds with a
+  panicking Pending subscriber or hub resolve: the clock advance returns, the
+  notification resolves, and the `Post` waiter completes. The tests do not isolate
+  which catch contains the panic. No Rust code changed.
 - `DelayedTask`: a disposable helper that holds at most one delayed action on
   an injected scheduler. `schedule` replaces a pending action and restarts its
   delay, `cancel` stops it, `is_pending()` reports it, and disposal cancels it

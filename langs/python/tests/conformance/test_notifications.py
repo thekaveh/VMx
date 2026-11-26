@@ -1,11 +1,12 @@
-"""Conformance tests: NOTIF-001..020 — notification sub-package.
+"""Conformance tests: NOTIF-001..021 — notification sub-package.
 
-Per spec/16-notifications.md, ADR-0013, ADR-0031, ADR-0197.
+Per spec/16-notifications.md, ADR-0013, ADR-0031, ADR-0197, ADR-0257.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import timedelta
 from threading import Barrier, Thread
 from typing import Any
@@ -655,3 +656,170 @@ async def test_NOTIF_020_late_pending_subscription_receives_completion_only() ->
     # A subscriber with no error handler does not raise either.
     hub.pending.subscribe(on_next=values.append)
     assert values == []
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-021 — A timer or decay-tick failure is contained, and the decay keeps running
+# ---------------------------------------------------------------------------
+
+
+class _ResolveFailingHub(NotificationHub):
+    """A hub whose resolve raises, as a failing Pending subscriber makes it raise."""
+
+    def resolve(self, notification: Notification, reaction: NotificationReaction) -> None:
+        raise RuntimeError("hub resolve fails")
+
+
+@pytest.mark.conformance("NOTIF-021")
+async def test_NOTIF_021_expiry_with_failing_pending_subscriber_is_contained() -> None:
+    """A Pending subscriber that fails on the empty list does not stop auto-dismiss."""
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "expiring")
+    task = hub.post(notification)
+
+    def fail_when_empty(snapshot: list[Notification]) -> None:
+        if not snapshot:
+            raise RuntimeError("pending subscriber fails when the list is empty")
+
+    hub.pending.subscribe(on_next=fail_when_empty)
+    sut = NotificationVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=timedelta(seconds=10),
+    )
+    changed: list[str] = []
+    sut.property_changed.subscribe(on_next=changed.append)
+
+    scheduler.advance_by(10)  # must not raise into the caller
+
+    assert sut.is_resolved, "auto-dismissed at expiry"
+    assert "is_resolved" in changed, "the IsResolved change is raised"
+    assert await task == NotificationReaction.APPROVE, "the Post awaitable completed"
+    sut.dispose()
+    hub.dispose()
+
+
+@pytest.mark.conformance("NOTIF-021")
+async def test_NOTIF_021_decay_tick_with_failing_handler_keeps_decaying() -> None:
+    """A PropertyChanged handler that fails once does not stop the decay tick."""
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "fading")
+    hub.post(notification)
+    sut = NotificationVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=timedelta(seconds=10),
+        tick_interval=timedelta(seconds=1),
+    )
+    raised: list[str] = []
+    failed = False
+
+    def fail_once_on_remaining_time(name: str) -> None:
+        nonlocal failed
+        if name == "remaining_time" and not failed:
+            failed = True
+            raise RuntimeError("handler fails on the first RemainingTime change")
+
+    # The recording subscriber comes first, so it sees every change of each tick.
+    sut.property_changed.subscribe(on_next=raised.append)
+    sut.property_changed.subscribe(on_next=fail_once_on_remaining_time)
+
+    scheduler.advance_by(1)  # first tick: the handler fails; must not raise
+    raised.clear()
+    scheduler.advance_by(1)  # second tick: must still run
+
+    assert "remaining_time" in raised, "the second tick raises RemainingTime"
+    assert not sut.is_resolved, "the decay does not resolve the notification"
+    sut.dispose()
+    hub.dispose()
+
+
+@pytest.mark.conformance("NOTIF-021")
+async def test_NOTIF_021_auto_dismiss_raises_is_resolved_when_hub_resolve_fails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A hub resolve that fails at auto-dismiss still raises IsResolved, and is logged."""
+    scheduler = TestScheduler()
+    hub = _ResolveFailingHub()
+    notification = Notification(NotificationType.NOTIFICATION, "hub fails")
+    hub.post(notification)
+    sut = NotificationVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=timedelta(seconds=10),
+    )
+    changed: list[str] = []
+    sut.property_changed.subscribe(on_next=changed.append)
+
+    with caplog.at_level(logging.ERROR):
+        scheduler.advance_by(10)  # the hub failure does not reach the scheduler
+
+    assert sut.is_resolved, "auto-dismissed at expiry"
+    assert changed == ["is_resolved", "remaining_time", "opacity"], "the timeline is raised"
+    assert any(record.exc_info is not None for record in caplog.records), "failure is logged"
+    sut.dispose()
+    hub.dispose()
+
+
+@pytest.mark.conformance("NOTIF-021")
+async def test_notif021_is_resolved_handler_failure_at_auto_dismiss_is_contained() -> None:
+    """A PropertyChanged handler that fails on IsResolved does not reach the scheduler."""
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "handler fails")
+    task = hub.post(notification)
+    lifespan = timedelta(seconds=10)
+    sut = NotificationVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=lifespan,
+    )
+    recorded: list[str] = []
+
+    def record_and_fail_on_is_resolved(name: str) -> None:
+        recorded.append(name)
+        if name == "is_resolved":
+            raise RuntimeError("is_resolved handler failure")
+
+    sut.property_changed.subscribe(on_next=record_and_fail_on_is_resolved)
+
+    scheduler.advance_by(lifespan)  # must not raise into the caller
+
+    assert sut.is_resolved, "auto-dismissed at expiry"
+    assert "is_resolved" in recorded, "the handler ran on the IsResolved change"
+    assert await task == NotificationReaction.APPROVE, "the Post awaitable completed"
+    sut.dispose()
+    hub.dispose()
+
+
+class _OnExpireFailingVM(NotificationVM):
+    """A subclass whose _on_expire override fails; only the default auto-dismiss is contained."""
+
+    def _on_expire(self) -> None:
+        raise RuntimeError("override failure")
+
+
+@pytest.mark.conformance("NOTIF-021")
+async def test_notif021_on_expire_override_failure_reaches_the_scheduler() -> None:
+    """A failing _on_expire override is not contained, so its failure reaches the scheduler."""
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "override fails")
+    hub.post(notification)
+    sut = _OnExpireFailingVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=timedelta(seconds=10),
+    )
+
+    with pytest.raises(RuntimeError, match="override failure"):
+        scheduler.advance_by(10)  # the override's failure is not contained (ADR-0257)
+    sut.dispose()
+    hub.dispose()

@@ -829,6 +829,12 @@ snapshot and completes `Pending` once (`NOTIF-017`, `DISP-003`), and a
 (`SRCH-008`). A current `AsyncResourceVM` loader that ends with its own
 cancellation restores the saved stable state, as `Cancel` does (`ARES-012`).
 
+v3.30.0 also contains a `NotificationVM` timer or decay-tick failure. A failing
+`Pending` subscriber or `PropertyChanged` handler at auto-dismiss or on a decay tick
+never reaches the scheduler, auto-dismiss raises `IsResolved` even when the hub
+resolve raises, and a decay tick reschedules after a handler failure (ADR-0257,
+`NOTIF-021`).
+
 v3.30.0 also states the cancellation baseline of a discard reload. A
 `DiscardPrevious` reload that starts from a value-less `Error` relinquishes no
 value, so a cancel returns to that `Error`. The baseline is `Idle` only after a

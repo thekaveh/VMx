@@ -2204,6 +2204,31 @@ the clock advances by 6 s more
 **And** it receives no value: neither the posted notification nor an empty list
 **And** it receives no error
 
+### NOTIF-021 — A timer or decay-tick failure is contained, and the decay keeps running — spec v3.30.0
+
+**Given** a `NotificationVM` with `Lifespan = 10 s` over a posted notification,
+under a `TestScheduler` or fake clock at virtual time 0, and a `Pending`
+subscriber that fails when the list is empty
+**When** the clock advances by 10 s
+**Then** the advance does not raise into the caller
+**And** `IsResolved` is true, the awaitable returned by `Post` has completed,
+and the `IsResolved` change is raised
+**Given** a `NotificationVM` with `Lifespan = 10 s` and tick interval 1 s, and a
+`PropertyChanged` handler that fails on its first `RemainingTime` change
+**When** the clock advances by 1 s, then by 1 s more
+**Then** neither advance raises into the caller
+**And** the second tick raises `RemainingTime`, and `IsResolved` stays false
+**Given** a `NotificationVM` over a hub whose resolve fails
+**When** auto-dismiss runs
+**Then** the `IsResolved` change is raised, and the failure does not reach the
+scheduler
+
+An override of the expiry hook is not contained: a failure that it raises reaches
+the scheduler, as chapter 16 §6 states.
+
+A flavor whose subscribers cannot throw (Swift, chapter 03 §3.6) asserts the
+same timeline with no failing subscriber or handler.
+
 ______________________________________________________________________
 
 ## 20. CompositeVM additions and SearchableState (`COMP-NNN`, `SRCH-NNN`)
