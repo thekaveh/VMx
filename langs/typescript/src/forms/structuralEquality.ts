@@ -2,7 +2,7 @@
  * Structural equality for FormVM (internal).
  *
  * `deepEquals` is the default dirty-tracking predicate of FormVM (ADR-0113,
- * ADR-0135, ADR-0152). Nothing here is part of the public API; the package
+ * ADR-0135, ADR-0152, ADR-0253). Nothing here is part of the public API; the package
  * index does not export this module.
  */
 
@@ -97,6 +97,64 @@ function boxedValuesEqual(a: { valueOf(): unknown }, b: { valueOf(): unknown }):
   return x === y || (x !== x && y !== y);
 }
 
+// A Blob, File, or CryptoKey clones as a value of the same kind, except that a
+// clone may degrade a File to a Blob (Node 20.5 and 22; ADR-0253 §2.1). These
+// values have no own enumerable keys, so the plain-object fallback would call
+// any two of them equal. They are compared by the state the clone keeps. The
+// bytes of a Blob and the key material of a CryptoKey are not compared, because
+// reading them is asynchronous (ADR-0253).
+
+type ClonedKind = "File" | "Blob" | "CryptoKey";
+
+/**
+ * A File against a Blob: the one mixed pair. A degraded File clone produces it,
+ * and a user's replacement of a File with a Blob, or of a Blob with a File,
+ * produces it on every runtime (ADR-0253 §2.1).
+ */
+function isFileAndBlob(a: ClonedKind, b: ClonedKind): boolean {
+  return (a === "File" && b === "Blob") || (a === "Blob" && b === "File");
+}
+
+/** The kind a structured clone keeps for a value, or undefined for any other value. */
+function clonedKind(value: object): ClonedKind | undefined {
+  // A File is also a Blob, so the File test comes first.
+  if (typeof File !== "undefined" && value instanceof File) return "File";
+  if (typeof Blob !== "undefined" && value instanceof Blob) return "Blob";
+  if (typeof CryptoKey !== "undefined" && value instanceof CryptoKey) return "CryptoKey";
+  return undefined;
+}
+
+/**
+ * The state a clone of a Blob, File, or CryptoKey keeps, read through the base
+ * prototype accessors as the clone reads it. Undefined when an accessor throws,
+ * as it does for a value that only inherits the prototype.
+ */
+function clonedState(value: object, kind: ClonedKind): unknown[] | undefined {
+  try {
+    if (kind === "CryptoKey") {
+      return [
+        Reflect.get(CryptoKey.prototype, "type", value),
+        Reflect.get(CryptoKey.prototype, "extractable", value),
+        Reflect.get(CryptoKey.prototype, "algorithm", value),
+        Reflect.get(CryptoKey.prototype, "usages", value),
+      ];
+    }
+    const state: unknown[] = [
+      Reflect.get(Blob.prototype, "size", value),
+      Reflect.get(Blob.prototype, "type", value),
+    ];
+    if (kind === "File") {
+      state.push(
+        Reflect.get(File.prototype, "name", value),
+        Reflect.get(File.prototype, "lastModified", value),
+      );
+    }
+    return state;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Structural deep-equality used by {@link FormVM.isDirty} when no custom
  * `equals` is supplied. It mirrors the depth the default `structuredClone`
@@ -113,6 +171,13 @@ function boxedValuesEqual(a: { valueOf(): unknown }, b: { valueOf(): unknown }):
  *   `message`, and the own `cause`, compared recursively. The stack, custom
  *   properties, and subclass identity are not kept by the clone, so they are
  *   not compared;
+ * - compares `Blob`, `File`, and `CryptoKey` by the kind and state the clone
+ *   keeps: a `Blob`'s size and type, a `File`'s name and lastModified as well,
+ *   and a `CryptoKey`'s type, extractable flag, algorithm, and usages. Their
+ *   bytes and key material are not compared (ADR-0253). A `File` against a
+ *   `Blob` compares by size and type only, a pairing that a clone degrading a
+ *   `File` produces and that a user's replacement produces on every runtime
+ *   (ADR-0253 §2.1); any other two kinds are unequal;
  * - distinguishes an `undefined`-valued key from a missing key (as
  *   `structuredClone` preserves it);
  * - treats `NaN` as equal to `NaN` (and `+0`/`-0` as equal) for dirty-tracking.
@@ -247,6 +312,28 @@ export function deepEquals(
       if (!b.has(v)) return false;
     }
     return true;
+  }
+
+  // A Blob, File, or CryptoKey is compared with a value of its own kind by the
+  // state its clone keeps. A File is also compared with a Blob by the Blob state
+  // (size and type), in either direction: a degraded File clone produces the
+  // pairing, and a user's replacement produces it on every runtime (ADR-0253 §2.1).
+  // Any other mixed pair is unequal, and so is a value of these kinds against a
+  // plain value.
+  const aKind = clonedKind(a);
+  const bKind = clonedKind(b);
+  if (aKind !== undefined || bKind !== undefined) {
+    if (aKind === undefined || bKind === undefined) return false;
+    let kind: ClonedKind = aKind;
+    if (aKind !== bKind) {
+      if (!isFileAndBlob(aKind, bKind)) return false;
+      kind = "Blob";
+    }
+    const aState = clonedState(a, kind);
+    const bState = clonedState(b, kind);
+    return aState !== undefined
+      && bState !== undefined
+      && deepEquals(aState, bState, visited);
   }
 
   // Plain objects: own enumerable string keys, including undefined-valued keys.

@@ -443,17 +443,31 @@ def test_COMP_010_async_selection_dispatches_via_foreground() -> None:
     )
     child_a.construct()
     comp.append(child_a)
+    current_messages: list[PropertyChangedMessage] = []
+
+    def _collect_current(message: object) -> None:
+        if (
+            isinstance(message, PropertyChangedMessage)
+            and message.property_name == "current"
+            and message.sender is comp
+        ):
+            current_messages.append(message)
+
+    hub.messages.subscribe(_collect_current)
 
     # Trigger async selection.
     comp.select_component(child_a)
 
     # Synchronously: current should NOT be set yet (deferred to scheduler).
     assert comp.current is None, "Current should not be set synchronously with AsyncSelection"
+    # The hub receives no Current change before the foreground dispatch runs.
+    assert current_messages == [], "no PropertyChangedMessage('current') before the dispatch"
 
     # Advance foreground scheduler.
     test_disp.foreground_scheduler.advance_by(1)
 
     assert comp.current is child_a, "Current should be set after advancing scheduler"
+    assert len(current_messages) == 1, "exactly one Current change is published after the dispatch"
 
 
 # ===========================================================================
@@ -1340,6 +1354,20 @@ def test_COMP_039_duplicate_and_cycle_rejection_is_mutation_free() -> None:
         group.add(group)  # type: ignore[arg-type]
     assert list(group) == []
     assert group._parent is None
+
+    # A group refuses a duplicate add with the same mutation-free guarantee.
+    group_child = _build_child("grouped", hub=hub)
+    group.add(group_child)
+    group_parent_link = group_child._parent
+    group_status = group_child.status
+    group_events: list[CollectionChangedEvent] = []
+    group.on_collection_changed.subscribe(group_events.append)
+    with pytest.raises(ValueError):
+        group.add(group_child)
+    assert list(group) == [group_child]
+    assert group_child._parent is group_parent_link
+    assert group_child.status is group_status
+    assert group_events == []
 
 
 @pytest.mark.conformance("COMP-039")

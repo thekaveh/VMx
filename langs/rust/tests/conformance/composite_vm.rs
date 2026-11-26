@@ -136,6 +136,7 @@ fn construct_constructs_all_children() {
 
     assert_eq!(a.status(), ConstructionStatus::Constructed);
     assert_eq!(b.status(), ConstructionStatus::Constructed);
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
 }
 
 #[test]
@@ -299,7 +300,6 @@ fn async_selection_dispatches_current_change_via_foreground() {
     item.construct().unwrap();
     let observed = Arc::new(Mutex::new(0));
     let observed_inner = observed.clone();
-    let observer_dispatcher = dispatcher.clone();
     let composite_id = composite.id();
     let _subscription = hub.subscribe(move |message| {
         if matches!(
@@ -307,17 +307,18 @@ fn async_selection_dispatches_current_change_via_foreground() {
             Message::PropertyChanged(change)
                 if change.sender_id == composite_id && change.property_name == "current"
         ) {
-            let observed_inner = observed_inner.clone();
-            observer_dispatcher.dispatch(Box::new(move || *observed_inner.lock().unwrap() += 1));
+            *observed_inner.lock().unwrap() += 1;
         }
     });
 
     composite.select_component(&item).unwrap();
 
     assert_eq!(composite.current(), None);
+    // The hub receives no current change before the foreground dispatch runs.
     assert_eq!(*observed.lock().unwrap(), 0);
     dispatcher.drain();
     assert_eq!(composite.current(), Some(item));
+    // Exactly one current change is published after the dispatch.
     assert_eq!(*observed.lock().unwrap(), 1);
 }
 
@@ -2003,11 +2004,14 @@ fn dispatched_current_change_callback_can_dispose_without_deadlocking() {
 #[test]
 fn add_and_remove_manage_child_parent() {
     let composite = vmx::CompositeVm::new("root");
+    composite.construct().unwrap();
     let item = child("a");
+    item.construct().unwrap();
+    assert_eq!(item.parent_id(), None);
+    assert!(!item.can_select());
 
     composite.add(item.clone()).unwrap();
     assert_eq!(item.parent_id(), Some(composite.id()));
-    item.construct().unwrap();
     assert!(item.can_select());
     item.select();
     assert_eq!(composite.current(), Some(item.clone()));

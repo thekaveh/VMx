@@ -971,7 +971,9 @@ using `ObserveOn(dispatcher.Foreground)`
 **When** `composite.select_component(vmA)` is called
 **Then** `composite.Current` does NOT change synchronously
 **And** advancing the test scheduler completes the dispatch, making `composite.Current == vmA`
-**And** subsequent subscribers to `PropertyChangedMessage("Current")` observe on the foreground scheduler
+**And** the composite publishes `PropertyChangedMessage("Current")` for the change only when
+the dispatcher delivers it, not at call time (`06-composite-vm.md §3`: the new `Current` is
+observable only after the dispatcher delivers)
 
 ### COMP-011 — deselect_component raises when vm is not Current
 
@@ -2291,6 +2293,8 @@ consumer callbacks do not retain the shared cross-composite coordinator
 **And** if one child's current-flag notification is blocked while another thread
 selects a different child, the later assignment completes and exactly the final
 current child has its current flag set
+
+The last two clauses do not apply to TypeScript, which has one thread (`11-threading.md`).
 
 ### COMP-027 — Adding a child sets its `Parent`; removing clears it
 
@@ -4523,9 +4527,28 @@ crashed on `BigInt`/circular models; the v3 default deep-equal is order-insensit
 and handles `Date`/`Map`/`Set`/`BigInt`/circular references. TypeScript binary
 buffers and views compare by concrete constructor and visible bytes (ADR-0113),
 `Error` values by cloneable kind, own `message`, and own `cause` (ADR-0135),
-and `DOMException` values by `name` and `message` (ADR-0152), so the
-equal-values guarantee holds for value-equality-capable models in C#, Python,
-TypeScript, Swift, and Rust.
+`DOMException` values by `name` and `message` (ADR-0152), and `Blob`, `File`,
+and `CryptoKey` values by the state their clone keeps (ADR-0253; their bytes and
+key material are not compared). The equal-values guarantee (values that differ
+in a field are dirty, and structurally equal values are clean) holds for
+value-equality-capable models in C#, Python, Swift, and Rust. For TypeScript the
+guarantee is scoped as ADR-0253 §3 records. Two values of one kind are equal when
+their compared state is equal, and values that differ only in bytes or key
+material are equal (ADR-0253 §3, residual equal case). A `File` and a `Blob` of
+the same size and type are equal in either direction (ADR-0253 §2.1 and §3), so
+the guarantee does not hold for that pair on any runtime. A user's replacement
+produces the pair on every runtime. A `File` replaced by a `Blob` of the same
+size and type is dropped on every runtime, and `isDirty` stays false (ADR-0253
+§3). A clone that degrades a `File` to a `Blob`
+(Node 20.5 and 22) produces it between a `File` model and its `Blob` snapshot, so
+a replacement that differs only in name or `lastModified` is committed and
+publishes one model change, but `isDirty` stays false (ADR-0253 §3, residual: a
+degraded `File`). A `Blob` replaced by a `File` of the same size and type is
+dropped on every runtime, so no model change is published and `isDirty` is
+unchanged, although the `File` differs in name or `lastModified` (ADR-0253 §3,
+residual: a `Blob` replaced by a `File`). `FileList`, `ImageData`, and
+`ImageBitmap` are out of scope for this comparison, and a consumer injects
+`equals` for them (ADR-0253 §3).
 Consumers needing field-subset or reference semantics inject a custom `equals`
 (TypeScript/Swift) or define their model's own equality
 (C#/Python/Rust `PartialEq`).
@@ -5597,6 +5620,8 @@ to 4 in subscription order
 **When** the aggregate is disposed
 **Then** the five subscribers complete in the order 0, 1, 2, 3, 4, where the
 host convention supports completion
+**When** a subscriber cancels and subscribes again
+**Then** it is last in the order for each later envelope
 
 > Spec: `21-collections.md` §9.5, §9.6, and §9.7, ADR-0192.
 
