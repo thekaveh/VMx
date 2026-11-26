@@ -607,7 +607,7 @@ describe("NOTIF-021", () => {
     sut.dispose();
   });
 
-  it("an is-resolved handler failure at auto-dismiss is reported, and the notification still resolves", async () => {
+  it("an is-resolved handler failure at auto-dismiss is routed to rxjs and the notification still resolves", async () => {
     const reports = captureRxUnhandledErrors();
     const failure = new Error("is-resolved handler failed");
     const scheduler = new FakeScheduler();

@@ -1318,7 +1318,7 @@ fn observed_hub_resolution_stops_the_clock_without_a_read() {
 
 /// NOTIF-021 — The expiry timeline with a panicking Pending subscriber: the clock advance
 /// returns, the VM resolves, and the Post waiter completes. The test does not isolate
-/// which catch contains the panic (see the PR body).
+/// which catch contains the panic (see ADR-0257).
 #[test]
 fn notification_vm_expiry_timeline_with_a_panicking_pending_subscriber() {
     let scheduler = VirtualTimeScheduler::new();
@@ -1366,7 +1366,7 @@ fn notification_vm_expiry_timeline_with_a_panicking_pending_subscriber() {
 
 /// NOTIF-021 — The auto-dismiss timeline with a panicking Pending-changed subscriber: the
 /// clock advance returns, the VM resolves, and the Post waiter completes. The test does not
-/// isolate which catch contains the panic (see the PR body).
+/// isolate which catch contains the panic (see ADR-0257).
 #[test]
 fn notification_vm_auto_dismiss_timeline_with_a_panicking_pending_changed_subscriber() {
     use std::future::Future;
