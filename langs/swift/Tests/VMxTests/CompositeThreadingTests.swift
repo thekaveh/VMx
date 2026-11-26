@@ -138,6 +138,14 @@ final class CompositeThreadingTests: XCTestCase {
             .build()
         try composite.construct()
 
+        var currentChanges: [PropertyChangedMessage] = []
+        var cancellables = Set<AnyCancellable>()
+        hub.messages
+            .compactMap { $0 as? PropertyChangedMessage }
+            .filter { $0.senderObject === composite && $0.propertyName == "current" }
+            .sink { currentChanges.append($0) }
+            .store(in: &cancellables)
+
         composite.selectChild(vmA)
 
         // With asyncSelection the current change is deferred — not synchronous.
@@ -146,12 +154,21 @@ final class CompositeThreadingTests: XCTestCase {
             "current must not change synchronously with asyncSelection(true)"
         )
         XCTAssertFalse(vmA.isCurrent)
+        // The hub receives no current change before the foreground dispatch runs.
+        XCTAssertTrue(
+            currentChanges.isEmpty,
+            "no PropertyChangedMessage(current) before the foreground flush"
+        )
 
         // Advancing the foreground scheduler completes the deferred dispatch.
         dispatcher.flushForeground()
 
         XCTAssertTrue(composite.current === vmA, "current must be vmA after foreground flush")
         XCTAssertTrue(vmA.isCurrent)
+        XCTAssertEqual(
+            currentChanges.count, 1,
+            "exactly one current change is published after the foreground flush"
+        )
     }
 
     /// COMP-010 (TOCTOU) — if the child is removed between `selectChild` and
@@ -181,6 +198,9 @@ final class CompositeThreadingTests: XCTestCase {
         XCTAssertFalse(vmA.isCurrent)
     }
 
+    /// COMP-026 — a blocked current-flag notification does not stop another thread's
+    /// selection: the later assignment completes and exactly the final current child
+    /// has its current flag set.
     func testConcurrentCurrentAssignmentsLeaveOneCurrentFlag() throws {
         let hub = MessageHub()
         let first = try ComponentVM.builder().name("first")

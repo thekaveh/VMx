@@ -183,11 +183,13 @@ def test_CVM_004_modeled_hint_recomputes_on_model_change() -> None:
 @pytest.mark.conformance("CVM-005")
 def test_CVM_005_name_and_hint_immutable() -> None:
     """CVM-005: name and hint have no public setter; values are stable."""
-    vm, _ = _build_vm(name="orig")
+    hub = _hub()
+    dispatcher = _dispatcher()
+    vm = ComponentVMOfBuilder().name("orig").hint("h").model("m").services(hub, dispatcher).build()
 
     # Verify readable values.
     assert vm.name == "orig"
-    assert vm.hint == ""
+    assert vm.hint == "h"
 
     # Verify no setter on the property descriptors.
     name_prop = type(vm).__dict__.get("name")
