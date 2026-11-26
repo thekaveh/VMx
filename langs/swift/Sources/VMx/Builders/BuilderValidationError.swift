@@ -24,3 +24,9 @@ public struct BuilderValidationError: Error, CustomStringConvertible {
             ?? "Required field '\(missingField)' was not set on the builder."
     }
 }
+
+// Foundation reads `errorDescription` for `localizedDescription`. Without this
+// conformance, `localizedDescription` hides the missing field (#1596).
+extension BuilderValidationError: LocalizedError {
+    public var errorDescription: String? { description }
+}
