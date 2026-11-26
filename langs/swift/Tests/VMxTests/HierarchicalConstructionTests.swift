@@ -221,10 +221,10 @@ final class HierarchicalConstructionTests: XCTestCase {
 
     // ── Eager construction and a disposed child ──────────────────────────────
 
-    /// An eager parent's `construct()` skips a child that was disposed, as the
-    /// child-transition walk does in the other flavors (spec/02 §6, ADR-0189).
-    /// The parent's later `construct()` succeeds, and no lifecycle operation
-    /// reaches the disposed child.
+    /// HIER-045 — An eager parent's `construct()` skips a child that was disposed,
+    /// as the child-transition walk does in the other flavors (spec/18 §3,
+    /// ADR-0258). The parent's later `construct()` succeeds, and no lifecycle
+    /// operation reaches the disposed child.
     func testEagerConstructSkipsDisposedChild() throws {
         let hub = MessageHub()
         let a = MyNode(model: MyModel(value: "a"), childrenFactory: { _ in [] },
@@ -254,8 +254,9 @@ final class HierarchicalConstructionTests: XCTestCase {
         XCTAssertEqual(started, ["b"])
     }
 
-    /// `reconstruct()` of an eager parent also skips a disposed child: its
-    /// destruct phase and its construct phase both complete.
+    /// HIER-045 — `reconstruct()` of an eager parent also skips a disposed child:
+    /// its destruct phase and its construct phase both complete (spec/18 §3,
+    /// ADR-0258).
     func testEagerReconstructSkipsDisposedChild() throws {
         let hub = MessageHub()
         let a = MyNode(model: MyModel(value: "a"), childrenFactory: { _ in [] },

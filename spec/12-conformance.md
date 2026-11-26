@@ -4427,6 +4427,14 @@ yet materialized
 **When** an empty batch is then attached
 **Then** `z` is added below `f` and the parked count is 0
 
+### HIER-045 — Eager construction skips a disposed child
+
+**Given** an eager root with children `a` and `b`, and the root is constructed
+**When** `a` is disposed, the root is destructed, and `b` is destructed
+**And** the root's `construct()` and then its `reconstruct()` run
+**Then** neither call throws, the root is `Constructed`, `b` is `Constructed`, and `a` stays `Disposed`
+**And** no construction-status change is published for `a` after it was disposed
+
 ## 26. DIA — IDialogService (chapter 19) — spec v2.1
 
 ### DIA-001 — `PickFileToOpen` contract
