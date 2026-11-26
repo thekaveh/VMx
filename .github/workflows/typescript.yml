@@ -9,6 +9,8 @@ on:
     paths:
       - "langs/typescript/**"
       - "packages/react/**"
+      # The React 18 matrix cell copies these two files into packages/react (#1836).
+      - "packages/react-18-deps/**"
       - "examples/typescript/**"
       - "examples/notes-showcase-scenario.json"
       - "examples/notes-showcase-theme-scenario.json"
@@ -22,6 +24,8 @@ on:
       - "tools/check-conformance-execution.py"
       - "tools/check-typescript-schema-sync.py"
       - "tools/check-typescript-api.py"
+      # The npm ci and npm audit steps run through this script (#1836).
+      - "tools/ci-retry.mjs"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:

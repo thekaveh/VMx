@@ -76,6 +76,24 @@ def test_run_commands_drops_commented_out_and_echoed_commands() -> None:
     assert "HASH" not in commands
 
 
+CHAINED = r"""
+      - run: echo building && node tools/y.py
+      - run: printf 'done\n' || npm run lint
+      - run: echo "npm run quoted && node tools/z.py"
+      - run: echo "$(node tools/w.py)"
+"""
+
+
+def test_run_commands_keeps_a_command_chained_after_an_echo() -> None:
+    # A quoted message drops only its own segment: a command chained after it,
+    # with && || ; or |, runs, so its inputs are reads. A quote-only line is dropped.
+    assert run_commands(CHAINED) == [
+        "node tools/y.py",
+        "npm run lint",
+        'echo "$(node tools/w.py)"',
+    ]
+
+
 def test_run_commands_reads_a_list_item_run_key_and_skips_a_mapping_run_key() -> None:
     assert run_commands(workflow_job(WORKFLOW, "publish")) == ["npm publish"]
     defaults = "  build:\n    defaults:\n      run:\n        working-directory: x\n"
