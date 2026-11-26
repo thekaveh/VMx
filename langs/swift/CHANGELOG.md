@@ -233,6 +233,15 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   it. The digester reports both, so both are allowlisted in
   `langs/swift/api/breakage-allowlist.txt`.
 
+- `LocalizedError` conformance for the seven public error types that have a
+  `description`: `BuilderValidationError`, `StatusTransitionError`,
+  `CompositeMembershipError`, `ContainerRollbackError`, `ChildTransitionError`,
+  `MessageHubOverflowError` and `ObservableDictionaryError`. Each
+  `errorDescription` returns the type's `description`, so
+  `error.localizedDescription` names the missing builder field (spec/10 §3)
+  and no longer shows Foundation's generic text (#1596). `description`,
+  `missingField` and every initializer are unchanged.
+
 - `TokenPagedComposition.loadMoreCommand` and `refreshCommand` no longer race
   when a first read runs with `dispose()` on another thread (#1922). Both were
   `lazy var` properties, so each thread could create its own command, and

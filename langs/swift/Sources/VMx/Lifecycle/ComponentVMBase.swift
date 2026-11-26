@@ -55,6 +55,10 @@ public struct ContainerRollbackError: Error, CustomStringConvertible {
     }
 }
 
+extension ContainerRollbackError: LocalizedError {
+    public var errorDescription: String? { description }
+}
+
 /// Internal ownership surface kept separate from public selection delegation.
 protocol OwnershipParentVM: AnyObject {
     var ownershipOwner: ComponentVMBase { get }
@@ -503,6 +507,10 @@ public struct ChildTransitionError: Error, CustomStringConvertible {
     /// Why the walk failed.
     public let reason: String
     public var description: String { "Child '\(childName)' \(reason)" }
+}
+
+extension ChildTransitionError: LocalizedError {
+    public var errorDescription: String? { description }
 }
 
 /// Supplies a child walk with children added while it runs (see
