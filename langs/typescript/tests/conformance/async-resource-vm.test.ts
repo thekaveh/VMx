@@ -54,23 +54,28 @@ async function flush(): Promise<void> {
 describe("AsyncResourceVM conformance", () => {
   describe("ARES-001", () => {
     it("starts idle without invoking the loader and exposes exact command eligibility", () => {
+      const hub = new MessageHub();
+      const stateNotifications: string[] = [];
+      hub.messages.subscribe((message) => {
+        if (message instanceof PropertyChangedMessage && message.propertyName === "state") {
+          stateNotifications.push(message.propertyName);
+        }
+      });
       let calls = 0;
       const vm = new AsyncResourceVM<number>({
         name: "resource",
-        hub: new MessageHub(),
+        hub,
         dispatcher: NullDispatcher.INSTANCE,
         loader: () => {
           calls += 1;
           return Promise.resolve(1);
         },
       });
-      const changes: string[] = [];
-      vm.propertyChanged.subscribe((name) => changes.push(name));
 
       expect(vm.state).toEqual({ status: AsyncResourceStatus.Idle });
       expect(Object.isFrozen(vm.state)).toBe(true);
       expect(calls).toBe(0);
-      expect(changes).toEqual([]);
+      expect(stateNotifications).toEqual([]);
       expect(vm.loadCommand.canExecute()).toBe(true);
       expect(vm.reloadCommand.canExecute()).toBe(false);
       expect(vm.cancelCommand.canExecute()).toBe(false);
@@ -232,6 +237,34 @@ describe("AsyncResourceVM conformance", () => {
       vm.cancel();
       expect(vm.state).toEqual({ status: AsyncResourceStatus.Idle });
     });
+
+    it("cancels a command-started load without emitting a command error", async () => {
+      let observedAbort = false;
+      const vm = new AsyncResourceVM<number>({
+        name: "resource",
+        hub: new MessageHub(),
+        dispatcher: NullDispatcher.INSTANCE,
+        loader: (signal) => new Promise<number>((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            observedAbort = true;
+            reject(abortError());
+          }, { once: true });
+        }),
+      });
+      const commandErrors: unknown[] = [];
+      vm.loadCommand.errors.subscribe((error) => commandErrors.push(error));
+
+      vm.loadCommand.execute();
+      await flush();
+      expect(vm.state.status).toBe(AsyncResourceStatus.Loading);
+      vm.cancelCommand.execute();
+      await flush();
+      await flush();
+
+      expect(observedAbort).toBe(true);
+      expect(vm.state).toEqual({ status: AsyncResourceStatus.Idle });
+      expect(commandErrors).toEqual([]);
+    });
   });
 
   describe("ARES-006", () => {
@@ -239,11 +272,13 @@ describe("AsyncResourceVM conformance", () => {
       const second = deferred<number>();
       const failure = new Error("refresh failed");
       let attempt = 0;
+      const cleaned: number[] = [];
       const vm = new AsyncResourceVM<number>({
         name: "resource",
         hub: new MessageHub(),
         dispatcher: NullDispatcher.INSTANCE,
         retention: AsyncResourceRetention.RetainPrevious,
+        cleanupValue: (value) => cleaned.push(value),
         loader: async () => {
           attempt += 1;
           if (attempt === 1) return 3;
@@ -258,6 +293,7 @@ describe("AsyncResourceVM conformance", () => {
       vm.cancel();
       await reload;
       expect(vm.state).toEqual({ status: AsyncResourceStatus.Ready, value: 3 });
+      expect(cleaned).toEqual([]);
 
       await vm.reload();
       expect(vm.state.status).toBe(AsyncResourceStatus.Error);
@@ -287,7 +323,14 @@ describe("AsyncResourceVM conformance", () => {
       });
 
       await vm.load();
+      const cleanedWhenLoading: number[][] = [];
+      vm.propertyChanged.subscribe((name) => {
+        if (name === "state" && vm.state.status === AsyncResourceStatus.Loading) {
+          cleanedWhenLoading.push([...cleaned]);
+        }
+      });
       const reload = vm.reload();
+      expect(cleanedWhenLoading).toEqual([[5]]);
       expect(cleaned).toEqual([5]);
       expect(vm.state).toEqual({ status: AsyncResourceStatus.Loading });
       vm.cancel();
