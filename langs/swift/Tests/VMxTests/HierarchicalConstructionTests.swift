@@ -27,13 +27,28 @@ private struct MyModel {
 private final class MyNode: HierarchicalVM<MyModel, MyNode> {}
 
 /// A node whose `_onConstruct()` runs an optional hook after the eager walk,
-/// so a test can act inside a child's construct hook.
+/// so a test can act inside a child's construct hook. `deferredChildren` is
+/// walked after the hook, so the node's construct can wait on a background
+/// child (spec/02 §6.1).
 private final class HookNode: HierarchicalVM<MyModel, HookNode> {
     var onConstruct: (() -> Void)?
+    var deferredChildren: [ComponentVMBase] = []
 
     override func _onConstruct() throws {
         try super._onConstruct()
         onConstruct?()
+        if !deferredChildren.isEmpty {
+            try _transitionChildren(deferredChildren, construct: true)
+        }
+    }
+}
+
+/// Runs queued foreground and background work until none is left, as the
+/// `ManualDispatcher` tests in `BackgroundChildLifecycleTests` do.
+private func pump(_ dispatcher: ManualDispatcher) {
+    for _ in 0..<10 {
+        dispatcher.flushBackground()
+        dispatcher.flushForeground()
     }
 }
 
@@ -220,23 +235,23 @@ final class HierarchicalConstructionTests: XCTestCase {
                           hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "root",
                           eagerChildren: true)
 
+        var started: [String] = []
+        root.childStartProbeForTesting = { started.append($0.name) }
+
         try root.construct()
         a.dispose()
         try root.destruct()
-
-        var aStatuses: [ConstructionStatus] = []
-        let cancel = hub.messages
-            .compactMap { $0 as? ConstructionStatusChangedMessage }
-            .filter { $0.senderName == "a" }
-            .map(\.status)
-            .sink { aStatuses.append($0) }
-        defer { cancel.cancel() }
+        // The walk must reach the live sibling after the disposed one. The old
+        // loop stops at `a` and leaves `b` destructed.
+        try b.destruct()
+        started.removeAll()
 
         XCTAssertNoThrow(try root.construct())
         XCTAssertEqual(root.status, .constructed)
         XCTAssertEqual(a.status, .disposed)
         XCTAssertEqual(b.status, .constructed)
-        XCTAssertTrue(aStatuses.isEmpty, "a disposed child must receive no lifecycle call")
+        // Call spy: the walk starts only the live child, never the disposed one.
+        XCTAssertEqual(started, ["b"])
     }
 
     /// `reconstruct()` of an eager parent also skips a disposed child: its
@@ -251,13 +266,20 @@ final class HierarchicalConstructionTests: XCTestCase {
                           hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "root",
                           eagerChildren: true)
 
+        var started: [String] = []
+        root.childStartProbeForTesting = { started.append($0.name) }
+
         try root.construct()
         a.dispose()
+        // As in the construct test: the walk must reach `b` past the disposed `a`.
+        try b.destruct()
+        started.removeAll()
 
         XCTAssertNoThrow(try root.reconstruct())
         XCTAssertEqual(root.status, .constructed)
         XCTAssertEqual(a.status, .disposed)
         XCTAssertEqual(b.status, .constructed)
+        XCTAssertEqual(started, ["b"])
     }
 
     /// A child's construct hook that disposes the eager parent stops the walk:
@@ -280,5 +302,90 @@ final class HierarchicalConstructionTests: XCTestCase {
 
         XCTAssertEqual(root.status, .disposed)
         XCTAssertEqual(b.status, .destructed, "no sibling starts after the parent is disposed")
+    }
+
+    /// An eager parent reaches `.constructed` only after each child has reached
+    /// `.constructed` (spec/18 §3). A child whose construct defers through a
+    /// background grandchild stays `.constructing`, so the parent waits for it.
+    /// The old loop reported the parent `.constructed` at that point.
+    func testEagerConstructWaitsForChildThatDefersItsConstruct() throws {
+        let hub = MessageHub()
+        let dispatcher = ManualDispatcher()
+        let grandchild = try ComponentVM.builder()
+            .name("grandchild")
+            .services(hub: hub, dispatcher: dispatcher)
+            .background(true)
+            .build()
+        let child = HookNode(model: MyModel(value: "child"), childrenFactory: { _ in [] },
+                             hub: hub, dispatcher: dispatcher, name: "child")
+        child.deferredChildren = [grandchild]
+        let root = HookNode(model: MyModel(value: "root"), childrenFactory: { _ in [child] },
+                            hub: hub, dispatcher: dispatcher, name: "root",
+                            eagerChildren: true)
+
+        try root.construct()
+        XCTAssertEqual(child.status, .constructing)
+        XCTAssertEqual(root.status, .constructing, "the parent waits for the child that defers")
+
+        pump(dispatcher)
+        XCTAssertEqual(grandchild.status, .constructed)
+        XCTAssertEqual(child.status, .constructed)
+        XCTAssertEqual(root.status, .constructed)
+    }
+
+    /// A child already `.constructing` is joined by an eager parent's construct:
+    /// the walk does not start it again, and the parent waits for it. The old
+    /// loop threw "Cannot construct from state Constructing."
+    func testEagerConstructJoinsChildAlreadyConstructing() throws {
+        let hub = MessageHub()
+        let dispatcher = ManualDispatcher()
+        let grandchild = try ComponentVM.builder()
+            .name("grandchild")
+            .services(hub: hub, dispatcher: dispatcher)
+            .background(true)
+            .build()
+        let child = HookNode(model: MyModel(value: "child"), childrenFactory: { _ in [] },
+                             hub: hub, dispatcher: dispatcher, name: "child")
+        child.deferredChildren = [grandchild]
+        let root = HookNode(model: MyModel(value: "root"), childrenFactory: { _ in [child] },
+                            hub: hub, dispatcher: dispatcher, name: "root",
+                            eagerChildren: true)
+
+        try child.construct()
+        XCTAssertEqual(child.status, .constructing)
+
+        XCTAssertNoThrow(try root.construct())
+        XCTAssertEqual(root.status, .constructing, "the parent waits for the child it joined")
+
+        pump(dispatcher)
+        XCTAssertEqual(child.status, .constructed)
+        XCTAssertEqual(root.status, .constructed)
+    }
+
+    /// A factory that lists its own node is rejected by `tryChildren()` before
+    /// the child walk starts. Eager construction reports
+    /// `HierarchyError.invalidFactoryOutput`, not a walk error. The same holds
+    /// one level down, for an eager child that lists itself.
+    func testEagerConstructRejectsFactoryThatListsItsOwnNode() throws {
+        let hub = MessageHub()
+        let root = MyNode(model: MyModel(value: "root"), childrenFactory: { parent in [parent] },
+                          hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "root",
+                          eagerChildren: true)
+        XCTAssertThrowsError(try root.construct()) { error in
+            XCTAssertEqual(error as? HierarchyError, .invalidFactoryOutput)
+        }
+        XCTAssertNotEqual(root.status, .constructed)
+
+        let inner = MyNode(model: MyModel(value: "inner"), childrenFactory: { parent in [parent] },
+                           hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "inner",
+                           eagerChildren: true)
+        let outer = MyNode(model: MyModel(value: "outer"), childrenFactory: { _ in [inner] },
+                           hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "outer",
+                           eagerChildren: true)
+        XCTAssertThrowsError(try outer.construct()) { error in
+            XCTAssertEqual(error as? HierarchyError, .invalidFactoryOutput)
+        }
+        XCTAssertEqual(inner.status, .destructed)
+        XCTAssertNotEqual(outer.status, .constructed)
     }
 }

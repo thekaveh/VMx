@@ -224,9 +224,12 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   child-transition walk (spec/02 §6.1, ADR-0189). A disposed child is skipped, so
   a parent whose child was disposed can `construct()` and `reconstruct()` again
   instead of throwing "Cannot construct from state Disposed" (#1919). A child
-  hook that disposes the parent stops the walk, and no later sibling starts. The
-  other flavors already behaved this way. The regression tests are in
-  `HierarchicalConstructionTests`.
+  already `Constructing` is joined, not restarted, and the parent waits for it;
+  before, the call threw "Cannot construct from state Constructing." A parent now
+  stays `Constructing` until a child whose construct is still in flight settles.
+  Before, the parent reached `Constructed` first (spec/18 §3). A child hook that
+  disposes the parent stops the walk, and no later sibling starts. The regression
+  tests are in `HierarchicalConstructionTests`.
 
 - `NOTIF-021` conformance tests (#1875, ADR-0257). A `NotificationVM` timer or
   decay-tick failure never reaches the scheduler, and Swift subscribers cannot
