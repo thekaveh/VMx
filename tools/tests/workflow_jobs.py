@@ -3,8 +3,9 @@
 Standard library only: the tools environment has no YAML parser, so these
 readers work on the workflow text. A job is the text under one two-space job
 key of `jobs:`. A live command is the value of a `run:` key, with comment lines
-and lines that only quote a command with `echo` or `printf` removed. A pipe
-after such a quote still runs its command, so that command stays live.
+removed. A shell segment that only quotes output with `echo` or `printf` is
+removed too, but a segment chained after it (`echo x && node tools/y.py`, or
+`echo x | node tools/y.py`) still runs its command, so that command stays live.
 """
 
 import re
@@ -14,6 +15,8 @@ _COMMENT_LINE = re.compile(r"(?m)^\s*#.*\n")
 _RUN_KEY = re.compile(r"^(?P<lead>\s*(?:-\s+)?)run:(?:[ \t]+(?P<value>.*?))?\s*$")
 _BLOCK_HEADER = re.compile(r"(?P<style>[|>])[-+0-9]*")
 _QUOTING_WORDS = frozenset({"echo", "printf"})
+_PUSH_BLOCK = re.compile(r"(?ms)^  push:\n(.*?)(?=^\S|^  \S|\Z)")
+_PUSH_PATH = re.compile(r'^      - "([^"]+)"$', re.M)
 
 
 def workflow_jobs(text: str) -> dict[str, str]:
@@ -21,6 +24,15 @@ def workflow_jobs(text: str) -> dict[str, str]:
     body = _COMMENT_LINE.sub("", text.split("\njobs:\n", maxsplit=1)[1])
     parts = _JOB_HEADER.split(body)
     return dict(zip(parts[1::2], parts[2::2], strict=True))
+
+
+def push_path_patterns(text: str) -> list[str] | None:
+    """Return the `on.push.paths` patterns of a workflow, or None when it has no push
+    path filter. A workflow without the filter runs on every push to its branches."""
+    block = _PUSH_BLOCK.search(text)
+    if block is None or not re.search(r"(?m)^    paths:$", block.group(1)):
+        return None
+    return _PUSH_PATH.findall(block.group(1))
 
 
 def workflow_job(workflow: str, name: str) -> str:
@@ -91,14 +103,57 @@ def _live_block_lines(block: list[str]) -> list[str]:
 
 
 def _live_text(line: str) -> str | None:
-    """The part of one line that runs, or None when the line only quotes a command."""
+    """The part of one line that runs, or None when the line only quotes output.
+
+    The line is split at its unquoted `&&`, `||`, `;` and `|` operators. A segment
+    that starts with `echo` or `printf` only quotes a message and is dropped; any
+    other segment runs. A line with a command substitution (`$(` or a backtick)
+    runs its inner command, so it is kept whole.
+    """
     stripped = line.strip()
-    words = stripped.split()
-    if not words or stripped.startswith("#"):
+    if not stripped or stripped.startswith("#"):
         return None
-    if words[0] not in _QUOTING_WORDS:
+    if "$(" in stripped or "`" in stripped:
         return line.rstrip()
-    _, separator, piped = stripped.partition(" | ")
-    if not separator or not piped.strip():
-        return None
-    return piped.strip()
+    segments = _chain_segments(stripped)
+    live = [segment for segment in segments if segment.split()[0] not in _QUOTING_WORDS]
+    if len(live) == len(segments):
+        return line.rstrip()
+    return " && ".join(live) if live else None
+
+
+def _chain_segments(text: str) -> list[str]:
+    """Split a shell line at its unquoted `&&`, `||`, `;` and `|` operators.
+
+    A backslash escapes the next character outside single quotes, and an operator
+    inside quotes is text, so `echo "a && b"` is one segment.
+    """
+    segments: list[str] = []
+    current: list[str] = []
+    quote = ""
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote != "'" and char == "\\" and index + 1 < len(text):
+            current.append(text[index : index + 2])
+            index += 2
+            continue
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "\"'":
+            quote = char
+        elif text.startswith(("&&", "||"), index):
+            segments.append("".join(current))
+            current = []
+            index += 2
+            continue
+        elif char in ";|":
+            segments.append("".join(current))
+            current = []
+            index += 1
+            continue
+        current.append(char)
+        index += 1
+    segments.append("".join(current))
+    return [segment.strip() for segment in segments if segment.strip()]

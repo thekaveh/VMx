@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-from .workflow_jobs import run_commands, workflow_job
+from .workflow_jobs import push_path_patterns, run_commands, workflow_job
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -167,10 +167,10 @@ def test_dependabot_defers_incompatible_nuget_updates() -> None:
     assert "`xunit.v3` `4+` is deferred" in ledger
 
 
-def test_dependabot_changes_run_the_automation_contracts() -> None:
+def test_conformance_runs_on_every_push_including_dependabot_changes() -> None:
     workflow = (REPO_ROOT / ".github/workflows/conformance.yml").read_text(encoding="utf-8")
 
-    assert workflow.count('      - ".github/dependabot.yml"') == 1
+    assert push_path_patterns(workflow) is None, "conformance.yml runs on every push (#1836)"
 
 
 def test_weekly_audit_covers_every_committed_lock_family() -> None:

@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-from .workflow_jobs import run_commands, workflow_job
+from .workflow_jobs import push_path_patterns, run_commands, workflow_job
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "wiki.yml"
@@ -46,10 +46,10 @@ def test_wiki_workflow_keeps_token_expressions_out_of_shell_bodies() -> None:
     assert 'WIKI_REMOTE="https://github.com/thekaveh/VMx.wiki.git"' in workflow
 
 
-def test_wiki_workflow_changes_trigger_tool_tests() -> None:
+def test_conformance_runs_on_every_push_including_wiki_changes() -> None:
     workflow = _CONFORMANCE_WORKFLOW.read_text(encoding="utf-8")
 
-    assert workflow.count('- ".github/workflows/**"') == 1
+    assert push_path_patterns(workflow) is None, "conformance.yml runs on every push (#1836)"
 
 
 def test_wiki_workflow_verifies_the_published_tree_after_push() -> None:

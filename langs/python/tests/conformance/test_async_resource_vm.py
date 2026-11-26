@@ -61,13 +61,22 @@ def test_ares_001_initial_state_and_commands() -> None:
         calls += 1
         return 1
 
-    vm = _vm(loader)
-    changes: list[str] = []
-    vm.property_changed.subscribe(changes.append)
+    hub: MessageHub[Message] = MessageHub()
+    state_notifications: list[str] = []
+    hub.messages.subscribe(
+        lambda message: (
+            state_notifications.append(message.property_name)
+            if isinstance(message, PropertyChangedMessage) and message.property_name == "state"
+            else None
+        )
+    )
+    vm = _vm(loader, hub=hub)
 
     assert vm.state.status is AsyncResourceStatus.IDLE
+    assert not hasattr(vm.state, "value")
+    assert not hasattr(vm.state, "error")
     assert calls == 0
-    assert changes == []
+    assert state_notifications == []
     assert vm.load_command.can_execute()
     assert not vm.reload_command.can_execute()
     assert not vm.cancel_command.can_execute()
@@ -422,6 +431,7 @@ async def test_ares_003_base_exception_is_captured_as_resource_state() -> None:
 @pytest.mark.asyncio
 @pytest.mark.conformance("ARES-004")
 async def test_ares_004_retry_replaces_error() -> None:
+    second: asyncio.Future[int] = asyncio.get_running_loop().create_future()
     attempts = 0
 
     async def loader() -> int:
@@ -429,12 +439,17 @@ async def test_ares_004_retry_replaces_error() -> None:
         attempts += 1
         if attempts == 1:
             raise RuntimeError("first")
-        return 7
+        return await asyncio.shield(second)
 
     vm = _vm(loader)
     await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
     assert vm.state.status is AsyncResourceStatus.ERROR
-    await asyncio.wait_for(vm.reload(), timeout=HANG_GUARD)
+    reload_task = asyncio.create_task(vm.reload())
+    await _wait_until(lambda: attempts == 2)
+    assert vm.state.status is AsyncResourceStatus.LOADING
+    assert not hasattr(vm.state, "error")
+    second.set_result(7)
+    await asyncio.wait_for(reload_task, timeout=HANG_GUARD)
     assert vm.state.status is AsyncResourceStatus.READY
     assert vm.state.value == 7
     assert not hasattr(vm.state, "error")
@@ -469,6 +484,36 @@ async def test_ares_005_cancel_initial_load_to_idle() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.conformance("ARES-005")
+async def test_ares_005_cancel_command_load_emits_no_command_error() -> None:
+    observed_cancel = False
+    started = False
+
+    async def loader() -> int:
+        nonlocal observed_cancel, started
+        started = True
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            observed_cancel = True
+            raise
+
+    vm = _vm(loader)
+    errors = _record_command_errors(vm)
+    vm.load_command.execute()
+    await _wait_until(lambda: started)
+    vm.cancel_command.execute()
+    await _wait_until(lambda: observed_cancel)
+    await _wait_until(lambda: vm.state.status is AsyncResourceStatus.IDLE)
+    for _ in range(10):
+        await _flush()
+
+    assert vm.state.status is AsyncResourceStatus.IDLE
+    assert not hasattr(vm.state, "error")
+    assert errors == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.conformance("ARES-006")
 async def test_ares_006_retain_previous_across_cancel_and_failure() -> None:
     second: asyncio.Future[int] = asyncio.get_running_loop().create_future()
@@ -484,7 +529,8 @@ async def test_ares_006_retain_previous_across_cancel_and_failure() -> None:
             return await asyncio.shield(second)
         raise failure
 
-    vm = _vm(loader, retention=AsyncResourceRetention.RETAIN_PREVIOUS)
+    cleaned: list[int] = []
+    vm = _vm(loader, retention=AsyncResourceRetention.RETAIN_PREVIOUS, cleanup=cleaned.append)
     await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
     reload_task = asyncio.create_task(vm.reload())
     await _wait_until(lambda: attempts == 2)
@@ -494,6 +540,7 @@ async def test_ares_006_retain_previous_across_cancel_and_failure() -> None:
     await asyncio.wait_for(reload_task, timeout=HANG_GUARD)
     assert vm.state.status is AsyncResourceStatus.READY
     assert vm.state.value == 3
+    assert cleaned == []
 
     await asyncio.wait_for(vm.reload(), timeout=HANG_GUARD)
     assert vm.state.status is AsyncResourceStatus.ERROR
@@ -519,8 +566,17 @@ async def test_ares_007_discard_cleans_before_loading() -> None:
 
     vm = _vm(loader, cleanup=cleaned.append)
     await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
+    cleaned_when_loading: list[list[int]] = []
+    vm.property_changed.subscribe(
+        lambda name: (
+            cleaned_when_loading.append(list(cleaned))
+            if name == "state" and vm.state.status is AsyncResourceStatus.LOADING
+            else None
+        )
+    )
     reload_task = asyncio.create_task(vm.reload())
     await _wait_until(lambda: attempts == 2)
+    assert cleaned_when_loading == [[5]]
     assert cleaned == [5]
     assert vm.state.status is AsyncResourceStatus.LOADING
     assert not hasattr(vm.state, "value")
