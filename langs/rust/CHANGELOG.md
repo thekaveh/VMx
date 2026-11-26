@@ -133,6 +133,10 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   walking component rolls back, and the others settle (ADR-0255, spec/02 §6.1,
   `LIFE-023`, `LIFE-024`, #1962).
 
+- `VmxError::OwnershipCycle` has a new `Display` text: "the operation would
+  create an ownership or walk cycle". The old text described only ownership
+  cycles. The variant is otherwise unchanged; no variant is added (ADR-0255).
+
 ## [0.36.0] — unreleased source version
 
 0.36.0 implements spec 3.30.0.

@@ -63,7 +63,7 @@ final class ChildTransitionWalkCycleConformanceTests: XCTestCase {
         parent.constructChildren = [parent, sibling]
 
         XCTAssertThrowsError(try parent.construct()) { error in
-            XCTAssertTrue(String(describing: error).contains("its own view-model"), "\(error)")
+            XCTAssertTrue(error is ChildTransitionError, "\(error)")
         }
 
         XCTAssertEqual(parent.status, .destructed)
@@ -80,7 +80,7 @@ final class ChildTransitionWalkCycleConformanceTests: XCTestCase {
         q.constructChildren = [p]
 
         XCTAssertThrowsError(try p.construct()) { error in
-            XCTAssertTrue(String(describing: error).contains("walk cycle"), "\(error)")
+            XCTAssertTrue(error is ChildTransitionError, "\(error)")
         }
         pump()
 
@@ -101,7 +101,7 @@ final class ChildTransitionWalkCycleConformanceTests: XCTestCase {
         leaf.constructChildren = [group]
 
         XCTAssertThrowsError(try group.construct()) { error in
-            XCTAssertTrue(String(describing: error).contains("walk cycle"), "\(error)")
+            XCTAssertTrue(error is ChildTransitionError, "\(error)")
         }
         pump()
 

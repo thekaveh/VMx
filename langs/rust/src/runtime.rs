@@ -214,8 +214,9 @@ pub enum VmxError {
     #[error("component is already a child of this container")]
     /// The component is already a child of the destination container.
     DuplicateChild,
-    #[error("container ownership would create an ancestor cycle")]
-    /// The requested parent assignment would create a cycle.
+    #[error("the operation would create an ownership or walk cycle")]
+    /// The requested parent assignment, or a child-transition walk that would
+    /// wait on itself, would create a cycle.
     OwnershipCycle,
     #[error("component parent state does not match parent membership")]
     /// Parent metadata and parent membership disagree.

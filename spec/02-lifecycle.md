@@ -430,11 +430,13 @@ ordered list of children, a direction, and an optional `after` callback:
   the two phases of `reconstruct()`. A call from anywhere else raises the
   flavor's usage error and starts no child.
 - A walk that lists its own view-model, or that would join a child whose walk
-  waits, through any chain of walks, on the walking view-model, raises the
-  flavor's usage error and neither starts nor joins that child (`LIFE-023`,
-  `LIFE-024`). The walking view-model then rolls back as for a failing child
-  (§2.5). No view-model on the cycle is left `Constructing` or `Destructing`.
-  This rule extends ADR-0162 (ADR-0255).
+  waits, through any chain of walks, on the walking view-model, raises a usage
+  error before it starts or joins any further child (`LIFE-023`, `LIFE-024`).
+  The error is the flavor's usage error in the table below, or
+  `VmxError::OwnershipCycle` in Rust. The rule requires the error's category,
+  not its message text. The walking view-model then rolls back as for a failing
+  child (§2.5). No view-model on the cycle is left `Constructing` or
+  `Destructing`. This rule extends ADR-0162 (ADR-0255).
 
 **Several failures in one flush.** A shared scheduler can run the lifecycle
 work of several calls in one synchronous flush. Each failure in that flush is

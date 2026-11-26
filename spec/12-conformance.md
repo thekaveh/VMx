@@ -367,9 +367,10 @@ is raised or recorded
 the child-transition helper, where `sibling` is a leaf VM on an inline
 dispatcher, in `Destructed`
 **When** `walker.construct()` is called
-**Then** the call raises the flavor's usage error (`InvalidOperationException`,
-`RuntimeError`, `Error`, `ChildTransitionError`, or `VmxError::OwnershipCycle`
-in Rust) and names the walking view-model
+**Then** the call raises a usage error before any child starts or joins: the
+flavor's usage error (`InvalidOperationException`, `RuntimeError`, `Error`,
+`ChildTransitionError`, or `VmxError::OwnershipCycle` in Rust). The error's
+category is required, not its message text
 **And** `walker` and `sibling` are `Destructed`, and `sibling`'s construct hook
 runs zero times
 
@@ -380,11 +381,11 @@ runs zero times
 **Given** two leaf VMs `p` and `q` on an inline dispatcher, where the construct
 hook of `p` passes `[q]` and the construct hook of `q` passes `[p]`
 **When** `p.construct()` is called
-**Then** the call raises the flavor's usage error and `q` is refused at the join
-of `p`, so the walk of `q` fails and `q` rolls back
+**Then** the call raises a usage error (the category of `LIFE-023`), and `q` is
+refused at the join of `p`, so the walk of `q` fails and `q` rolls back
 **And** `p` and `q` are both `Destructed`, so neither is left transient
 **And** a leaf VM `leaf` whose construct hook passes its own group `g`, where
-`g` is a `GroupVM` whose children are `[leaf]`, makes `g.construct()` raise the
+`g` is a `GroupVM` whose children are `[leaf]`, makes `g.construct()` raise a
 usage error, with `g` and `leaf` both `Destructed`
 **And** in Rust, dropping the two components after the refused cycle frees both
 (no walk stores a reference that keeps them alive)

@@ -52,7 +52,7 @@ describe("LIFE-023", () => {
     const sibling = new WalkerVM("sibling", hub, dispatcher);
     walker.walkList.push(walker, sibling);
 
-    expect(() => walker.construct()).toThrow("its own view-model");
+    expect(() => walker.construct()).toThrow(Error);
 
     expect(walker.status).toBe(S.Destructed);
     expect(sibling.status).toBe(S.Destructed);
@@ -68,7 +68,7 @@ describe("LIFE-024", () => {
     p.walkList.push(q);
     q.walkList.push(p);
 
-    expect(() => p.construct()).toThrow("walk cycle");
+    expect(() => p.construct()).toThrow(Error);
 
     expect(p.status).toBe(S.Destructed);
     expect(q.status).toBe(S.Destructed);
@@ -84,7 +84,7 @@ describe("LIFE-024", () => {
       .build();
     leaf.walkList.push(group);
 
-    expect(() => group.construct()).toThrow("walk cycle");
+    expect(() => group.construct()).toThrow(Error);
 
     expect(group.status).toBe(S.Destructed);
     expect(leaf.status).toBe(S.Destructed);
