@@ -33,6 +33,28 @@ on:
       - "langs/python/pyproject.toml"
       - "langs/typescript/**"
       - "packages/react/**"
+      # The npm ci steps run through this script (#1836).
+      - "tools/ci-retry.mjs"
+      # Read by tools/tests/test_example_accessibility.py and tools/check-showcase-parity.py (#1836).
+      - "docs/content/stylesheets/extra.css"
+      - "docs/content/examples/rust-tui-notes-showcase.md"
+      # The langs/typescript prebuild hook (langs/typescript/scripts/sync-fixtures.mjs)
+      # copies every top-level spec fixture and schema into the build (#1836).
+      - "spec/fixtures/*.json"
+      - "spec/schemas/*.json"
+      # `uv --project langs/python sync` reads the readme and the version path of
+      # pyproject.toml, the license files, and the force-included lifecycle data (#1836).
+      - "langs/python/README.md"
+      - "langs/python/src/vmx/__about__.py"
+      - "langs/python/LICENSE"
+      - "langs/python/NOTICE"
+      - "langs/python/src/vmx/lifecycle/_data/lifecycle-transitions.json"
+      # The pytest run loads conftest.py, which preloads a list of top-level tools/ scripts;
+      # the whole top-level set is listed so the list can change without a workflow edit.
+      # test_example_accessibility.py reads every workflow file (#1836).
+      - "tools/tests/conftest.py"
+      - "tools/*.py"
+      - ".github/workflows/*.yml"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:

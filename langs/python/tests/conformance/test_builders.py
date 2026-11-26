@@ -72,9 +72,7 @@ def test_BLD_004_field_defaults_applied() -> None:
     vm = ComponentVMOf[str].builder().name("vm").services(hub, dispatcher).model("init").build()
     assert vm.hint == ""  # default
     assert vm.type is ViewModelType.COMPONENT  # default derived from class
-    # Parent defaults to null; the observable proxy is is_current == False
-    # (spec BLD-004 "Parent == null"; matches the TS isCurrent proxy).
-    assert vm.is_current is False
+    assert vm._parent is None  # spec BLD-004 "Parent == null"
     vm.dispose()
 
 

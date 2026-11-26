@@ -16,14 +16,14 @@ public class CommandConformanceTests
     [Fact, Trait("Conformance", "CMD-001")]
     public void CMD_001_Execute_Invokes_Task()
     {
-        var invoked = false;
+        var invocations = 0;
         var cmd = RelayCommand.Builder()
-            .Task(() => invoked = true)
+            .Task(() => invocations++)
             .Build();
 
         cmd.Execute(null);
 
-        invoked.Should().BeTrue("Execute must invoke the configured task exactly once");
+        invocations.Should().Be(1, "Execute must invoke the configured task exactly once");
     }
 
     // CMD-002 — CanExecute with no predicate returns true.
@@ -190,15 +190,27 @@ public class CommandConformanceTests
     }
 
     [Fact, Trait("Conformance", "CMD-018")]
-    public void CMD_018_Async_Imperative_Raise_While_Idle_Emits_Exactly_Once()
+    public async Task CMD_018_Async_Imperative_Raise_While_Idle_Emits_Once_And_Starts_No_Execution()
     {
-        using var cmd = AsyncRelayCommand.Builder().Build();
+        var runs = 0;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cmd = AsyncRelayCommand.Builder()
+            .Task(async _ =>
+            {
+                Interlocked.Increment(ref runs);
+                started.TrySetResult();
+                await Task.CompletedTask;
+            })
+            .Build();
         var fired = 0;
         cmd.CanExecuteChanged += (_, _) => fired++;
 
         cmd.RaiseCanExecuteChanged();
 
         fired.Should().Be(1);
+        var outcome = await Task.WhenAny(started.Task, Task.Delay(TimeSpan.FromMilliseconds(200)));
+        outcome.Should().NotBeSameAs(started.Task, "no execution starts while the command is idle");
+        Volatile.Read(ref runs).Should().Be(0);
     }
 
     [Fact, Trait("Conformance", "CMD-019")]

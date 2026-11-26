@@ -19,16 +19,19 @@ public sealed class AsyncResourceVMConformanceTests
     public void ARES_001_Initial_State_And_Commands()
     {
         using var hub = new MessageHub();
+        var stateNotifications = new List<string>();
+        using var subscription = hub.Messages
+            .OfType<IPropertyChangedMessage<IComponentVM>>()
+            .Where(message => message.PropertyName == nameof(AsyncResourceVM<int>.State))
+            .Subscribe(message => stateNotifications.Add(message.PropertyName));
         var calls = 0;
         var vm = Create(hub, _ => { calls++; return Task.FromResult(1); });
-        var changes = new List<string?>();
-        vm.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
 
         vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
         vm.State.HasValue.Should().BeFalse();
         vm.State.Error.Should().BeNull();
         calls.Should().Be(0);
-        changes.Should().BeEmpty();
+        stateNotifications.Should().BeEmpty();
         vm.LoadCommand.CanExecute(null).Should().BeTrue();
         vm.ReloadCommand.CanExecute(null).Should().BeFalse();
         vm.CancelCommand.CanExecute(null).Should().BeFalse();
@@ -280,14 +283,20 @@ public sealed class AsyncResourceVMConformanceTests
     public async Task ARES_004_Retry_Replaces_Error_With_Ready()
     {
         using var hub = new MessageHub();
+        var second = NewSource<int>();
         var attempt = 0;
         var vm = Create(hub, _ => ++attempt == 1
             ? Task.FromException<int>(new InvalidOperationException("first"))
-            : Task.FromResult(7));
+            : second.Task);
 
         await vm.LoadAsync();
         vm.State.Status.Should().Be(AsyncResourceStatus.Error);
-        await vm.ReloadAsync();
+        var reload = vm.ReloadAsync();
+        vm.State.Status.Should().Be(AsyncResourceStatus.Loading);
+        vm.State.HasValue.Should().BeFalse();
+        vm.State.Error.Should().BeNull();
+        second.SetResult(7);
+        await reload;
         vm.State.Status.Should().Be(AsyncResourceStatus.Ready);
         vm.State.Value.Should().Be(7);
         vm.State.Error.Should().BeNull();
@@ -335,6 +344,40 @@ public sealed class AsyncResourceVMConformanceTests
         preCancelled.State.Status.Should().Be(AsyncResourceStatus.Idle);
     }
 
+    [Fact, Trait("Conformance", "ARES-005")]
+    public async Task ARES_005_Cancel_Command_Load_Emits_No_Command_Error()
+    {
+        using var hub = new MessageHub();
+        var started = NewSource();
+        var observedCancellation = NewSource();
+        var vm = Create(hub, async token =>
+        {
+            started.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.Infinite, token);
+                return 0;
+            }
+            catch (OperationCanceledException)
+            {
+                observedCancellation.TrySetResult();
+                throw;
+            }
+        });
+        var commandErrors = new List<Exception>();
+        using var subscription = vm.LoadCommand.Errors.Subscribe(commandErrors.Add);
+
+        vm.LoadCommand.Execute(null);
+        await started.Task.WaitAsync(HangGuard);
+        vm.CancelCommand.Execute(null);
+        await observedCancellation.Task.WaitAsync(HangGuard);
+        await WaitUntilAsync(() => !vm.LoadCommand.IsExecuting);
+
+        vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
+        vm.State.Error.Should().BeNull();
+        commandErrors.Should().BeEmpty();
+    }
+
     [Fact, Trait("Conformance", "ARES-006")]
     public async Task ARES_006_Retains_Previous_Through_Cancel_And_Failure()
     {
@@ -342,12 +385,13 @@ public sealed class AsyncResourceVMConformanceTests
         var second = NewSource<int>();
         var failure = new InvalidOperationException("refresh");
         var attempt = 0;
+        var cleaned = new List<int>();
         var vm = Create(hub, _ => ++attempt switch
         {
             1 => Task.FromResult(3),
             2 => second.Task,
             _ => Task.FromException<int>(failure),
-        }, AsyncResourceRetention.RetainPrevious);
+        }, AsyncResourceRetention.RetainPrevious, cleaned.Add);
 
         await vm.LoadAsync();
         var reload = vm.ReloadAsync();
@@ -357,6 +401,7 @@ public sealed class AsyncResourceVMConformanceTests
         await reload;
         vm.State.Status.Should().Be(AsyncResourceStatus.Ready);
         vm.State.Value.Should().Be(3);
+        cleaned.Should().BeEmpty();
 
         await vm.ReloadAsync();
         vm.State.Status.Should().Be(AsyncResourceStatus.Error);
@@ -479,7 +524,18 @@ public sealed class AsyncResourceVMConformanceTests
         }, cleanup: cleaned.Add);
 
         await vm.LoadAsync();
+        var cleanedWhenLoading = new List<int>();
+        var loadingNotifications = 0;
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(vm.State) || vm.State.Status != AsyncResourceStatus.Loading)
+                return;
+            loadingNotifications++;
+            cleanedWhenLoading = cleaned.ToList();
+        };
         var reload = vm.ReloadAsync();
+        loadingNotifications.Should().Be(1);
+        cleanedWhenLoading.Should().Equal(5);
         cleaned.Should().Equal(5);
         vm.State.Status.Should().Be(AsyncResourceStatus.Loading);
         vm.State.HasValue.Should().BeFalse();

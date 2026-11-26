@@ -80,15 +80,24 @@ public class COL_005_to_009_ObservableListTests
     {
         var sut = new ObservableList<int>();
         var callOrder = new List<string>();
+        var countsAtCountNotification = new List<int>();
 
         sut.ItemAdded += (_, _) => callOrder.Add("item_added");
         ((INotifyPropertyChanged)sut).PropertyChanged += (_, e) =>
+        {
             callOrder.Add($"property_changed:{e.PropertyName}");
+            if (e.PropertyName == "Count")
+            {
+                countsAtCountNotification.Add(sut.Count);
+            }
+        };
 
         sut.Add(42);
 
         // ItemAdded must fire before PropertyChanged("Count") — normative per spec §3.3
         callOrder.Should().Equal("item_added", "property_changed:Count");
+        // Count already reflects the new value when PropertyChanged("Count") fires
+        countsAtCountNotification.Should().Equal(1);
     }
 
     // ── COL-009 ──────────────────────────────────────────────────────────────

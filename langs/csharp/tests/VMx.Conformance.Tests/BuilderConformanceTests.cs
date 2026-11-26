@@ -107,7 +107,7 @@ public class BuilderConformanceTests
     /// <summary>
     /// BLD-004: Given a builder configured with only the required fields,
     /// when Build() is called, then optional fields default as specified:
-    /// Hint == "", Parent == null (verified via CanSelect() == false),
+    /// Hint == "", Parent == null (read through the internal back-reference),
     /// Type == Component (the type derived from ComponentVM&lt;M&gt;).
     /// </summary>
     [Fact, Trait("Conformance", "BLD-004")]
@@ -123,10 +123,7 @@ public class BuilderConformanceTests
         vm.Hint.Should().BeEmpty("Hint must default to empty string per spec/10-builders.md");
         vm.Type.Should().Be(ViewModelType.Component,
             "Type must default to Component for ComponentVM<M>");
-        // Parent is an internal field; observable proxy: CanSelect() is false
-        // when no parent composite has been set.
-        vm.CanSelect().Should().BeFalse(
-            "Parent defaults to null, so CanSelect() must be false");
+        vm.GetParent().Should().BeNull("Parent must default to null (BLD-004)");
     }
 
     // ── BLD-005 — Additive setters retain prior values across repeated calls ──

@@ -66,6 +66,8 @@ fn repeated_build_calls_produce_equivalent_distinct_vms() {
 
     assert_eq!(first.name(), second.name());
     assert_eq!(first.hint(), second.hint());
+    assert_eq!(first.view_model_type(), second.view_model_type());
+    assert_eq!(first.model(), second.model());
     assert_ne!(first.id(), second.id());
 }
 
@@ -95,6 +97,7 @@ fn field_defaults_are_applied() {
 /// overwrite clause is pinned through `action`.
 #[test]
 fn relay_command_trigger_setter_is_additive() {
+    // BLD-005 insertion order is not asserted in Rust, pending an owner decision under #1799.
     let trigger_a = MessageHub::new();
     let trigger_b = MessageHub::new();
     let builder = RelayCommand::builder()

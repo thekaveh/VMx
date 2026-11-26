@@ -83,6 +83,14 @@ final class BuilderTests: XCTestCase {
         XCTAssertEqual(vm1.hint, vm2.hint)
         // Catalog BLD-003: vmA.Type == vmB.Type.
         XCTAssertEqual(vm1.type, vm2.type)
+
+        // Catalog BLD-003, modeled variants: vmA.Model == vmB.Model.
+        let modeled = ComponentVMOf<String>.builder().name("m").model("init").withNullServices()
+        let modeled1 = try modeled.build()
+        let modeled2 = try modeled.build()
+        XCTAssertFalse(modeled1 === modeled2)
+        XCTAssertEqual(modeled1.model, modeled2.model)
+        XCTAssertEqual(modeled1.model, "init")
     }
 
     /// BLD-004 — field defaults applied when not set: `hint` defaults to
@@ -96,6 +104,8 @@ final class BuilderTests: XCTestCase {
         XCTAssertEqual(vm.hint, "")
         // Catalog BLD-004: Type is the type derived from the VM class.
         XCTAssertEqual(vm.type, .component)
+        // Catalog BLD-004: Parent == null, read through the ownership back-reference.
+        XCTAssertNil(vm._ownershipParent)
         XCTAssertEqual(vm.status, .destructed)
         // Constructing succeeds via the null hub & dispatcher.
         try vm.construct()

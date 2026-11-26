@@ -130,16 +130,46 @@ impl NotificationCounter {
 fn async_resource_initial_state_and_commands() {
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
-    let vm = AsyncResourceVm::new("resource", move |_| {
-        observed.fetch_add(1, Ordering::SeqCst);
-        Ok(1)
-    });
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let vm =
+        AsyncResourceVm::with_services("resource", hub.clone(), NullDispatcher::new(), move |_| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Ok(1)
+        });
 
     assert_eq!(vm.state(), AsyncResourceState::Idle);
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let state_notifications = recorder
+        .messages()
+        .into_iter()
+        .filter(|message| {
+            matches!(
+                message,
+                Message::PropertyChanged(change)
+                    if change.sender_id == vm.id() && change.property_name == "state"
+            )
+        })
+        .count();
+    assert_eq!(state_notifications, 0);
     assert!(vm.load_command().can_execute());
     assert!(!vm.reload_command().can_execute());
     assert!(!vm.cancel_command().can_execute());
+}
+
+/// Counts the `state` property messages the VM published to its hub.
+fn hub_state_count(recorder: &vmx::MessageRecorder, vm: &AsyncResourceVm<i32>) -> usize {
+    recorder
+        .messages()
+        .into_iter()
+        .filter(|message| {
+            matches!(
+                message,
+                Message::PropertyChanged(change)
+                    if change.sender_id == vm.id() && change.property_name == "state"
+            )
+        })
+        .count()
 }
 
 /// ARES-002 — Successful load and ordinary state notification
@@ -147,6 +177,7 @@ fn async_resource_initial_state_and_commands() {
 fn async_resource_success_notifies_loading_and_ready() {
     let (send, receive) = channel();
     let (vm, starts) = controlled_vm(vec![receive], AsyncResourceRetention::DiscardPrevious, None);
+    let recorder = vm.hub().record(1024);
     let changes = Arc::new(Mutex::new(Vec::new()));
     let seen = changes.clone();
     let _subscription = vm.property_changed().subscribe(move |name| {
@@ -155,10 +186,20 @@ fn async_resource_success_notifies_loading_and_ready() {
 
     let load = vm.load_async();
     wait_until(|| starts.load(Ordering::SeqCst) == 1);
+    assert_eq!(
+        hub_state_count(&recorder, &vm),
+        1,
+        "the Loading transition publishes one hub state pair"
+    );
     send.send(Ok(42)).unwrap();
     load.join().unwrap().unwrap();
 
     assert_eq!(vm.state(), AsyncResourceState::Ready { value: 42 });
+    assert_eq!(
+        hub_state_count(&recorder, &vm),
+        2,
+        "the Ready transition adds one hub state pair"
+    );
     assert_eq!(*changes.lock().unwrap(), vec!["state", "state"]);
     assert!(!vm.load_command().can_execute());
     assert!(vm.reload_command().can_execute());
@@ -319,18 +360,30 @@ fn async_resource_loader_panic_restores_stable_state_and_remains_retryable() {
 /// ARES-004 — Retry replaces error with ready
 #[test]
 fn async_resource_retry_replaces_error() {
-    let attempt = Arc::new(AtomicUsize::new(0));
-    let counter = attempt.clone();
-    let vm = AsyncResourceVm::new("resource", move |_| {
-        if counter.fetch_add(1, Ordering::SeqCst) == 0 {
-            Err(VmxError::Other("first".into()))
-        } else {
-            Ok(7)
-        }
-    });
-    vm.load_async().join().unwrap().unwrap();
-    vm.reload_async().join().unwrap().unwrap();
+    let (send1, receive1) = channel();
+    let (send2, receive2) = channel();
+    let (vm, starts) = controlled_vm(
+        vec![receive1, receive2],
+        AsyncResourceRetention::DiscardPrevious,
+        None,
+    );
+    let first = vm.load_async();
+    wait_until(|| starts.load(Ordering::SeqCst) == 1);
+    send1.send(Err(VmxError::Other("first".into()))).unwrap();
+    first.join().unwrap().unwrap();
+    assert!(matches!(
+        vm.state(),
+        AsyncResourceState::Error { previous: None, .. }
+    ));
+
+    let reload = vm.reload_async();
+    wait_until(|| starts.load(Ordering::SeqCst) == 2);
+    assert_eq!(vm.state(), AsyncResourceState::Loading { previous: None });
+    assert_eq!(vm.error(), None);
+    send2.send(Ok(7)).unwrap();
+    reload.join().unwrap().unwrap();
     assert_eq!(vm.state(), AsyncResourceState::Ready { value: 7 });
+    assert_eq!(vm.error(), None);
 }
 
 /// ARES-005 — Cancellation restores idle without error
@@ -356,6 +409,39 @@ fn async_resource_cancel_restores_idle() {
     assert_eq!(vm.state(), AsyncResourceState::Idle);
     vm.cancel();
     assert_eq!(vm.state(), AsyncResourceState::Idle);
+}
+
+/// ARES-005 — Cancelling a load started through the load command emits no
+/// command error and restores Idle.
+#[test]
+fn async_resource_cancel_command_load_emits_no_command_error() {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let started = Arc::new(AtomicBool::new(false));
+    let observed = cancelled.clone();
+    let loader_started = started.clone();
+    let vm: AsyncResourceVm<i32> = AsyncResourceVm::new("resource", move |token| loop {
+        loader_started.store(true, Ordering::SeqCst);
+        if token.is_cancelled() {
+            observed.store(true, Ordering::SeqCst);
+            return Err(VmxError::Other("cancelled".into()));
+        }
+        thread::sleep(Duration::from_millis(1));
+    });
+    let command_errors = Arc::new(AtomicUsize::new(0));
+    let counter = command_errors.clone();
+    let _subscription = vm.load_command().error_stream().subscribe(move |_| {
+        counter.fetch_add(1, Ordering::SeqCst);
+    });
+
+    vm.load_command().execute();
+    wait_until(|| started.load(Ordering::SeqCst));
+    vm.cancel_command().execute();
+    wait_until(|| cancelled.load(Ordering::SeqCst));
+    wait_until(|| vm.state() == AsyncResourceState::Idle);
+    thread::sleep(Duration::from_millis(20));
+
+    assert_eq!(vm.state(), AsyncResourceState::Idle);
+    assert_eq!(command_errors.load(Ordering::SeqCst), 0);
 }
 
 /// ARES-006 — Retained reload exposes and restores the previous value
@@ -420,8 +506,24 @@ fn async_resource_discard_cleans_at_reload_start() {
     wait_until(|| starts.load(Ordering::SeqCst) == 1);
     send1.send(Ok(5)).unwrap();
     first.join().unwrap().unwrap();
+
+    // Snapshot the cleanup list at each Loading notification of the reload.
+    let observer = vm.clone();
+    let loading_snapshots = Arc::new(Mutex::new(Vec::<Vec<i32>>::new()));
+    let snapshots = loading_snapshots.clone();
+    let seen_cleaned = cleaned.clone();
+    let _subscription = vm.property_changed().subscribe(move |name| {
+        if name == "state" && observer.resource_status() == AsyncResourceStatus::Loading {
+            snapshots
+                .lock()
+                .unwrap()
+                .push(seen_cleaned.lock().unwrap().clone());
+        }
+    });
+
     let reload = vm.reload_async();
     wait_until(|| starts.load(Ordering::SeqCst) == 2);
+    assert_eq!(*loading_snapshots.lock().unwrap(), vec![vec![5]]);
     assert_eq!(*cleaned.lock().unwrap(), vec![5]);
     assert_eq!(vm.state(), AsyncResourceState::Loading { previous: None });
     assert_eq!(vm.value(), None);

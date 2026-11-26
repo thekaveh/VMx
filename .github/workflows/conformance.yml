@@ -6,41 +6,8 @@ permissions:
 on:
   push:
     branches: [main, develop]
-    paths:
-      - "spec/**"
-      - "docs/**"
-      - "langs/**/tests/conformance/**"
-      - "langs/csharp/tests/VMx.Conformance.Tests/**"
-      - "langs/swift/Tests/VMxTests/**"
-      - "langs/typescript/src/conformance/schemas/**"
-      - "langs/rust/src/fixtures/**"
-      - "langs/python/src/vmx/lifecycle/_data/**"
-      - "langs/swift/Sources/VMx/Resources/**"
-      - "langs/python/pyproject.toml"
-      # Inputs of the dependency-lock step; docs/** covers the docs lock.
-      - "**/uv.lock"
-      - "examples/**/pyproject.toml"
-      # Inputs of the version-consistency step.
-      - "compatibility-matrix.md"
-      - "langs/*/CHANGELOG.md"
-      - "langs/rust/Cargo.toml"
-      - "langs/rust/src/lib.rs"
-      - "langs/typescript/package.json"
-      - "langs/typescript/src/version.ts"
-      - "langs/swift/Sources/VMx/Version.swift"
-      - "langs/csharp/src/*/*.csproj"
-      - "langs/python/src/vmx/__about__.py"
-      - "packages/react/package.json"
-      - "packages/react/CHANGELOG.md"
-      - "examples/**/package-lock.json"
-      - "examples/**/Cargo.lock"
-      - "benchmarks/rust/Cargo.lock"
-      - "tools/**"
-      # Starter templates read by tools/tests/test_create_starter.py.
-      - "starters/**"
-      - ".pre-commit-config.yaml"
-      - ".github/dependabot.yml"
-      - ".github/workflows/**"
+    # No push path filter (#1836). The jobs read files across the repository, and a
+    # pattern list cannot cover them all, so every push to main or develop runs this.
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
