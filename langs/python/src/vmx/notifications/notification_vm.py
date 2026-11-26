@@ -5,6 +5,7 @@ See spec/16-notifications.md §NotificationVM and ADR-0031.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import timedelta
 
@@ -18,6 +19,8 @@ from vmx.commands.relay_command import RelayCommand
 from vmx.notifications.notification import Notification
 from vmx.notifications.notification_hub import INotificationHub
 from vmx.notifications.notification_reaction import NotificationReaction
+
+_logger = logging.getLogger(__name__)
 
 _DEFAULT_LIFESPAN = timedelta(seconds=60)
 
@@ -262,14 +265,25 @@ class NotificationVM:
         """Raise property_changed for the decaying state and reschedule.
 
         Self-terminates once the notification resolves, is disposed, or the
-        decay completes (``remaining_time`` hits zero).
+        decay completes (``remaining_time`` hits zero). Each change has its own
+        boundary, so a failing handler does not stop the reschedule (ADR-0257).
         """
         if self._disposed or self._is_resolved:
             return
-        self._raise_property_changed("remaining_time")
-        self._raise_property_changed("opacity")
+        self._raise_contained("remaining_time")
+        self._raise_contained("opacity")
         if self.remaining_time > timedelta(0):
             self._schedule_decay_tick()
+
+    def _raise_contained(self, property_name: str) -> None:
+        """Raise one decay change; a handler failure is logged, never raised (ADR-0257)."""
+        try:
+            self._raise_property_changed(property_name)
+        except Exception:
+            _logger.exception(
+                "NotificationVM decay tick raised for %s; the failure is logged per spec/16 §6",
+                property_name,
+            )
 
     def _raise_property_changed(self, property_name: str) -> None:
         """Emit *property_name* on the change-notification stream (VMX-135)."""
@@ -283,9 +297,18 @@ class NotificationVM:
         self._raise_property_changed("opacity")
 
     def _expire(self) -> None:
-        """Mark the lifespan as spent, then run the :meth:`_on_expire` hook."""
+        """Mark the lifespan as spent, then run the :meth:`_on_expire` hook.
+
+        This is the timer action, a stream-fed route (spec/16 §6, ADR-0257): a
+        failure raised by the hook is logged here and never reaches the scheduler.
+        """
         self._expired = True
-        self._on_expire()
+        try:
+            self._on_expire()
+        except Exception:
+            _logger.exception(
+                "NotificationVM lifespan timer raised; the failure is logged per spec/16 §6"
+            )
 
     def _on_expire(self) -> None:
         """Called when the lifespan timer fires.
@@ -302,8 +325,12 @@ class NotificationVM:
         self._is_resolved = True
         self._keep_render_state()
         self._cancel_timers()
-        self._hub.resolve(self._notification, NotificationReaction.APPROVE)
-        self._raise_resolved_changes()
+        # The changes are raised even when the hub resolve raises (ADR-0257). A
+        # DismissCommand caller still gets that failure; the timer path logs it.
+        try:
+            self._hub.resolve(self._notification, NotificationReaction.APPROVE)
+        finally:
+            self._raise_resolved_changes()
 
     def _resolve_with(self, reaction: NotificationReaction) -> None:
         """Resolve with the given reaction and cancel the timer.

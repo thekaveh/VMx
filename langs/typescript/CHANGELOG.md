@@ -237,6 +237,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `NotificationVM` contains its timer failures (ADR-0257, `NOTIF-021`, #1875). A
+  failing `Pending` subscriber or `PropertyChanged` handler at auto-dismiss or on
+  a decay tick goes to `config.onUnhandledError`, not the scheduler. A hub
+  `resolve` that throws at auto-dismiss no longer hides the `IsResolved` change.
+
 - A child-transition walk that lists its own view-model, or that would join a
   child whose walk waits back on it, throws an `Error` and starts no child
   (ADR-0255, `LIFE-023`, `LIFE-024`, #1962). Such a walk used to leave every

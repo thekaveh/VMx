@@ -14,6 +14,7 @@ import {
   type SchedulerLike,
 } from "rxjs";
 import { RelayCommand } from "../commands/relayCommand.js";
+import { reportUnhandled } from "../services/reportUnhandled.js";
 import type { Notification } from "./notification.js";
 import { NotificationReaction } from "./notification.js";
 import type { INotificationHub } from "./notificationHub.js";
@@ -255,7 +256,13 @@ export class NotificationVM {
 
   #onExpire(): void {
     this.#expired = true;
-    this.onExpire();
+    // The timer runs on the scheduler, so a failure here takes the stream-fed
+    // route and never reaches it (spec/16 §6, ADR-0257).
+    try {
+      this.onExpire();
+    } catch (error) {
+      reportUnhandled(error);
+    }
   }
 
   #dismiss(): void {
@@ -267,8 +274,13 @@ export class NotificationVM {
     this.#timerHandle = null;
     this.#tickHandle?.unsubscribe();
     this.#tickHandle = null;
-    this.#hub.resolve(this.#notification, NotificationReaction.Approve);
-    this.#raiseResolvedChanges();
+    // The changes are raised even when the hub refuses (ADR-0257 §2.2). The
+    // error still propagates, so a DismissCommand keeps its command route.
+    try {
+      this.#hub.resolve(this.#notification, NotificationReaction.Approve);
+    } finally {
+      this.#raiseResolvedChanges();
+    }
   }
 
   #resolveWith(reaction: NotificationReaction): void {

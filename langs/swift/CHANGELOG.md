@@ -220,6 +220,11 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Fixed
 
+- `NOTIF-021` conformance tests (#1875, ADR-0257). A `NotificationVM` timer or
+  decay-tick failure never reaches the scheduler, and Swift subscribers cannot
+  throw, so Swift's behavior is unchanged. The tests pin the expiry, decay-tick
+  and dismiss timelines with no failing subscriber.
+
 - A child-transition walk that lists its own view-model, or that would join a
   view-model whose walk waits back on it, throws `ChildTransitionError` and
   starts no child (#1962, ADR-0255, `LIFE-023`, `LIFE-024`). Before, the walk

@@ -231,6 +231,19 @@ that step, and a later clock advance does not change them. After auto-dismiss
 they are 0 and 0.0. A real timer can fire while the clock still reads a little
 before expiry. The VM then stores 0 and 0.0 too, and does not read the clock.
 
+A failure raised by a `Pending` subscriber or a `PropertyChanged` handler during
+auto-dismiss, or during a decay tick, is a stream-fed failure (chapter 03 §3.6,
+ADR-0257). It never reaches the scheduler. Each flavor contains it by its
+stream-fed route: C# discards it, Python logs it with `logger.exception`,
+TypeScript reports it through rxjs `config.onUnhandledError`, Rust catches it,
+and Swift has no such failure because its subscribers cannot throw. Auto-dismiss
+and `DismissCommand` commit the resolved state, then raise the `IsResolved`
+change, then `RemainingTime` and `Opacity`, even when the hub resolve raises. A
+`DismissCommand` hub failure keeps the route that its flavor gives a command call.
+A decay tick reschedules while `RemainingTime` is positive, even after a handler
+failed. `ResolveWith`, which the `ConfirmationVM` approve and reject commands call
+(§7), keeps its order.
+
 A `NotificationVM` built over a disposed hub constructs normally. Its pending
 subscription completes at once, and the hub ignores its resolve call.
 
@@ -366,5 +379,6 @@ of each ID.
 | `NOTIF-018`                                        | §6.2 commands during disposal (ADR-0196)                |
 | `NOTIF-019`                                        | §6 render state after resolution or disposal (ADR-0197) |
 | `NOTIF-020`                                        | §2.3 a `Pending` subscription after dispose (ADR-0197)  |
+| `NOTIF-021`                                        | §6 timer and decay-tick failures (ADR-0257)             |
 | `DISP-003`                                         | §2.4 hub disposal                                       |
 | `DISP-004`                                         | §6 and §7 repeated rendering-VM disposal                |

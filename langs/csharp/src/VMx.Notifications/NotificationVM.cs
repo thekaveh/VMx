@@ -87,7 +87,7 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
         // virtual OnExpire on a partially-constructed derived instance.
         AttachSubscription(
             ref _timerSub,
-            _scheduler.Schedule(_lifespan, Expire));
+            _scheduler.Schedule(_lifespan, () => RunTimerAction(Expire)));
 
         // VMX-135: when a tick cadence is requested, periodically raise
         // PropertyChanged for the decaying state so bound views repaint the
@@ -239,10 +239,24 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
         {
             if (_disposed || _isResolved) return;
         }
-        RaisePropertyChanged(nameof(RemainingTime));
-        RaisePropertyChanged(nameof(Opacity));
+        // Each raise has its own boundary, so a failing handler still lets the
+        // tick reschedule (spec/16 §6, ADR-0257).
+        RunTimerAction(() => RaisePropertyChanged(nameof(RemainingTime)));
+        RunTimerAction(() => RaisePropertyChanged(nameof(Opacity)));
         if (RemainingTime > TimeSpan.Zero)
             recurse(_tickInterval);
+    }
+
+    /// <summary>
+    /// Runs one lifespan or decay-tick step on the scheduler. A failure from a
+    /// <c>Pending</c> subscriber or a <see cref="PropertyChanged"/> handler is a
+    /// stream-fed failure (spec/16 §6, ADR-0257): it is discarded here, so it never
+    /// reaches the scheduler.
+    /// </summary>
+    private static void RunTimerAction(Action action)
+    {
+        try { action(); }
+        catch { /* stream-fed route: discard the failure (spec/16 §6, ADR-0257) */ }
     }
 
     /// <summary>Raises <see cref="PropertyChanged"/> for the resolved + decay state.</summary>
@@ -279,8 +293,10 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
     {
         if (!TryClaimResolution(out var timerSub, out var tickSub)) return;
         DisposeResolutionSubscriptions(timerSub, tickSub);
-        _hub.Resolve(Notification, NotificationReaction.Approve);
-        RaiseResolvedChanges();
+        // The IsResolved change is raised even when the hub resolve throws (ADR-0257).
+        // The failure still reaches a DismissCommand caller; the timer path contains it.
+        try { _hub.Resolve(Notification, NotificationReaction.Approve); }
+        finally { RaiseResolvedChanges(); }
     }
 
     /// <summary>

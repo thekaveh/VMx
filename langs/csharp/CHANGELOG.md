@@ -263,6 +263,13 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- `NotificationVM` contains a failure from a `Pending` subscriber or a `PropertyChanged`
+  handler during auto-dismiss or a decay tick. Before, the failure escaped the scheduler:
+  on `DefaultScheduler.Instance` it ended the process, and under a test scheduler the
+  `IsResolved` change was skipped. Auto-dismiss and `DismissCommand` now raise the
+  `IsResolved` change even when the hub resolve throws, and a decay tick reschedules after
+  a handler failure (spec/16 §6, ADR-0257, #1875, `NOTIF-021`).
+
 - The child-transition helper refuses a walk that would wait on itself. A walk that
   lists its own view-model, or that joins a child whose walk waits back on it, throws
   `InvalidOperationException` before it starts or joins a child, and the walking

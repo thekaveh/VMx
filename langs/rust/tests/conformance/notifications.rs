@@ -1315,3 +1315,115 @@ fn observed_hub_resolution_stops_the_clock_without_a_read() {
     assert_eq!(vm.remaining_time_ms(), 7_500);
     assert_eq!(hub.reaction(notification.id), NotificationReaction::Reject);
 }
+
+/// NOTIF-021 — A failing Pending subscriber at expiry does not reach the clock
+#[test]
+fn notification_vm_expiry_contains_a_failing_pending_subscriber() {
+    let scheduler = VirtualTimeScheduler::new();
+    let hub = NotificationHub::new();
+    let (notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "expiry");
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    // Fails when the committed Pending list is empty, that is, at resolution.
+    let ran_at_resolution = Arc::new(AtomicBool::new(false));
+    let flag = ran_at_resolution.clone();
+    let _failing = hub.pending_stream().subscribe(move |pending| {
+        if pending.is_empty() {
+            flag.store(true, Ordering::SeqCst);
+            panic!("the Pending subscriber fails on an empty list");
+        }
+    });
+    let vm = NotificationVm::with_scheduler(
+        notification.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
+
+    let advanced = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        scheduler.advance_by(Duration::from_millis(10_000));
+    }));
+
+    assert!(
+        ran_at_resolution.load(Ordering::SeqCst),
+        "the failing subscriber saw the empty list, so the failure was exercised"
+    );
+    assert!(
+        advanced.is_ok(),
+        "the failure does not raise into the code that advances the clock"
+    );
+    assert!(vm.is_resolved(), "the expiry resolves the notification");
+    assert_eq!(hub.reaction(notification.id), NotificationReaction::Approve);
+    assert_eq!(
+        waiter.try_get(),
+        Some(NotificationReaction::Approve),
+        "the awaitable from Post completes"
+    );
+}
+
+/// NOTIF-021 — A failing hub resolve at auto-dismiss does not reach the clock
+#[test]
+fn notification_vm_auto_dismiss_contains_a_failing_hub_resolve() {
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Wake, Waker};
+
+    struct PanicWake;
+
+    impl Wake for PanicWake {
+        fn wake(self: Arc<Self>) {
+            panic!("the waiter waker fails");
+        }
+    }
+
+    let scheduler = VirtualTimeScheduler::new();
+    let hub = NotificationHub::new();
+    let (notification, waiter) =
+        hub.post_with_waiter(NotificationType::Notification, "hub failure");
+    // Fails on the pending-changed message that the resolution publishes.
+    let ran_at_resolution = Arc::new(AtomicBool::new(false));
+    let flag = ran_at_resolution.clone();
+    let _failing = hub.pending_changed().subscribe(move |_| {
+        flag.store(true, Ordering::SeqCst);
+        panic!("the pending-changed subscriber fails");
+    });
+    let mut polled_waiter = waiter.clone();
+    let waker = Waker::from(Arc::new(PanicWake));
+    let mut context = Context::from_waker(&waker);
+    assert_eq!(
+        Pin::new(&mut polled_waiter).poll(&mut context),
+        Poll::Pending
+    );
+    let vm = NotificationVm::with_scheduler(
+        notification.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
+
+    let advanced = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        scheduler.advance_by(Duration::from_millis(10_000));
+    }));
+
+    assert!(
+        ran_at_resolution.load(Ordering::SeqCst),
+        "the failing subscriber ran at resolution, so the failure was exercised"
+    );
+    assert!(
+        advanced.is_ok(),
+        "the hub failure does not raise into the code that advances the clock"
+    );
+    assert!(
+        vm.is_resolved(),
+        "the auto-dismiss resolves the notification"
+    );
+    assert_eq!(hub.reaction(notification.id), NotificationReaction::Approve);
+    assert_eq!(
+        waiter.try_get(),
+        Some(NotificationReaction::Approve),
+        "the awaitable from Post completes"
+    );
+}
