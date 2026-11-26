@@ -245,7 +245,8 @@ def test_release_push_still_selects_only_the_matching_flavor() -> None:
 def test_matrix_shapes_and_quality_gates_remain_intact() -> None:
     ci = _jobs("python.yml")["build"]
     release = _jobs("release.yml")["python-test"]
-    assert "os: [ubuntu-latest, macos-latest, windows-latest]" in ci
+    # The push matrix is the full list; pull requests run only ubuntu-latest (#economize).
+    assert '["ubuntu-latest","macos-latest","windows-latest"]' in ci
     assert "runs-on: ubuntu-latest" in release
     for job in (ci, release):
         assert "python-version: ${{ matrix.python-version }}" in job

@@ -118,6 +118,13 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   regression tests are the two `..._with_a_reader_snapshot` tests in
   `drop_panic_publication.rs`.
 
+- `PagedComposition` paging and source calls are inert after `dispose()`, as in
+  the other flavors. `set_page_size`, the page-index writes and move calls,
+  `set_source`, `push` and `remove_at` no longer change the page state after
+  disposal, and `remove_at` returns `None`. Before, they changed the state
+  silently, and the `COL-031` test pinned that (ADR-0254, ADR-0214 rule 1,
+  spec/21 §5.6, #1783).
+
 ## [0.36.0] — unreleased source version
 
 0.36.0 implements spec 3.30.0.
