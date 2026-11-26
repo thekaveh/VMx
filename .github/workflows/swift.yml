@@ -44,18 +44,11 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix:
-        # Swift Combine is currently macOS / iOS / tvOS / watchOS only;
-        # Linux Swift drops Combine, so the Swift VMx flavor is macOS-only
-        # for now. A Combine-shim layer (or migration to swift-async-algorithms)
-        # would re-enable ubuntu-latest in a follow-up PR.
-        include:
-          - os: macos-15
-            label: default-xcode
-            xcode: default
-          - os: macos-15
-            label: oldest-hosted-xcode
-            xcode: /Applications/Xcode_16.0.app
+      # Swift Combine is currently macOS / iOS / tvOS / watchOS only;
+      # Linux Swift drops Combine, so the Swift VMx flavor is macOS-only
+      # for now. A Combine-shim layer (or migration to swift-async-algorithms)
+      # would re-enable ubuntu-latest in a follow-up PR.
+      matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"os":"macos-15","label":"default-xcode","xcode":"default"}]}' || '{"include":[{"os":"macos-15","label":"default-xcode","xcode":"default"},{"os":"macos-15","label":"oldest-hosted-xcode","xcode":"/Applications/Xcode_16.0.app"}]}') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Select oldest hosted Xcode

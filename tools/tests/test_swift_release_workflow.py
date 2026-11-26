@@ -125,7 +125,7 @@ def test_swift_release_gate_tests_on_an_image_of_the_ci_build_matrix() -> None:
     build = workflow_job(_workflow("swift.yml"), "build")
     image = re.search(r"(?m)^    runs-on: (\S+)$", verify)
     assert image is not None
-    assert f"- os: {image.group(1)}\n" in build
+    assert f'"os":"{image.group(1)}"' in build
     steps = verify.split("\n      - ")
     version = next(i for i, step in enumerate(steps) if "run: swift --version" in step)
     first_build = next(i for i, step in enumerate(steps) if "swift build" in step)
