@@ -9,13 +9,29 @@ Covers:
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from threading import Event, Thread, get_ident
 
 import pytest
 
 from tests.liveness import join_thread, wait_event
+from vmx.collections.serviced_observable_collection import ServicedObservableCollection
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.message_hub import MessageHub, MessageHubProto
+
+# One more message than the development drain bound (10,000), so the batch is
+# finite and valid, and a bound that applied would truncate it.
+_FINITE_BATCH = 10_001
+
+_DEV_MODE_CYCLE_SCRIPT = """
+from vmx.messages.property_changed import PropertyChangedMessage
+from vmx.services.message_hub import MessageHub
+
+hub = MessageHub()
+hub.messages.subscribe(lambda message: hub.send(message))
+hub.send(PropertyChangedMessage.create(object(), "vm", "cycle"))
+"""
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -250,10 +266,52 @@ def test_reentrant_dispose_completes_after_in_flight_message_reaches_subscribers
 
 
 def test_development_drain_diagnostic_names_message_type() -> None:
-    if not __debug__:
-        pytest.skip("development diagnostics are compiled out under python -O")
-    hub: MessageHub[PropertyChangedMessage[object]] = MessageHub()
+    hub: MessageHub[PropertyChangedMessage[object]] = MessageHub(development_diagnostics=True)
     hub.messages.subscribe(lambda message: hub.send(message))
 
     with pytest.raises(RuntimeError, match="PropertyChangedMessage"):
         hub.send(_make_msg("cycle"))
+
+
+def _count_serviced_batch_deliveries(hub: MessageHub) -> int:
+    """Send one transaction of ``_FINITE_BATCH`` collection appends; count deliveries."""
+    delivered = 0
+
+    def count(_: object) -> None:
+        nonlocal delivered
+        delivered += 1
+
+    hub.messages.subscribe(count)
+    rows: ServicedObservableCollection[int] = ServicedObservableCollection(hub)
+    with hub.batch():
+        for index in range(_FINITE_BATCH):
+            rows.append(index)
+    return delivered
+
+
+def test_default_hub_does_not_bound_a_finite_drain() -> None:
+    if sys.flags.dev_mode:
+        pytest.skip("python -X dev enables the development drain bound by default")
+
+    assert _count_serviced_batch_deliveries(MessageHub()) == _FINITE_BATCH
+
+
+def test_disabled_diagnostics_do_not_bound_a_finite_drain() -> None:
+    hub = MessageHub(development_diagnostics=False)
+
+    assert _count_serviced_batch_deliveries(hub) == _FINITE_BATCH
+
+
+def test_python_dev_mode_enables_the_bound_for_a_default_hub() -> None:
+    # The default is the development-mode flag, so a child process under -X dev
+    # bounds the cycle and reports it; a run without -X dev does not (see above).
+    result = subprocess.run(
+        [sys.executable, "-X", "dev", "-c", _DEV_MODE_CYCLE_SCRIPT],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+    assert result.returncode != 0
+    assert "possible publish cycle involving: PropertyChangedMessage" in result.stderr
