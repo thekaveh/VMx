@@ -761,6 +761,10 @@ its children factory, and `construct()` return without an error, in every flavor
 A dispose that a membership transaction or current publication defers during the
 hook does not supersede the hook (ADR-0252, `LIFE-015`).
 
+v3.30.0 also makes TypeScript form equality compare `Blob`, `File` and `CryptoKey`
+values by the state their clone keeps, so a replacement that differs in that state
+is a change. Their bytes and key material are not compared (ADR-0253).
+
 v3.30.0 also defines failing subscribers and notification order. A delivery on
 a library channel reaches every attached subscriber once, even when an earlier
 one fails, and no failure detaches a subscriber or the library's own source
