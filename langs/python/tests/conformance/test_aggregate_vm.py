@@ -161,11 +161,14 @@ def test_AGG_001_arity1_factory_invoked_on_construct() -> None:
     hub = _hub()
     dispatcher = _dispatcher()
     factory_call_count = 0
+    made: list[object] = []
 
     def make_vm1() -> object:
         nonlocal factory_call_count
         factory_call_count += 1
-        return _child(hub, dispatcher, "vm1")
+        child = _child(hub, dispatcher, "vm1")
+        made.append(child)
+        return child
 
     agg = AggregateVM1Builder().name("agg1").services(hub, dispatcher).component_1(make_vm1).build()
 
@@ -176,7 +179,8 @@ def test_AGG_001_arity1_factory_invoked_on_construct() -> None:
     agg.construct()
 
     assert factory_call_count == 1, "Factory must be called exactly once"
-    assert agg.component_1 is not None
+    assert len(made) == 1
+    assert agg.component_1 is made[0], "component_1 must hold the factory result itself"
     assert agg.component_1.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
 
 
@@ -549,6 +553,7 @@ def test_aggregate_reconstruct_rejects_reentrant_attachment_of_reserved_candidat
 
 
 @pytest.mark.parametrize("arity", [1, 2])
+@pytest.mark.conformance("AGG-007")
 def test_aggregate_reconstruct_aborts_when_previous_disposal_disposes_parent(
     arity: int,
 ) -> None:
@@ -722,6 +727,7 @@ def test_aggregate_rejects_forwarding_aliases_of_one_canonical_component() -> No
     assert aggregate.component_2 is None
 
 
+@pytest.mark.conformance("AGG-007")
 def test_aggregate_reconstruct_rejects_current_slot_without_disposing_it() -> None:
     hub = _hub()
     dispatcher = _dispatcher()

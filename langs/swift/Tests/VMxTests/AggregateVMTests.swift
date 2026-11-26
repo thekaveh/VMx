@@ -1,8 +1,9 @@
 //
 // AggregateVM conformance tests.
 //
-// Claimed IDs: AGG-001..006. Arity-3 and arity-4 cascades have no
-// dedicated catalog IDs; they remain as plain unit tests.
+// Claimed IDs: AGG-001, AGG-002, AGG-003, AGG-004, AGG-005, AGG-006, AGG-007.
+// Arity-3 and arity-4 cascades have no dedicated catalog IDs; they remain as
+// plain unit tests.
 //
 import XCTest
 import Combine
@@ -16,13 +17,19 @@ final class AggregateVMTests: XCTestCase {
 
     /// AGG-001 — arity-1 factory invoked on construct; component1 populated.
     func testAgg001Arity1() throws {
+        var made: ComponentVM?
         let a = try AggregateVM1<ComponentVM>.builder()
             .name("a1")
             .withNullServices()
-            .component1 { self.leaf("c1") }
+            .component1 {
+                let child = self.leaf("c1")
+                made = child
+                return child
+            }
             .build()
         try a.construct()
         XCTAssertNotNil(a.component1)
+        XCTAssertTrue(a.component1 === made, "component1 must hold the factory result itself")
         XCTAssertEqual(a.component1?.status, .constructed)
         XCTAssertEqual(a.type, .aggregate)
     }
@@ -37,6 +44,7 @@ final class AggregateVMTests: XCTestCase {
         try a.construct()
         XCTAssertEqual(a.component1?.status, .constructed)
         XCTAssertEqual(a.component2?.status, .constructed)
+        XCTAssertEqual(a.status, .constructed)
     }
 
     /// AGG-004 — Arity-3: constructing an AggregateVM3 emits exactly three
@@ -234,6 +242,7 @@ final class AggregateVMTests: XCTestCase {
         XCTAssertNil(aggregate.component2)
     }
 
+    /// AGG-007 — a current slot that already has a parent is refused without disposal.
     func testReconstructRejectsCurrentSlotWithoutDisposingIt() throws {
         let child = leaf("child")
         let aggregate = try AggregateVM1<ComponentVM>.builder()
