@@ -214,8 +214,10 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
 
     /// AGCH-001 — optional initial delivery is atomic and subscriber-local.
     func testAgch001AtomicSubscriberLocalInitial() {
-        let source = AggregateTestSource([AggregateTestItem("first")])
+        let first = AggregateTestItem("first")
+        let source = AggregateTestSource([first])
         let sut = aggregate(source)
+        first.changes.emit()
         var plain: [AggregateChange<AggregateTestItem>] = []
         var seeded: [AggregateChange<AggregateTestItem>] = []
         observe(sut) { plain.append($0) }
@@ -229,6 +231,7 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
 
         XCTAssertEqual(seeded.map(\.reason), [.initial, .membership])
         XCTAssertEqual(plain.map(\.reason), [.membership])
+        XCTAssertFalse((seeded + plain).map(\.reason).contains(.item))
         sut.dispose()
     }
 
@@ -479,15 +482,6 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         item.changes.emit()
         XCTAssertEqual(observed.map(\.reason), [.batch, .item])
 
-        observed.removeAll()
-        var late: [AggregateChange<AggregateTestItem>] = []
-        sut.withBatch {
-            item.changes.emit()
-            observe(sut) { late.append($0) }
-        }
-        XCTAssertEqual(observed.map(\.reason), [.batch])
-        XCTAssertTrue(late.isEmpty, "a late subscriber must not receive historical batch work")
-
         let terminalItem = AggregateTestItem("terminal-race")
         let terminalSource = AggregateTestSource([terminalItem])
         var terminateBeforeGate = true
@@ -530,6 +524,25 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         XCTAssertEqual(observed.map(\.reason), [.membership])
         XCTAssertEqual(first.changes.subscribeCount, 1)
         XCTAssertEqual(first.changes.cancelCount, 0)
+
+        observed.removeAll()
+        var late: [AggregateChange<AggregateTestItem>] = []
+        sut.withBatch {
+            first.changes.emit()
+            observe(sut) { late.append($0) }
+        }
+        XCTAssertEqual(observed.map(\.reason), [.batch])
+        XCTAssertTrue(late.isEmpty, "a late subscriber must not receive historical batch work")
+
+        observed.removeAll()
+        var laterJoin: [AggregateChange<AggregateTestItem>] = []
+        sut.withBatch {
+            first.changes.emit()
+            observe(sut) { laterJoin.append($0) }
+            second.changes.emit()
+        }
+        XCTAssertEqual(observed.map(\.reason), [.batch])
+        XCTAssertEqual(laterJoin.map(\.reason), [.batch])
 
         let pendingItem = AggregateTestItem("pending")
         let pendingSource = AggregateTestSource([pendingItem])
@@ -686,12 +699,19 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
             let source = AggregateTestSource([item])
             let sut = aggregate(source)
             var delivered: [Int] = []
+            var completed: [Int] = []
             var subscriptions: [AnyCancellable] = []
             for label in 0..<5 {
-                subscriptions.append(sut.observe().sink { _ in delivered.append(label) })
+                subscriptions.append(sut.observe().sink(
+                    receiveCompletion: { _ in completed.append(label) },
+                    receiveValue: { _ in delivered.append(label) }
+                ))
             }
             subscriptions[1].cancel()
-            subscriptions[1] = sut.observe().sink { _ in delivered.append(1) }
+            subscriptions[1] = sut.observe().sink(
+                receiveCompletion: { _ in completed.append(1) },
+                receiveValue: { _ in delivered.append(1) }
+            )
 
             item.changes.emit()
             XCTAssertEqual(delivered, [0, 2, 3, 4, 1])
@@ -699,6 +719,7 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
             sut.withBatch { item.changes.emit() }
             XCTAssertEqual(delivered, [0, 2, 3, 4, 1])
             sut.dispose()
+            XCTAssertEqual(completed, [0, 2, 3, 4, 1])
             subscriptions.removeAll()
         }
     }
