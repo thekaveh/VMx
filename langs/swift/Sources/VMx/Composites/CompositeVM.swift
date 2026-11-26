@@ -1609,3 +1609,7 @@ public struct CompositeMembershipError: Error, CustomStringConvertible {
         }
     }
 }
+
+extension CompositeMembershipError: LocalizedError {
+    public var errorDescription: String? { description }
+}

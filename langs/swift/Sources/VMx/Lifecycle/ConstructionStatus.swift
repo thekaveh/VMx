@@ -50,3 +50,7 @@ public struct StatusTransitionError: Error, CustomStringConvertible {
         "Cannot \(attemptedOperation) from state \(currentStatus.name)."
     }
 }
+
+extension StatusTransitionError: LocalizedError {
+    public var errorDescription: String? { description }
+}

@@ -52,6 +52,10 @@ public struct MessageHubOverflowError: Error, CustomStringConvertible {
     }
 }
 
+extension MessageHubOverflowError: LocalizedError {
+    public var errorDescription: String? { description }
+}
+
 extension MessageHubProtocol {
     /// Subscribe with a throwing-capable handler. A handler that throws a
     /// (catchable) Swift `Error` is *isolated* — its error is swallowed here
