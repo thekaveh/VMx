@@ -313,12 +313,13 @@ def test_LIFE_015_child_cascade_waits_for_admitted_group_hook() -> None:
         )
     )
     dispose_errors: list[BaseException] = []
+    construct_errors: list[BaseException] = []
 
     def construct() -> None:
         try:
             grp.construct()
-        except BaseException:
-            pass
+        except BaseException as error:
+            construct_errors.append(error)
 
     def dispose() -> None:
         try:
@@ -341,6 +342,7 @@ def test_LIFE_015_child_cascade_waits_for_admitted_group_hook() -> None:
     join_thread(disposer)
     assert not constructor.is_alive()
     assert not disposer.is_alive()
+    assert construct_errors == [], "a superseded construct() returns without an error"
     grp.dispose()
 
     assert dispose_errors == []
@@ -353,3 +355,55 @@ def test_LIFE_015_child_cascade_waits_for_admitted_group_hook() -> None:
     assert first.status is ConstructionStatus.DISPOSED
     assert second.status is ConstructionStatus.DISPOSED
     assert constructed == []
+
+
+@pytest.mark.conformance("LIFE-015")
+def test_LIFE_015_deferred_group_dispose_in_hook_refuses_population_attach() -> None:
+    """LIFE-015 (ADR-0252 §2.4): a dispose that the group's membership
+    transaction defers during the construct hook is not an admitted
+    supersession. Population still runs: the factory is called once, its attach
+    is refused with the disposing error, and construct() raises that error.
+    Nothing attaches, and the deferred dispose completes when the transaction
+    ends."""
+    factory_calls: list[str] = []
+    notifications: list[CollectionChangedEvent] = []
+    construct_errors: list[BaseException] = []
+    holder: list[GroupVM[object]] = []
+
+    def hook() -> None:
+        holder[0].dispose()
+
+    def children() -> tuple[object, ...]:
+        factory_calls.append("factory")
+        return (_make_child("late"),)
+
+    def on_collection_changed(event: CollectionChangedEvent) -> None:
+        # The add's collection-changed event runs inside its membership transaction.
+        notifications.append(event)
+        if len(notifications) > 1:
+            return
+        try:
+            holder[0].construct()
+        except BaseException as error:
+            construct_errors.append(error)
+
+    grp: GroupVM[object] = (
+        GroupVMBuilder()
+        .name("grp")
+        .services(_hub(), _dispatcher())
+        .on_construct(hook)
+        .children(children)
+        .build()
+    )
+    holder.append(grp)
+    grp.on_collection_changed.subscribe(on_collection_changed)
+    kept = _make_child("kept")
+
+    grp.add(kept)
+
+    assert len(construct_errors) == 1
+    assert isinstance(construct_errors[0], RuntimeError)
+    assert "cannot attach a child while the container is disposing" in str(construct_errors[0])
+    assert factory_calls == ["factory"], "the deferred dispose does not skip population"
+    assert list(grp) == [kept]
+    assert grp.status is ConstructionStatus.DISPOSED

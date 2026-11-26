@@ -183,10 +183,20 @@ construct/destruct hook is admitted, foreign `dispose()` publishes the terminal
 status but waits for that hook and its container action before running terminal
 cleanup. The hook rechecks terminal supersession before any post-hook container
 action, so disposed parents cannot begin new child work. Factory population is
-such an action. A container whose construct hook a foreign `dispose()`
-superseded does not call its children factory and attaches nothing. Its
-`construct()` returns without an error, as §7.2 says for a superseded call
-(ADR-0218, `LIFE-015`). An `add()` during disposal still fails.
+such an action. A container whose construct hook an admitted `dispose()`
+superseded does not call its children factory and attaches nothing. The
+supersession counts whether the `dispose()` is foreign or comes from the hook's
+own body (ADR-0252). A `dispose()` that a membership transaction or current
+publication of the container defers is not admitted yet, so it does not
+supersede the hook. For a container whose population has not run, population
+runs, and its attach is refused with the disposing error (ADR-0252 §2.4). The
+attach refusal is stated here and in `LIFE-015`; no chapter 06 rule states it.
+In Rust, a composite or group whose deferral comes from a membership transaction is
+refused with the disposing error, `VmxError::Disposed` (ADR-0252 §2.4). A container that is
+already populated does not run population again, and its walk constructs the
+children that exist (ADR-0252 §2.5). The `construct()` that an admitted dispose
+superseded returns without an error, as §7.2 says for a superseded call
+(ADR-0218, ADR-0252, `LIFE-015`). An `add()` during disposal still fails.
 
 If two active hooks
 cross-dispose their peers, the flavor's wait-for graph breaks the cycle by

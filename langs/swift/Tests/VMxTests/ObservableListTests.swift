@@ -114,17 +114,23 @@ final class ObservableListTests: XCTestCase {
     func testCOL008GranularEventFiresBeforePropertyChangedCount() {
         let sut = ObservableList<Int>()
         var callOrder: [String] = []
+        var countsAtCountNotification: [Int] = []
 
         sut.itemAdded
             .sink { _ in callOrder.append("item_added") }
             .store(in: &cancellables)
         sut.propertyChanged
-            .sink { name in callOrder.append("property_changed:\(name)") }
+            .sink { name in
+                callOrder.append("property_changed:\(name)")
+                if name == "Count" { countsAtCountNotification.append(sut.count) }
+            }
             .store(in: &cancellables)
 
         sut.append(42)
 
         XCTAssertEqual(callOrder, ["item_added", "property_changed:Count"])
+        // Count already reflects the new value when propertyChanged("Count") fires
+        XCTAssertEqual(countsAtCountNotification, [1])
     }
 
     // ── COL-009 ──────────────────────────────────────────────────────────────

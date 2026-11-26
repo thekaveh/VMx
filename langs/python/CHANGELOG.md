@@ -14,6 +14,12 @@ below for them.
 
 ### Added
 
+- `LIFE-015` tests now assert the `construct()` outcome. An admitted dispose
+  from the construct hook skips population: the factory runs 0 times and
+  `construct()` does not raise. A dispose that a current publication defers
+  during the hook still reaches population: the factory runs once and the attach
+  raises `RuntimeError`. A `GroupVM` deferred case has the same test. This flavor
+  already behaved this way (ADR-0252, #1805).
 - `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
   cancelled from a value-less `Error` restores that `Error`.
 - `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
@@ -175,6 +181,11 @@ below for them.
 
 ### Fixed
 
+- `PagedComposition`: a page move clamps a stale `current_page_index` before it picks
+  its target (ADR-0251, #1917). After an unobserved source shrinks,
+  `move_to_last_page`, `move_to_next_page` and `move_to_previous_page` land on a page
+  in range, where a stale index used to leave the pager on an empty page. A move that
+  changes no index publishes nothing, as before.
 - `AsyncResourceVM.load()` and `reload()` start no loader when they run from an
   observer of the `Disposed` publication. The VM's `status` already reads
   `DISPOSED` at that point, but the disposal flag was set later, so a

@@ -1174,6 +1174,7 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
     list.clear();
     check([1, 1, 1, 1, 1], "empty clear");
     assert!(list_collection_changed_record.messages().is_empty());
+    assert!(collection_messages(&recorder).is_empty());
     list.replace_all(std::iter::empty()).unwrap();
     check([1, 1, 1, 1, 1], "empty replace_all");
     list.replace_all([a.clone(), b.clone(), c.clone()]).unwrap();
@@ -1193,9 +1194,11 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
     drop(lookup);
     check([2, 2, 2, 1, 1], "lookup released");
     let messages = list_collection_changed_record.messages().len();
+    let hub_messages = collection_messages(&recorder).len();
     list.move_item(1, 1).unwrap();
     check([2, 2, 2, 1, 1], "same-index move");
     assert_eq!(list_collection_changed_record.messages().len(), messages);
+    assert_eq!(collection_messages(&recorder).len(), hub_messages);
     assert!(list.remove(&b));
     check([2, 1, 2, 1, 1], "remove");
     let removed = list.remove_at(0).unwrap();
@@ -1263,6 +1266,7 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
     drop(replaced);
     check([1, 1, 1, 1, 1], "replace return released");
     let messages = list_collection_changed_record.messages().len();
+    let hub_messages = collection_messages(&recorder).len();
     list.clear();
     check([1, 1, 1, 1, 1], "empty clear after clear");
     assert!(!list.remove(&a));
@@ -1272,6 +1276,7 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
     assert!(list.remove_at(0).is_err());
     check([1, 1, 1, 1, 1], "empty remove_at");
     assert_eq!(list_collection_changed_record.messages().len(), messages);
+    assert_eq!(collection_messages(&recorder).len(), hub_messages);
     let local_history = list_collection_changed_record.messages();
     let hub_history = recorder.messages();
     check([1, 1, 1, 1, 1], "histories retained");
@@ -1712,24 +1717,28 @@ fn single_key_observable_dictionary_round_trip() {
 /// COL-016 — PagedComposition<TVM> clamps CurrentPageIndex when source shrinks
 #[test]
 fn paged_composition_clamps_when_source_shrinks() {
-    let pages = PagedComposition::new(vec![1, 2, 3, 4, 5], 2);
-    pages.next_page();
-    pages.next_page();
+    let pages = PagedComposition::new((1..=10).collect::<Vec<_>>(), 3);
+    pages.set_current_page_index(2);
 
-    pages.set_source(vec![1]);
+    pages.set_source((1..=4).collect());
 
-    assert_eq!(pages.current_page_index(), 0);
+    assert_eq!(pages.page_count(), 2);
+    assert_eq!(pages.current_page_index(), 1);
 }
 
 /// COL-017 — PagedComposition<TVM> PageCount derivation under add and remove
 #[test]
 fn paged_composition_page_count_tracks_add_remove() {
-    let pages = PagedComposition::new(vec![1, 2], 2);
-    assert_eq!(pages.page_count(), 1);
+    let pages = PagedComposition::<i32>::new(Vec::new(), 5);
+    assert_eq!(pages.page_count(), 0);
 
-    pages.push(3);
+    for item in 1..=5 {
+        pages.push(item);
+    }
+    assert_eq!(pages.page_count(), 1);
+    pages.push(6);
     assert_eq!(pages.page_count(), 2);
-    pages.remove_at(2).unwrap();
+    pages.remove_at(5).unwrap();
     assert_eq!(pages.page_count(), 1);
 }
 
@@ -1755,6 +1764,40 @@ fn paged_composition_navigation_clamps_at_bounds() {
     pages.move_to_last_page();
     assert_eq!(pages.current_page_index(), 2);
     assert_eq!(pages.current_page(), vec![7, 8]);
+}
+
+/// COL-074 — PagedComposition<TVM> page moves stay in range after the stored copy shrinks
+#[test]
+fn paged_composition_moves_stay_in_range_after_source_shrink() {
+    type PageMove = fn(&PagedComposition<i32>);
+    let moves: [(&str, PageMove, usize); 4] = [
+        (
+            "move_to_first_page",
+            PagedComposition::move_to_first_page,
+            0,
+        ),
+        (
+            "move_to_previous_page",
+            PagedComposition::move_to_previous_page,
+            0,
+        ),
+        ("move_to_next_page", PagedComposition::move_to_next_page, 1),
+        ("move_to_last_page", PagedComposition::move_to_last_page, 1),
+    ];
+    for (name, move_page, expected_index) in moves {
+        // Given: PageSize 3 over 10 items, on the last page (index 3).
+        let pages = PagedComposition::new((1..=10).collect::<Vec<i32>>(), 3);
+        pages.move_to_last_page();
+        assert_eq!(pages.current_page_index(), 3, "{name}");
+
+        // When: the stored copy shrinks to 5 items, and then the move runs.
+        pages.set_source((1..=5).collect());
+        move_page(&pages);
+
+        // Then: the index is in range and the page shows its items.
+        assert_eq!(pages.current_page_index(), expected_index, "{name}");
+        assert!(pages.current_page_index() < pages.page_count(), "{name}");
+    }
 }
 
 /// COL-019 — PagedComposition<TVM> PageSize == 0 passes through all items
@@ -1796,14 +1839,22 @@ fn paged_composition_empty_source_has_zero_pages() {
 /// COL-021 — PagedComposition<TVM> composition with SearchableState<T>
 #[test]
 fn paged_composition_composes_with_searchable_state() {
-    let search = SearchableState::new(vec!["alpha", "beta", "alpine"], |item, term| {
-        item.contains(term)
-    });
-    search.set_search_term("alp");
-    let pages = PagedComposition::new(search.filtered(), 1);
+    let search = SearchableState::new(
+        vec![
+            "Alpha0", "Zeta0", "Alpha1", "Zeta1", "Alpha2", "Zeta2", "Alpha3", "Zeta3", "Zeta4",
+            "Zeta5",
+        ],
+        |item, term| item.starts_with(term),
+    );
+    // filtered() uses the term set last, so set the term before paging.
+    search.set_search_term("A");
+    let pages = PagedComposition::new(search.filtered(), 3);
 
     assert_eq!(pages.page_count(), 2);
-    assert_eq!(pages.current_page(), vec!["alpha"]);
+    assert_eq!(pages.current_page(), vec!["Alpha0", "Alpha1", "Alpha2"]);
+    pages.set_current_page_index(1);
+    // No filtered-out item appears on any page.
+    assert_eq!(pages.current_page(), vec!["Alpha3"]);
 }
 
 /// COL-022 — ObservableDictionary hub publication
@@ -1831,6 +1882,71 @@ fn observable_dictionary_publishes_to_hub() {
             CollectionChangeAction::Reset,
         ]
     );
+}
+
+/// COL-022 — each catalog mutation publishes its hub message after the local event
+#[test]
+fn observable_dictionary_publishes_each_mutation_after_local_event() {
+    let hub = MessageHub::new();
+    let dictionary = ObservableMultiDictionary::with_hub(1, hub.clone());
+    dictionary.add("a", 1, "x").unwrap();
+    dictionary.add("b", 2, "y").unwrap();
+
+    let order = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let local_order = order.clone();
+    let _local = dictionary.collection_changed().subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            local_order
+                .lock()
+                .unwrap()
+                .push(format!("local:{:?}", change.action));
+        }
+    });
+    let hub_order = order.clone();
+    let _hub = hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            hub_order
+                .lock()
+                .unwrap()
+                .push(format!("hub:{:?}", change.action));
+        }
+    });
+
+    // Insert a new entry, remove a different one, replace an existing one, then clear.
+    dictionary.insert("c", 3, "z");
+    dictionary.remove(&"b", &2);
+    dictionary.insert("a", 1, "uno");
+    dictionary.clear();
+
+    assert_eq!(
+        *order.lock().unwrap(),
+        vec![
+            "local:Add",
+            "hub:Add",
+            "local:Remove",
+            "hub:Remove",
+            "local:Replace",
+            "hub:Replace",
+            "local:Reset",
+            "hub:Reset",
+        ]
+    );
+}
+
+/// COL-022 — a dictionary without a hub completes the four mutations and publishes no hub message
+#[test]
+fn observable_dictionary_without_hub_completes_mutations() {
+    // `new` creates no hub, so no hub message can be published (the no-hub clause
+    // holds by construction). The test asserts that the four mutations complete.
+    let dictionary = ObservableMultiDictionary::new(1);
+    dictionary.add("a", 1, "x").unwrap();
+    dictionary.add("b", 2, "y").unwrap();
+    dictionary.insert("c", 3, "z");
+    dictionary.remove(&"b", &2);
+    dictionary.insert("a", 1, "uno");
+    dictionary.clear();
+
+    assert_eq!(dictionary.count(), 0);
 }
 
 /// COL-023 — ObservableList batch-end Count notification

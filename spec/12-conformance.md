@@ -216,9 +216,16 @@ reaches `Constructed`
 **Then** terminal cleanup does not overlap the admitted hook
 **And** cleanup completes exactly once after the hook releases its lease
 **And** terminal supersession prevents any post-hook container lifecycle work
-**And** a container whose construct hook a foreign `dispose()` superseded does
-not call its children factory, and its `construct()` returns without an error
-(ADR-0218)
+**And** a container whose construct hook an admitted `dispose()` superseded, foreign
+or from the hook's own body, does not call its children factory, and its
+`construct()` returns without an error (ADR-0218, ADR-0252)
+**And** a `dispose()` that a membership transaction or current publication of the
+container defers during that hook does not supersede it. For a container whose
+population has not run, population runs, its attach is refused with the disposing
+error, and `construct()` reports that error (ADR-0252; in Rust, a composite's and a group's
+deferral by a membership transaction both report `VmxError::Disposed`). For a container
+that is already populated, population does not run again, its walk constructs the
+children that exist, and `construct()` returns without an error (ADR-0252 §2.5)
 **And** opposing foreign hook waits cannot deadlock
 
 ### LIFE-016 — The child-transition helper waits for a background child
@@ -3872,6 +3879,19 @@ Swift and Rust return normally, and Swift, whose subscribers cannot fail, assert
 that structure
 
 > Spec: `21-collections.md` §6.2, §8, `03-messages.md` §3.6, ADR-0239.
+
+### COL-074 — a page move clamps a stale index before it picks its target
+
+**Given** a `PagedComposition` over a source that no change stream observes (a
+plain list or array), with page size 3 and `CurrentPageIndex` 3 over 10 items
+**When** the source shrinks to 5 items without the pager seeing it, and then one
+page move runs
+**Then** the move leaves `CurrentPageIndex` in `[0, max(0, PageCount - 1)]` and
+shows that page's items: `move_to_first_page` and `move_to_previous_page` land on
+page 0, and `move_to_next_page` and `move_to_last_page` land on page 1
+**And** `CurrentPageIndex` and then `Items` are each notified once
+
+> Spec: `21-collections.md` §5.1, §5.2 and §8, `14-capabilities.md` §2.10, ADR-0251.
 
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 

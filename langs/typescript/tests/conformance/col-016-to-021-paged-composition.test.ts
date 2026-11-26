@@ -221,3 +221,38 @@ describe("COL-021", () => {
     searchable.dispose();
   });
 });
+
+// ── COL-074 ───────────────────────────────────────────────────────────────────
+
+describe("COL-074", () => {
+  it("a page move clamps a stale currentPageIndex before it picks its target", () => {
+    // Given: a plain array (no change stream), pageSize=3, currentPageIndex=3 (last page of 10)
+    const cases: [string, (sut: PagedComposition<number>) => void, number, number[]][] = [
+      ["moveToFirstPage", (sut) => sut.moveToFirstPage(), 0, [0, 1, 2]],
+      ["moveToPreviousPage", (sut) => sut.moveToPreviousPage(), 0, [0, 1, 2]],
+      ["moveToNextPage", (sut) => sut.moveToNextPage(), 1, [3, 4]],
+      ["moveToLastPage", (sut) => sut.moveToLastPage(), 1, [3, 4]],
+    ];
+
+    for (const [name, move, expectedIndex, expectedItems] of cases) {
+      const source = Array.from({ length: 10 }, (_, i) => i);
+      const sut = new PagedComposition<number>(source, 3);
+      sut.moveToLastPage();
+      expect(sut.currentPageIndex, name).toBe(3);
+
+      // When: the array shrinks to 5 items and the pager gets no notice
+      source.splice(5);
+      const changed: string[] = [];
+      const sub = sut.propertyChanged.subscribe((prop) => changed.push(prop));
+      move(sut);
+
+      // Then: the index is in range, the page shows its items, and each property is notified once
+      expect(sut.currentPageIndex, name).toBe(expectedIndex);
+      expect(sut.items, name).toEqual(expectedItems);
+      expect(changed, name).toEqual(["currentPageIndex", "items"]);
+
+      sub.unsubscribe();
+      sut.dispose();
+    }
+  });
+});

@@ -1,6 +1,6 @@
 # ADR 0168 — Swift and Rust `PagedComposition` page a stored copy of the source
 
-- **Status:** Accepted
+- **Status:** Accepted (the stale-index rule in §2 is amended by ADR-0251)
 - **Date:** 2026-11-01
 - **Spec version:** 3.30.0 (clarification of chapter 21 §5.2, §5.5 and §7.2)
 

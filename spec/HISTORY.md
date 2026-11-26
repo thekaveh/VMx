@@ -751,6 +751,15 @@ root answers by the parent links, so the cycle check still finds the top of a
 surviving chain (ADR-0249, which amends ADR-0248 §2.1, §2.2, §2.3 and §3). The
 scope of the change, and the correction of ADR-0247 section 1 on the scope of
 issue #1912, are recorded in ADR-0250.
+A page move clamps a stale stored index before it chooses a target, so the
+previous and next moves stay in range after an unobserved source shrink
+(ADR-0251, which amends ADR-0168 section 2 and chapter 21 section 5.2). The
+conformance ID COL-074 pins that behavior in all five flavors.
+
+v3.30.0 also makes an admitted dispose from a container's own construct hook skip
+its children factory, and `construct()` return without an error, in every flavor.
+A dispose that a membership transaction or current publication defers during the
+hook does not supersede the hook (ADR-0252, `LIFE-015`).
 
 v3.30.0 also defines failing subscribers and notification order. A delivery on
 a library channel reaches every attached subscriber once, even when an earlier

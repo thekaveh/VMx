@@ -9,6 +9,7 @@ import {
   RxDispatcher,
   ComponentVM,
   CompositeVM,
+  CompositeVMOf,
   GroupVM,
   AggregateVM1,
   AggregateVM2,
@@ -305,6 +306,148 @@ describe("LIFE-015", () => {
 
     expect(trace).toEqual(["hook:start", "hook:end", "cleanup"]);
     expect(vm.status).toBe(ConstructionStatus.Disposed);
+  });
+
+  // ADR-0252: a dispose from the container's own construct hook supersedes the
+  // hook. Population is a post-hook container action, so no factory runs, no
+  // child attaches, and construct() returns without an error (spec/02 §2.4).
+  it("skips CompositeVM population when its construct hook disposes it", () => {
+    let factoryCalls = 0;
+    let composite!: CompositeVM<ComponentVM>;
+    composite = CompositeVM.builder<ComponentVM>()
+      .name("life-015-composite")
+      .services(makeHub(), makeDisp())
+      .children(() => {
+        factoryCalls += 1;
+        return [makeVM("late")];
+      })
+      .onConstruct(() => composite.dispose())
+      .build();
+
+    expect(() => composite.construct()).not.toThrow();
+
+    expect(factoryCalls).toBe(0);
+    expect(composite.count).toBe(0);
+    expect(composite.status).toBe(ConstructionStatus.Disposed);
+  });
+
+  it("skips CompositeVMOf population when its construct hook disposes it", () => {
+    let factoryCalls = 0;
+    let composite!: CompositeVMOf<string, ComponentVM>;
+    composite = CompositeVMOf.builder<string, ComponentVM>()
+      .name("life-015-composite-of")
+      .services(makeHub(), makeDisp())
+      .childrenModels(() => {
+        factoryCalls += 1;
+        return ["late"];
+      })
+      .childModelToChildViewModel((model) => makeVM(model))
+      .onConstruct(() => composite.dispose())
+      .build();
+
+    expect(() => composite.construct()).not.toThrow();
+
+    expect(factoryCalls).toBe(0);
+    expect(composite.count).toBe(0);
+    expect(composite.status).toBe(ConstructionStatus.Disposed);
+  });
+
+  it("skips GroupVM population when its construct hook disposes it", () => {
+    let factoryCalls = 0;
+    let group!: GroupVM<ComponentVM>;
+    group = GroupVM.builder<ComponentVM>()
+      .name("life-015-group")
+      .services(makeHub(), makeDisp())
+      .children(() => {
+        factoryCalls += 1;
+        return [makeVM("late")];
+      })
+      .onConstruct(() => group.dispose())
+      .build();
+
+    expect(() => group.construct()).not.toThrow();
+
+    expect(factoryCalls).toBe(0);
+    expect(group.count).toBe(0);
+    expect(group.status).toBe(ConstructionStatus.Disposed);
+  });
+
+  // ADR-0252 §2.4: a dispose that a current publication defers is not an admitted
+  // supersession. Population still runs, and its attach is refused with the
+  // disposing error. The factory runs once, nothing attaches, and the deferred
+  // dispose completes when the publication ends.
+  it("refuses CompositeVM population when its construct hook's dispose is deferred by a publication", () => {
+    let factoryCalls = 0;
+    let composite!: CompositeVM<ComponentVM>;
+    let publications = 0;
+    let constructError: unknown = null;
+    composite = CompositeVM.builder<ComponentVM>()
+      .name("life-015-deferred-composite")
+      .services(makeHub(), makeDisp())
+      .children(() => {
+        factoryCalls += 1;
+        return [makeVM("late")];
+      })
+      .onConstruct(() => composite.dispose())
+      .onCurrentChanged((vm) => {
+        publications += 1;
+        if (vm === null || publications > 1) return;
+        try {
+          composite.construct();
+        } catch (error) {
+          constructError = error;
+        }
+      })
+      .build();
+    const kept = makeVM("kept");
+    composite.add(kept);
+
+    composite.current = kept;
+
+    expect(constructError).toBeInstanceOf(Error);
+    expect((constructError as Error).message).toBe(
+      "Cannot attach a child while the container is disposing",
+    );
+    expect(factoryCalls).toBe(1);
+    expect(composite.count).toBe(1);
+    expect(composite.status).toBe(ConstructionStatus.Disposed);
+  });
+
+  // ADR-0252 §2.4: the same for a GroupVM, deferred by its own membership
+  // transaction. The collection-changed event of add() runs inside that transaction.
+  it("refuses GroupVM population when its construct hook's dispose is deferred by a membership transaction", () => {
+    let factoryCalls = 0;
+    let group!: GroupVM<ComponentVM>;
+    let notifications = 0;
+    let constructError: unknown = null;
+    group = GroupVM.builder<ComponentVM>()
+      .name("life-015-deferred-group")
+      .services(makeHub(), makeDisp())
+      .children(() => {
+        factoryCalls += 1;
+        return [makeVM("late")];
+      })
+      .onConstruct(() => group.dispose())
+      .build();
+    group.collectionChanged.subscribe(() => {
+      notifications += 1;
+      if (notifications > 1) return;
+      try {
+        group.construct();
+      } catch (error) {
+        constructError = error;
+      }
+    });
+
+    group.add(makeVM("kept"));
+
+    expect(constructError).toBeInstanceOf(Error);
+    expect((constructError as Error).message).toBe(
+      "Cannot attach a child while the container is disposing",
+    );
+    expect(factoryCalls).toBe(1);
+    expect(group.count).toBe(1);
+    expect(group.status).toBe(ConstructionStatus.Disposed);
   });
 });
 

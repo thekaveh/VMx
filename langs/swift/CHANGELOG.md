@@ -17,6 +17,12 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- `LIFE-015` tests now assert the `construct()` outcome. An admitted dispose
+  from the construct hook skips population: the factory runs 0 times and
+  `construct()` does not throw. A dispose that a current publication defers
+  during the hook still reaches population: the factory runs once and the attach
+  throws `ContainerOwnershipError.attachmentFailed`. A `GroupVM` deferred case has
+  the same test. Swift already behaved this way (ADR-0252, #1805).
 - `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
   cancelled from a value-less `Error` restores that `Error`.
 - `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
@@ -26,6 +32,11 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   ADR-0222). `FWD-006` covers the #1352 fix below. Swift already met `COL-072`
   and `CMDD-019`: list and key-view publishers cannot fail, and a disposed
   wrapper notifies its own subscribers once.
+- `COL-074` conformance tests (ADR-0251, #1917). After the stored copy shrinks
+  through `setSource(_:)`, each of the four page moves lands on a page in
+  range, and `currentPageIndex` stays in `[0, max(0, pageCount - 1)]`. Swift
+  already met the rule: `setSource(_:)` clamps the index on every write, so no
+  Swift code changed.
 - `DelayedTask`: a disposable helper that holds at most one delayed action on
   an injected scheduler. `schedule(after:_:)` replaces a pending action and
   restarts its delay, `cancel()` stops it, `isPending` reports it, and
@@ -208,6 +219,26 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   version consequence: the change ships in this major release.
 
 ### Fixed
+
+- A subclass of `ComponentVMOf` whose model is `Equatable` no longer has to pass
+  `modelEquals` to its initializer (#1600). The `Equatable` initializer was a
+  convenience initializer, so a subclass that called
+  `super.init(name:initialModel:hub:dispatcher:)` either failed to compile or,
+  with a stored property, failed to link. The initializer is now a designated
+  `init(...) where Model: Equatable` in the class body and sets `modelEquals`
+  to `==`. Builder-built view models and the identity default for non-`Equatable`
+  class models are unchanged. The Swift API check reports the new initializer
+  as added to `ReadonlyComponentVMOf`, which inherits it, and to
+  `ForwardingComponentVM`, which declares its own `init(_:)` and does not inherit
+  it. The digester reports both, so both are allowlisted in
+  `langs/swift/api/breakage-allowlist.txt`.
+
+- `TokenPagedComposition.loadMoreCommand` and `refreshCommand` no longer race
+  when a first read runs with `dispose()` on another thread (#1922). Both were
+  `lazy var` properties, so each thread could create its own command, and
+  Thread Sanitizer reported the race. `init` now builds both commands, with the
+  same predicates and tasks as before. The declarations keep their type and
+  access level, and the public API is unchanged.
 
 - `walk(_:)`, `walkExpanded(_:)`, `find(_:where:)`, `HierarchicalVM.depth` and
   the path-cache invalidation of a `HierarchicalVM` no longer recurse once per
@@ -1007,6 +1038,15 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   `@discardableResult Result<Void, HierarchyError>`, as `addChild` does: invalid
   factory output returns `.failure(.invalidFactoryOutput)` and changes nothing,
   and a later valid factory call still loads the children (#737).
+
+- `walk(_:)`, `walkExpanded(_:)`, `find(_:where:)`, `FilteredCompositeVM`,
+  `ScoredFilteredCompositeVM` and `PagedComposition(sourceComposite:)` read the
+  membership of a `CompositeVM` or `GroupVM` once, through `snapshot()`. They
+  used to read `count` and then `at(_:)`, so a removal on another thread between
+  the two reads trapped with an index out of range. A scored view also reads
+  each child once, so its score belongs to the child it is paired with. Walk
+  order, the filter and sort rules and the public signatures are unchanged
+  (ADR-0187, #1921).
 
 ## [3.31.0] — unreleased source version
 

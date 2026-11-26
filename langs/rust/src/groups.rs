@@ -913,7 +913,13 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             return Ok(());
         };
         let population = Arc::clone(&self.population);
-        self.attach_population(factory(), false, move || *lock(&population) = None)
+        let candidates = factory();
+        // A dispose that a membership transaction defers is refused here, before
+        // attach_population opens its own transaction (ADR-0252 §2.4).
+        if self.disposal_pending() {
+            return Err(VmxError::Disposed);
+        }
+        self.attach_population(candidates, false, move || *lock(&population) = None)
     }
 
     /// Destructs the group and each current child, in collection order or,

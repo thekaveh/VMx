@@ -16,6 +16,13 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Added
 
+- `LIFE-015` tests now assert the `Construct()` outcome. An admitted dispose
+  from the construct hook skips population: the factory runs 0 times and
+  `Construct()` does not throw. A dispose that a current publication defers
+  during the hook still reaches population: the factory runs once and the attach
+  is refused with `ObjectDisposedException`. A `GroupVM` deferred case has the
+  same test. This flavor already behaved this way (ADR-0252, #1805).
+
 - `ComponentVMBase.Dispatcher`: a protected read-only property that gives a
   subclass in any assembly the dispatcher its base was constructed with
   (ADR-0229, #1597). A subclass that declares its own `Dispatcher` member gets
@@ -255,6 +262,12 @@ All notable changes to the C# flavor are documented here. The format is based on
   Before, it completed the channels during that delivery.
 
 ### Fixed
+
+- `PagedComposition`: a page move clamps a stale `CurrentPageIndex` before it picks
+  its target (ADR-0251, #1917). After an unobserved source shrinks, `MoveToLastPage`,
+  `MoveToNextPage` and `MoveToPreviousPage` land on a page in range, where a stale
+  index used to leave the pager on an empty page. A move that changes no index
+  publishes nothing, as before.
 
 - `HierarchicalVM.InvalidateSubtree` no longer recurses once per tree level, so a
   materialized subtree deeper than the call stack no longer overflows it. Each node

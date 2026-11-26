@@ -184,9 +184,11 @@ def test_COL_060_removal_and_explicit_rekey_keep_the_index_synchronized() -> Non
     assert sut.get("c") is c
 
     equal_a.key = "rekeyed"
+    local_before_rekey = len(local)
     assert sut.replace(0, equal_a) is equal_a
     assert sut.get("a2") is None
     assert sut.get("rekeyed") is equal_a
+    assert len(local) == local_before_rekey + 1
     assert local[-1].action == "replace"
     with pytest.raises(ValueError):
         sut.replace(0, _item("c"))
@@ -292,12 +294,17 @@ def test_COL_062_slice_move_clear_and_conveniences_preserve_invariants_and_owner
     assert local[-1].action == "reset"
     assert sut.pop() is c
     assert list(sut) == [a]
-    before_noop = len(local)
+    before_noop_local, before_noop_hub = len(local), len(external)
     sut.reverse()
-    assert len(local) == before_noop
     sut.move(0, 0)
+    assert len(local) == before_noop_local
+    assert len(external) == before_noop_hub
     sut.clear()
+    assert local[-1].action == "reset"
+    before_empty_clear_local, before_empty_clear_hub = len(local), len(external)
     sut.clear()
+    assert len(local) == before_empty_clear_local
+    assert len(external) == before_empty_clear_hub
     assert len(sut) == 0
     assert sut.contains_key("c") is False
     assert external == local

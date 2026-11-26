@@ -177,6 +177,16 @@ def test_COL_013_distinct_key_observable_views_stay_in_sync() -> None:
     # Key2=2 disappeared when ("alpha",2) was removed
     assert 2 in keys2_removed
 
+    # Catalog scenario on a fresh dictionary: key2 leaves while key1 stays.
+    # The dictionary above keeps key2=1 alive through ("beta", 1), so the
+    # catalog values are asserted on their own dictionary.
+    catalog: ObservableDictionary[str, int, str] = ObservableDictionary()
+    catalog.add("a", 1, "x")
+    catalog.add("a", 2, "y")
+    catalog.remove("a", 1)
+    assert list(catalog.keys1) == ["a"]
+    assert list(catalog.keys2) == [2]
+
 
 # ---------------------------------------------------------------------------
 # COL-014 — enumeration order
