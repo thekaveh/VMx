@@ -1,6 +1,6 @@
 # ADR 0189 — A disposed child leaves `Current`, and container walks skip it
 
-- **Status:** Accepted
+- **Status:** Accepted (extended by ADR-0258)
 - **Date:** 2026-11-09
 - **Spec version:** 3.30.0 (chapter 02 §3, §6 and §6.1; chapter 06 §3, §4.3
   and §5; chapter 07 §2; chapter 08 §3)

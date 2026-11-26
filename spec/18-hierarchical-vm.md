@@ -106,6 +106,17 @@ children. Destructing a node does not destruct its children either; only eager
 construction cascades. Consumers own child lifetimes unless they register
 cleanup explicitly through the ordinary owned-resource surface.
 
+**Eager construction uses the child walk.** Eager construction constructs the
+direct children through the child-transition walk of chapter 02 §6.1
+(ADR-0258), and the walk follows its rules for those children:
+
+- It skips a `Disposed` child, and calls no lifecycle operation on it (`HIER-045`).
+- It joins a child that is already `Constructing`, and does not start it again.
+- It stops when the node is disposed, and starts no later child (`LIFE-015`).
+- It waits for a child that is still `Constructing`. The node stays `Constructing`
+  until that child settles, and it reaches `Constructed` only after every child has.
+- If a child fails, the node rolls back to its prior status (chapter 02 §2.5).
+
 Lazy children do NOT participate in construction order until materialized. A node
 with un-materialized children is `Constructed` once it has called `construct()`
 itself. First access to `Children` builds the lazy children and sets their
@@ -504,3 +515,4 @@ this chapter, and chapter 12 states the behavior of each ID.
 | `HIER-023`..`HIER-030`, `HIER-042`..`HIER-044` | §6 key-aware batch attachment (ADR-0212)                   |
 | `HIER-033`..`HIER-040`                         | §10 tree selection (ADR-0164)                              |
 | `HIER-041`                                     | §7.1 disposed nodes (ADR-0190)                             |
+| `HIER-045`                                     | §3 eager construction uses the child walk (ADR-0258)       |

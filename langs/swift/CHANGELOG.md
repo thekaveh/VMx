@@ -17,6 +17,10 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- `HIER-045` conformance markers (ADR-0258, #1919).
+  `testEagerConstructSkipsDisposedChild` and
+  `testEagerReconstructSkipsDisposedChild` carry the marker. The fix that these
+  tests pin is under Fixed.
 - `LIFE-015` tests now assert the `construct()` outcome. An admitted dispose
   from the construct hook skips population: the factory runs 0 times and
   `construct()` does not throw. A dispose that a current publication defers
@@ -219,6 +223,19 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   version consequence: the change ships in this major release.
 
 ### Fixed
+
+- An eager `HierarchicalVM` constructs its direct children through the
+  child-transition walk (spec/02 §6.1, ADR-0189). A disposed child is skipped, so
+  a parent whose child was disposed can `construct()` and `reconstruct()` again
+  instead of throwing "Cannot construct from state Disposed" (#1919). A child
+  already `Constructing` is joined, not restarted, and the parent waits for it;
+  before, the call threw "Cannot construct from state Constructing." A parent now
+  stays `Constructing` until a child whose construct is still in flight settles.
+  Before, the parent reached `Constructed` first (spec/18 §3). If that child then
+  fails, the parent rolls back to `Destructed` with it; before, the parent stayed
+  `Constructed` while the failed child was `Destructed`. A child hook that
+  disposes the parent stops the walk, and no later sibling starts. The regression
+  tests are in `HierarchicalConstructionTests`.
 
 - `NOTIF-021` conformance tests (#1875, ADR-0257). A `NotificationVM` timer or
   decay-tick failure never reaches the scheduler, and Swift subscribers cannot
