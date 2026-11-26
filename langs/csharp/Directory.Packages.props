@@ -17,13 +17,13 @@
          next to each library project (#1365, CONTRIBUTING.md). -->
     <PackageVersion Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="5.6.0" />
     <PackageVersion Include="System.Reactive" Version="7.0.0" />
-    <PackageVersion Include="System.Collections.Immutable" Version="10.0.14" />
+    <PackageVersion Include="System.Collections.Immutable" Version="11.0.0" />
     <!-- Pinned transitive (via System.Text.Json on netstandard2.0); no longer a
          direct reference — see VMx.csproj / VMX-070. -->
-    <PackageVersion Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.14" />
-    <PackageVersion Include="System.Text.Json" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Bcl.AsyncInterfaces" Version="11.0.0" />
+    <PackageVersion Include="System.Text.Json" Version="11.0.0" />
 
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="11.0.0" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
 
     <!-- Test stack -->
