@@ -1,9 +1,9 @@
 mkdocs>=1.6,<2
-mkdocs-material>=9.8.0,<10
-markdown-it-py==4.2.0
+mkdocs-material>=9.8.2,<10
+markdown-it-py==4.3.0
 pillow>=13,<14
 pip-audit==2.10.1
-pymdown-extensions>=12.3,<13
-pyyaml>=6.0,<7
+pymdown-extensions>=13.1.2,<14
+pyyaml>=6.0.4,<7
 pytest>=9.2.0,<10
-ruff>=0.17.4,<1
+ruff>=0.17.6,<1
