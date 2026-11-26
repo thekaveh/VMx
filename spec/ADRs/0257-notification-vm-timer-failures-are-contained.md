@@ -15,7 +15,11 @@ Chapter 03 §3.6 defines the failure routes of the library's delivery channels. 
 
 ## 2. Decision
 
-1. **The timer path is stream-fed.** A failure raised by a `Pending` subscriber or a `PropertyChanged` handler during auto-dismiss, or during a decay tick, follows the stream-fed route of chapter 03 §3.6. It never reaches the scheduler. Each flavor contains it by its own route: C# discards it, as `DelayedTask` does (ADR-0219); Python logs it with `logger.exception`; TypeScript reports it through rxjs `config.onUnhandledError`; Rust catches it; Swift has no such failure, because its subscribers cannot throw.
+1. **The timer path is stream-fed.** A failure raised by a `Pending` subscriber or a `PropertyChanged` handler during auto-dismiss, or during a decay tick, follows the stream-fed route of chapter 03 §3.6. It never reaches the scheduler. Each flavor contains it by its own route: C# discards it, as `DelayedTask` does (ADR-0219); Python logs it with `logger.exception`; TypeScript reports it through rxjs `config.onUnhandledError`; Rust catches it; Swift has no such failure, because its subscribers cannot throw. The containment is the
+   default body of the expiry hook (`OnExpire` in C#, `onExpire` in Swift and TypeScript,
+   `_on_expire` in Python), so it covers the default auto-dismiss only. An override of the
+   hook is not contained. A failure that the override raises reaches the scheduler, as it did
+   before this ADR.
 1. **State first, and the change is always raised.** Auto-dismiss, and `DismissCommand` through the same `Dismiss` path, commit the resolved state before the hub call. They raise the `IsResolved` change, then `RemainingTime` and `Opacity`, even when the hub `resolve` raises. A `DismissCommand` hub failure keeps the route that its flavor already gives a command call. `ResolveWith`, which the `ConfirmationVM` approve and reject commands call, keeps its current order.
 1. **A decay tick reschedules after a handler failure.** The tick raises each change under its own containment. It then reschedules while `RemainingTime` is positive, so one failing handler does not stop the decay.
 1. **The rule is one conformance ID.** `NOTIF-021` tests the timeline in each flavor (§9 of chapter 16 maps it to §6). Its test in a flavor whose subscribers cannot throw asserts the same timeline with no failing subscriber or handler.
@@ -27,6 +31,8 @@ Chapter 03 §3.6 defines the failure routes of the library's delivery channels. 
 - A failure is discarded silently in C# and Rust, as the stream-fed route already does for other deliveries. Python logs it. A diagnostic of a failing handler therefore depends on the flavor.
 - Other handlers of the same `PropertyChanged` invocation may still be skipped when one throws, because the change notifications are not fanned out. Chapter 03 §3.6 does not cover these handlers, and this ADR does not change that.
 - `ConfirmationVM` keeps its no-op auto-dismiss, so only its decay tick changes.
+- An override of the expiry hook is not contained, so a subclass that overrides it must handle its own failures. C# has a test for this (`OnExpire_Override_Failure_Still_Reaches_The_Scheduler`); Python and TypeScript have the same test.
+- Known residual, not fixed here. In C#, Python and TypeScript, a `PropertyChanged` handler that throws on the `IsResolved` change during a `DismissCommand` replaces the hub's failure for that caller, because a `finally` block's exception takes the place of the one before it. The caller then sees the handler's error and not the hub's. The resolution itself is unchanged: the state is committed, the hub resolves, and the waiter completes. The same handler also skips the `RemainingTime` and `Opacity` changes of that resolution. A fix must choose which failure the caller sees, and this ADR does not make that choice.
 
 ## 4. Rejected alternatives
 

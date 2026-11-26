@@ -87,7 +87,7 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
         // virtual OnExpire on a partially-constructed derived instance.
         AttachSubscription(
             ref _timerSub,
-            _scheduler.Schedule(_lifespan, () => RunTimerAction(Expire)));
+            _scheduler.Schedule(_lifespan, Expire));
 
         // VMX-135: when a tick cadence is requested, periodically raise
         // PropertyChanged for the decaying state so bound views repaint the
@@ -273,10 +273,13 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
 
     /// <summary>
     /// Called when the lifespan timer fires.
-    /// Default: auto-dismiss with Approve.
+    /// Default: auto-dismiss with Approve. The default body contains a failure
+    /// from its <see cref="PropertyChanged"/> handlers and <c>Pending</c> subscribers
+    /// (spec/16 §6, ADR-0257). An override is not contained: its failure reaches the
+    /// scheduler, as it did before ADR-0257.
     /// ConfirmationVM overrides to suppress auto-dismiss.
     /// </summary>
-    protected virtual void OnExpire() => Dismiss();
+    protected virtual void OnExpire() => RunTimerAction(Dismiss);
 
     /// <summary>Marks the lifespan as spent, then runs <see cref="OnExpire"/>.</summary>
     private void Expire()
@@ -294,7 +297,9 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
         if (!TryClaimResolution(out var timerSub, out var tickSub)) return;
         DisposeResolutionSubscriptions(timerSub, tickSub);
         // The IsResolved change is raised even when the hub resolve throws (ADR-0257).
-        // The failure still reaches a DismissCommand caller; the timer path contains it.
+        // The failure still reaches a DismissCommand caller; the default OnExpire contains it.
+        // If a handler also throws in the finally, that handler's exception replaces this one
+        // (ADR-0257, Consequences).
         try { _hub.Resolve(Notification, NotificationReaction.Approve); }
         finally { RaiseResolvedChanges(); }
     }

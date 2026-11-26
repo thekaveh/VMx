@@ -222,11 +222,17 @@ export class NotificationVM {
 
   /**
    * Called when the lifespan timer fires.
-   * Default: auto-dismiss with Approve.
+   * Default: auto-dismiss with Approve. The default auto-dismiss is contained:
+   * a failure it raises goes to reportUnhandled (ADR-0257). An override is not
+   * contained: a failure it raises reaches the scheduler.
    * `ConfirmationVM` overrides to suppress auto-dismiss.
    */
   protected onExpire(): void {
-    this.#dismiss();
+    try {
+      this.#dismiss();
+    } catch (error) {
+      reportUnhandled(error);
+    }
   }
 
   /** Resolves with Approve and cancels the timer. Idempotent. */
@@ -256,13 +262,10 @@ export class NotificationVM {
 
   #onExpire(): void {
     this.#expired = true;
-    // The timer runs on the scheduler, so a failure here takes the stream-fed
-    // route and never reaches it (spec/16 §6, ADR-0257).
-    try {
-      this.onExpire();
-    } catch (error) {
-      reportUnhandled(error);
-    }
+    // No containment here: a failure from an override of onExpire() reaches
+    // the scheduler. The default auto-dismiss contains its own failure
+    // (ADR-0257).
+    this.onExpire();
   }
 
   #dismiss(): void {

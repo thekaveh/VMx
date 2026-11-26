@@ -764,3 +764,29 @@ async def test_NOTIF_021_auto_dismiss_raises_is_resolved_when_hub_resolve_fails(
     assert any(record.exc_info is not None for record in caplog.records), "failure is logged"
     sut.dispose()
     hub.dispose()
+
+
+class _OnExpireFailingVM(NotificationVM):
+    """A subclass whose _on_expire override fails; only the default auto-dismiss is contained."""
+
+    def _on_expire(self) -> None:
+        raise RuntimeError("override failure")
+
+
+async def test_notif021_on_expire_override_failure_reaches_the_scheduler() -> None:
+    """A failing _on_expire override is not contained, so its failure reaches the scheduler."""
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "override fails")
+    hub.post(notification)
+    sut = _OnExpireFailingVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=timedelta(seconds=10),
+    )
+
+    with pytest.raises(RuntimeError, match="override failure"):
+        scheduler.advance_by(10)  # the override's failure is not contained (ADR-0257)
+    sut.dispose()
+    hub.dispose()

@@ -1,3 +1,4 @@
+using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using FluentAssertions;
 using Microsoft.Reactive.Testing;
@@ -88,6 +89,32 @@ public class NOTIF_021_TimerFailureRoute_Tests
         dismiss.Should().Throw<InvalidOperationException>();
         sut.IsResolved.Should().BeTrue();
         changed.Should().Contain(nameof(NotificationVM.IsResolved));
+    }
+
+    /// <summary>An OnExpire override is not contained: its failure still reaches the scheduler (ADR-0257).</summary>
+    [Fact]
+    public void OnExpire_Override_Failure_Still_Reaches_The_Scheduler()
+    {
+        var scheduler = new TestScheduler();
+        using var hub = new NotificationHub();
+        var notification = new Notification(NotificationType.Notification, "override");
+        _ = hub.Post(notification);
+        using var sut = new OverridingExpiryVM(notification, hub, scheduler, Lifespan);
+
+        Action advance = () => scheduler.AdvanceBy(Lifespan.Ticks);
+
+        advance.Should().Throw<InvalidOperationException>().WithMessage("override failure");
+    }
+
+    /// <summary>A NotificationVM whose OnExpire override throws.</summary>
+    private sealed class OverridingExpiryVM : NotificationVM
+    {
+        public OverridingExpiryVM(Notification notification, INotificationHub hub, IScheduler scheduler, TimeSpan lifespan)
+            : base(notification, hub, scheduler, lifespan)
+        {
+        }
+
+        protected override void OnExpire() => throw new InvalidOperationException("override failure");
     }
 
     /// <summary>A hub whose Resolve always throws and whose Pending never emits.</summary>

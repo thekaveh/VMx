@@ -240,8 +240,12 @@ and Swift has no such failure because its subscribers cannot throw. Auto-dismiss
 and `DismissCommand` commit the resolved state, then raise the `IsResolved`
 change, then `RemainingTime` and `Opacity`, even when the hub resolve raises. A
 `DismissCommand` hub failure keeps the route that its flavor gives a command call.
-A decay tick reschedules while `RemainingTime` is positive, even after a handler
-failed. `ResolveWith`, which the `ConfirmationVM` approve and reject commands call
+The containment covers the default auto-dismiss, which is the default body of the
+expiry hook (`OnExpire` in C#, `onExpire` in Swift and TypeScript, `_on_expire` in
+Python). An
+override of that hook is not contained. A failure that it raises reaches the
+scheduler, as it did before ADR-0257. A decay tick reschedules while
+`RemainingTime` is positive, even after a handler failed. `ResolveWith`, which the `ConfirmationVM` approve and reject commands call
 (§7), keeps its order.
 
 A `NotificationVM` built over a disposed hub constructs normally. Its pending

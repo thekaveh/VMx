@@ -299,24 +299,27 @@ class NotificationVM:
     def _expire(self) -> None:
         """Mark the lifespan as spent, then run the :meth:`_on_expire` hook.
 
-        This is the timer action, a stream-fed route (spec/16 §6, ADR-0257): a
-        failure raised by the hook is logged here and never reaches the scheduler.
+        The containment of ADR-0257 covers the default auto-dismiss only. A
+        failure raised by an override of :meth:`_on_expire` is not contained and
+        reaches the scheduler.
         """
         self._expired = True
-        try:
-            self._on_expire()
-        except Exception:
-            _logger.exception(
-                "NotificationVM lifespan timer raised; the failure is logged per spec/16 §6"
-            )
+        self._on_expire()
 
     def _on_expire(self) -> None:
         """Called when the lifespan timer fires.
 
-        Default: auto-dismiss with Approve.
-        ``ConfirmationVM`` overrides to suppress auto-dismiss.
+        Default: auto-dismiss with Approve. The default auto-dismiss is contained
+        (ADR-0257): a failure is logged, never raised into the scheduler.
+        ``ConfirmationVM`` overrides to suppress auto-dismiss. An override is not
+        contained: a failure it raises reaches the scheduler.
         """
-        self._dismiss()
+        try:
+            self._dismiss()
+        except Exception:
+            _logger.exception(
+                "NotificationVM auto-dismiss raised; the failure is logged per spec/16 §6"
+            )
 
     def _dismiss(self) -> None:
         """Resolve with Approve and cancel the timer. Idempotent; inert once disposed."""

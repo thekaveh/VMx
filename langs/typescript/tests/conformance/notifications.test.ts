@@ -589,4 +589,21 @@ describe("NOTIF-021", () => {
     expect(changes).toEqual(["isResolved", "remainingMs", "opacity"]);
     sut.dispose();
   });
+
+  it("an onExpire override failure at expiry reaches the scheduler", () => {
+    class FailingExpireVM extends NotificationVM {
+      protected override onExpire(): void {
+        throw new Error("override failure");
+      }
+    }
+    const scheduler = new FakeScheduler();
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Notification, "override");
+    hub.post(notification);
+    const sut = new FailingExpireVM(notification, hub, scheduler, 10 * SECOND);
+
+    expect(() => scheduler.advanceBy(10 * SECOND)).toThrow("override failure");
+
+    sut.dispose();
+  });
 });
