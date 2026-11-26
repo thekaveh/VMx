@@ -971,7 +971,9 @@ using `ObserveOn(dispatcher.Foreground)`
 **When** `composite.select_component(vmA)` is called
 **Then** `composite.Current` does NOT change synchronously
 **And** advancing the test scheduler completes the dispatch, making `composite.Current == vmA`
-**And** subsequent subscribers to `PropertyChangedMessage("Current")` observe on the foreground scheduler
+**And** the composite publishes `PropertyChangedMessage("Current")` for the change only when
+the dispatcher delivers it, not at call time (`06-composite-vm.md §3`: the new `Current` is
+observable only after the dispatcher delivers)
 
 ### COMP-011 — deselect_component raises when vm is not Current
 
@@ -2291,6 +2293,8 @@ consumer callbacks do not retain the shared cross-composite coordinator
 **And** if one child's current-flag notification is blocked while another thread
 selects a different child, the later assignment completes and exactly the final
 current child has its current flag set
+
+The last two clauses do not apply to TypeScript, which has one thread (`11-threading.md`).
 
 ### COMP-027 — Adding a child sets its `Parent`; removing clears it
 
@@ -5616,6 +5620,8 @@ to 4 in subscription order
 **When** the aggregate is disposed
 **Then** the five subscribers complete in the order 0, 1, 2, 3, 4, where the
 host convention supports completion
+**When** a subscriber cancels and subscribes again
+**Then** it is last in the order for each later envelope
 
 > Spec: `21-collections.md` §9.5, §9.6, and §9.7, ADR-0192.
 
