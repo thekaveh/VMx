@@ -21,39 +21,32 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   `testEagerConstructSkipsDisposedChild` and
   `testEagerReconstructSkipsDisposedChild` carry the marker. The fix that these
   tests pin is under Fixed.
-
 - `LIFE-015` tests now assert the `construct()` outcome. An admitted dispose
   from the construct hook skips population: the factory runs 0 times and
   `construct()` does not throw. A dispose that a current publication defers
   during the hook still reaches population: the factory runs once and the attach
   throws `ContainerOwnershipError.attachmentFailed`. A `GroupVM` deferred case has
   the same test. Swift already behaved this way (ADR-0252, #1805).
-
 - `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
   cancelled from a value-less `Error` restores that `Error`.
-
 - `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
   `construct()` or `reconstruct()` disposes the fresh candidate and keeps the
   owned candidate's status and parent. Swift already behaved this way.
-
 - `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
   ADR-0222). `FWD-006` covers the #1352 fix below. Swift already met `COL-072`
   and `CMDD-019`: list and key-view publishers cannot fail, and a disposed
   wrapper notifies its own subscribers once.
-
 - `COL-074` conformance tests (ADR-0251, #1917). After the stored copy shrinks
   through `setSource(_:)`, each of the four page moves lands on a page in
   range, and `currentPageIndex` stays in `[0, max(0, pageCount - 1)]`. Swift
   already met the rule: `setSource(_:)` clamps the index on every write, so no
   Swift code changed.
-
 - `DelayedTask`: a disposable helper that holds at most one delayed action on
   an injected scheduler. `schedule(after:_:)` replaces a pending action and
   restarts its delay, `cancel()` stops it, `isPending` reports it, and
   `dispose()` cancels it (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
   It accepts any Combine `Scheduler`, such as `DispatchQueue.main` or
   `VirtualTimeScheduler`. Releasing the task also cancels its pending action.
-
 - Catchable `Result` forms for three operations that trap on invalid input
   (ADR-0217, #1349). `FilteredCompositeVM.setCurrentResult(_:)` returns a
   `CompositeMembershipError` failure for an item that is not visible and
@@ -65,7 +58,6 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   `FilteredCompositeVM.setCurrent(_:)`, its `current` setter and
   `fromSources` still trap; the ADR-0009 section "Swift traps that remain"
   lists the remaining Swift traps.
-
 - `NotificationVM` and `ConfirmationVM` accept any `NotificationScheduler`,
   so an app can drive them in real time (#1347, ADR-0225, spec/16 §6). The
   new public protocol refines the Combine `Scheduler` with `seconds(from:to:)`.
@@ -77,59 +69,46 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   `VirtualTimeScheduler` compile unchanged. The notes showcase passes
   `DispatchQueue.main` and no longer advances a virtual clock from a
   one-second `Timer`.
-
 - `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
   and `find` report invalid children-factory output as a recoverable error,
   assign no parent and retry the factory on the next walk; `find` returns a
   match that it reaches before the failing node. A new test puts the failing
   node below the root.
-
 - `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
   tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
   #1311). A failing subscriber does not stop the delivery to the other
   subscribers or detach a subscription, and the subscribers of one
   `AggregateChangeStream` envelope receive it in subscription order. Swift
   subscribers cannot fail, so these tests assert the structure.
-
 - `NOTIF-020` conformance tests (#1476, ADR-0197). A `pending` subscription
   made after hub disposal receives completion only. Swift already behaved
   this way.
-
 - `HierarchyError.disposed` (ADR-0190, #1318). An exhaustive `switch` over
   `HierarchyError` must now handle `.disposed`.
-
 - `FORM-044` conformance tests (#1415, ADR-0216). A failed send of an
   update's queue stops the later sends and releases a nested approval
   without calling its persister. Swift sinks cannot fail, so the test checks
   the path without a failure.
-
 - `COL-071` conformance tests (ADR-0214). A duplicate
   `ObservableDictionary.add` already threw
   `ObservableDictionaryError.duplicateKey` and changed nothing.
-
 - `ARES-012` conformance tests (ADR-0199, #1353). A loader's own
   cancellation restores the saved stable state. Swift already behaved this
   way.
-
 - `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).
-
 - `CMD-020`, `CMDD-018` and `FORM-043` conformance tests (ADR-0195,
   ADR-0196, #1327). Swift already behaved this way.
-
 - The `COMP-042` and `GRP-012` tests now assert that each container message
   carries the container's name (#1309, ADR-0194). Swift already behaved this
   way.
-
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
   order of the two key-view notifications is not specified. Swift already
   behaved this way.
-
 - `COL-066` conformance tests: Swift local collection publishers cannot fail,
   so each committed change reaches the hub once (#1051, ADR-0171).
-
 - `TreeSelection<TModel, TVM>`, an opt-in helper that tracks one current
   node per hierarchical tree (#667, ADR-0164, HIER-033..HIER-040). Construct
   it on a root node. `canSelect(_:)` walks only `parent` links and `status`,
@@ -144,7 +123,6 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   move inside the tree. It publishes nothing to a hub, never changes a node,
   and holds the root weakly. `dispose()` releases the hub subscriptions,
   sets `current` to `nil` without emitting, and completes the stream.
-
 - A supported child-transition helper and depth-first member disposal on
   `ComponentVMBase` (#661, ADR-0162, LIFE-016..LIFE-020). A subclass in
   another module calls `try _transitionChildren(children, construct:, after:)`
@@ -164,21 +142,18 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   failing member is not reported. Registering the VM itself traps. The
   container-only walk (late children, population joins) stays internal as
   `_transitionContainerChildren`.
-
 - `ExpandableState.expandCommand`, `collapseCommand` and
   `toggleExpansionCommand` (#660, ADR-0159, EXP-006..008). Each command's
   predicate is the matching `can*` check, its task calls the verb, and its
   `canExecuteChanged` fires on every expansion change. The helper builds each
   command on first read and owns it: `dispose()` disposes the commands, which
   are then inert. The command closures hold the helper weakly.
-
 - `MessageHubProtocol.whenPropertyChanged(_:_:_:_:)` takes two or more
   property names: `hub.whenPropertyChanged(chart, "plot", "range")` emits each
   message from `chart` whose property name is any of the names. It makes one
   hub subscription and emits each matching message once, in hub order. A
   one-name call still binds to `whenPropertyChanged(_:_:)`, and a call without
   names does not compile (spec/03 §7.2, ADR-0160, #664).
-
 - `ChildOrder` and an opt-in reverse child order for container teardown
   (#662, ADR-0161, GRP-014, COMP-046). `.destructOrder(.reverse)` on the
   `GroupVM`, `CompositeVM` and `CompositeVMOf` builders, or

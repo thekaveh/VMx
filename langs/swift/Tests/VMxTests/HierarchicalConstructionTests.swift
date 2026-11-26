@@ -363,12 +363,11 @@ final class HierarchicalConstructionTests: XCTestCase {
         XCTAssertEqual(root.status, .constructed)
     }
 
-    /// A factory that lists its own node is rejected by `tryChildren()` before
-    /// `tryChildren()` rejects a factory that lists its own node, and reports
-    /// `HierarchyError.invalidFactoryOutput`. For the root, the rejection comes
-    /// before the walk starts. For an inner node that lists itself, the
-    /// rejection happens inside that node's construct, after the outer walk has
-    /// started, and the outer walk rolls back with that error.
+    /// A factory that lists its own node is rejected with
+    /// `HierarchyError.invalidFactoryOutput`: for the root, `tryChildren()`
+    /// rejects it before the walk starts, and for an inner node, the rejection
+    /// happens inside that node's construct, after the outer walk has started,
+    /// so the outer walk rolls back with that error.
     func testEagerConstructRejectsFactoryThatListsItsOwnNode() throws {
         let hub = MessageHub()
         let root = MyNode(model: MyModel(value: "root"), childrenFactory: { parent in [parent] },

@@ -14,106 +14,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   skips a disposed child in `construct()` and `reconstruct()`, and the live
   sibling is constructed. TypeScript already behaved this way, so the test
   passes with no source change.
-
 - `find` has a type-guard overload (#1984). With a predicate of the form
   `(vm) => vm is T`, `find` returns `T | null`, so the caller reads the subclass
   members without an `as` cast. The boolean overload and the run-time result
   are unchanged.
-
 - `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
   cancelled from a value-less `Error` restores that `Error`.
-
 - `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
   `construct()` or `reconstruct()` disposes the fresh candidate and keeps the
   owned candidate's status and parent. TypeScript already behaved this way.
-
 - `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
   ADR-0222). `FWD-006` covers the #1352 fix below. TypeScript already met
   `COL-072` and `CMDD-019`: rxjs reports a failing collection subscriber and
   the mutation continues, and a disposed wrapper notifies its own subscribers
   once.
-
 - `DelayedTask`: a disposable helper that holds at most one delayed action on an
   injected scheduler. `schedule` replaces a pending action and restarts its
   delay, `cancel` stops it, `isPending` reports it, and disposal cancels it
   (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
-
 - `COMP-053` conformance tests (ADR-0218, #1312). The selector receives the
   live membership. This flavor already behaved this way.
-
 - `COMP-040` tests now assert that the rollback error carries the original and
   the first compensation failure (ADR-0218, #1305). This flavor already
   behaved this way.
-
 - `COMP-048` and `GRP-016` conformance tests (ADR-0187, #1314). A container
   membership change during another open membership transaction fails at once
   and changes nothing. TypeScript already behaved this way.
-
 - `ModeledCrudCommandsOptions.currentChanged`, an optional observable
   (#1346, ADR-0049, spec/04 §4.2). The helper wires it as a trigger on the
   Update and Delete commands, so their `canExecuteChanged` fires when the
   selection changes. `dispose()` releases the trigger subscriptions. A helper
   built without the trigger behaves as before. Spec/06 §7 now lists all five
   flavors as accepting the trigger.
-
 - `ForwardingCompositeVM` extends `ComponentVMBase`, so `CompositeVM.add` and
   `GroupVM.add` accept it (#1272, ADR-0213). It shares the ownership identity
   of the wrapped composite: adding it removes the wrapped composite from its
   previous container, and selection and current flags reach the wrapped
   composite (`FWD-004`). The inherited `own()` and `ownMember()` register on
   the wrapped composite (`FWD-005`).
-
 - `ForwardingCompositeVM.wrappedBase` returns the wrapped composite. The
   existing `ForwardingComponentVM.wrappedBase` is now documented. The wrapped
   VM sends every hub message a decorator causes, and `@thekaveh/vmx-react`
   `useVm` uses this getter to re-render a component bound to a decorator
   (#1350).
-
 - `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
   and `find` report invalid children-factory output as a recoverable error,
   assign no parent and retry the factory on the next walk; `find` returns a
   match that it reaches before the failing node. TypeScript already behaved
   this way.
-
 - `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
   tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
   #1311). A failing subscriber does not stop the delivery to the other
   subscribers or detach a subscription, and the subscribers of one
   `AggregateChangeStream` envelope receive it in subscription order.
   TypeScript already behaved this way.
-
 - `NOTIF-020` conformance tests (#1476, ADR-0197). A `pending` subscription
   made after hub disposal receives completion only. TypeScript already behaved
   this way.
-
 - `COMP-049` conformance tests (ADR-0190, #1351). A container whose disposal is
   requested during a change sends no hub message for it. TypeScript already
   behaved this way.
-
 - `COL-071` and `AGCH-012` conformance tests (ADR-0214). A duplicate
   `ObservableDictionary.add` already threw `Error` and changed nothing.
   TypeScript runs on one thread, so `AGCH-012` needs no code change.
-
 - `markSchedulerCancelled(scheduler)` (ADR-0200, #1481). A custom scheduler
   that cancels its queued work calls it before it unsubscribes, so VMx runs no
   hook and publishes no status for that work.
-
 - `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).
-
 - `CMD-020`, `CMDD-018` and `FORM-043` conformance tests (ADR-0195,
   ADR-0196, #1327). TypeScript already behaved this way.
-
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
   order of the two key-view notifications is not specified. TypeScript already
   behaved this way.
-
 - `COL-066` conformance tests: a failing local collection subscriber does not
   suppress the hub `CollectionChangedMessage` (#1051, ADR-0171). TypeScript
   already behaved this way.
-
 - `TreeSelection<TVM>`, an opt-in helper that keeps one current node per
   `HierarchicalVM` tree (#667, ADR-0164, HIER-033..HIER-040). Construct it on
   a root node. It exposes `current`, `canSelect(node)`, `select(node)`,
@@ -126,13 +104,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   inside the tree. It never reads `children`, publishes nothing to a hub, and
   never changes a node. The owning VM forwards `currentChanged` to its own
   property notification.
-
 - `isTreeStructureChanged(message, { sender?, change? })`, a fourth raw-message
   predicate (#666, ADR-0163). It narrows to `TreeStructureChangedMessage` and
   works directly with `Array.filter` and RxJS `filter`. It classifies by shape
   as well as by class, so a tree message from a second copy of the package
   still matches.
-
 - `ComponentVMBase._transitionChildren(children, construct, after?)` is now
   supported API, and `ComponentVMBase.ownMember(member)` is new (#661,
   ADR-0162, LIFE-016..LIFE-020). A leaf VM calls `_transitionChildren` from its
@@ -144,28 +120,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   disposes, in registration order, before the VM publishes `Disposed`; the
   first member failure is thrown after the whole teardown. The container-only
   `joined` parameter moved to an internal method.
-
 - `ExpandableState.expandCommand`, `collapseCommand` and
   `toggleExpansionCommand` (#660, ADR-0159, EXP-006..008). Each command's
   predicate is the matching `can*` check, its task calls the verb, and its
   `canExecuteChanged` fires on every expansion change. The helper builds each
   command on first read and owns it: `dispose()` disposes the commands, which
   are then inert. An owner re-exports a command instead of building one.
-
 - `whenPropertyChanged` accepts an array of property names:
   `whenPropertyChanged(hub, chart, ["plot", "range"])` emits each message from
   `chart` whose property name is any of the names. It makes one hub
   subscription and emits each matching message once, in hub order. An empty
   array throws `RangeError`. A single string behaves as before (spec/03 §7.2,
   ADR-0160, #664).
-
 - The raw constructors default `hint` to `""`, as the builders do (spec/10
   §4): `ComponentVMBase`, `ComponentVMOf`, `ReadonlyComponentVMOf`,
   `CompositeVMBase`, `CompositeVM`, `CompositeVMOf`, `GroupVM`, and
   `AggregateVM1` to `AggregateVM6`. `ComponentVMOf` and `ReadonlyComponentVMOf`
   also default `modeledHinter` to a hinter that returns `""`. A subclass no
   longer passes `hint: ""` through `super(...)` (#663).
-
 - An opt-in reverse child order for container teardown (ADR-0161, #662).
   `GroupVM`, `CompositeVM` and `CompositeVMOf` builders gain
   `.destructOrder(order)`, and `GroupVM.create` and `CompositeVM.create` accept

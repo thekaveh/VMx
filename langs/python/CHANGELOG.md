@@ -18,68 +18,54 @@ below for them.
   skips a disposed child in `construct()` and `reconstruct()`, and the live
   sibling is constructed. Python already behaved this way, so the test passes
   with no source change.
-
 - `LIFE-015` tests now assert the `construct()` outcome. An admitted dispose
   from the construct hook skips population: the factory runs 0 times and
   `construct()` does not raise. A dispose that a current publication defers
   during the hook still reaches population: the factory runs once and the attach
   raises `RuntimeError`. A `GroupVM` deferred case has the same test. This flavor
   already behaved this way (ADR-0252, #1805).
-
 - `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
   cancelled from a value-less `Error` restores that `Error`.
-
 - `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). A refused
   `construct()` or `reconstruct()` disposes the fresh candidate and keeps the
   owned candidate's status and parent. Python already behaved this way.
-
 - `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
   ADR-0222). They cover the #1367, #1430, #1352 and #1459 changes under
   Changed and Fixed.
-
 - `DelayedTask`: a disposable helper that holds at most one delayed action on
   an injected scheduler. `schedule` replaces a pending action and restarts its
   delay, `cancel` stops it, `is_pending` reports it, and `dispose` cancels it
   (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
-
 - `COMP-053` conformance tests (ADR-0218, #1312). The selector receives the
   live membership. This flavor already behaved this way.
-
 - `COMP-040` tests now assert that the rollback error carries the original and
   the first compensation failure (ADR-0218, #1305). This flavor already
   behaved this way.
-
 - `COMP-048` and `GRP-016` conformance tests (ADR-0187, #1314). A container
   membership change during another open membership transaction fails at once
   and changes nothing. Python already behaved this way.
-
 - `ModeledCrudCommands` accepts an optional `current_changed` observable
   (#1346, ADR-0049, spec/04 §4.2). The helper wires it as a trigger on the
   Update and Delete commands, so their `can_execute_changed` fires when the
   selection changes. `dispose()` releases the trigger subscriptions. A helper
   built without the trigger behaves as before. Spec/06 §7 now lists all five
   flavors as accepting the trigger.
-
 - `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
   and `find` report invalid children-factory output as a recoverable error,
   assign no parent and retry the factory on the next walk; `find` returns a
   match that it reaches before the failing node. Python follows the rule
   after the `TypeError` fix below.
-
 - `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
   tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
   #1311). A failing subscriber does not stop the delivery to the other
   subscribers or detach a subscription, and the subscribers of one
   `AggregateChangeStream` envelope receive it in subscription order. Python
   already delivered `AggregateChangeStream` envelopes in subscription order.
-
 - `ARES-012` conformance tests (ADR-0199, #1353). A loader's own
   cancellation restores the saved stable state. Python already behaved this
   way.
-
 - `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).
-
 - `CMD-020`, `CMDD-018` and `FORM-043` conformance tests (ADR-0195,
   ADR-0196, #1327). A fire-and-forget `AsyncRelayCommand` fault reaches
   `errors` after the completion notification, and `execute()` of
@@ -87,31 +73,26 @@ below for them.
   call. An update raises `approve_command.can_execute_changed` exactly once
   when it changes `is_valid`, or `is_dirty` in strict mode, also during an
   approval. Python already behaved this way.
-
 - `ReadOnlyObservableList` is exported from `vmx` and `vmx.collections`, and
   `COL-070` conformance tests cover it (#1316, ADR-0193). `keys1` and `keys2`
   already returned this read-only view.
-
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `count` first. Then it updates each key
   view that changes, emits the dictionary events and sends the hub message.
   The order of the two key-view notifications is not specified. Python already
   behaved this way.
-
 - `ExpandableState.expand_command`, `collapse_command` and
   `toggle_expansion_command` (#660, ADR-0159, EXP-006..008). Each command's
   predicate is the matching `can_*` check, its task calls the verb, and its
   `can_execute_changed` fires on every expansion change. The helper builds each
   command on first read and owns it: `dispose()` disposes the commands, which
   are then inert. An owner re-exports a command instead of building one.
-
 - `when_property_changed(hub, sender, property_name, *property_names)` accepts
   further property names: `when_property_changed(hub, chart, "plot", "range")`
   emits each message from `chart` whose property name is any of the names. It
   makes one hub subscription and emits each matching message once, in hub
   order. Pass a sequence as `*names`; a call with no names raises `TypeError`.
   A single-name call behaves as before (spec/03 §7.2, ADR-0160, #664).
-
 - `GroupVMBuilder`, `CompositeVMBuilder` and `CompositeVMOfBuilder` gain
   `destruct_order(order)`, and `GroupVM.create` and `CompositeVM.create` gain
   the `destruct_order` keyword. The new `ChildOrder` enum is exported from
@@ -121,7 +102,6 @@ below for them.
   still disposed before the container (LIFE-013). The default,
   `ChildOrder.INSERTION`, keeps the current order (#662, ADR-0161, GRP-014,
   COMP-046).
-
 - The child-transition helper is supported API for subclasses of the
   component base. A construct or destruct hook passes the future of
   `_transition_children(children, construct=..., after=...)` to
@@ -131,14 +111,12 @@ below for them.
   destruct hook, either method raises `RuntimeError` and starts no child. The
   container-only parameters moved to an internal method (#661, ADR-0162,
   LIFE-016, LIFE-017, LIFE-019, LIFE-020).
-
 - `_own_member(member)` registers a member VM and returns it. `dispose()`
   disposes the members in registration order before the parent publishes
   `Disposed`, after a container's own children. Every member is attempted
   and the first failure is raised after the teardown. A member registered
   after `Disposed` is disposed at once. Registering the VM itself raises
   `RuntimeError` (#661, ADR-0162, LIFE-018).
-
 - `TreeSelection[TVM]` in `vmx.hierarchical` and `vmx` holds one current node
   of the materialized tree under a root node (#667, ADR-0164, spec/18 §10,
   HIER-033..HIER-040). It exposes `current`, `can_select(node)`,
@@ -150,7 +128,6 @@ below for them.
   selection. The helper publishes nothing to a hub and never materializes or
   changes a node. `dispose()` releases the subscriptions and completes the
   stream without emitting.
-
 - `FORM-044` conformance tests (#1415, ADR-0216). A failed send of an
   update's queue stops the later sends and releases a nested approval without
   calling its persister. Python already behaved this way.

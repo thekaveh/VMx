@@ -19,41 +19,32 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 - `HIER-045` conformance tests (ADR-0258, #1919). An eager `HierarchicalVm`
   skips a disposed child in `construct()`, and the live sibling is constructed.
   Rust already behaved this way, so the test passes with no source change.
-
 - `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
   cancelled from a value-less `Error` restores that `Error`.
-
 - `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). They cover the
   #1324 fix under Fixed.
-
 - `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
   ADR-0222). `CMDD-019` covers the #1459 change below. Rust already met
   `COL-072` and `FWD-006`: each subscriber runs inside `catch_unwind`, and the
   forwarding decorators' `notify_property_changed` already called the wrapped
   VM's helper.
-
 - `COL-074` conformance tests (ADR-0251, #1917). After the stored copy shrinks
   through `set_source`, each of the four page moves lands on a page in range,
   and `current_page_index` stays in `[0, max(0, page_count - 1)]`. Rust already
   met the rule: `set_source` clamps the index on every write, so no Rust code
   changed.
-
 - `NOTIF-021` conformance tests (ADR-0257, #1875). The expiry timeline holds with a
   panicking Pending subscriber or hub resolve: the clock advance returns, the
   notification resolves, and the `Post` waiter completes. The tests do not isolate
   which catch contains the panic. No Rust code changed.
-
 - `DelayedTask`: a disposable helper that holds at most one delayed action on
   an injected scheduler. `schedule` replaces a pending action and restarts its
   delay, `cancel` stops it, `is_pending()` reports it, and disposal cancels it
   (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
-
 - The `Scheduler` trait, `ScheduledAction`, `SystemScheduler` and
   `VirtualTimeScheduler` (ADR-0219, spec/11 §6.1, #670).
-
 - `SearchableState::with_debounce` and `SearchableState::with_scheduler`
   (#1261).
-
 - `NotificationVm::with_scheduler` and `ConfirmationVm::with_scheduler` take an
   injected scheduler, as in the other flavors (ADR-0219, spec/16 §6, #1265).
 
