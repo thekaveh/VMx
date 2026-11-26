@@ -1,6 +1,6 @@
 # ADR 0214 — Collection paging, keyed-add, dictionary-add and aggregate-gate rules
 
-- **Status:** Accepted (Decision rule 4 amended by ADR-0240)
+- **Status:** Accepted (Decision rule 4 amended by ADR-0240; rule 1 corrected by ADR-0254)
 - **Date:** 2026-11-09
 - **Spec version:** 3.30.0 (chapter 21 §2.10, §4.1, §8 and §9.4;
   adds `COL-071` and `AGCH-012`)

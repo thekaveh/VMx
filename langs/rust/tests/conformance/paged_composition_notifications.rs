@@ -166,9 +166,12 @@ fn pager_follows_a_composite_source_until_disposed() {
     assert!(take(&seen).is_empty(), "nothing is published after dispose");
     assert_eq!(
         pages.page_count(),
-        4,
-        "the pager no longer follows the composite"
+        2,
+        "the pager keeps the state it had at dispose"
     );
+    assert_eq!(pages.page_size(), 2);
+    assert_eq!(pages.current_page_index(), 0);
+    assert_eq!(pages.current_page(), vec![d.clone(), a.clone()]);
 }
 
 /// COL-031 — the pager stays usable after its composite source is dropped
