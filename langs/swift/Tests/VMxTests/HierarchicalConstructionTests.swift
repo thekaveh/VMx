@@ -363,9 +363,11 @@ final class HierarchicalConstructionTests: XCTestCase {
     }
 
     /// A factory that lists its own node is rejected by `tryChildren()` before
-    /// the child walk starts. Eager construction reports
-    /// `HierarchyError.invalidFactoryOutput`, not a walk error. The same holds
-    /// one level down, for an eager child that lists itself.
+    /// `tryChildren()` rejects a factory that lists its own node, and reports
+    /// `HierarchyError.invalidFactoryOutput`. For the root, the rejection comes
+    /// before the walk starts. For an inner node that lists itself, the
+    /// rejection happens inside that node's construct, after the outer walk has
+    /// started, and the outer walk rolls back with that error.
     func testEagerConstructRejectsFactoryThatListsItsOwnNode() throws {
         let hub = MessageHub()
         let root = MyNode(model: MyModel(value: "root"), childrenFactory: { parent in [parent] },
@@ -374,7 +376,7 @@ final class HierarchicalConstructionTests: XCTestCase {
         XCTAssertThrowsError(try root.construct()) { error in
             XCTAssertEqual(error as? HierarchyError, .invalidFactoryOutput)
         }
-        XCTAssertNotEqual(root.status, .constructed)
+        XCTAssertEqual(root.status, .destructed)
 
         let inner = MyNode(model: MyModel(value: "inner"), childrenFactory: { parent in [parent] },
                            hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "inner",
@@ -386,6 +388,36 @@ final class HierarchicalConstructionTests: XCTestCase {
             XCTAssertEqual(error as? HierarchyError, .invalidFactoryOutput)
         }
         XCTAssertEqual(inner.status, .destructed)
-        XCTAssertNotEqual(outer.status, .constructed)
+        XCTAssertEqual(outer.status, .destructed)
+    }
+
+    /// A child defers its construct through a background grandchild, and that
+    /// grandchild's construct then fails. The child rolls back, and so does the
+    /// eager parent, which had been waiting for it: both end `.destructed`.
+    /// The old loop left the parent `.constructed` with the child `.destructed`.
+    func testEagerConstructRollsBackWhenDeferredChildFails() throws {
+        let hub = MessageHub()
+        let dispatcher = ManualDispatcher()
+        let grandchild = try ComponentVM.builder()
+            .name("grandchild")
+            .services(hub: hub, dispatcher: dispatcher)
+            .background(true)
+            .onConstruct { throw ConstructBoom() }
+            .build()
+        let child = HookNode(model: MyModel(value: "child"), childrenFactory: { _ in [] },
+                             hub: hub, dispatcher: dispatcher, name: "child")
+        child.deferredChildren = [grandchild]
+        let root = HookNode(model: MyModel(value: "root"), childrenFactory: { _ in [child] },
+                            hub: hub, dispatcher: dispatcher, name: "root",
+                            eagerChildren: true)
+
+        try root.construct()
+        XCTAssertEqual(child.status, .constructing)
+
+        pump(dispatcher)
+        XCTAssertEqual(child.status, .destructed)
+        XCTAssertEqual(root.status, .destructed, "the parent rolls back with the failed child")
     }
 }
+
+private struct ConstructBoom: Error {}

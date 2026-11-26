@@ -227,7 +227,9 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   already `Constructing` is joined, not restarted, and the parent waits for it;
   before, the call threw "Cannot construct from state Constructing." A parent now
   stays `Constructing` until a child whose construct is still in flight settles.
-  Before, the parent reached `Constructed` first (spec/18 §3). A child hook that
+  Before, the parent reached `Constructed` first (spec/18 §3). If that child then
+  fails, the parent rolls back to `Destructed` with it; before, the parent stayed
+  `Constructed` while the failed child was `Destructed`. A child hook that
   disposes the parent stops the walk, and no later sibling starts. The regression
   tests are in `HierarchicalConstructionTests`.
 
