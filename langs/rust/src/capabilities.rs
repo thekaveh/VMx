@@ -203,6 +203,13 @@ pub type FilterPredicate<T> = Arc<dyn Fn(&T) -> bool + Send + Sync>;
 /// fn requires_filterable<T: Filterable<&'static str>>(_: &T) {}
 /// requires_filterable(&ComponentVm::new("component"));
 /// ```
+///
+/// ```compile_fail
+/// use vmx::{ComponentVm, CompositeVm, Filterable};
+///
+/// fn requires_filterable<T: Filterable<&'static str>>(_: &T) {}
+/// requires_filterable(&CompositeVm::<ComponentVm<&'static str>>::new("composite"));
+/// ```
 pub trait Filterable<T> {
     /// Returns the current predicate, or `None` when filtering is cleared.
     fn filter(&self) -> Option<FilterPredicate<T>>;

@@ -224,14 +224,26 @@ def test_CMD_017_parameterized_imperative_raise_emits_once() -> None:
 
 
 @pytest.mark.conformance("CMD-018")
-def test_CMD_018_async_imperative_raise_while_idle_emits_once() -> None:
-    cmd = AsyncRelayCommand.builder().build()
+async def test_CMD_018_async_raise_while_idle_emits_once_and_starts_nothing() -> None:
+    started = asyncio.Event()
+    runs: list[int] = []
+
+    async def _task() -> None:
+        runs.append(1)
+        started.set()
+
+    cmd = AsyncRelayCommand.builder().task(_task).build()
     fired: list[int] = []
     cmd.can_execute_changed.subscribe(lambda _: fired.append(1))
 
     cmd.raise_can_execute_changed()
 
     assert fired == [1]
+    # Bounded wait: a start that the raise would schedule has time to run.
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(started.wait(), 0.2)
+    assert runs == []
+    cmd.dispose()
 
 
 @pytest.mark.conformance("CMD-019")

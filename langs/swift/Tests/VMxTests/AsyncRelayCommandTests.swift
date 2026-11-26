@@ -173,16 +173,25 @@ final class AsyncRelayCommandTests: XCTestCase {
         command.dispose()
     }
 
-    /// CMD-018 — async imperative raise while idle emits exactly once.
-    func testCmd018ImperativeRaiseWhileIdleEmitsOnce() {
-        let cmd = AsyncRelayCommand.builder().build()
+    /// CMD-018 — async imperative raise while idle emits exactly once and starts no execution.
+    func testCmd018ImperativeRaiseWhileIdleEmitsOnceAndStartsNoExecution() {
+        // Inverted: the expectation passes only if the body never runs in the wait window.
+        let started = expectation(description: "CMD-018: no execution starts")
+        started.isInverted = true
+        let cmd = AsyncRelayCommand.builder()
+            .task {
+                started.fulfill()
+            }
+            .build()
         var fires = 0
         let cancel = cmd.canExecuteChanged.sink { fires += 1 }
 
         cmd.raiseCanExecuteChanged()
 
         XCTAssertEqual(fires, 1)
+        wait(for: [started], timeout: 0.2)
         cancel.cancel()
+        cmd.dispose()
     }
 
     /// CMD-019 — async imperative raise while in flight is additive with state flips.

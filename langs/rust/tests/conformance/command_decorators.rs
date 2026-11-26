@@ -172,12 +172,12 @@ fn confirmation_decorator_invokes_inner_only_when_confirmed() {
         decided_by(&refusal),
     );
 
-    no.execute();
+    let declined = no.execute_async();
     refusal.resolve(false);
+    declined.join().unwrap();
     assert!(log.lock().unwrap().is_empty());
-    yes.execute();
 
-    assert!(eventually(|| !log.lock().unwrap().is_empty()));
+    yes.execute_async().join().unwrap();
     assert_eq!(*log.lock().unwrap(), vec!["yes"]);
 }
 
@@ -1229,5 +1229,39 @@ fn inner_disposal_completes_the_decorator_change_hub() {
     let inner = RelayCommand::noop();
     let confirming = ConfirmationDecoratorCommand::new(inner.clone(), || AsyncValue::ready(true));
     assert_completes(&confirming, &inner);
+    confirming.dispose();
+}
+
+/// CMDD-019 — Disposing an inner `AsyncRelayCommand` completes a decorator's
+/// change hub once, so a decorator subscriber receives the inner completion
+/// (spec/04 §8.4, Rust clause). Composite completion is not asserted for Rust,
+/// because the Rust clause names only the decorator's change hub.
+#[test]
+fn inner_async_disposal_completes_the_decorator_change_hub_once() {
+    fn assert_completes_once(wrapper: &dyn Command, dispose_inner: &dyn Fn()) {
+        let completions = Arc::new(Mutex::new(0usize));
+        let seen = completions.clone();
+        let _subscription = wrapper
+            .can_execute_changed()
+            .subscribe_with_completion(|_| {}, move || *seen.lock().unwrap() += 1);
+
+        dispose_inner();
+
+        assert_eq!(*completions.lock().unwrap(), 1);
+    }
+
+    let inner = Arc::new(AsyncRelayCommand::noop());
+    let decorator = DecoratorCommand::new(
+        inner.clone(),
+        None::<fn() -> bool>,
+        None::<fn()>,
+        None::<fn()>,
+    );
+    assert_completes_once(&decorator, &|| inner.dispose());
+    decorator.dispose();
+
+    let inner = Arc::new(AsyncRelayCommand::noop());
+    let confirming = ConfirmationDecoratorCommand::new(inner.clone(), || AsyncValue::ready(true));
+    assert_completes_once(&confirming, &|| inner.dispose());
     confirming.dispose();
 }
