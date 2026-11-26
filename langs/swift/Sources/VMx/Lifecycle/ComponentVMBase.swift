@@ -608,6 +608,11 @@ final class ChildTransitionWalker {
     /// Runs a resumed walk on the walking VM's foreground dispatcher
     /// (spec/02 §6, ADR-0218 rule 3).
     private let resume: (@escaping () -> Void) -> Void
+    /// Claims the walking VM as waiting on a child before the walk starts or
+    /// joins it. Throws when that would wait on the walk itself (ADR-0255).
+    private let claim: (ComponentVMBase) throws -> Void
+    /// Clears the walking VM's claim once its walk waits on no child (ADR-0255).
+    private let release: () -> Void
     private var currentDeferral: LifecycleDeferral
     /// Settled when the walk finishes; a seal that joins another late child
     /// replaces it with a fresh one (`seal()`).
@@ -622,10 +627,14 @@ final class ChildTransitionWalker {
         superseded: @escaping () -> Bool = { false },
         membership: ChildMembership? = nil,
         beforeStart: @escaping (ComponentVMBase) -> Void = { _ in },
-        resume: @escaping (@escaping () -> Void) -> Void = { $0() }
+        resume: @escaping (@escaping () -> Void) -> Void = { $0() },
+        claim: @escaping (ComponentVMBase) throws -> Void = { _ in },
+        release: @escaping () -> Void = {}
     ) {
         self.beforeStart = beforeStart
         self.resume = resume
+        self.claim = claim
+        self.release = release
         self.currentDeferral = LifecycleDeferral(resume: resume)
         self.children = children
         self.after = after
@@ -643,6 +652,7 @@ final class ChildTransitionWalker {
         do {
             return try advance()
         } catch {
+            release()
             endLate()
             throw error
         }
@@ -657,6 +667,7 @@ final class ChildTransitionWalker {
         children = []
         after = nil
         lock.unlock()
+        release()
         endLate()
         if let waiting { waiting.child._cancelSettleWait(waiting.id) }
     }
@@ -731,6 +742,7 @@ final class ChildTransitionWalker {
                 // so no test can observe this check.
                 if try advance() { return superseded() ? .abandoned : .pending(fresh) }
             } catch {
+                release()
                 endLate()
                 return .failed
             }
@@ -820,6 +832,17 @@ final class ChildTransitionWalker {
                 lock.unlock()
                 continue
             }
+            // Claim the child before the walk starts or joins it, so a walk
+            // that would wait on itself throws instead (ADR-0255). A walk that
+            // was cancelled meanwhile does not keep a claim.
+            try claim(child)
+            lock.lock()
+            let abandoned = cancelled
+            lock.unlock()
+            if abandoned {
+                release()
+                return true
+            }
             if status != target && status != transient
                 && !joined.contains(ObjectIdentifier(child)) {
                 beforeStart(child)
@@ -852,6 +875,8 @@ final class ChildTransitionWalker {
                 }
                 lock.unlock()
             }
+            // The child settled: the walk no longer waits on it (ADR-0255).
+            release()
             guard child.status == target || Self.isDisposed(child) || !counts(child) else {
                 throw ChildTransitionError(
                     childName: child.name,
@@ -905,6 +930,8 @@ final class ChildTransitionWalker {
         }
         self.waiting = nil
         lock.unlock()
+        // The walk no longer waits on this child (ADR-0255).
+        release()
         // The child rolled back: roll the parent back, unless it left the
         // container meanwhile (ADR-0186). A child that reached Disposed during
         // the wait ends the wait as a success (ADR-0189).
@@ -933,6 +960,7 @@ final class ChildTransitionWalker {
             settle(true)
         } catch {
             // A deferred failure has no caller to rethrow to: roll back.
+            release()
             settle(false)
         }
     }
@@ -975,6 +1003,13 @@ open class ComponentVMBase {
     /// enqueue immutable records under the lock; an ordered handoff lane then
     /// publishes each committed record in full.
     private let lifecycleLock = NSRecursiveLock()
+
+    /// Guards every `walkTarget` (ADR-0255). A leaf lock: no lifecycle lock is
+    /// taken while it is held.
+    private static let walkTargetLock = NSLock()
+    /// The view-model that this VM's child-transition walk is starting or
+    /// joining, by identity (ADR-0255). Read and written under `walkTargetLock`.
+    private var walkTarget: ComponentVMBase?
 
     /// Guards the parent link: `_parent`, `_ownershipParent` and
     /// `_forwardingOwner` (#1546). A container writes the link under its own
@@ -1941,7 +1976,9 @@ open class ComponentVMBase {
             superseded: { [weak self] in self?._isDisposalRequested() ?? true },
             membership: construct ? membership : nil,
             beforeStart: { [weak self] child in self?.childStartProbeForTesting?(child) },
-            resume: { [weak self] work in self?.dispatcher.scheduleForeground(work) }
+            resume: { [weak self] work in self?.dispatcher.scheduleForeground(work) },
+            claim: { [weak self] child in try self?.claimWalkTarget(child) },
+            release: { [weak self] in self?.releaseWalkTarget() }
         )
         if construct, lateChild != nil {
             // Late children are sealed at commit time (spec/06 §5.1).
@@ -1970,6 +2007,44 @@ open class ComponentVMBase {
         pendingLifecycleDeferral = walker.deferral
         activeChildWalker = walker
         lifecycleLock.unlock()
+    }
+
+    /// Records that this VM's walk starts or joins `child` (ADR-0255). A walk
+    /// cannot wait on itself, so the walk targets reached from `child` are
+    /// followed first. When that chain leads back to this VM, this throws and
+    /// clears this VM's target, and the walk starts or joins no child. Targets
+    /// are identities: a forwarding alias claims through the VM it wraps.
+    private func claimWalkTarget(_ child: ComponentVMBase) throws {
+        let owner = _ownershipIdentity
+        let target = child._ownershipIdentity
+        if target === owner {
+            throw ChildTransitionError(
+                childName: name,
+                reason: "a walk cannot transition its own view-model '\(name)' (ADR-0255)"
+            )
+        }
+        ComponentVMBase.walkTargetLock.lock()
+        defer { ComponentVMBase.walkTargetLock.unlock() }
+        owner.walkTarget = target
+        var current: ComponentVMBase? = target
+        while let vm = current {
+            if vm === owner {
+                owner.walkTarget = nil
+                throw ChildTransitionError(
+                    childName: child.name,
+                    reason: "would close a walk cycle through '\(owner.name)' (ADR-0255)"
+                )
+            }
+            current = vm.walkTarget
+        }
+    }
+
+    /// Clears this VM's walk target once its walk waits on no child (ADR-0255).
+    private func releaseWalkTarget() {
+        let owner = _ownershipIdentity
+        ComponentVMBase.walkTargetLock.lock()
+        owner.walkTarget = nil
+        ComponentVMBase.walkTargetLock.unlock()
     }
 
     /// Stops waiting for a pending child transition without settling this

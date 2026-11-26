@@ -125,6 +125,14 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   silently, and the `COL-031` test pinned that (ADR-0254, ADR-0214 rule 1,
   spec/21 §5.6, #1783).
 
+- A child-transition walk that would wait on itself now fails with
+  `VmxError::OwnershipCycle` and starts no child. That covers a walk that lists
+  its own component, a walk whose child's walk waits back on it, and a container
+  whose member's walk lists the container. Before, the walk joined the child and
+  every component on the cycle stayed `Constructing` until one was disposed. The
+  walking component rolls back, and the others settle (ADR-0255, spec/02 §6.1,
+  `LIFE-023`, `LIFE-024`, #1962).
+
 ## [0.36.0] — unreleased source version
 
 0.36.0 implements spec 3.30.0.

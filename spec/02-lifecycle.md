@@ -429,6 +429,12 @@ ordered list of children, a direction, and an optional `after` callback:
 - Only the parent's own construct and destruct hooks may call it, including
   the two phases of `reconstruct()`. A call from anywhere else raises the
   flavor's usage error and starts no child.
+- A walk that lists its own view-model, or that would join a child whose walk
+  waits, through any chain of walks, on the walking view-model, raises the
+  flavor's usage error and neither starts nor joins that child (`LIFE-023`,
+  `LIFE-024`). The walking view-model then rolls back as for a failing child
+  (§2.5). No view-model on the cycle is left `Constructing` or `Destructing`.
+  This rule extends ADR-0162 (ADR-0255).
 
 **Several failures in one flush.** A shared scheduler can run the lifecycle
 work of several calls in one synchronous flush. Each failure in that flush is
@@ -454,7 +460,11 @@ reversed list (`LIFE-019`).
 | Python     | `self._complete_lifecycle_hook_after(self._transition_children(children, construct=…, after=…))` | `RuntimeError`              |
 | TypeScript | `this._transitionChildren(children, construct, after)`                                           | `Error`                     |
 | Swift      | `try _transitionChildren(children, construct: …, after: …)` (`public`)                           | `ChildTransitionError`      |
-| Rust       | `on_construct_children` / `on_destruct_children`, or a one-call `*_with_children` walk           | none (compile time)         |
+| Rust       | `on_construct_children` / `on_destruct_children`, or a one-call `*_with_children` walk           | `VmxError::OwnershipCycle`  |
+
+The Rust usage error is `VmxError::OwnershipCycle`, returned by a walk that
+closes a cycle (ADR-0255). A call from outside a hook has no runtime error in
+Rust, because the walk API is only reachable from the hook closure.
 
 C#, Python and TypeScript keep the helper protected. Swift makes it `public`
 so that a subclass in another module can call it. Rust has no subclassing: a
@@ -631,6 +641,7 @@ of each ID.
 | `LIFE-014`                                     | §2.5 transactional hook failure                            |
 | `LIFE-015`                                     | §2.4 disposal during an admitted hook                      |
 | `LIFE-016`, `LIFE-017`, `LIFE-019`, `LIFE-020` | §6.1 child-transition helper                               |
+| `LIFE-023`, `LIFE-024`                         | §6.1 walk that waits on itself (ADR-0255)                  |
 | `LIFE-018`                                     | §7.1 depth-first member disposal                           |
 | `LIFE-021`                                     | §7.2 lifecycle calls during the inline cascade             |
 | `LIFE-022`                                     | §6 container walks and a `Disposed` child                  |

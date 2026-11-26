@@ -175,6 +175,41 @@ def _lifecycle_hook_is_running() -> bool:
     return bool(_lifecycle_hook_owners())
 
 
+# The lock that guards every walk target (ADR-0255). It is a leaf lock: it is
+# held only to read or write ``_walk_target``, and no lifecycle lock is taken
+# while it is held, so the two cannot deadlock.
+_WALK_TARGET_LOCK = threading.Lock()
+
+
+def _claim_walk_target(owner: _ComponentVMBase, target: _ComponentVMBase) -> None:
+    """Record that the walk of ``owner`` starts or joins ``target`` (ADR-0255).
+
+    A walk cannot wait on itself. Before ``owner`` starts or joins ``target``,
+    the walk targets reached from ``target`` are followed. When that chain
+    leads back to ``owner``, the walk would wait on itself through other walks,
+    so this raises ``RuntimeError`` and leaves ``owner`` without a target. The
+    caller then starts and joins no child.
+    """
+    if target is owner:
+        raise RuntimeError(f"a walk cannot transition its own view-model '{owner.name}'")
+    with _WALK_TARGET_LOCK:
+        owner._walk_target = target
+        current: _ComponentVMBase | None = target
+        while current is not None:
+            if current is owner:
+                owner._walk_target = None
+                raise RuntimeError(
+                    f"joining '{target.name}' would close a walk cycle through '{owner.name}'"
+                )
+            current = current._walk_target
+
+
+def _release_walk_target(owner: _ComponentVMBase) -> None:
+    """Clear the walk target of ``owner`` once its walk settled or ended (ADR-0255)."""
+    with _WALK_TARGET_LOCK:
+        owner._walk_target = None
+
+
 # The per-thread selection-input scope (ADR-0242). A container membership
 # transaction, and an aggregate slot replacement, enter it. While it is open, a
 # child whose selection inputs changed is queued, not notified. The outermost
@@ -484,6 +519,10 @@ class _ComponentVMBase(ABC):
     container-specific behaviour onto the lifecycle. Do NOT instantiate
     directly — use a builder.
     """
+
+    # The view-model that this VM's child-transition walk is starting or
+    # joining (ADR-0255). Read and written under _WALK_TARGET_LOCK only.
+    _walk_target: _ComponentVMBase | None = None
 
     # ── Constructor ──────────────────────────────────────────────────────────
     def __init__(
@@ -1575,6 +1614,9 @@ class _ComponentVMBase(ABC):
           and a child that is ``Disposed`` (ADR-0189). It joins a child that
           is already ``Constructing`` / ``Destructing`` and does not start it
           again.
+        - A walk that lists its own VM, or that would join a child whose walk
+          waits back on this VM, raises ``RuntimeError`` and starts no child
+          (ADR-0255). The VM then rolls back like a failing child.
         - It waits for a background child: the future stays pending until
           the child settles, then the walk continues. A child that reaches
           ``Disposed`` meanwhile settles the wait as a success.
@@ -1656,6 +1698,8 @@ class _ComponentVMBase(ABC):
         # resumes on another thread still reads its owner.
         owner = _lifecycle_hook_owners()[-1]
         result: Future[None] = Future()
+        # A walk that ends, by success or failure, waits on no child (ADR-0255).
+        result.add_done_callback(lambda _settled: _release_walk_target(owner))
         _CHILD_WALK_FUTURES.add(result)
         iterator = iter(children)
         joined_live = joined if isinstance(joined, list) else list(joined)
@@ -1735,6 +1779,10 @@ class _ComponentVMBase(ABC):
                 try:
                     if is_member is not None and not is_member(child):
                         continue
+                    if isinstance(child, _ComponentVMBase):
+                        # Refuse a self-walk or a walk cycle before the walk
+                        # starts or joins the child (ADR-0255).
+                        _claim_walk_target(owner, child._ownership_identity)
                     child_joined = is_joined(child)
                     joining = join(child) if child_joined and join is not None else None
                     if joining is not None:
@@ -1764,6 +1812,8 @@ class _ComponentVMBase(ABC):
                     completed: Future[None],
                     current: ComponentVMProto = child,
                 ) -> bool:
+                    # The walk no longer waits on this child (ADR-0255).
+                    _release_walk_target(owner)
                     # A child that reached Disposed during the wait is skipped
                     # as a success (spec/02 §6, ADR-0189).
                     if current.status is ConstructionStatus.DISPOSED:

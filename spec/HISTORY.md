@@ -769,6 +769,11 @@ v3.30.0 also makes TypeScript form equality compare `Blob`, `File` and `CryptoKe
 values by the state their clone keeps, so a replacement that differs in that state
 is a change. Their bytes and key material are not compared (ADR-0253).
 
+v3.30.0 also makes a child-transition walk that would wait on itself fail. A walk
+that lists its own view-model, or that would join a child whose walk waits back on
+it, raises the flavor's usage error and starts no child, so no view-model is left
+`Constructing` (ADR-0255, `LIFE-023`, `LIFE-024`).
+
 v3.30.0 also defines failing subscribers and notification order. A delivery on
 a library channel reaches every attached subscriber once, even when an earlier
 one fails, and no failure detaches a subscriber or the library's own source

@@ -263,6 +263,13 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- The child-transition helper refuses a walk that would wait on itself. A walk that
+  lists its own view-model, or that joins a child whose walk waits back on it, throws
+  `InvalidOperationException` before it starts or joins a child, and the walking
+  view-model rolls back. Before, such a walk left every view-model on the cycle
+  `Constructing` (ADR-0255, #1962, `LIFE-023`, `LIFE-024`). Container walks follow the
+  same rule.
+
 - `PagedComposition`: a page move clamps a stale `CurrentPageIndex` before it picks
   its target (ADR-0251, #1917). After an unobserved source shrinks, `MoveToLastPage`,
   `MoveToNextPage` and `MoveToPreviousPage` land on a page in range, where a stale
