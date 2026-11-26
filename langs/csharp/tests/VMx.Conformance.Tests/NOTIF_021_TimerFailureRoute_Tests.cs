@@ -91,8 +91,8 @@ public class NOTIF_021_TimerFailureRoute_Tests
         changed.Should().Contain(nameof(NotificationVM.IsResolved));
     }
 
-    /// <summary>An OnExpire override is not contained: its failure still reaches the scheduler (ADR-0257).</summary>
-    [Fact]
+    /// <summary>NOTIF-021: an OnExpire override is not contained; its failure still reaches the scheduler (ADR-0257).</summary>
+    [Fact, Trait("Conformance", "NOTIF-021")]
     public void OnExpire_Override_Failure_Still_Reaches_The_Scheduler()
     {
         var scheduler = new TestScheduler();
@@ -104,6 +104,31 @@ public class NOTIF_021_TimerFailureRoute_Tests
         Action advance = () => scheduler.AdvanceBy(Lifespan.Ticks);
 
         advance.Should().Throw<InvalidOperationException>().WithMessage("override failure");
+    }
+
+    /// <summary>NOTIF-021: a PropertyChanged handler that throws on IsResolved at auto-dismiss is contained.</summary>
+    [Fact, Trait("Conformance", "NOTIF-021")]
+    public void NOTIF_021_IsResolved_Handler_Failure_At_Auto_Dismiss_Is_Contained()
+    {
+        var scheduler = new TestScheduler();
+        using var hub = new NotificationHub();
+        var notification = new Notification(NotificationType.Notification, "is-resolved");
+        var post = hub.Post(notification);
+        using var sut = new NotificationVM(notification, hub, scheduler, Lifespan);
+        var changed = new List<string>();
+        sut.PropertyChanged += (_, e) =>
+        {
+            changed.Add(e.PropertyName!);
+            if (e.PropertyName == nameof(NotificationVM.IsResolved))
+                throw new InvalidOperationException("is-resolved handler failure");
+        };
+
+        Action advance = () => scheduler.AdvanceBy(Lifespan.Ticks);
+
+        advance.Should().NotThrow();
+        sut.IsResolved.Should().BeTrue();
+        post.IsCompleted.Should().BeTrue();
+        changed.Should().Contain(nameof(NotificationVM.IsResolved));
     }
 
     /// <summary>A NotificationVM whose OnExpire override throws.</summary>

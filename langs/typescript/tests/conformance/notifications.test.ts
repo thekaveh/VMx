@@ -606,4 +606,28 @@ describe("NOTIF-021", () => {
 
     sut.dispose();
   });
+
+  it("an is-resolved handler failure at auto-dismiss is reported, and the notification still resolves", async () => {
+    const reports = captureRxUnhandledErrors();
+    const failure = new Error("is-resolved handler failed");
+    const scheduler = new FakeScheduler();
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Notification, "resolving");
+    const posted = hub.post(notification);
+    const sut = new NotificationVM(notification, hub, scheduler, 10 * SECOND);
+    const changes: string[] = [];
+    sut.propertyChanged.subscribe((name) => {
+      changes.push(name);
+      if (name === "isResolved") throw failure;
+    });
+
+    expect(() => scheduler.advanceBy(10 * SECOND)).not.toThrow();
+
+    expect(sut.isResolved).toBe(true);
+    expect(changes).toContain("isResolved");
+    await expect(posted).resolves.toBe(NotificationReaction.Approve);
+    await drainReports();
+    expect(reports).toEqual([failure]);
+    sut.dispose();
+  });
 });

@@ -1316,9 +1316,11 @@ fn observed_hub_resolution_stops_the_clock_without_a_read() {
     assert_eq!(hub.reaction(notification.id), NotificationReaction::Reject);
 }
 
-/// NOTIF-021 — A failing Pending subscriber at expiry does not reach the clock
+/// NOTIF-021 — The expiry timeline with a panicking Pending subscriber: the clock advance
+/// returns, the VM resolves, and the Post waiter completes. The test does not isolate
+/// which catch contains the panic (see the PR body).
 #[test]
-fn notification_vm_expiry_contains_a_failing_pending_subscriber() {
+fn notification_vm_expiry_timeline_with_a_panicking_pending_subscriber() {
     let scheduler = VirtualTimeScheduler::new();
     let hub = NotificationHub::new();
     let (notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "expiry");
@@ -1362,9 +1364,11 @@ fn notification_vm_expiry_contains_a_failing_pending_subscriber() {
     );
 }
 
-/// NOTIF-021 — A failing hub resolve at auto-dismiss does not reach the clock
+/// NOTIF-021 — The auto-dismiss timeline with a panicking Pending-changed subscriber: the
+/// clock advance returns, the VM resolves, and the Post waiter completes. The test does not
+/// isolate which catch contains the panic (see the PR body).
 #[test]
-fn notification_vm_auto_dismiss_contains_a_failing_hub_resolve() {
+fn notification_vm_auto_dismiss_timeline_with_a_panicking_pending_changed_subscriber() {
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicBool, Ordering};

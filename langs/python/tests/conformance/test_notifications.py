@@ -766,6 +766,38 @@ async def test_NOTIF_021_auto_dismiss_raises_is_resolved_when_hub_resolve_fails(
     hub.dispose()
 
 
+@pytest.mark.conformance("NOTIF-021")
+async def test_notif021_is_resolved_handler_failure_at_auto_dismiss_is_contained() -> None:
+    """A PropertyChanged handler that fails on IsResolved does not reach the scheduler."""
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "handler fails")
+    task = hub.post(notification)
+    lifespan = timedelta(seconds=10)
+    sut = NotificationVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=lifespan,
+    )
+    recorded: list[str] = []
+
+    def record_and_fail_on_is_resolved(name: str) -> None:
+        recorded.append(name)
+        if name == "is_resolved":
+            raise RuntimeError("is_resolved handler failure")
+
+    sut.property_changed.subscribe(on_next=record_and_fail_on_is_resolved)
+
+    scheduler.advance_by(lifespan)  # must not raise into the caller
+
+    assert sut.is_resolved, "auto-dismissed at expiry"
+    assert "is_resolved" in recorded, "the handler ran on the IsResolved change"
+    assert await task == NotificationReaction.APPROVE, "the Post awaitable completed"
+    sut.dispose()
+    hub.dispose()
+
+
 class _OnExpireFailingVM(NotificationVM):
     """A subclass whose _on_expire override fails; only the default auto-dismiss is contained."""
 
@@ -773,6 +805,7 @@ class _OnExpireFailingVM(NotificationVM):
         raise RuntimeError("override failure")
 
 
+@pytest.mark.conformance("NOTIF-021")
 async def test_notif021_on_expire_override_failure_reaches_the_scheduler() -> None:
     """A failing _on_expire override is not contained, so its failure reaches the scheduler."""
     scheduler = TestScheduler()

@@ -235,18 +235,18 @@ A failure raised by a `Pending` subscriber or a `PropertyChanged` handler during
 auto-dismiss, or during a decay tick, is a stream-fed failure (chapter 03 §3.6,
 ADR-0257). It never reaches the scheduler. Each flavor contains it by its
 stream-fed route: C# discards it, Python logs it with `logger.exception`,
-TypeScript reports it through rxjs `config.onUnhandledError`, Rust catches it,
-and Swift has no such failure because its subscribers cannot throw. Auto-dismiss
-and `DismissCommand` commit the resolved state, then raise the `IsResolved`
-change, then `RemainingTime` and `Opacity`, even when the hub resolve raises. A
-`DismissCommand` hub failure keeps the route that its flavor gives a command call.
-The containment covers the default auto-dismiss, which is the default body of the
-expiry hook (`OnExpire` in C#, `onExpire` in Swift and TypeScript, `_on_expire` in
-Python). An
-override of that hook is not contained. A failure that it raises reaches the
-scheduler, as it did before ADR-0257. A decay tick reschedules while
-`RemainingTime` is positive, even after a handler failed. `ResolveWith`, which the `ConfirmationVM` approve and reject commands call
-(§7), keeps its order.
+TypeScript reports it through rxjs `config.onUnhandledError`, and Rust catches
+it. Swift needs no containment at expiry, because its subscribers cannot throw.
+Auto-dismiss and `DismissCommand` commit the resolved state, then raise the
+`IsResolved` change, then `RemainingTime` and `Opacity`, even when `hub.resolve`
+throws. A `DismissCommand` hub failure keeps the route that its flavor gives a
+command call. The VM-level containment covers the default auto-dismiss, which is
+the default body of the expiry hook (`OnExpire` in C#, `_on_expire` in Python,
+`onExpire` in TypeScript). An override of that hook is not contained. A failure
+that it raises reaches the scheduler, as it did before ADR-0257. A decay tick
+reschedules while `RemainingTime` is positive, even after a handler failed.
+`ResolveWith`, which the `ConfirmationVM` approve and reject commands call (§7),
+keeps its order.
 
 A `NotificationVM` built over a disposed hub constructs normally. Its pending
 subscription completes at once, and the hub ignores its resolve call.

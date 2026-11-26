@@ -2223,6 +2223,9 @@ and the `IsResolved` change is raised
 **Then** the `IsResolved` change is raised, and the failure does not reach the
 scheduler
 
+An override of the expiry hook is not contained: a failure that it raises reaches
+the scheduler, as chapter 16 §6 states.
+
 A flavor whose subscribers cannot throw (Swift, chapter 03 §3.6) asserts the
 same timeline with no failing subscriber or handler.
 
