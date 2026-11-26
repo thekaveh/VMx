@@ -122,8 +122,10 @@ function reasons(changes: readonly AggregateChange<Item>[]): AggregateChangeReas
 
 describe("AGCH-001", () => {
   it("delivers an atomic subscriber-local initial seed without replay", () => {
-    const source = new TestSource(new Item("first"));
+    const first = new Item("first");
+    const source = new TestSource(first);
     const sut = aggregate(source);
+    first.changes.emit();
     const plain: AggregateChange<Item>[] = [];
     const seeded: AggregateChange<Item>[] = [];
     sut.observe().subscribe((change) => plain.push(change));
@@ -140,6 +142,7 @@ describe("AGCH-001", () => {
       AggregateChangeReason.Membership,
     ]);
     expect(reasons(plain)).toEqual([AggregateChangeReason.Membership]);
+    expect(reasons([...seeded, ...plain])).not.toContain(AggregateChangeReason.Item);
     sut.dispose();
   });
 });
@@ -646,7 +649,11 @@ describe("AGCH-010", () => {
     }
     ownedAggregate.dispose();
     ownedAggregate.dispose();
+    const envelopesBeforeDisposedActivity = safe.length + late.length;
+    owned.changes.emit();
+    reentrantAdded.changes.emit();
     ownedSource.add(new Item("ignored"));
+    expect(safe.length + late.length).toBe(envelopesBeforeDisposedActivity);
     expect(owned.disposeCount).toBe(0);
     expect(owned.changes.unsubscribeCount).toBe(1);
   });
@@ -681,12 +688,16 @@ describe("AGCH-011", () => {
     const source = new TestSource(new Item("first"));
     const sut = aggregate(source);
     const order: number[] = [];
-    const subscriptions = [0, 1, 2, 3, 4].map((label) =>
-      sut.observe().subscribe(() => order.push(label)),
-    );
+    const completions: number[] = [];
+    const subscribeLabelled = (label: number) =>
+      sut.observe().subscribe({
+        next: () => order.push(label),
+        complete: () => completions.push(label),
+      });
+    const subscriptions = [0, 1, 2, 3, 4].map((label) => subscribeLabelled(label));
 
     subscriptions[1]!.unsubscribe();
-    sut.observe().subscribe(() => order.push(1));
+    subscribeLabelled(1);
 
     source.add(new Item("plain"));
     expect(order).toEqual([0, 2, 3, 4, 1]);
@@ -695,6 +706,7 @@ describe("AGCH-011", () => {
     sut.withBatch(() => source.add(new Item("batched")));
     expect(order).toEqual([0, 2, 3, 4, 1]);
     sut.dispose();
+    expect(completions).toEqual([0, 2, 3, 4, 1]);
   });
 });
 

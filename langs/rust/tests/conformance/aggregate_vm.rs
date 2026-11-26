@@ -358,6 +358,7 @@ fn arity2_constructs_heterogeneous_components() {
     assert_eq!(aggregate.component_2(), Some(second.clone()));
     assert_eq!(first.status(), ConstructionStatus::Constructed);
     assert_eq!(second.status(), ConstructionStatus::Constructed);
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructed);
 }
 
 /// AGG-003 — Arity-5 all five components reach Constructed before parent
@@ -457,6 +458,7 @@ fn arity2_destructs_all_components() {
 
     assert_eq!(first.status(), ConstructionStatus::Destructed);
     assert_eq!(second.status(), ConstructionStatus::Destructed);
+    assert_eq!(aggregate.status(), ConstructionStatus::Destructed);
 }
 
 /// AGG-006 — Arity-6 all six components reach Constructed; destruction waits for all
@@ -760,6 +762,7 @@ fn assert_disposal_failure_keeps_reconstructed_slots_consistent(failing_slot: us
     );
 }
 
+/// AGG-007 — a first-slot cleanup failure is retained while every candidate commits
 #[test]
 fn first_slot_disposal_failure_keeps_reconstructed_slots_consistent() {
     assert_disposal_failure_keeps_reconstructed_slots_consistent(1);
@@ -902,6 +905,7 @@ fn reconstruct_reinvokes_factories_and_disposes_replaced_slots() {
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
+/// AGG-007 — re-entrant disposal makes the aggregate terminal; no candidate commits
 #[test]
 fn aggregate_vm1_reconstruct_aborts_when_previous_disposal_disposes_parent() {
     let old = vmx::ComponentVm::new("old");
@@ -997,6 +1001,7 @@ fn aggregate_vm2_reconstruct_aborts_all_candidates_when_previous_disposal_dispos
     assert_eq!(candidate2.status(), ConstructionStatus::Disposed);
 }
 
+/// AGG-007 — concurrent disposal makes the aggregate terminal; no candidate commits
 #[test]
 fn aggregate_reconstruct_serializes_concurrent_parent_disposal() {
     let old = vmx::ComponentVm::new("old");
