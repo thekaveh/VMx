@@ -189,7 +189,8 @@ final class RelayCommandTests: XCTestCase {
     }
 
     /// BLD-005 — additive setters: multiple `.triggers(...)` calls retain
-    /// prior values.
+    /// prior values in insertion order; a repeated non-additive `task`
+    /// overwrites the earlier one.
     func testBld005MultipleTriggersAdditive() {
         let t1 = PassthroughSubject<Void, Never>()
         let t2 = PassthroughSubject<Void, Never>()
@@ -202,6 +203,33 @@ final class RelayCommandTests: XCTestCase {
         t1.send(()); t2.send(())
         XCTAssertEqual(fires, 2)
         cancel.cancel()
+
+        // Insertion order: each trigger records when the command subscribes to
+        // it. The command subscribes its triggers in init, in insertion order,
+        // so the build-time subscription sequence is the insertion order. This
+        // probes the subscription order directly; Combine's fan-out order to
+        // several subscribers of one subject is unspecified, so a delivery-order
+        // probe is not a valid check.
+        let parent = PassthroughSubject<Void, Never>()
+        var subscribed: [String] = []
+        let o1 = parent.handleEvents(receiveSubscription: { _ in subscribed.append("o1") })
+            .eraseToAnyPublisher()
+        let o2 = parent.handleEvents(receiveSubscription: { _ in subscribed.append("o2") })
+            .eraseToAnyPublisher()
+        let orderCmd = RelayCommand.builder().triggers(o1).triggers(o2).build()
+        XCTAssertEqual(subscribed, ["o1", "o2"], "o1 must be subscribed before o2 (insertion order)")
+        withExtendedLifetime(orderCmd) {}
+
+        // A non-additive setter overwrites: only the second task runs.
+        var ranFirst = 0
+        var ranSecond = 0
+        let overwritten = RelayCommand.builder()
+            .task { ranFirst += 1 }
+            .task { ranSecond += 1 }
+            .build()
+        overwritten.execute()
+        XCTAssertEqual(ranFirst, 0, "a repeated task() must overwrite, not accumulate")
+        XCTAssertEqual(ranSecond, 1)
     }
 
     /// Dispose is idempotent (no dedicated catalog ID).

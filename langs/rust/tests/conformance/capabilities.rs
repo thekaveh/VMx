@@ -2,11 +2,11 @@ use std::cell::{Cell, RefCell};
 use std::sync::{Arc, Mutex};
 
 use vmx::{
-    Approvable, Cancelable, Closable, Collapsible, Constructable, CurrentDeletable,
-    CurrentUpdatable, Deletable, Deselectable, Destructable, Expandable, ExpansionTogglable,
-    FilterPredicate, Filterable, Managable, NewCreatable, Pageable, PagedComposition,
-    Reconstructable, Savable, Searchable, SearchableState, Selectable, SelectionTogglable,
-    Updatable,
+    Approvable, Cancelable, Closable, Collapsible, ComponentVm, CompositeVm, Constructable,
+    CurrentDeletable, CurrentUpdatable, Deletable, Deselectable, Destructable, Expandable,
+    ExpansionTogglable, FilterPredicate, Filterable, Managable, NewCreatable, Pageable,
+    PagedComposition, Reconstructable, Savable, Searchable, SearchableState, Selectable,
+    SelectionTogglable, Updatable,
 };
 
 #[derive(Default)]
@@ -476,9 +476,31 @@ fn core_vm_types_do_not_implement_non_baseline_capabilities_by_default() {
     assert!(Destructable::can_destruct(&component));
 }
 
+/// A composite wrapper that opts in to `Filterable` by declaring the capability.
+struct OptInComposite {
+    composite: CompositeVm<ComponentVm<&'static str>>,
+    filter: Option<FilterPredicate<&'static str>>,
+}
+
+impl Filterable<&'static str> for OptInComposite {
+    fn filter(&self) -> Option<FilterPredicate<&'static str>> {
+        self.filter.clone()
+    }
+
+    fn set_filter(&mut self, filter: Option<FilterPredicate<&'static str>>) {
+        self.filter = filter;
+    }
+
+    fn can_filter(&self) -> bool {
+        true
+    }
+}
+
 /// CAP-021 — `IFilterable<TItem>` capability contract surface and opt-in behavior
 #[test]
 fn filterable_contract() {
+    fn requires_filterable<T: Filterable<&'static str>>(_: &T) {}
+
     let mut fixture = FilterFixture::default();
     assert!(fixture.can_filter());
 
@@ -489,6 +511,25 @@ fn filterable_contract() {
 
     fixture.set_filter(None);
     assert!(fixture.filter().is_none());
+
+    // An opt-in composite answers the same capability query. The negative
+    // query for a core CompositeVm is the compile_fail doctest in
+    // src/capabilities.rs, because Rust has no runtime trait query.
+    let mut opt_in = OptInComposite {
+        composite: CompositeVm::<ComponentVm<&'static str>>::new("opt-in"),
+        filter: None,
+    };
+    requires_filterable(&opt_in);
+    assert!(opt_in.can_filter());
+    assert_eq!(opt_in.composite.name(), "opt-in");
+
+    opt_in.set_filter(Some(Arc::new(|item| item.contains('a'))));
+    let filter = opt_in.filter().expect("filter should be stored");
+    assert!(filter(&"alpha"));
+    assert!(!filter(&"rhythm"));
+
+    opt_in.set_filter(None);
+    assert!(opt_in.filter().is_none());
 }
 
 /// CAP-022 — `IPageable` capability contract surface and clamping/navigation behavior

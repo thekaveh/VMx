@@ -252,14 +252,29 @@ describe("CMD-017", () => {
 });
 
 describe("CMD-018", () => {
-  it("async imperative raise while idle emits exactly once", () => {
-    const cmd = AsyncRelayCommand.builder().build();
+  it("async imperative raise while idle emits exactly once and starts no execution", async () => {
+    let startedResolve!: () => void;
+    const started = new Promise<void>((resolve) => { startedResolve = resolve; });
+    let runs = 0;
+    const cmd = AsyncRelayCommand.builder().task(() => {
+      runs++;
+      startedResolve();
+      return Promise.resolve();
+    }).build();
     let fired = 0;
     cmd.canExecuteChanged.subscribe(() => fired++);
 
     cmd.raiseCanExecuteChanged();
 
     expect(fired).toBe(1);
+    // Bounded wait: a start that the raise would schedule has time to run.
+    const outcome = await Promise.race([
+      started.then(() => "started"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("idle"), 200)),
+    ]);
+    expect(outcome).toBe("idle");
+    expect(runs).toBe(0);
+    cmd.dispose();
   });
 });
 
