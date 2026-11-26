@@ -122,14 +122,15 @@ final class CompositeVMTests: XCTestCase {
     /// COMP-005 — destruct cascades to (waits on) children, clears `current`,
     /// and the composite itself reaches `.destructed`.
     func testComp005DestructCascades() throws {
-        let a = leaf("a")
+        let a = leaf("a"); let b = leaf("b")
         let c = try! CompositeVM<ComponentVM>.builder()
-            .name("c").withNullServices().children { [a] }.build()
+            .name("c").withNullServices().children { [a, b] }.build()
         try c.construct()
         c.current = a
         XCTAssertTrue(c.current === a)
         try c.destruct()
         XCTAssertEqual(a.status, .destructed)
+        XCTAssertEqual(b.status, .destructed)   // every child destructed, not only current
         XCTAssertNil(c.current)                 // current cleared on destruct
         XCTAssertEqual(c.status, .destructed)   // composite itself destructed
     }

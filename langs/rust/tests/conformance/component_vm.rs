@@ -33,6 +33,7 @@ fn component_construct_emits_status_messages() {
             ConstructionStatus::Constructed,
         ]
     );
+    assert!(vm.is_constructed());
 }
 
 /// CVM-002 — Modeled component fires PropertyChanged("Model") on set
