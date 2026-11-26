@@ -6,7 +6,7 @@
 - Install and package status: see [Installation](../installation.md) and
   [Availability](../index.md#11-availability).
 - Reactive primitive: `rxjs`
-- Runtime floor: Node 20.5.0 (the first Node 20 release with `Symbol.dispose`);
+- Runtime floor: Node 20.5.0;
   CI tests that exact floor plus Node 20, 22, 24, and 26
 - Package name: `@thekaveh/vmx`
 - Bundles: dual ESM + CJS, with `notifications`, `conformance`, `testing`, and

@@ -41,8 +41,11 @@ For hub delivery and callback ordering, see
   then to the per-instance `property_changed` stream.
 - Hint surfaces: `hint()` is immutable fixed metadata. `modeled_hint()` is
   recomputed from the model and publishes `modeled_hint` changes.
-- Async commands: `AsyncRelayCommand::builder()` owns its task, predicate,
-  additive triggers, cancellation mode, and fire-and-forget error stream.
+- Async commands: `AsyncRelayCommand::builder()` returns a builder. Its `task`,
+  `predicate`, `trigger`, and `throw_on_cancel` methods set the task, the
+  predicate, the additive triggers, and the cancellation mode, and `build`
+  returns the `AsyncRelayCommand`. That command's `error_stream()` carries its
+  fire-and-forget failures.
 - Completion handles: `AsyncValue<T>` is an executor-neutral `Future` with a
   blocking `wait()`. When a `map` or `and_then` callback panics, the returned
   handle settles as panicked. `wait()` and `.await` re-raise the panic, and
@@ -185,9 +188,10 @@ Rust messages carry the action, optional old and new positions, sender ID, and
 property name. They carry no legacy `index` and no typed item payload. Use
 `ObservableList<T>` for granular streams, batching, and `Count` notifications.
 `ObservableList::new(owner_id)` has no hub, and `with_hub(owner_id, hub)` also
-publishes to a hub. Its `item_added()`, `item_removed()`, `item_replaced()`, and
-`reset()` streams carry typed payloads, and `property_changed()` sends `Count`
-after each granular event that changed the count:
+publishes to a hub. Its `item_added()`, `item_removed()`, and `item_replaced()`
+streams carry typed payloads, `reset()` carries no payload, and
+`property_changed()` sends `Count` after each granular event that changed the
+count:
 
 ```rust
 let list = ObservableList::new(owner_id);
@@ -199,6 +203,9 @@ assert!(list.remove(&first)); // first equal item; sends ItemRemoved
 `ObservableMultiDictionary::new(owner_id)` also takes no hub. Its
 `collection_changed()` stream receives each change before the hub, and
 `keys1()` and `keys2()` return live, read-only `ReadOnlyObservableList` views.
+`ObservableDictionary<K, V>` is the single-key dictionary. Its constructor,
+`ObservableDictionary::new(owner_id, hub)`, takes a hub, unlike the
+multi-dictionary constructor above.
 Both dictionaries find keys through a hash index, so a lookup makes O(1) key
 comparisons on average. `CompositeVm`, `GroupVm`, and `ModeledCompositeVm`
 expose their children's local stream as `collection_changed()` (ADR-0208).
@@ -264,7 +271,7 @@ after every property message that carries this fixed sender ID. The
 [Imperative Selected-State Bridge](../primitives/services-messages-dispatching.md#666-imperative-selected-state-bridge)
 gives the shared callback and ownership rules.
 
-### 7.6.6.1. Nested Command Execution
+## 7.6.7. Nested Command Execution
 
 A command can be executed again from inside its own execution: from its
 action, from a `can_execute_changed` handler, or from a hub subscriber it
@@ -284,7 +291,7 @@ A call from another thread waits for the running action. A deferred call does
 not run once the command is disposed, and a panicking action drops the calls
 deferred during it.
 
-## 7.6.7. Local Use
+## 7.6.8. Local Use
 
 Add the `vmx-rs` crate as [Installation](../installation.md) shows. This
 program confirms that the crate builds and runs:
@@ -303,10 +310,15 @@ fn main() -> VmxResult<()> {
 }
 ```
 
-## 7.6.8. Development
+## 7.6.9. Development
+
+Run these commands from the repository root.
 
 ```bash
 cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
+cargo clippy --locked --manifest-path langs/rust/Cargo.toml --all-targets --all-features -- -D warnings
+cargo test --locked --manifest-path langs/rust/Cargo.toml --all-features
+# Default features: the test seams are compiled out.
 cargo clippy --locked --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
 cargo test --locked --manifest-path langs/rust/Cargo.toml
 cargo run --locked --manifest-path examples/rust/console/hello-vmx/Cargo.toml
@@ -317,7 +329,7 @@ cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -
 CI also gates library coverage; see
 [Coverage Floors](../contributing-releases.md#1133-coverage-floors).
 
-## 7.6.9. Showcase
+## 7.6.10. Showcase
 
 The Ratatui Notes Showcase is at `examples/rust/tui/notes-showcase/`. The host
 is only a renderer and input adapter. VMx view models own notebook selection,
@@ -331,7 +343,7 @@ Use [ADR-0080](../../../spec/ADRs/0080-rust-flavor-feasibility.md)
 for the adoption decision and [ADR-0081](../../../spec/ADRs/0081-rust-full-parity-cutover.md)
 for the full-conformance cutover.
 
-## 7.6.10. Pointers
+## 7.6.11. Pointers
 
 - Flavor README:
   [langs/rust/README.md](../../../langs/rust/README.md)
