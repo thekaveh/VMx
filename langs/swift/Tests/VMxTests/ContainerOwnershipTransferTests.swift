@@ -1146,6 +1146,8 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertTrue(unrelatedDestination.snapshot().first === unrelated)
     }
 
+    /// COMP-040 — re-entrant structural mutation of either protected container is
+    /// rejected before mutation, in both the composite and the group.
     func testPopulationRejectsReentrantMutationInBothContainers() throws {
         var composite: CompositeVM<ThrowingOwnershipChild>!
         var compositeClearAttempted = false
