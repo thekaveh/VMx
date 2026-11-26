@@ -181,6 +181,10 @@ below for them.
 
 ### Fixed
 
+- A child-transition walk that lists its own view-model, or that would join a
+  child whose walk waits back on it, raises `RuntimeError` and starts no child.
+  Before, `construct()` returned and every view-model on the cycle stayed
+  `Constructing` (ADR-0255, `LIFE-023`, `LIFE-024`, #1962).
 - `PagedComposition`: a page move clamps a stale `current_page_index` before it picks
   its target (ADR-0251, #1917). After an unobserved source shrinks,
   `move_to_last_page`, `move_to_next_page` and `move_to_previous_page` land on a page

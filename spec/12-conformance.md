@@ -361,6 +361,37 @@ is raised or recorded
 
 > Normatively defined in `02-lifecycle.md §6` and §6.1. See ADR-0189.
 
+### LIFE-023 — A walk that lists its own view-model fails and starts no child
+
+**Given** a leaf VM `walker` whose construct hook passes `[walker, sibling]` to
+the child-transition helper, where `sibling` is a leaf VM on an inline
+dispatcher, in `Destructed`
+**When** `walker.construct()` is called
+**Then** the call raises a usage error before any child starts or joins: the
+flavor's usage error (`InvalidOperationException`, `RuntimeError`, `Error`,
+`ChildTransitionError`, or `VmxError::OwnershipCycle` in Rust). The error's
+category is required, not its message text
+**And** `walker` and `sibling` are `Destructed`, and `sibling`'s construct hook
+runs zero times
+
+> Normatively defined in `02-lifecycle.md §6.1`. See ADR-0255.
+
+### LIFE-024 — A walk that would close a cycle fails, and its view-models settle
+
+**Given** two leaf VMs `p` and `q` on an inline dispatcher, where the construct
+hook of `p` passes `[q]` and the construct hook of `q` passes `[p]`
+**When** `p.construct()` is called
+**Then** the call raises a usage error (the category of `LIFE-023`), and `q` is
+refused at the join of `p`, so the walk of `q` fails and `q` rolls back
+**And** `p` and `q` are both `Destructed`, so neither is left transient
+**And** a leaf VM `leaf` whose construct hook passes its own group `g`, where
+`g` is a `GroupVM` whose children are `[leaf]`, makes `g.construct()` raise a
+usage error, with `g` and `leaf` both `Destructed`
+**And** in Rust, dropping the two components after the refused cycle frees both
+(no walk stores a reference that keeps them alive)
+
+> Normatively defined in `02-lifecycle.md §6.1`. See ADR-0255.
+
 ______________________________________________________________________
 
 ## 4. Message hub (`HUB-NNN`)
