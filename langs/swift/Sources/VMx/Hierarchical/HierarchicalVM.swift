@@ -334,16 +334,18 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// children reach `.constructed` before the parent does. The construction
     /// continues to a deeper level only through children that are eager
     /// themselves. This produces depth-first order (HIER-008, HIER-009). The
-    /// cascade is synchronous and throwing (ADR-0053): if any child's `construct()` throws,
-    /// the error propagates up and the caller's `construct()` rolls the parent
-    /// back to its prior status (LIFE-014).
+    /// children go through the child-transition walk (spec/02 §6.1, ADR-0189),
+    /// so a `Disposed` child is skipped and a child already in transition is
+    /// joined. The walk is synchronous and throwing (ADR-0053): if a child's
+    /// construct fails, the error propagates up and the caller's `construct()`
+    /// rolls the parent back to its prior status (LIFE-014). A child hook that
+    /// disposes this node stops the walk, so no later sibling starts.
     open override func _onConstruct() throws {
         try super._onConstruct()
         guard eagerChildren else { return }
         // Invalid factory output is a catchable construct failure, not a trap.
-        for child in try tryChildren().get() {
-            try node(child).construct()
-        }
+        let children: [ComponentVMBase] = try tryChildren().get().map { node($0) }
+        try _transitionChildren(children, construct: true)
     }
 
     // ── Structural mutation ─────────────────────────────────────────────

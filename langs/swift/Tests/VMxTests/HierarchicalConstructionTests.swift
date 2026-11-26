@@ -26,6 +26,17 @@ private struct MyModel {
 /// `HierarchicalVM<MyModel, MyNode>` — the canonical CRTP shape.
 private final class MyNode: HierarchicalVM<MyModel, MyNode> {}
 
+/// A node whose `_onConstruct()` runs an optional hook after the eager walk,
+/// so a test can act inside a child's construct hook.
+private final class HookNode: HierarchicalVM<MyModel, HookNode> {
+    var onConstruct: (() -> Void)?
+
+    override func _onConstruct() throws {
+        try super._onConstruct()
+        onConstruct?()
+    }
+}
+
 final class HierarchicalConstructionTests: XCTestCase {
 
     // ── Tests ────────────────────────────────────────────────────────────────
@@ -191,5 +202,83 @@ final class HierarchicalConstructionTests: XCTestCase {
 
         XCTAssertEqual(order, ["grandchild", "child", "root"])
         cancel.cancel()
+    }
+
+    // ── Eager construction and a disposed child ──────────────────────────────
+
+    /// An eager parent's `construct()` skips a child that was disposed, as the
+    /// child-transition walk does in the other flavors (spec/02 §6, ADR-0189).
+    /// The parent's later `construct()` succeeds, and no lifecycle operation
+    /// reaches the disposed child.
+    func testEagerConstructSkipsDisposedChild() throws {
+        let hub = MessageHub()
+        let a = MyNode(model: MyModel(value: "a"), childrenFactory: { _ in [] },
+                       hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "a")
+        let b = MyNode(model: MyModel(value: "b"), childrenFactory: { _ in [] },
+                       hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "b")
+        let root = MyNode(model: MyModel(value: "root"), childrenFactory: { _ in [a, b] },
+                          hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "root",
+                          eagerChildren: true)
+
+        try root.construct()
+        a.dispose()
+        try root.destruct()
+
+        var aStatuses: [ConstructionStatus] = []
+        let cancel = hub.messages
+            .compactMap { $0 as? ConstructionStatusChangedMessage }
+            .filter { $0.senderName == "a" }
+            .map(\.status)
+            .sink { aStatuses.append($0) }
+        defer { cancel.cancel() }
+
+        XCTAssertNoThrow(try root.construct())
+        XCTAssertEqual(root.status, .constructed)
+        XCTAssertEqual(a.status, .disposed)
+        XCTAssertEqual(b.status, .constructed)
+        XCTAssertTrue(aStatuses.isEmpty, "a disposed child must receive no lifecycle call")
+    }
+
+    /// `reconstruct()` of an eager parent also skips a disposed child: its
+    /// destruct phase and its construct phase both complete.
+    func testEagerReconstructSkipsDisposedChild() throws {
+        let hub = MessageHub()
+        let a = MyNode(model: MyModel(value: "a"), childrenFactory: { _ in [] },
+                       hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "a")
+        let b = MyNode(model: MyModel(value: "b"), childrenFactory: { _ in [] },
+                       hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "b")
+        let root = MyNode(model: MyModel(value: "root"), childrenFactory: { _ in [a, b] },
+                          hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "root",
+                          eagerChildren: true)
+
+        try root.construct()
+        a.dispose()
+
+        XCTAssertNoThrow(try root.reconstruct())
+        XCTAssertEqual(root.status, .constructed)
+        XCTAssertEqual(a.status, .disposed)
+        XCTAssertEqual(b.status, .constructed)
+    }
+
+    /// A child's construct hook that disposes the eager parent stops the walk:
+    /// the parent ends `.disposed`, and no later sibling starts (LIFE-015,
+    /// spec/02 §6 "a disposed owner starts no further child").
+    func testEagerConstructStopsWhenChildHookDisposesParent() throws {
+        let hub = MessageHub()
+        var parent: HookNode?
+        let a = HookNode(model: MyModel(value: "a"), childrenFactory: { _ in [] },
+                         hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "a")
+        a.onConstruct = { parent?.dispose() }
+        let b = HookNode(model: MyModel(value: "b"), childrenFactory: { _ in [] },
+                         hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "b")
+        let root = HookNode(model: MyModel(value: "root"), childrenFactory: { _ in [a, b] },
+                            hub: hub, dispatcher: ImmediateDispatcher.INSTANCE, name: "root",
+                            eagerChildren: true)
+        parent = root
+
+        try root.construct()
+
+        XCTAssertEqual(root.status, .disposed)
+        XCTAssertEqual(b.status, .destructed, "no sibling starts after the parent is disposed")
     }
 }

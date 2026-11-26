@@ -220,6 +220,14 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Fixed
 
+- An eager `HierarchicalVM` constructs its direct children through the
+  child-transition walk (spec/02 §6.1, ADR-0189). A disposed child is skipped, so
+  a parent whose child was disposed can `construct()` and `reconstruct()` again
+  instead of throwing "Cannot construct from state Disposed" (#1919). A child
+  hook that disposes the parent stops the walk, and no later sibling starts. The
+  other flavors already behaved this way. The regression tests are in
+  `HierarchicalConstructionTests`.
+
 - `NOTIF-021` conformance tests (#1875, ADR-0257). A `NotificationVM` timer or
   decay-tick failure never reaches the scheduler, and Swift subscribers cannot
   throw, so Swift's behavior is unchanged. The tests pin the expiry, decay-tick
