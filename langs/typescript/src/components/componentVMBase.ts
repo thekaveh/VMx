@@ -174,6 +174,11 @@ export abstract class ComponentVMBase {
   #deferredLifecycle: DeferredLifecycle | null = null;
   /** Cancels the active child-settle subscription, if any. */
   #cancelChildWait: (() => void) | null = null;
+  /**
+   * The view-model that this VM's child-transition walk is starting or joining
+   * (ADR-0255). Walks follow these targets to refuse a cycle before they wait.
+   */
+  #walkTarget: ComponentVMBase | undefined = undefined;
   /** The foreground work whose subscription `_scheduleForeground` reports (#1052). */
   #foregroundTracking: ForegroundTracking | null = null;
 
@@ -831,6 +836,9 @@ export abstract class ComponentVMBase {
    * - `after` runs exactly once, after every child reached the target and
    *   before this VM publishes its terminal status. A throwing `after` rolls
    *   this VM back like a child failure.
+   * - A walk that lists its own VM, or that would join a child whose walk
+   *   waits back on this VM, throws an `Error` and starts no child (ADR-0255).
+   *   This VM then rolls back like a failing child.
    *
    * Call it only from this VM's own construct or destruct hook, including the
    * two phases of `reconstruct()`. A call from anywhere else throws an `Error`
@@ -885,6 +893,38 @@ export abstract class ComponentVMBase {
     }
   }
 
+  /**
+   * Records that this VM's walk starts or joins `child` (ADR-0255). A walk over
+   * its own view-model is refused. Otherwise the walk targets reached from
+   * `child` are followed: when they lead back to this VM, the walk would wait
+   * on itself through other walks and never settle. Then the walk throws, with
+   * no target set, before it starts or joins anything.
+   */
+  #claimWalkTarget(child: ComponentVMBase): void {
+    const target = child._ownershipIdentity;
+    if (target === this) {
+      throw new Error(`a walk cannot transition its own view-model '${this.name}'`);
+    }
+    this.#walkTarget = target;
+    for (
+      let current: ComponentVMBase | undefined = target;
+      current !== undefined;
+      current = current.#walkTarget
+    ) {
+      if (current === this) {
+        this.#walkTarget = undefined;
+        throw new Error(
+          `joining '${target.name}' would close a walk cycle through '${this.name}'`,
+        );
+      }
+    }
+  }
+
+  /** Clears the walk target once the walk no longer waits on its child (ADR-0255). */
+  #releaseWalkTarget(): void {
+    this.#walkTarget = undefined;
+  }
+
   #walkChildren(
     children: Iterable<ComponentVMBase>,
     construct: boolean,
@@ -924,6 +964,8 @@ export abstract class ComponentVMBase {
         if (done) return false;
         done = true;
         subscription?.unsubscribe();
+        // The walk no longer waits on this child (ADR-0255).
+        this.#releaseWalkTarget();
         return true;
       };
       const continueWalk = (): void => {
@@ -976,29 +1018,38 @@ export abstract class ComponentVMBase {
 
     // Returns true when a child is pending and the rest continues on its settle.
     const advance = (): boolean => {
-      for (let next = iterator.next(); next.done !== true; next = iterator.next()) {
-        const child = next.value;
-        if (removed(child)) continue;
-        // A Disposed child is skipped: no lifecycle call (spec/02 §6, ADR-0189).
-        if (child.status === ConstructionStatus.Disposed) continue;
-        if (
-          child.status !== target &&
-          child.status !== transient &&
-          joined?.has(child) !== true
-        ) {
-          if (construct) child.construct();
-          else child.destruct();
+      try {
+        for (let next = iterator.next(); next.done !== true; next = iterator.next()) {
+          const child = next.value;
+          if (removed(child)) continue;
+          // A Disposed child is skipped: no lifecycle call (spec/02 §6, ADR-0189).
+          if (child.status === ConstructionStatus.Disposed) continue;
+          // Refuse a self-walk or a walk cycle before the walk starts or joins
+          // the child (ADR-0255).
+          if (child.status !== target) this.#claimWalkTarget(child);
+          if (
+            child.status !== target &&
+            child.status !== transient &&
+            joined?.has(child) !== true
+          ) {
+            if (construct) child.construct();
+            else child.destruct();
+          }
+          if (child.status === transient) {
+            waitFor(child);
+            return true;
+          }
+          this.#releaseWalkTarget();
+          // A child disposed during its own transition counts as settled.
+          if (!reachedTargetOrDisposed(child) && !removed(child)) {
+            const message = `Child '${child.name}' did not reach ${targetName}`;
+            // A joined child already surfaced its own failure.
+            throw joined?.has(child) === true ? new JoinedChildFailure(message) : new Error(message);
+          }
         }
-        if (child.status === transient) {
-          waitFor(child);
-          return true;
-        }
-        // A child disposed during its own transition counts as settled.
-        if (!reachedTargetOrDisposed(child) && !removed(child)) {
-          const message = `Child '${child.name}' did not reach ${targetName}`;
-          // A joined child already surfaced its own failure.
-          throw joined?.has(child) === true ? new JoinedChildFailure(message) : new Error(message);
-        }
+      } catch (error) {
+        this.#releaseWalkTarget();
+        throw error;
       }
       after?.();
       return false;

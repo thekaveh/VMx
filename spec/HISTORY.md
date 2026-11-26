@@ -769,6 +769,11 @@ v3.30.0 also makes TypeScript form equality compare `Blob`, `File` and `CryptoKe
 values by the state their clone keeps, so a replacement that differs in that state
 is a change. Their bytes and key material are not compared (ADR-0253).
 
+v3.30.0 also makes a child-transition walk that would wait on itself fail. A walk
+that lists its own view-model, or that would join a child whose walk waits back on
+it, raises the flavor's usage error and starts no child, so no view-model is left
+`Constructing` (ADR-0255, `LIFE-023`, `LIFE-024`).
+
 v3.30.0 also defines failing subscribers and notification order. A delivery on
 a library channel reaches every attached subscriber once, even when an earlier
 one fails, and no failure detaches a subscriber or the library's own source
@@ -823,6 +828,12 @@ snapshot and completes `Pending` once (`NOTIF-017`, `DISP-003`), and a
 (`NOTIF-020`). `SearchableState` construction starts no term debounce
 (`SRCH-008`). A current `AsyncResourceVM` loader that ends with its own
 cancellation restores the saved stable state, as `Cancel` does (`ARES-012`).
+
+v3.30.0 also contains a `NotificationVM` timer or decay-tick failure. A failing
+`Pending` subscriber or `PropertyChanged` handler at auto-dismiss or on a decay tick
+never reaches the scheduler, auto-dismiss raises `IsResolved` even when the hub
+resolve raises, and a decay tick reschedules after a handler failure (ADR-0257,
+`NOTIF-021`).
 
 v3.30.0 also states the cancellation baseline of a discard reload. A
 `DiscardPrevious` reload that starts from a value-less `Error` relinquishes no

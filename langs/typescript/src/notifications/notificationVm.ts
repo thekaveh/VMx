@@ -14,6 +14,7 @@ import {
   type SchedulerLike,
 } from "rxjs";
 import { RelayCommand } from "../commands/relayCommand.js";
+import { reportUnhandled } from "../services/reportUnhandled.js";
 import type { Notification } from "./notification.js";
 import { NotificationReaction } from "./notification.js";
 import type { INotificationHub } from "./notificationHub.js";
@@ -221,11 +222,17 @@ export class NotificationVM {
 
   /**
    * Called when the lifespan timer fires.
-   * Default: auto-dismiss with Approve.
+   * Default: auto-dismiss with Approve. The default auto-dismiss is contained:
+   * a failure it raises goes to reportUnhandled (ADR-0257). An override is not
+   * contained: a failure it raises reaches the scheduler.
    * `ConfirmationVM` overrides to suppress auto-dismiss.
    */
   protected onExpire(): void {
-    this.#dismiss();
+    try {
+      this.#dismiss();
+    } catch (error) {
+      reportUnhandled(error);
+    }
   }
 
   /** Resolves with Approve and cancels the timer. Idempotent. */
@@ -255,6 +262,9 @@ export class NotificationVM {
 
   #onExpire(): void {
     this.#expired = true;
+    // No containment here: a failure from an override of onExpire() reaches
+    // the scheduler. The default auto-dismiss contains its own failure
+    // (ADR-0257).
     this.onExpire();
   }
 
@@ -267,8 +277,13 @@ export class NotificationVM {
     this.#timerHandle = null;
     this.#tickHandle?.unsubscribe();
     this.#tickHandle = null;
-    this.#hub.resolve(this.#notification, NotificationReaction.Approve);
-    this.#raiseResolvedChanges();
+    // The changes are raised even when the hub refuses (ADR-0257 §2.2). The
+    // error still propagates, so a DismissCommand keeps its command route.
+    try {
+      this.#hub.resolve(this.#notification, NotificationReaction.Approve);
+    } finally {
+      this.#raiseResolvedChanges();
+    }
   }
 
   #resolveWith(reaction: NotificationReaction): void {

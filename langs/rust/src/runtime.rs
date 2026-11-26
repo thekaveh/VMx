@@ -85,6 +85,35 @@ pub(crate) fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// The child-walk claims (ADR-0255): each component whose walk waits on a
+/// child maps to that child's identity, with the token of the claim. Only
+/// identities are stored, so a claim keeps no component alive (#750). This is
+/// a leaf lock: no component lock is taken while it is held.
+static WALK_TARGETS: Mutex<BTreeMap<usize, (usize, usize)>> = Mutex::new(BTreeMap::new());
+static NEXT_WALK_TOKEN: AtomicUsize = AtomicUsize::new(1);
+
+/// A claim that a component's child-walk waits on one child (ADR-0255).
+/// Clones share the claim, which is released when the last clone drops: the
+/// wait ends, or the walk stops waiting on the child.
+pub(crate) type WalkEdge = Arc<WalkClaim>;
+
+pub(crate) struct WalkClaim {
+    owner: usize,
+    token: usize,
+}
+
+impl Drop for WalkClaim {
+    fn drop(&mut self) {
+        let mut targets = lock(&WALK_TARGETS);
+        if targets
+            .get(&self.owner)
+            .is_some_and(|&(_, token)| token == self.token)
+        {
+            targets.remove(&self.owner);
+        }
+    }
+}
+
 /// Stores `value` behind `mutex` and drops the previous value only after the
 /// guard is released, so a user `Drop` that re-enters the owner cannot
 /// deadlock on this mutex.
@@ -185,8 +214,9 @@ pub enum VmxError {
     #[error("component is already a child of this container")]
     /// The component is already a child of the destination container.
     DuplicateChild,
-    #[error("container ownership would create an ancestor cycle")]
-    /// The requested parent assignment would create a cycle.
+    #[error("the operation would create an ownership or walk cycle")]
+    /// The requested parent assignment, or a child-transition walk that would
+    /// wait on itself, would create a cycle.
     OwnershipCycle,
     #[error("component parent state does not match parent membership")]
     /// Parent metadata and parent membership disagree.
@@ -4782,6 +4812,46 @@ impl<D: Dispatcher> ComponentCore<D> {
         step.map_or(Ok(()), |step| step())
     }
 
+    /// Claims this component's walk on `child_id` before the walk starts or
+    /// joins that child (ADR-0255). The claim is refused, with
+    /// [`VmxError::OwnershipCycle`] and no child started or joined, when the
+    /// child is this component, or when the walk targets reached from the
+    /// child lead back to this component. The returned claim ends with the
+    /// wait: drop it, or the last clone of it, when the walk stops waiting.
+    pub(crate) fn claim_walk_target(&self, child_id: usize) -> VmxResult<WalkEdge> {
+        let owner = self.id();
+        if child_id == owner {
+            return Err(VmxError::OwnershipCycle);
+        }
+        let token = NEXT_WALK_TOKEN.fetch_add(1, Ordering::Relaxed);
+        let mut targets = lock(&WALK_TARGETS);
+        let previous = targets.insert(owner, (child_id, token));
+        // Each accepted claim adds an edge that closes no cycle, so the chain
+        // from the child ends at a component without a claim. The bound only
+        // guards against a broken invariant.
+        let mut current = child_id;
+        for _ in 0..=targets.len() {
+            if current == owner {
+                break;
+            }
+            match targets.get(&current) {
+                Some(&(next, _)) => current = next,
+                None => {
+                    return Ok(Arc::new(WalkClaim { owner, token }));
+                }
+            }
+        }
+        match previous {
+            Some(entry) => {
+                targets.insert(owner, entry);
+            }
+            None => {
+                targets.remove(&owner);
+            }
+        }
+        Err(VmxError::OwnershipCycle)
+    }
+
     /// Constructs or destructs `child` as one step of this container's
     /// transition. A child that is still Constructing/Destructing when its
     /// call returns (background lifecycle) holds the container transient
@@ -4830,7 +4900,8 @@ impl<D: Dispatcher> ComponentCore<D> {
         self.child_step(self.weak_step(move |core| {
             let status = child.status();
             if status == transient || child.lifecycle_publication_pending() {
-                core.await_child(&child, target, None)
+                let walk = core.claim_walk_target(child.id())?;
+                core.await_child(&child, target, None, Some(walk))
             } else if status == target {
                 Ok(())
             } else {
@@ -4958,8 +5029,17 @@ impl<D: Dispatcher> ComponentCore<D> {
             return Ok(());
         }
         if child.status() == ConstructionStatus::Constructing {
-            return self.await_child(child, ConstructionStatus::Constructed, Some(member));
+            let walk = self.claim_walk_target(child.id())?;
+            return self.await_child(
+                child,
+                ConstructionStatus::Constructed,
+                Some(member),
+                Some(walk),
+            );
         }
+        // Claimed before the start call, so a child whose walk waits back on
+        // this container is refused here (ADR-0255).
+        let walk = self.claim_walk_target(child.id())?;
         // Subscribed before the start call, as in `run_child_transition`, so
         // a node without settle notification is still waited for (ADR-0205).
         let observer = ChildObserver::start(self.hub(), child, ConstructionStatus::Constructing);
@@ -4970,7 +5050,12 @@ impl<D: Dispatcher> ComponentCore<D> {
                 && construct_started(child)
             {
                 drop(observer);
-                return self.await_child(child, ConstructionStatus::Constructed, Some(member));
+                return self.await_child(
+                    child,
+                    ConstructionStatus::Constructed,
+                    Some(member),
+                    Some(walk),
+                );
             }
             return if member(child.id()) {
                 Err(error)
@@ -4984,6 +5069,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             ConstructionStatus::Constructed,
             Some(member),
             Some(observer),
+            Some(walk),
         )
     }
 
@@ -5082,6 +5168,10 @@ impl<D: Dispatcher> ComponentCore<D> {
         child: &N,
         member: MemberCheck,
     ) -> VmxResult<()> {
+        // Claimed before the wait, so a late child whose walk waits back on
+        // this container is refused here (ADR-0255). The claim ends with the
+        // wait, on the record callback or on the join.
+        let walk = self.claim_walk_target(child.id())?;
         let (generation, stale) = {
             let mut inner = lock(&self.inner);
             let generation = inner.transition_generation;
@@ -5096,10 +5186,11 @@ impl<D: Dispatcher> ComponentCore<D> {
         let core = self.downgrade();
         let awaited = child.clone();
         let awaited_member = Arc::clone(&member);
+        let resumed_walk = walk.clone();
         if record.when_done(Box::new(move || {
             if let Some(core) = core.upgrade() {
                 core.resume_walk(move |core| {
-                    core.join_after_add(generation, &awaited, awaited_member);
+                    core.join_after_add(generation, &awaited, awaited_member, resumed_walk);
                 });
             }
         })) {
@@ -5113,7 +5204,12 @@ impl<D: Dispatcher> ComponentCore<D> {
                 }
             }
         }
-        self.await_child(child, ConstructionStatus::Constructed, Some(&member))
+        self.await_child(
+            child,
+            ConstructionStatus::Constructed,
+            Some(&member),
+            Some(walk),
+        )
     }
 
     /// Marks this transition's settle as waiting on a child, replacing a
@@ -5131,7 +5227,13 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     /// Continues a walk that waited for an add: joins `child`, keeping the
     /// transition waiting until it settles.
-    fn join_after_add<N: VmNode>(&self, generation: u64, child: &N, member: MemberCheck) {
+    fn join_after_add<N: VmNode>(
+        &self,
+        generation: u64,
+        child: &N,
+        member: MemberCheck,
+        walk: WalkEdge,
+    ) {
         {
             let inner = lock(&self.inner);
             if !self.settle_is_current(&inner, generation) {
@@ -5143,9 +5245,13 @@ impl<D: Dispatcher> ComponentCore<D> {
             child,
             ConstructionStatus::Constructed,
             Some(Arc::clone(&member)),
+            Some(walk.clone()),
         ) {
             return;
         }
+        // The walk no longer waits on the child, so its claim ends before the
+        // walk moves on (ADR-0255).
+        drop(walk);
         {
             let mut inner = lock(&self.inner);
             if !self.settle_is_current(&inner, generation) {
@@ -5192,6 +5298,9 @@ impl<D: Dispatcher> ComponentCore<D> {
             ),
             LifecycleOperation::Dispose => return child.dispose(),
         };
+        // Claimed before the start or join, so a child whose walk waits back
+        // on this component is refused here (ADR-0255).
+        let walk = self.claim_walk_target(child.id())?;
         // Subscribed before the start call, so it sees the child's transient
         // status when the child publishes on this container's hub.
         let observer = ChildObserver::start(self.hub(), child, transient);
@@ -5211,12 +5320,12 @@ impl<D: Dispatcher> ComponentCore<D> {
                 // Another starter began the destruct after the walk read the
                 // status: the walk joins it (ADR-0218 rule 6, ADR-0227).
                 drop(observer);
-                self.await_child(child, expected, None)
+                self.await_child(child, expected, None, Some(walk))
             }
             result => {
                 result?;
                 observer.note_queued_transient();
-                self.await_child_observed(child, expected, None, Some(observer))
+                self.await_child_observed(child, expected, None, Some(observer), Some(walk))
             }
         }
     }
@@ -5230,8 +5339,9 @@ impl<D: Dispatcher> ComponentCore<D> {
         child: &N,
         expected: ConstructionStatus,
         member: Option<&MemberCheck>,
+        walk: Option<WalkEdge>,
     ) -> VmxResult<()> {
-        self.await_child_observed(child, expected, member, None)
+        self.await_child_observed(child, expected, member, None, walk)
     }
 
     /// [`Self::await_child`] with the hub observer of a child this
@@ -5243,6 +5353,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         expected: ConstructionStatus,
         member: Option<&MemberCheck>,
         observer: Option<ChildObserver>,
+        walk: Option<WalkEdge>,
     ) -> VmxResult<()> {
         let (generation, stale) = {
             let mut inner = lock(&self.inner);
@@ -5253,7 +5364,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             (generation, Self::begin_child_wait(&mut inner, generation))
         };
         drop(stale);
-        if self.watch_child(generation, child, expected, member.cloned()) {
+        if self.watch_child(generation, child, expected, member.cloned(), walk.clone()) {
             return Ok(());
         }
         let in_flight = match expected {
@@ -5265,7 +5376,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         // delivered or queued its transient status (ADR-0205).
         if let Some(observer) = observer {
             if child.status() == in_flight
-                && self.watch_observed(generation, child, expected, member.cloned(), observer)
+                && self.watch_observed(generation, child, expected, member.cloned(), observer, walk)
             {
                 return Ok(());
             }
@@ -5298,6 +5409,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         expected: ConstructionStatus,
         member: Option<MemberCheck>,
         observer: ChildObserver,
+        walk: Option<WalkEdge>,
     ) -> bool {
         let ChildObserver {
             state,
@@ -5307,7 +5419,10 @@ impl<D: Dispatcher> ComponentCore<D> {
         let awaited_child = child.clone();
         let awaited: AwaitedChild = Box::new(move || {
             drop(subscription);
-            walk_child_result(&awaited_child, expected, member.as_ref())
+            let result = walk_child_result(&awaited_child, expected, member.as_ref());
+            // The walk stops waiting on the child once it settled (ADR-0255).
+            drop(walk);
+            result
         });
         let displaced = {
             let mut inner = lock(&self.inner);
@@ -5352,10 +5467,15 @@ impl<D: Dispatcher> ComponentCore<D> {
         child: &N,
         expected: ConstructionStatus,
         member: Option<MemberCheck>,
+        walk: Option<WalkEdge>,
     ) -> bool {
         let awaited_child = child.clone();
-        let awaited: AwaitedChild =
-            Box::new(move || walk_child_result(&awaited_child, expected, member.as_ref()));
+        let awaited: AwaitedChild = Box::new(move || {
+            let result = walk_child_result(&awaited_child, expected, member.as_ref());
+            // The walk stops waiting on the child once it settled (ADR-0255).
+            drop(walk);
+            result
+        });
         let displaced = {
             let mut inner = lock(&self.inner);
             if !self.settle_is_current(&inner, generation) {

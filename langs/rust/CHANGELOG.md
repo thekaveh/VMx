@@ -30,6 +30,10 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   and `current_page_index` stays in `[0, max(0, page_count - 1)]`. Rust already
   met the rule: `set_source` clamps the index on every write, so no Rust code
   changed.
+- `NOTIF-021` conformance tests (ADR-0257, #1875). The expiry timeline holds with a
+  panicking Pending subscriber or hub resolve: the clock advance returns, the
+  notification resolves, and the `Post` waiter completes. The tests do not isolate
+  which catch contains the panic. No Rust code changed.
 - `DelayedTask`: a disposable helper that holds at most one delayed action on
   an injected scheduler. `schedule` replaces a pending action and restarts its
   delay, `cancel` stops it, `is_pending()` reports it, and disposal cancels it
@@ -124,6 +128,18 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   disposal, and `remove_at` returns `None`. Before, they changed the state
   silently, and the `COL-031` test pinned that (ADR-0254, ADR-0214 rule 1,
   spec/21 §5.6, #1783).
+
+- A child-transition walk that would wait on itself now fails with
+  `VmxError::OwnershipCycle` and starts no child. That covers a walk that lists
+  its own component, a walk whose child's walk waits back on it, and a container
+  whose member's walk lists the container. Before, the walk joined the child and
+  every component on the cycle stayed `Constructing` until one was disposed. The
+  walking component rolls back, and the others settle (ADR-0255, spec/02 §6.1,
+  `LIFE-023`, `LIFE-024`, #1962).
+
+- `VmxError::OwnershipCycle` has a new `Display` text: "the operation would
+  create an ownership or walk cycle". The old text described only ownership
+  cycles. The variant is otherwise unchanged; no variant is added (ADR-0255).
 
 ## [0.36.0] — unreleased source version
 

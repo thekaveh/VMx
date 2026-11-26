@@ -181,6 +181,10 @@ below for them.
 
 ### Fixed
 
+- A child-transition walk that lists its own view-model, or that would join a
+  child whose walk waits back on it, raises `RuntimeError` and starts no child.
+  Before, `construct()` returned and every view-model on the cycle stayed
+  `Constructing` (ADR-0255, `LIFE-023`, `LIFE-024`, #1962).
 - `PagedComposition`: a page move clamps a stale `current_page_index` before it picks
   its target (ADR-0251, #1917). After an unobserved source shrinks,
   `move_to_last_page`, `move_to_next_page` and `move_to_previous_page` land on a page
@@ -781,6 +785,10 @@ below for them.
   a reference to itself, so a standalone node is freed by the cyclic collector
   rather than at its last reference. Error texts and the public API do not change
   (#1912).
+- `NotificationVM`: a timer or decay-tick failure from a `Pending` subscriber or a
+  `PropertyChanged` handler is logged and no longer reaches the scheduler. Auto-dismiss
+  still raises `IsResolved` when the hub resolve raises, and a decay tick reschedules
+  after a handler failed (`NOTIF-021`, ADR-0257, #1875).
 
 ## [3.29.0] — unreleased source version
 

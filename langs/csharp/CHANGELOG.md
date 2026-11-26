@@ -263,6 +263,13 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- The child-transition helper refuses a walk that would wait on itself. A walk that
+  lists its own view-model, or that joins a child whose walk waits back on it, throws
+  `InvalidOperationException` before it starts or joins a child, and the walking
+  view-model rolls back. Before, such a walk left every view-model on the cycle
+  `Constructing` (ADR-0255, #1962, `LIFE-023`, `LIFE-024`). Container walks follow the
+  same rule.
+
 - `PagedComposition`: a page move clamps a stale `CurrentPageIndex` before it picks
   its target (ADR-0251, #1917). After an unobserved source shrinks, `MoveToLastPage`,
   `MoveToNextPage` and `MoveToPreviousPage` land on a page in range, where a stale
@@ -1063,6 +1070,13 @@ All notable changes to the C# flavor are documented here. The format is based on
   when one disposal throws, and `ConfirmationVM` disposes its approve and reject
   commands even when the base teardown throws. The first failure is rethrown
   after every step (#538).
+- Fixed: a `Pending` subscriber or `PropertyChanged` handler that fails during
+  `NotificationVM` auto-dismiss or a decay tick no longer escapes to the scheduler.
+  On `DefaultScheduler.Instance` the failure ended the process, and under a test
+  scheduler it skipped the `IsResolved` change. Auto-dismiss now raises `IsResolved`
+  even when the hub resolve throws, and a decay tick reschedules after a handler
+  failure. An override of `OnExpire` is not contained, so its failure still reaches
+  the scheduler (spec/16 §6, ADR-0257, #1875, `NOTIF-021`).
 - The NuGet package ships its own README describing the notification hub and
   its dependency on `VMx` (#351).
 - Changed: the independently versioned notification package is prepared for

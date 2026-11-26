@@ -440,6 +440,15 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     // lifecycle messages without acquiring their gates in opposing order.
     private readonly object _gate = new();
 
+    // The lock that guards every walk target (ADR-0255). It is a leaf lock: it is
+    // held only to read or write _walkTarget, and no lifecycle gate is taken while
+    // it is held, so the two cannot deadlock.
+    private static readonly object WalkTargetLock = new();
+
+    // The view-model that this VM's child-transition walk is starting or joining
+    // (ADR-0255). Read and written under WalkTargetLock only.
+    private IComponentVM? _walkTarget;
+
     /// <summary>
     /// One lifecycle resource that a foreign thread can wait for: a lifecycle
     /// delivery or an admitted hook lease. Its waits are edges of the shared
@@ -722,90 +731,103 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         var scope = t_lifecycleHookScope;
         using var walk = children.GetEnumerator();
         var walkedAll = false;
-        while (true)
+        try
         {
-            IComponentVM child;
-            if (!walkedAll && walk.MoveNext())
+            while (true)
             {
-                child = walk.Current;
-            }
-            else
-            {
-                if (!walkedAll)
+                IComponentVM child;
+                if (!walkedAll && walk.MoveNext())
                 {
-                    walkedAll = true;
-                    // Inline: either still inside the hook (no child yielded) or
-                    // already on the owner's foreground. An abandoned walk, or one
-                    // whose owner was disposed while it waited to resume, never
-                    // runs its continuation: the user onDestruct or the Current
-                    // selector would run after Dispose() (#735).
-                    if (WalkStopped(scope)) return;
-                    after?.Invoke();
-                }
-                // A container's commit step (spec/06 §5.1): `seal` returns a
-                // child added after the walk's last scan, which the walk then
-                // joins, or commits the Constructed state and returns null.
-                // `after` runs once, never again.
-                if (seal is null || WalkStopped(scope)) return;
-                var late = seal();
-                if (late is null) return;
-                child = late;
-            }
-
-            // An abandoned walk (its hook threw after deferring) drives no
-            // further children, matching Python and TypeScript; nor does a walk
-            // whose owner was disposed, as TypeScript abandons it on dispose.
-            if (WalkStopped(scope)) return;
-            // A child removed before the walk reaches it is never started.
-            if (Removed(child)) continue;
-            // A Disposed child is skipped: the walk calls no lifecycle
-            // operation on it and does not fail (spec/02 §6, ADR-0189).
-            if (child.Status == ConstructionStatus.Disposed) continue;
-            Task pending;
-            try
-            {
-                if (construct)
-                {
-                    var isJoined = joined is not null && joined.Contains(child);
-                    pending = !isJoined
-                        ? child.ConstructOrJoinAsync()
-                        : join is not null ? join(child) : child.JoinConstructAsync();
+                    child = walk.Current;
                 }
                 else
                 {
-                    // A child already Destructing is joined, never destructed a
-                    // second time (spec/02 §6, #754).
-                    pending = child.DestructOrJoinAsync();
+                    if (!walkedAll)
+                    {
+                        walkedAll = true;
+                        // Inline: either still inside the hook (no child yielded) or
+                        // already on the owner's foreground. An abandoned walk, or one
+                        // whose owner was disposed while it waited to resume, never
+                        // runs its continuation: the user onDestruct or the Current
+                        // selector would run after Dispose() (#735).
+                        if (WalkStopped(scope)) return;
+                        after?.Invoke();
+                    }
+                    // A container's commit step (spec/06 §5.1): `seal` returns a
+                    // child added after the walk's last scan, which the walk then
+                    // joins, or commits the Constructed state and returns null.
+                    // `after` runs once, never again.
+                    if (seal is null || WalkStopped(scope)) return;
+                    var late = seal();
+                    if (late is null) return;
+                    child = late;
                 }
-            }
-            catch when (Removed(child))
-            {
-                pending = Task.CompletedTask;
-            }
-            var resumes = !pending.IsCompleted;
-            // The walk keeps waiting on a child removed meanwhile, and ignores
-            // its result (ADR-0186).
-            var removed = false;
-            try { await pending.ConfigureAwait(false); }
-            catch when (Removed(child)) { removed = true; }
-            removed = removed || Removed(child);
-            // A child that reached Disposed while the walk waited settles the
-            // wait as a success (spec/02 §6, ADR-0189).
-            var settled = child.Status;
-            if (!removed && construct && settled is not ConstructionStatus.Constructed and not ConstructionStatus.Disposed)
-                throw new InvalidOperationException(
-                    $"Child '{child.Name}' did not reach Constructed.");
-            if (!construct && settled is not ConstructionStatus.Destructed and not ConstructionStatus.Disposed)
-                throw new InvalidOperationException(
-                    $"Child '{child.Name}' did not reach Destructed.");
 
-            // spec/11 §3: a child that settled asynchronously resumes the walk on a
-            // pool thread. Later siblings raise CollectionChanged / IsCurrent and run
-            // user hooks, so the rest of the walk, and `after`, continue on the
-            // owner's foreground dispatcher, like the terminal status. A walk whose
-            // children all settle synchronously never hops: it stays on the caller.
-            if (resumes && scope is not null)
-                await new ForegroundResumption(scope.Owner);
+                // An abandoned walk (its hook threw after deferring) drives no
+                // further children, matching Python and TypeScript; nor does a walk
+                // whose owner was disposed, as TypeScript abandons it on dispose.
+                if (WalkStopped(scope)) return;
+                // A child removed before the walk reaches it is never started.
+                if (Removed(child)) continue;
+                // A Disposed child is skipped: the walk calls no lifecycle
+                // operation on it and does not fail (spec/02 §6, ADR-0189).
+                if (child.Status == ConstructionStatus.Disposed) continue;
+                // Refuse a self-walk or a walk cycle before the walk starts or joins
+                // the child (ADR-0255). The throw faults the walk, which rolls back.
+                if (scope is not null) ClaimWalkTarget(scope.Owner, child);
+                Task pending;
+                try
+                {
+                    if (construct)
+                    {
+                        var isJoined = joined is not null && joined.Contains(child);
+                        pending = !isJoined
+                            ? child.ConstructOrJoinAsync()
+                            : join is not null ? join(child) : child.JoinConstructAsync();
+                    }
+                    else
+                    {
+                        // A child already Destructing is joined, never destructed a
+                        // second time (spec/02 §6, #754).
+                        pending = child.DestructOrJoinAsync();
+                    }
+                }
+                catch when (Removed(child))
+                {
+                    pending = Task.CompletedTask;
+                }
+                var resumes = !pending.IsCompleted;
+                // The walk keeps waiting on a child removed meanwhile, and ignores
+                // its result (ADR-0186).
+                var removed = false;
+                try { await pending.ConfigureAwait(false); }
+                catch when (Removed(child)) { removed = true; }
+                removed = removed || Removed(child);
+                // The walk no longer waits on this child (ADR-0255).
+                if (scope is not null) ReleaseWalkTarget(scope.Owner);
+                // A child that reached Disposed while the walk waited settles the
+                // wait as a success (spec/02 §6, ADR-0189).
+                var settled = child.Status;
+                if (!removed && construct && settled is not ConstructionStatus.Constructed and not ConstructionStatus.Disposed)
+                    throw new InvalidOperationException(
+                        $"Child '{child.Name}' did not reach Constructed.");
+                if (!construct && settled is not ConstructionStatus.Destructed and not ConstructionStatus.Disposed)
+                    throw new InvalidOperationException(
+                        $"Child '{child.Name}' did not reach Destructed.");
+
+                // spec/11 §3: a child that settled asynchronously resumes the walk on a
+                // pool thread. Later siblings raise CollectionChanged / IsCurrent and run
+                // user hooks, so the rest of the walk, and `after`, continue on the
+                // owner's foreground dispatcher, like the terminal status. A walk whose
+                // children all settle synchronously never hops: it stays on the caller.
+                if (resumes && scope is not null)
+                    await new ForegroundResumption(scope.Owner);
+            }
+        }
+        finally
+        {
+            // The walk waits on no child once it ends, by success or failure (ADR-0255).
+            if (scope is not null) ReleaseWalkTarget(scope.Owner);
         }
     }
 
@@ -851,6 +873,42 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     private static bool WalkStopped(LifecycleHookScope? scope)
         => scope is not null && (scope.Abandoned || scope.Owner.IsDisposed());
+
+    /// <summary>
+    /// Records that the walk of <paramref name="owner"/> starts or joins
+    /// <paramref name="child"/> (ADR-0255). A walk cannot wait on itself: when the
+    /// child is the owner, or the walk targets reached from the child lead back to
+    /// the owner, this throws and leaves the owner without a target, so the walk
+    /// starts or joins no child.
+    /// </summary>
+    private static void ClaimWalkTarget(ComponentVMBase owner, IComponentVM child)
+    {
+        var target = child.GetOwnershipIdentity();
+        if (ReferenceEquals(target, owner))
+            throw new InvalidOperationException(
+                $"a walk cannot transition its own view-model '{owner.Name}'");
+        lock (WalkTargetLock)
+        {
+            owner._walkTarget = target;
+            IComponentVM? current = target;
+            while (current is not null)
+            {
+                if (ReferenceEquals(current, owner))
+                {
+                    owner._walkTarget = null;
+                    throw new InvalidOperationException(
+                        $"joining '{child.Name}' would close a walk cycle through '{owner.Name}'");
+                }
+                current = current is ComponentVMBase walking ? walking._walkTarget : null;
+            }
+        }
+    }
+
+    /// <summary>Clears the walk target of <paramref name="owner"/> (ADR-0255).</summary>
+    private static void ReleaseWalkTarget(ComponentVMBase owner)
+    {
+        lock (WalkTargetLock) owner._walkTarget = null;
+    }
 
     /// <summary>
     /// Stops waiting for a pending child transition without settling this VM.

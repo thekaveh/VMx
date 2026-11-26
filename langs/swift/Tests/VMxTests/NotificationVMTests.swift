@@ -1,10 +1,10 @@
 //
-// NotificationVMTests.swift — NOTIF-011..016, NOTIF-018 and NOTIF-019 conformance.
+// NotificationVMTests.swift — NOTIF-011..016, NOTIF-018, NOTIF-019 and NOTIF-021 conformance.
 //
 // Claimed IDs: NOTIF-011, NOTIF-012, NOTIF-013, NOTIF-014, NOTIF-015,
-//              NOTIF-016, NOTIF-018, NOTIF-019.
+//              NOTIF-016, NOTIF-018, NOTIF-019, NOTIF-021.
 //
-// See spec/16-notifications.md §6-7, ADR-0031, ADR-0197.
+// See spec/16-notifications.md §6-7, ADR-0031, ADR-0197, ADR-0257.
 //
 // Virtual time is driven by `VirtualTimeScheduler` (Sources/VMx/Services):
 // `scheduler.advance(toSeconds:)` moves the virtual clock and runs every
@@ -350,6 +350,98 @@ final class NotificationVMTests: XCTestCase {
         XCTAssertEqual(sutC.opacity, 0.6, accuracy: 0.01,
                        "NOTIF-019: opacity keeps its value from a later dismissal")
         sutC.dispose()
+    }
+
+    // MARK: NOTIF-021
+
+    /// NOTIF-021 — at lifespan expiry the timer resolves the notification, raises
+    /// `isResolved`, and completes the awaitable returned by `Post`. Swift's
+    /// subscribers cannot throw, so the timeline is asserted with no failing
+    /// subscriber (spec/16 §6, ADR-0257).
+    func testNotif021ExpiryResolvesAndCompletesPost() async {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .notification, message: "expiry")
+        let poster = await post(hub, n)
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 10)
+        let names = NameRecorder()
+        var cancellables = Set<AnyCancellable>()
+        sut.propertyChanged.sink { names.names.append($0) }.store(in: &cancellables)
+
+        scheduler.advance(by: .seconds(10))
+
+        XCTAssertTrue(sut.isResolved, "NOTIF-021: expiry resolves the notification")
+        XCTAssertTrue(names.names.contains("isResolved"),
+                      "NOTIF-021: the isResolved change is raised at expiry")
+        await fulfillment(of: [poster.resolved], timeout: hangGuard)
+        XCTAssertEqual(poster.reaction, .approve,
+                       "NOTIF-021: the awaitable returned by Post completes with .approve")
+
+        cancellables.removeAll()
+        sut.dispose()
+    }
+
+    /// NOTIF-021 — a decay tick raises `remaining` and reschedules while
+    /// `remaining` is positive, so the decay keeps running and the notification
+    /// stays unresolved. The timeline has no failing handler (spec/16 §6).
+    func testNotif021DecayTickKeepsRaisingRemaining() async {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .notification, message: "decay")
+        _ = await post(hub, n)
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler,
+                                 lifespan: 10, tickInterval: 1)
+        let names = NameRecorder()
+        var cancellables = Set<AnyCancellable>()
+        sut.propertyChanged.sink { names.names.append($0) }.store(in: &cancellables)
+
+        scheduler.advance(by: .seconds(1))
+        XCTAssertEqual(names.names.filter { $0 == "remaining" }.count, 1,
+                       "NOTIF-021: the first decay tick raises remaining")
+
+        scheduler.advance(by: .seconds(1))
+        XCTAssertEqual(names.names.filter { $0 == "remaining" }.count, 2,
+                       "NOTIF-021: the second decay tick raises remaining")
+        XCTAssertFalse(sut.isResolved,
+                       "NOTIF-021: the decay does not resolve the notification")
+        XCTAssertEqual(sut.remaining, 8, accuracy: 0.001,
+                       "NOTIF-021: remaining is 8 after two seconds of a 10 s lifespan")
+
+        cancellables.removeAll()
+        sut.dispose()
+    }
+
+    /// NOTIF-021 — `dismissCommand` commits the resolved state, then raises
+    /// `isResolved`, then `remaining` and `opacity`. Swift's hub resolve cannot
+    /// throw, so only the order is asserted (spec/16 §6).
+    func testNotif021DismissRaisesIsResolvedThenTheOtherChanges() async {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .notification, message: "dismiss order")
+        let poster = await post(hub, n)
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 10)
+        let names = NameRecorder()
+        var resolvedWhenRaised: [Bool] = []
+        var cancellables = Set<AnyCancellable>()
+        sut.propertyChanged
+            .sink { name in
+                names.names.append(name)
+                if name == "isResolved" { resolvedWhenRaised.append(sut.isResolved) }
+            }
+            .store(in: &cancellables)
+
+        sut.dismissCommand.execute()
+
+        XCTAssertEqual(names.names, ["isResolved", "remaining", "opacity"],
+                       "NOTIF-021: IsResolved is raised first, then remaining and opacity")
+        XCTAssertEqual(resolvedWhenRaised, [true],
+                       "NOTIF-021: the resolved state is committed before IsResolved is raised")
+        await fulfillment(of: [poster.resolved], timeout: hangGuard)
+        XCTAssertEqual(poster.reaction, .approve,
+                       "NOTIF-021: dismiss resolves the hub with .approve")
+
+        cancellables.removeAll()
+        sut.dispose()
     }
 
     /// An approved `ConfirmationVM` keeps the opacity it had at approval.

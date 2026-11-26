@@ -1,5 +1,5 @@
-// Conformance tests: NOTIF-001..020 — notification sub-package.
-// See spec/16-notifications.md, ADR-0013, ADR-0031, ADR-0196, ADR-0197.
+// Conformance tests: NOTIF-001..021 — notification sub-package.
+// See spec/16-notifications.md, ADR-0013, ADR-0031, ADR-0196, ADR-0197, ADR-0257.
 
 import { describe, expect, it } from "vitest";
 
@@ -14,6 +14,7 @@ import {
   makeConfirm,
   type INotificationHub,
 } from "../../src/notifications/index.js";
+import { captureRxUnhandledErrors } from "../setup.js";
 import { FakeScheduler } from "../unit/notifications/fakeScheduler.js";
 
 describe("NOTIF-001", () => {
@@ -479,5 +480,154 @@ describe("NOTIF-020", () => {
     expect(completions).toBe(1);
     expect(values).toEqual([]);
     expect(errors).toEqual([]);
+  });
+});
+
+/** A hub whose `resolve` refuses, as a failed hub does (NOTIF-021). */
+class FailingResolveHub extends NotificationHub {
+  readonly failure = new Error("hub resolve failed");
+
+  override resolve(): void {
+    throw this.failure;
+  }
+}
+
+/** Waits one macrotask, so rxjs delivers its unhandled-error reports. */
+function drainReports(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+describe("NOTIF-021", () => {
+  const SECOND = 1000;
+
+  it("a failing Pending subscriber at expiry: no raise, IsResolved raised, Post completes", async () => {
+    const reports = captureRxUnhandledErrors();
+    const failure = new Error("pending subscriber failed");
+    const scheduler = new FakeScheduler();
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Notification, "expiring");
+    const posted = hub.post(notification);
+    const sut = new NotificationVM(notification, hub, scheduler, 10 * SECOND);
+    const changes: string[] = [];
+    sut.propertyChanged.subscribe((name) => changes.push(name));
+    // Subscribed after the post, so its first emission holds the notification
+    // and it fails only when the list empties at expiry.
+    hub.pending.subscribe((list) => {
+      if (list.length === 0) throw failure;
+    });
+
+    expect(() => scheduler.advanceBy(10 * SECOND)).not.toThrow();
+
+    expect(sut.isResolved).toBe(true);
+    expect(changes).toEqual(["isResolved", "remainingMs", "opacity"]);
+    await expect(posted).resolves.toBe(NotificationReaction.Approve);
+    await drainReports();
+    expect(reports).toEqual([failure]);
+    sut.dispose();
+  });
+
+  it("a failing PropertyChanged handler on a decay tick: no raise, and the next tick raises RemainingTime", async () => {
+    const reports = captureRxUnhandledErrors();
+    const failure = new Error("change handler failed");
+    const scheduler = new FakeScheduler();
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Notification, "fading");
+    hub.post(notification);
+    const sut = new NotificationVM(notification, hub, scheduler, 10 * SECOND, 1 * SECOND);
+    const changes: string[] = [];
+    let failedOnce = false;
+    sut.propertyChanged.subscribe((name) => {
+      changes.push(name);
+      if (name === "remainingMs" && !failedOnce) {
+        failedOnce = true;
+        throw failure;
+      }
+    });
+
+    expect(() => scheduler.advanceBy(1 * SECOND)).not.toThrow();
+    expect(() => scheduler.advanceBy(1 * SECOND)).not.toThrow();
+
+    expect(sut.isResolved).toBe(false);
+    expect(sut.remainingMs).toBe(8 * SECOND);
+    expect(changes).toEqual(["remainingMs", "opacity", "remainingMs", "opacity"]);
+    await drainReports();
+    expect(reports).toEqual([failure]);
+    sut.dispose();
+  });
+
+  it("a hub whose resolve fails at auto-dismiss: IsResolved still raised, failure off the scheduler", async () => {
+    const reports = captureRxUnhandledErrors();
+    const scheduler = new FakeScheduler();
+    const hub = new FailingResolveHub();
+    const notification = new Notification(NotificationType.Notification, "unresolvable");
+    hub.post(notification);
+    const sut = new NotificationVM(notification, hub, scheduler, 10 * SECOND);
+    const changes: string[] = [];
+    sut.propertyChanged.subscribe((name) => changes.push(name));
+
+    expect(() => scheduler.advanceBy(10 * SECOND)).not.toThrow();
+
+    expect(sut.isResolved).toBe(true);
+    expect(changes).toEqual(["isResolved", "remainingMs", "opacity"]);
+    await drainReports();
+    expect(reports).toEqual([hub.failure]);
+    sut.dispose();
+  });
+
+  it("a DismissCommand hub failure reaches the caller, after the same changes are raised", () => {
+    const scheduler = new FakeScheduler();
+    const hub = new FailingResolveHub();
+    const notification = new Notification(NotificationType.Notification, "dismissed");
+    hub.post(notification);
+    const sut = new NotificationVM(notification, hub, scheduler, 10 * SECOND);
+    const changes: string[] = [];
+    sut.propertyChanged.subscribe((name) => changes.push(name));
+
+    expect(() => sut.dismissCommand.execute()).toThrow(hub.failure);
+
+    expect(sut.isResolved).toBe(true);
+    expect(changes).toEqual(["isResolved", "remainingMs", "opacity"]);
+    sut.dispose();
+  });
+
+  it("an onExpire override failure at expiry reaches the scheduler", () => {
+    class FailingExpireVM extends NotificationVM {
+      protected override onExpire(): void {
+        throw new Error("override failure");
+      }
+    }
+    const scheduler = new FakeScheduler();
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Notification, "override");
+    hub.post(notification);
+    const sut = new FailingExpireVM(notification, hub, scheduler, 10 * SECOND);
+
+    expect(() => scheduler.advanceBy(10 * SECOND)).toThrow("override failure");
+
+    sut.dispose();
+  });
+
+  it("an is-resolved handler failure at auto-dismiss is routed to rxjs and the notification still resolves", async () => {
+    const reports = captureRxUnhandledErrors();
+    const failure = new Error("is-resolved handler failed");
+    const scheduler = new FakeScheduler();
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Notification, "resolving");
+    const posted = hub.post(notification);
+    const sut = new NotificationVM(notification, hub, scheduler, 10 * SECOND);
+    const changes: string[] = [];
+    sut.propertyChanged.subscribe((name) => {
+      changes.push(name);
+      if (name === "isResolved") throw failure;
+    });
+
+    expect(() => scheduler.advanceBy(10 * SECOND)).not.toThrow();
+
+    expect(sut.isResolved).toBe(true);
+    expect(changes).toContain("isResolved");
+    await expect(posted).resolves.toBe(NotificationReaction.Approve);
+    await drainReports();
+    expect(reports).toEqual([failure]);
+    sut.dispose();
   });
 });
