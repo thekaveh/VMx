@@ -10,6 +10,7 @@ import {
   ComponentVMOf,
   CompositeVM,
   CompositeVMOf,
+  ContainerRollbackError,
   GroupVM,
   PropertyChangedMessage,
   ViewModelType,
@@ -1400,7 +1401,7 @@ describe("COMP-040", () => {
 
     expect(caught).toBeInstanceOf(Error);
     const rollback = caught as Error & { rollbackError: unknown };
-    expect(rollback.name).toBe("ContainerRollbackError");
+    expect(rollback).toBeInstanceOf(ContainerRollbackError);
     expect((rollback.cause as Error).message).toBe("population failed");
     expect((rollback.rollbackError as Error).message).toBe("compensation failed");
     expect(destination.snapshot()).toEqual([]);
@@ -1446,7 +1447,7 @@ describe("COMP-040", () => {
 
         expect(caught).toBeInstanceOf(Error);
         const rollback = caught as Error & { rollbackError: unknown };
-        expect(rollback.name).toBe("ContainerRollbackError");
+        expect(rollback).toBeInstanceOf(ContainerRollbackError);
         expect((rollback.cause as Error).message).toBe(
           "Cannot attach a child while the container is disposing",
         );
@@ -1488,7 +1489,7 @@ describe("COMP-040", () => {
 
       expect(caught).toBeInstanceOf(Error);
       const rollback = caught as Error & { rollbackError: unknown };
-      expect(rollback.name).toBe("ContainerRollbackError");
+      expect(rollback).toBeInstanceOf(ContainerRollbackError);
       expect((rollback.cause as Error).message).toBe("population failed");
       // Rollback runs in reverse order, so `second` is compensated first.
       expect((rollback.rollbackError as Error).message).toBe("second compensation failed");
@@ -1525,7 +1526,7 @@ describe("COMP-040", () => {
       }
 
       const rollback = caught as Error & { rollbackError: unknown };
-      expect(rollback.name).toBe("ContainerRollbackError");
+      expect(rollback).toBeInstanceOf(ContainerRollbackError);
       expect((rollback.rollbackError as Error).message).toBe("second compensation failed");
       // `second` failed first; `first` is still compensated after it.
       expect(first.status).toBe(ConstructionStatus.Destructed);
