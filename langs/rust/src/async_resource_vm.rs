@@ -158,6 +158,15 @@ struct Inner<T, D: Dispatcher> {
 /// A loader failure becomes the `Error` state. A current loader that returns
 /// `Err(VmxError::Cancelled)` restores the saved stable state, as
 /// [`cancel`](Self::cancel) does, and installs no error (ADR-0199).
+///
+/// Residual of #1925, not changed: the value is cloned with `T::clone` while
+/// this VM's machine lock is held on these paths: [`state`](Self::state) and
+/// [`value`](Self::value); starting a load, which copies the stable baseline and
+/// the previous value under `RetainPrevious`; the `Ok` completion of a load; the
+/// error completion of a load under `RetainPrevious`; the rollback of a panicked
+/// loader; and the cancellation restore. A `T::clone` that calls back into this
+/// VM on one of those paths, for example `resource_status()`, blocks and does
+/// not return. #1925 stays open for this type.
 pub struct AsyncResourceVm<T, D: Dispatcher = NullDispatcher> {
     inner: Arc<Inner<T, D>>,
     load_command: AsyncRelayCommand,

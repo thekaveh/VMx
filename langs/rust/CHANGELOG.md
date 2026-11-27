@@ -178,20 +178,36 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   pager, or that waited for another thread to write a collection, deadlocked,
   because the read cloned under the lock (#1925). The three collections store
   each item behind an `Arc`, so a write that copies a snapshot copies pointers
-  and runs no user `Clone` under the lock. `PagedComposition` keeps one lock per
-  item, which keeps `Send` and `Sync` for a `Send`-only item, so a `current_page`
-  clone still runs with that item's lock held. Documented residuals (#1925, not
-  fixed): a `Clone` of an item can delay a `remove_at` of that same item on
-  another thread until the clone returns, and a removal of a different item does
-  not wait. A `Clone` must not read the page that holds its own item, and must
-  not remove its own item from its pager. Composite membership changes clone a
-  removed or replaced child under the membership gate when a read still holds
-  it. `AsyncResourceVm::state` and `value` still clone the value under the
-  machine lock, so a `Clone` that calls back into the VM, for example
-  `resource_status()`, blocks. The completion path clones the value under that
-  lock as well. Those residuals are documented on the methods, and #1925 stays
-  open for `AsyncResourceVm`. The regression tests are
+  and runs no user `Clone` under the lock. `ObservableList::remove`, `remove_at`
+  and `replace` make the item event's payload and the returned item after the
+  lock is released. A panic from `T::clone` still publishes the change before it
+  reaches the caller. `PagedComposition` keeps one lock per item, which keeps
+  `Send` and `Sync` for a `Send`-only item, so a `current_page` clone still runs
+  with that item's lock held. The regression tests are
   `read_clone_outside_lock.rs`.
+
+  Documented residuals of #1925, not fixed:
+
+  - `PagedComposition::remove_at` copies the removed item with `T::clone` under
+    the item's lock when a page read holds it. That copy runs after the removal
+    is published, so a panic reaches the caller after the publication. A removal
+    waits for a clone of the same item that is still running, and waits for no
+    other item. A `Clone` that calls `current_page` on the same pager, or that
+    removes its own item, deadlocks inside `remove_at`. `current_page` has the
+    same limit for its own item.
+  - `CompositeVm` and `GroupVm` membership: a child's `Clone` runs under the
+    membership gate in the detach's copy of every child through `to_vec`, in the
+    rollback of a detach or a replace, and in the copy of the new child that
+    `replace` stores. `remove`, `remove_at`, and the replaced child that
+    `replace` returns are copied with no gate held.
+  - `AsyncResourceVm`: the value is cloned with `T::clone` under the machine lock
+    by `state` and `value`, by the start of a load (the stable baseline, and the
+    previous value under `RetainPrevious`), by the `Ok` completion of a load, by
+    the error completion under `RetainPrevious`, by the rollback of a panicked
+    loader, and by the cancellation restore. A `Clone` that calls back into the
+    VM on one of those paths, for example `resource_status()`, blocks and does
+    not return. The rustdoc of the type lists these paths. #1925 stays open for
+    `AsyncResourceVm`.
 
 ## [0.36.0] — unreleased source version
 

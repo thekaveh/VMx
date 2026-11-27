@@ -10,13 +10,15 @@
 
 use super::bounded_wait::within_timeout;
 use std::cell::Cell;
+use std::hash::{Hash, Hasher};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use vmx::{
-    KeyedServicedObservableCollection, ObservableList, PagedComposition,
-    ServicedObservableCollection,
+    KeyedServicedObservableCollection, Message, MessageHub, ObservableList,
+    ObservableMultiDictionary, PagedComposition, ServicedObservableCollection, Subscription,
 };
 
 /// The bound on every outer wait in this file.
@@ -57,6 +59,14 @@ impl Clone for CloneProbing {
 impl PartialEq for CloneProbing {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
+    }
+}
+
+impl Eq for CloneProbing {}
+
+impl Hash for CloneProbing {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }
 
@@ -616,4 +626,284 @@ fn paged_remove_at_completes_once_the_clone_of_its_item_finishes() {
 fn pager_stays_send_and_sync_for_a_send_item() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<PagedComposition<Cell<u32>>>();
+}
+
+/// An item whose `Clone` runs the probe, then panics once when `panic_armed`
+/// is set. `PartialEq` compares the id.
+struct PanickingClone {
+    id: u32,
+    probe: Probe,
+    panic_armed: Arc<AtomicBool>,
+}
+
+impl Clone for PanickingClone {
+    fn clone(&self) -> Self {
+        let probe = self.probe.lock().unwrap().clone();
+        if let Some(probe) = probe {
+            probe();
+        }
+        if self.panic_armed.swap(false, Ordering::SeqCst) {
+            panic!("user Clone panicked");
+        }
+        Self {
+            id: self.id,
+            probe: Arc::clone(&self.probe),
+            panic_armed: Arc::clone(&self.panic_armed),
+        }
+    }
+}
+
+impl PartialEq for PanickingClone {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+fn panicking(id: u32, probe: &Probe, panic_armed: &Arc<AtomicBool>) -> PanickingClone {
+    PanickingClone {
+        id,
+        probe: Arc::clone(probe),
+        panic_armed: Arc::clone(panic_armed),
+    }
+}
+
+/// Records each collection change as its action, and each property change as
+/// `PropertyChanged:<name>`.
+fn record_changes(hub: &MessageHub) -> (Arc<Mutex<Vec<String>>>, Subscription) {
+    let recorded = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&recorded);
+    let subscription = hub.subscribe(move |message| {
+        let entry = match message {
+            Message::CollectionChanged(change) => format!("{:?}", change.action),
+            Message::PropertyChanged(change) => format!("PropertyChanged:{}", change.property_name),
+            _ => return,
+        };
+        sink.lock().unwrap().push(entry);
+    });
+    (recorded, subscription)
+}
+
+/// A removal whose item `Clone` panics, while a reader holds a snapshot that
+/// contains the item, still publishes the removal before the panic reaches the
+/// caller (#1925). The collection messages are sent, and the panic propagates.
+#[test]
+fn observable_list_remove_announces_a_change_whose_clone_panics() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let armed = Arc::new(AtomicBool::new(false));
+    let unarmed = Arc::new(AtomicBool::new(false));
+    let hub = MessageHub::new();
+    let list = Arc::new(ObservableList::with_hub(1, hub.clone()));
+    list.push(panicking(1, &probe, &unarmed));
+    list.push(panicking(2, &probe, &armed));
+    let (recorded, _recording) = record_changes(&hub);
+    // A subscriber to the item stream, so the removed item is cloned for it.
+    let _item_events = list.item_removed().subscribe(|_| {});
+
+    // The reader's clone of item 1 holds the snapshot that contains item 2.
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    arm(
+        &probe,
+        hold_until_written(Arc::clone(&entered), Arc::clone(&release), || 0),
+    );
+    let reader = {
+        let list = Arc::clone(&list);
+        thread::spawn(move || list.get(0).map(|item| item.id))
+    };
+    wait_until(&entered);
+
+    let key = panicking(2, &probe, &unarmed);
+    armed.store(true, Ordering::SeqCst);
+    let outcome = catch_unwind(AssertUnwindSafe(|| list.remove(&key)));
+    release.store(true, Ordering::SeqCst);
+
+    assert!(
+        outcome.is_err(),
+        "the clone's panic propagates to the caller"
+    );
+    assert_eq!(
+        recorded.lock().unwrap().clone(),
+        ["Remove", "PropertyChanged:Count"],
+        "the removal is announced before the panic"
+    );
+    assert_eq!(list.len(), 1);
+    assert_eq!(reader.join().expect("the reader finished"), Some(1));
+}
+
+/// Starts a reader whose `get(0)` clone holds its item until the returned flag
+/// is set. Returns once that clone has started.
+fn start_reader_holding_snapshot<T>(
+    list: &Arc<ObservableList<T>>,
+    probe: &Probe,
+) -> (thread::JoinHandle<Option<T>>, Arc<AtomicBool>)
+where
+    T: Clone + Send + Sync + 'static,
+{
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    arm(
+        probe,
+        hold_until_written(Arc::clone(&entered), Arc::clone(&release), || 0),
+    );
+    let reader = {
+        let list = Arc::clone(list);
+        thread::spawn(move || list.get(0))
+    };
+    wait_until(&entered);
+    (reader, release)
+}
+
+/// A removal by position whose item `Clone` panics announces the removal before
+/// the panic reaches the caller (#1925).
+#[test]
+fn observable_list_remove_at_announces_a_change_whose_clone_panics() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let armed = Arc::new(AtomicBool::new(false));
+    let unarmed = Arc::new(AtomicBool::new(false));
+    let hub = MessageHub::new();
+    let list = Arc::new(ObservableList::with_hub(1, hub.clone()));
+    list.push(panicking(1, &probe, &unarmed));
+    list.push(panicking(2, &probe, &armed));
+    let (recorded, _recording) = record_changes(&hub);
+    let _item_events = list.item_removed().subscribe(|_| {});
+
+    let (reader, release) = start_reader_holding_snapshot(&list, &probe);
+    armed.store(true, Ordering::SeqCst);
+    let outcome = catch_unwind(AssertUnwindSafe(|| list.remove_at(1)));
+    release.store(true, Ordering::SeqCst);
+
+    assert!(
+        outcome.is_err(),
+        "the clone's panic propagates to the caller"
+    );
+    assert_eq!(
+        recorded.lock().unwrap().clone(),
+        ["Remove", "PropertyChanged:Count"],
+        "the removal is announced before the panic"
+    );
+    assert_eq!(list.len(), 1);
+    let read = reader.join().expect("the reader finished");
+    assert_eq!(read.map(|item| item.id), Some(1));
+}
+
+/// A replacement whose old item's `Clone` panics announces the replacement
+/// before the panic reaches the caller (#1925).
+#[test]
+fn observable_list_replace_announces_a_change_whose_clone_panics() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let armed = Arc::new(AtomicBool::new(false));
+    let unarmed = Arc::new(AtomicBool::new(false));
+    let hub = MessageHub::new();
+    let list = Arc::new(ObservableList::with_hub(1, hub.clone()));
+    list.push(panicking(1, &probe, &unarmed));
+    list.push(panicking(2, &probe, &armed));
+    let (recorded, _recording) = record_changes(&hub);
+    let _item_events = list.item_replaced().subscribe(|_| {});
+
+    let (reader, release) = start_reader_holding_snapshot(&list, &probe);
+    armed.store(true, Ordering::SeqCst);
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        list.replace(1, panicking(3, &probe, &unarmed))
+    }));
+    release.store(true, Ordering::SeqCst);
+
+    assert!(
+        outcome.is_err(),
+        "the clone's panic propagates to the caller"
+    );
+    assert_eq!(
+        recorded.lock().unwrap().clone(),
+        ["Replace"],
+        "the replacement is announced before the panic"
+    );
+    assert_eq!(list.get(1).map(|item| item.id), Some(3));
+    let read = reader.join().expect("the reader finished");
+    assert_eq!(read.map(|item| item.id), Some(1));
+}
+
+/// Serviced `to_vec` with a clone that waits for another thread's write returns
+/// (#1925).
+#[test]
+fn serviced_to_vec_clone_may_wait_for_a_write() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let collection = ServicedObservableCollection::new(1);
+    collection.push(probing(10, &probe));
+    let finished = Arc::new(AtomicBool::new(false));
+    let writer = collection.clone();
+    let writer_probe = Arc::clone(&probe);
+    arm(
+        &probe,
+        wait_for_write(
+            move || writer.push(probing(20, &writer_probe)),
+            Arc::clone(&finished),
+        ),
+    );
+    let ids = within_timeout("ServicedObservableCollection::to_vec", BOUND, {
+        let collection = collection.clone();
+        move || -> Vec<u32> { collection.to_vec().iter().map(|item| item.id).collect() }
+    });
+    assert_eq!(ids, vec![10]);
+    assert!(
+        finished.load(Ordering::SeqCst),
+        "the write waited for the to_vec"
+    );
+    assert_eq!(collection.len(), 2);
+}
+
+/// Keyed `to_vec` with a clone that waits for another thread's write returns
+/// (#1925).
+#[test]
+fn keyed_to_vec_clone_may_wait_for_a_write() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let collection: KeyedServicedObservableCollection<u32, CloneProbing> =
+        KeyedServicedObservableCollection::new(1, |item: &CloneProbing| Ok(item.id));
+    collection
+        .push(probing(10, &probe))
+        .expect("a fresh key is accepted");
+    let finished = Arc::new(AtomicBool::new(false));
+    let writer = collection.clone();
+    let writer_probe = Arc::clone(&probe);
+    arm(
+        &probe,
+        wait_for_write(
+            move || {
+                let _ = writer.push(probing(20, &writer_probe));
+            },
+            Arc::clone(&finished),
+        ),
+    );
+    let ids = within_timeout("KeyedServicedObservableCollection::to_vec", BOUND, {
+        let collection = collection.clone();
+        move || -> Vec<u32> { collection.to_vec().iter().map(|item| item.id).collect() }
+    });
+    assert_eq!(ids, vec![10]);
+    assert!(
+        finished.load(Ordering::SeqCst),
+        "the write waited for the to_vec"
+    );
+    assert_eq!(collection.len(), 2);
+}
+
+/// `ReadOnlyObservableList::get` with a clone that reads the list again returns
+/// (#1925). The read-only view of a multi-key dictionary's first keys is the
+/// list that the clone reads.
+#[test]
+fn read_only_list_get_clone_may_read_the_list() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let dictionary: ObservableMultiDictionary<CloneProbing, u32, u32> =
+        ObservableMultiDictionary::new(1);
+    dictionary.insert(probing(10, &probe), 1, 100);
+    let view = dictionary.keys1();
+    let reader = view.clone();
+    arm(
+        &probe,
+        first_call(move || {
+            let _ = reader.len();
+        }),
+    );
+    let id = within_timeout("ReadOnlyObservableList::get", BOUND, {
+        let view = view.clone();
+        move || view.get(0).map(|key| key.id)
+    });
+    assert_eq!(id, Some(10));
 }

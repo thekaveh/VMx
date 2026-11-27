@@ -32,8 +32,28 @@ type Items<T> = Shared<Arc<T>>;
 /// Returns the item behind `item`. A handle that a reader still holds is
 /// cloned instead, so a caller uses this only after it has released the
 /// owner's lock (#1925).
-fn into_item<T: Clone>(item: Arc<T>) -> T {
+pub(crate) fn into_item<T: Clone>(item: Arc<T>) -> T {
     Arc::try_unwrap(item).unwrap_or_else(|shared| (*shared).clone())
+}
+
+/// The panic that a `Clone` raised while it made an item event's payload.
+type ClonePanic = Box<dyn std::any::Any + Send + 'static>;
+
+/// Makes the owned payload of an item event with no lock held. A panic from
+/// `T::clone` is returned instead of raised, so the caller can publish the
+/// change first and then raise the panic (#1925, #1295).
+fn event_payload<T: Clone>(item: Arc<T>) -> Result<T, ClonePanic> {
+    catch_unwind(AssertUnwindSafe(|| into_item(item)))
+}
+
+/// Splits the payload of an item event, made by [`event_payload`] when a
+/// subscriber asked for it, into the payload and the panic that stopped it.
+fn split_payload<T>(payload: Option<Result<T, ClonePanic>>) -> (Option<T>, Option<ClonePanic>) {
+    match payload {
+        None => (None, None),
+        Some(Ok(item)) => (Some(item), None),
+        Some(Err(panic)) => (None, Some(panic)),
+    }
 }
 
 /// Returns `shared` for mutation, copying it first when a reader still holds
@@ -1607,7 +1627,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 return false;
             };
             let mut retired = None;
-            let removed = into_item({
+            let removed = {
                 let mut inner = lock(&self.inner);
                 // A write copies while the snapshot is held, so an unchanged
                 // pointer means that no write happened since the search.
@@ -1619,35 +1639,48 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 // The store still holds the items, so this drops no item.
                 drop(snapshot);
                 cow_mut(&mut inner, &mut retired).remove(index)
-            });
+            };
+            // The item event's payload is made with no lock held, before the
+            // change is published. A panic from `T::clone` is raised only after
+            // the change is published (#1925).
+            let payload = self
+                .streams
+                .item_removed
+                .has_subscribers()
+                .then(|| event_payload(Arc::clone(&removed)));
+            let (item, panic) = split_payload(payload);
             // The removed item drops after the change is published (#1295).
-            publish_then_drop(retired, || {
+            publish_then_drop((retired, removed), || {
                 self.publish(
                     CollectionChangeAction::Remove,
                     Some(index),
                     None,
                     true,
-                    Some(ItemEvent::Removed(ItemRemovedEvent {
-                        item: removed,
-                        index,
-                    })),
+                    item.map(|item| ItemEvent::Removed(ItemRemovedEvent { item, index })),
                 );
             });
+            if let Some(panic) = panic {
+                resume_unwind(panic);
+            }
             return true;
         }
     }
 
     /// Removes and returns the item at `index`.
+    ///
+    /// The item event's payload and the returned item are made with no lock
+    /// held. A panic from `T::clone` reaches the caller only after the removal
+    /// is published (#1925).
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
         let (item, retired) = self
             .remove_at_committed(index)
             .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
-        let item = into_item(item);
-        let event_item = self
+        let payload = self
             .streams
             .item_removed
             .has_subscribers()
-            .then(|| item.clone());
+            .then(|| event_payload(Arc::clone(&item)));
+        let (event_item, panic) = split_payload(payload);
         // A displaced snapshot drops after the change is published (#1295).
         publish_then_drop(retired, || {
             self.publish(
@@ -1658,13 +1691,19 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 event_item.map(|item| ItemEvent::Removed(ItemRemovedEvent { item, index })),
             );
         });
-        Ok(item)
+        if let Some(panic) = panic {
+            resume_unwind(panic);
+        }
+        Ok(into_item(item))
     }
 
-    pub(crate) fn remove_at_silent(&self, index: usize) -> Option<T> {
+    /// Removes the item at `index` and returns its handle, with no `T::clone`.
+    /// The caller publishes the change, and makes the owned item with
+    /// [`into_item`] after it has released the owner's lock (#1925).
+    pub(crate) fn remove_at_handle(&self, index: usize) -> Option<Arc<T>> {
         self.remove_at_committed(index).map(|(item, retired)| {
             drop(retired);
-            into_item(item)
+            item
         })
     }
 
@@ -1710,10 +1749,13 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         self.publish(CollectionChangeAction::Add, None, Some(index), true, None);
     }
 
-    pub(crate) fn replace_silent(&self, index: usize, item: T) -> VmxResult<T> {
+    /// Replaces the item at `index` and returns the old item's handle, with no
+    /// `T::clone`. The caller makes the owned item with [`into_item`] after it
+    /// has released the owner's lock and published the change (#1925).
+    pub(crate) fn replace_handle(&self, index: usize, item: T) -> VmxResult<Arc<T>> {
         let (old, retired) = self.replace_committed(index, item)?;
         drop(retired);
-        Ok(into_item(old))
+        Ok(old)
     }
 
     /// Replaces the item at `index` and returns the old item with the
@@ -1745,6 +1787,10 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     }
 
     /// Replaces and returns an item without changing the count.
+    ///
+    /// The item event's payload and the returned old item are made with no
+    /// lock held. A panic from `T::clone` reaches the caller only after the
+    /// replacement is published (#1925).
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
         let new_item = self
             .streams
@@ -1752,14 +1798,16 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             .has_subscribers()
             .then(|| item.clone());
         let (old, retired) = self.replace_committed(index, item)?;
-        let old = into_item(old);
-        let event = new_item.map(|new_item| {
-            ItemEvent::Replaced(ItemReplacedEvent {
+        let old_payload = new_item.as_ref().map(|_| event_payload(Arc::clone(&old)));
+        let (old_item, panic) = split_payload(old_payload);
+        let event = match (new_item, old_item) {
+            (Some(new_item), Some(old_item)) => Some(ItemEvent::Replaced(ItemReplacedEvent {
                 new_item,
-                old_item: old.clone(),
+                old_item,
                 index,
-            })
-        });
+            })),
+            _ => None,
+        };
         // A displaced snapshot drops after the change is published (#1295).
         publish_then_drop(retired, || {
             self.publish(
@@ -1770,7 +1818,10 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 event,
             );
         });
-        Ok(old)
+        if let Some(panic) = panic {
+            resume_unwind(panic);
+        }
+        Ok(into_item(old))
     }
 
     /// Atomically replaces the list from a materialized input snapshot.
@@ -2793,7 +2844,7 @@ where
                     let end = list.len();
                     let _ = list.insert_silent(end, key);
                 }
-                KeyViewChange::RemoveAt(position) => drop(list.remove_at_silent(position)),
+                KeyViewChange::RemoveAt(position) => drop(list.remove_at_handle(position)),
                 KeyViewChange::Clear => drop(list.take_silent()),
             }
         }

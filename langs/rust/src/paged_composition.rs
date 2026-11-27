@@ -274,16 +274,18 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     /// A removal clamps the current page and publishes the source change. A
     /// missing index changes and publishes nothing. After `dispose`, the call
     /// removes nothing and returns `None`. The item leaves the source under the
-    /// pager lock. The change is published before the value is taken (publish,
-    /// then take_value), so observers see the removal before the wait described
-    /// below ends. The value is returned after that wait.
+    /// pager lock, and the change is published before the value is taken.
     ///
-    /// Removing an item whose clone is in flight waits for that clone to
-    /// finish, then returns. It waits for no other item. A `Clone` must not
-    /// remove its own item from its own pager: on the same thread, that call
-    /// waits for the clone it is inside, and it does not return. The wait is the
-    /// cost of keeping `Send` and `Sync` for a `Send`-only item, which needs one
-    /// lock per item (#1925).
+    /// The value is taken with no pager lock held. When a page read still holds
+    /// the item, the value is copied with `T::clone` while the item's own lock is
+    /// held. That copy runs after the publication, so a panic from it reaches the
+    /// caller after the removal is published. A removal waits for a clone of the
+    /// item that is still running, and it waits for no other item. A `Clone` of
+    /// the item that calls [`current_page`](Self::current_page) on this pager
+    /// deadlocks inside this call, because the page read waits for the item lock
+    /// that the copy holds. A `Clone` must not remove its own item from its own
+    /// pager either. The wait is the cost of keeping `Send` and `Sync` for a
+    /// `Send`-only item, which needs one lock per item (#1925).
     pub fn remove_at(&self, index: usize) -> Option<T> {
         let (removed, clamped) = {
             let mut state = lock(&self.core.state);
