@@ -355,13 +355,13 @@ declare class FormVMBuilder<TM> {
     build(): FormVM<TM>;
 }
 
-export { CollectionChangedMessage as C, FormVM as F, type IDispatcher as I, ObservableList as O, PropertyChangedMessage as P, ReadOnlyObservableList as R, type Snapshotter as S, type CollectionMutationAction as a, FormVMBuilder as b, type FormVMOptions as c, type ICollectionChangedMessage as d, type ItemAddedEvent as e, type ItemRemovedEvent as f, type ItemReplacedEvent as g, type Persister as h, type ResetOnApproved as i, RxDispatcher as j };
+export { CollectionChangedMessage as C, type FieldValidator as F, type IDispatcher as I, type ModelEquals as M, ObservableList as O, PropertyChangedMessage as P, ReadOnlyObservableList as R, type Snapshotter as S, type CollectionMutationAction as a, FormVM as b, FormVMBuilder as c, type FormVMOptions as d, type ICollectionChangedMessage as e, type ItemAddedEvent as f, type ItemRemovedEvent as g, type ItemReplacedEvent as h, type ModelValidator as i, type Persister as j, type ResetOnApproved as k, RxDispatcher as l };
 
 // ==== index.d.ts ====
-import { I as IMessage, a as IMessageHub, b as ITransactionalMessageHub } from './messageHub.js';
+import { a as IMessageHub, I as IMessage, b as ITransactionalMessageHub } from './messageHub.js';
 export { c as ITypedMessage, M as MessageHub, d as MessageHubOptions } from './messageHub.js';
 import { P as PropertyChangedMessage, C as CollectionChangedMessage, a as CollectionMutationAction, I as IDispatcher, R as ReadOnlyObservableList } from './formVm.js';
-export { F as FormVM, b as FormVMBuilder, c as FormVMOptions, d as ICollectionChangedMessage, e as ItemAddedEvent, f as ItemRemovedEvent, g as ItemReplacedEvent, O as ObservableList, h as Persister, i as ResetOnApproved, j as RxDispatcher, S as Snapshotter } from './formVm.js';
+export { F as FieldValidator, b as FormVM, c as FormVMBuilder, d as FormVMOptions, e as ICollectionChangedMessage, f as ItemAddedEvent, g as ItemRemovedEvent, h as ItemReplacedEvent, M as ModelEquals, i as ModelValidator, O as ObservableList, j as Persister, k as ResetOnApproved, l as RxDispatcher, S as Snapshotter } from './formVm.js';
 import { Observable, Subscription, SchedulerLike } from 'rxjs';
 import { I as ICommand, R as RelayCommand, a as IAsyncCommand } from './relayCommand.js';
 export { b as ICommandOf, c as RelayCommandBuilder, d as RelayCommandOf, e as RelayCommandOfBuilder } from './relayCommand.js';
@@ -395,16 +395,10 @@ declare function requireTransition(current: ConstructionStatus, operation: strin
 declare function finalState(current: ConstructionStatus, operation: string): ConstructionStatus;
 
 
-interface IHubLike$1 {
-    readonly messages: Observable<IMessage>;
-}
-declare function propertyValueChangedMessagesFor<TSource extends object>(hub: IHubLike$1, source: TSource, propertyName: keyof TSource & string): Observable<unknown>;
+declare function propertyValueChangedMessagesFor<TSource extends object>(hub: Pick<IMessageHub, "messages">, source: TSource, propertyName: keyof TSource & string): Observable<unknown>;
 
 
-interface IHubLike {
-    readonly messages: Observable<IMessage>;
-}
-declare function whenPropertyChanged(hub: IHubLike, sender: object, propertyName: string | readonly string[]): Observable<PropertyChangedMessage<unknown>>;
+declare function whenPropertyChanged(hub: Pick<IMessageHub, "messages">, sender: object, propertyName: string | readonly string[]): Observable<PropertyChangedMessage<unknown>>;
 
 
 declare enum ViewModelType {
@@ -532,6 +526,10 @@ declare class ParentTransfer {
     constructor(commitAction: () => void, rollbackAction: () => void);
     commit(): void;
     rollback(): void;
+}
+declare class ContainerRollbackError extends Error {
+    readonly rollbackError: unknown;
+    constructor(originalError: unknown, rollbackError: unknown);
 }
 
 interface IParentVM {
@@ -2021,7 +2019,7 @@ interface IFilterable<T> {
     canFilter(): boolean;
 }
 
-export { type AggregateChange, AggregateChangeReason, AggregateChangeStream, type AggregateObserveOptions, AggregateVM1, AggregateVM1Builder, AggregateVM2, AggregateVM2Builder, AggregateVM3, AggregateVM3Builder, AggregateVM4, AggregateVM4Builder, AggregateVM5, AggregateVM5Builder, AggregateVM6, AggregateVM6Builder, AsyncRelayCommand, AsyncRelayCommandBuilder, AsyncResourceRetention, type AsyncResourceState, AsyncResourceStatus, AsyncResourceVM, type AsyncResourceVMOptions, type BatchAttachOptions, type BatchAttachRejection, BatchAttachRejectionReason, type BatchAttachResult, BatchUpdateHandle, BuilderValidationError, CAPABILITIES, type CapabilityName, type ChildOrder, type CollectionChangedAction, type CollectionChangedEvent, CollectionChangedMessage, CollectionMutationAction, ComponentVM, ComponentVMBase, ComponentVMBuilder, ComponentVMOf, ComponentVMOfBuilder, type ComponentVMOfOptions, type ComponentVMOptions, CompositeCommand, CompositeVM, CompositeVMBase, CompositeVMBuilder, CompositeVMOf, CompositeVMOfBuilder, type CompositeVMOptions, type ConfirmDelegate, ConfirmationDecoratorCommand, ConstructionStatus, ConstructionStatusChangedMessage, DecoratorCommand, type DecoratorCommandOptions, DelayedTask, type DerivedFromSourcesOptions, DerivedProperty, type DictionaryEntry, type DictionaryItemAddedEvent, type DictionaryItemRemovedEvent, type DictionaryItemReplacedEvent, DiscriminatorVM, type DisposableResource, ExpandableState, type FileFilter, type FilteredCompositeOptions, FilteredCompositeVM, FilteredCursorPolicy, FormRevertedMessage, ForwardingComponentVM, ForwardingCompositeVM, GroupVM, GroupVMBuilder, type GroupVMOptions, HierarchicalVM, HierarchicalVMBuilder, type HierarchicalVMConstructionContext, type HierarchicalVMOptions, type IApprovable, IAsyncCommand, type IBatchable, type ICancelable, type IClosable, type ICollapsible, ICommand, type IComponentVM, type IComponentVMOf, type IConstructable, type ICurrentDeletable, type ICurrentUpdatable, type IDeletable, type IDeselectable, type IDestructable, type IDialogService, IDispatcher, type IExpandable, type IExpansionTogglable, type IFilterable, type ILocalizer, type IManagable, IMessage, IMessageHub, type IModalDialogService, type INewCreatable, type IPageable, type IParentVM, type IReconstructable, type ISavable, type ISearchable, type ISelectable, type ISelectableVmCollection, type ISelectionTogglable, ITransactionalMessageHub, type IUpdatable, type IVmCollection, KeyedServicedObservableCollection, type KeyedServicedObservableCollectionOptions, MissingParentPolicy, ModalVM, ModeledCrudCommands, type ModeledCrudCommandsOptions, type NotificationSeverity, NullDialogService, NullDispatcher, NullLocalizer, NullMessageHub, ObservableDictionary, type ObservableMembershipSource, type OwnedResource, PagedComposition, type PagedCompositionSource, PropertyChangedMessage, ReadOnlyObservableList, ReadonlyComponentVMOf, ReadonlyComponentVMOfBuilder, RelayCommand, type ScoredFilteredCompositeOptions, ScoredFilteredCompositeVM, SearchableState, type SearchableStateOptions, ServicedObservableCollection, StatusTransitionError, type SubscribeValueOptions, type TokenPage, TokenPagedComposition, type TokenPagedCompositionOptions, TreeSelection, type TreeStructureChange, TreeStructureChangedMessage, type UnsubscribableResource, ViewModelType, __minSpecVersion__, __version__, confirm, confirmWithDialogService, declareCapabilities, finalState, find, fromFive, fromFour, fromMany, fromOne, fromSources, fromThree, fromTwo, hasCapability, isCollectionChanged, isConstructionStatusChanged, isLegal, isPropertyChanged, isTreeStructureChanged, makeCollectionChangedEvent, markSchedulerCancelled, precedeWith, propertyValueChangedMessagesFor, requireTransition, subscribeValue, succeedWith, walk, walkExpanded, whenPropertyChanged, wrapWith };
+export { type AggregateChange, AggregateChangeReason, AggregateChangeStream, type AggregateObserveOptions, AggregateVM1, AggregateVM1Builder, AggregateVM2, AggregateVM2Builder, AggregateVM3, AggregateVM3Builder, AggregateVM4, AggregateVM4Builder, AggregateVM5, AggregateVM5Builder, AggregateVM6, AggregateVM6Builder, AsyncRelayCommand, AsyncRelayCommandBuilder, AsyncResourceRetention, type AsyncResourceState, AsyncResourceStatus, AsyncResourceVM, type AsyncResourceVMOptions, type AsyncTask, type BatchAttachOptions, type BatchAttachRejection, BatchAttachRejectionReason, type BatchAttachResult, BatchUpdateHandle, BuilderValidationError, CAPABILITIES, type CapabilityName, type ChildOrder, type CollectionChangedAction, type CollectionChangedEvent, CollectionChangedMessage, CollectionMutationAction, ComponentVM, ComponentVMBase, ComponentVMBuilder, ComponentVMOf, ComponentVMOfBuilder, type ComponentVMOfOptions, type ComponentVMOptions, CompositeCommand, CompositeVM, CompositeVMBase, CompositeVMBuilder, CompositeVMOf, CompositeVMOfBuilder, type CompositeVMOptions, type ConfirmDelegate, ConfirmationDecoratorCommand, ConstructionStatus, ConstructionStatusChangedMessage, ContainerRollbackError, DecoratorCommand, type DecoratorCommandOptions, DelayedTask, type DerivedFromSourcesOptions, DerivedProperty, type DictionaryEntry, type DictionaryItemAddedEvent, type DictionaryItemRemovedEvent, type DictionaryItemReplacedEvent, DiscriminatorVM, type DisposableResource, ExpandableState, type FileFilter, type FilteredCompositeOptions, FilteredCompositeVM, FilteredCursorPolicy, FormRevertedMessage, ForwardingComponentVM, ForwardingCompositeVM, GroupVM, GroupVMBuilder, type GroupVMOptions, HierarchicalVM, HierarchicalVMBuilder, type HierarchicalVMConstructionContext, type HierarchicalVMOptions, type IApprovable, IAsyncCommand, type IBatchable, type ICancelable, type IClosable, type ICollapsible, ICommand, type IComponentVM, type IComponentVMOf, type IConstructable, type ICurrentDeletable, type ICurrentUpdatable, type IDeletable, type IDeselectable, type IDestructable, type IDialogService, IDispatcher, type IExpandable, type IExpansionTogglable, type IFilterable, type ILocalizer, type IManagable, IMessage, IMessageHub, type IModalDialogService, type INewCreatable, type IPageable, type IParentVM, type IReconstructable, type ISavable, type ISearchable, type ISelectable, type ISelectableVmCollection, type ISelectionTogglable, ITransactionalMessageHub, type IUpdatable, type IVmCollection, KeyedServicedObservableCollection, type KeyedServicedObservableCollectionOptions, MissingParentPolicy, ModalVM, ModeledCrudCommands, type ModeledCrudCommandsOptions, type NotificationSeverity, NullDialogService, NullDispatcher, NullLocalizer, NullMessageHub, ObservableDictionary, type ObservableMembershipSource, type OwnedResource, PagedComposition, type PagedCompositionSource, PropertyChangedMessage, ReadOnlyObservableList, ReadonlyComponentVMOf, ReadonlyComponentVMOfBuilder, RelayCommand, type ScoredFilteredCompositeOptions, ScoredFilteredCompositeVM, SearchableState, type SearchableStateOptions, ServicedObservableCollection, StatusTransitionError, type SubscribeValueOptions, type TokenPage, TokenPagedComposition, type TokenPagedCompositionOptions, TreeSelection, type TreeStructureChange, TreeStructureChangedMessage, type UnsubscribableResource, ViewModelType, __minSpecVersion__, __version__, confirm, confirmWithDialogService, declareCapabilities, finalState, find, fromFive, fromFour, fromMany, fromOne, fromSources, fromThree, fromTwo, hasCapability, isCollectionChanged, isConstructionStatusChanged, isLegal, isPropertyChanged, isTreeStructureChanged, makeCollectionChangedEvent, markSchedulerCancelled, precedeWith, propertyValueChangedMessagesFor, requireTransition, subscribeValue, succeedWith, walk, walkExpanded, whenPropertyChanged, wrapWith };
 
 // ==== messageHub.d.ts ====
 import { Observable } from 'rxjs';
@@ -2194,7 +2192,7 @@ export { type ICommand as I, RelayCommand as R, type IAsyncCommand as a, type IC
 // ==== testing.d.ts ====
 import { Observable, SchedulerLike } from 'rxjs';
 import { b as ITransactionalMessageHub, d as MessageHubOptions, I as IMessage, a as IMessageHub } from './messageHub.js';
-import { I as IDispatcher, a as CollectionMutationAction, C as CollectionChangedMessage, P as PropertyChangedMessage, O as ObservableList, R as ReadOnlyObservableList, F as FormVM, c as FormVMOptions } from './formVm.js';
+import { I as IDispatcher, a as CollectionMutationAction, C as CollectionChangedMessage, P as PropertyChangedMessage, O as ObservableList, R as ReadOnlyObservableList, b as FormVM, d as FormVMOptions } from './formVm.js';
 import { a as IAsyncCommand, I as ICommand, b as ICommandOf } from './relayCommand.js';
 
 declare class RecordingMessageHub implements ITransactionalMessageHub {

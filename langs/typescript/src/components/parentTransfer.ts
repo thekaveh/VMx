@@ -4,8 +4,8 @@
  * `beginParentTransfer` stages a child's move from its old container to a new
  * one as one transaction. `compensateAutoConstruct` returns an auto-started
  * child to Destructed after a failed container change (spec/06 §4.2, ADR-0218
- * rule 7). Nothing here is part of the public API; the package index does not
- * export this module.
+ * rule 7). Only `ContainerRollbackError` is public: the package index exports
+ * it and no other name in this module.
  */
 import type { Subscription } from "rxjs";
 import type { ComponentVMBase, IOwningParentVM } from "./componentVMBase.js";
@@ -46,7 +46,12 @@ export function captureParentTransferCommit(transfer: ParentTransfer): Error | u
   return undefined;
 }
 
-/** Internal failure raised when consumer lifecycle code prevents exact rollback. */
+/**
+ * Thrown by a container mutation, such as `CompositeVMBase` or `GroupVM`, when
+ * the mutation fails and its lifecycle compensation also fails, so the exact
+ * rollback cannot finish (spec/06 §4.2, ADR-0218). `cause` is the original
+ * failure, and `rollbackError` is the first compensation failure.
+ */
 export class ContainerRollbackError extends Error {
   readonly rollbackError: unknown;
 

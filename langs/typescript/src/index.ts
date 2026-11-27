@@ -122,6 +122,7 @@ export {
   AsyncRelayCommand,
   AsyncRelayCommandBuilder,
 } from "./commands/asyncRelayCommand.js";
+export type { AsyncTask } from "./commands/asyncRelayCommand.js";
 export { CompositeCommand } from "./commands/compositeCommand.js";
 export {
   DecoratorCommand,
@@ -153,6 +154,7 @@ export {
   type OwnedResource,
   type UnsubscribableResource,
 } from "./components/componentVMBase.js";
+export { ContainerRollbackError } from "./components/parentTransfer.js";
 export { ComponentVM, ComponentVMBuilder } from "./components/componentVM.js";
 export type { ComponentVMOptions } from "./components/componentVM.js";
 export {
@@ -248,7 +250,15 @@ export { NullDialogService } from "./dialogs/nullDialogService.js";
 
 // Forms (spec v2.1)
 export { FormVM, FormVMBuilder } from "./forms/formVm.js";
-export type { FormVMOptions, Persister, ResetOnApproved, Snapshotter } from "./forms/formVm.js";
+export type {
+  FieldValidator,
+  FormVMOptions,
+  ModelEquals,
+  ModelValidator,
+  Persister,
+  ResetOnApproved,
+  Snapshotter,
+} from "./forms/formVm.js";
 export { FormRevertedMessage } from "./messages/formReverted.js";
 
 // Expandable state helper (spec v2.0)

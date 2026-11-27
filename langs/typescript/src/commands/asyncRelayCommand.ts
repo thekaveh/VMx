@@ -22,7 +22,8 @@ import { Subject, Subscription } from "rxjs";
 import type { Observable } from "rxjs";
 import type { IAsyncCommand } from "./types.js";
 
-type AsyncTask = (signal: AbortSignal) => Promise<void>;
+/** The asynchronous work of an `AsyncRelayCommand`. `signal` aborts when the run is cancelled. */
+export type AsyncTask = (signal: AbortSignal) => Promise<void>;
 type CancellationOrigin = "command" | "external";
 
 export class AsyncRelayCommand implements IAsyncCommand {
