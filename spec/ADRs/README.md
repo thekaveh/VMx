@@ -272,6 +272,7 @@ cross-references each ADR carries.
 | [0255](0255-child-transition-walks-refuse-a-wait-cycle.md)                          | A child-transition walk that would wait on itself fails                                                               | 3.30.0       | Accepted                                                                                            |
 | [0257](0257-notification-vm-timer-failures-are-contained.md)                        | A notification's timer and decay-tick failures never reach the scheduler                                              | 3.30.0       | Accepted                                                                                            |
 | [0258](0258-eager-hierarchy-construction-uses-the-child-walk.md)                    | Eager hierarchy construction uses the child walk                                                                      | 3.30.0       | Accepted                                                                                            |
+| [0259](0259-rust-hierarchy-node-exposes-the-component-baseline.md)                  | Rust hierarchy node exposes the component baseline                                                                    | 3.30.0       | Accepted                                                                                            |
 
 ### 1.1 Consolidation opportunities (informative — VMX-120)
 

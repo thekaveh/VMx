@@ -3,8 +3,8 @@ use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use vmx::{
-    walk_expanded, Command, ConstructionStatus, ExpandableState, HierarchicalVm, Message,
-    MessageHub, ModeledCrudCommands, NullDispatcher, Reconstructable, SearchableState,
+    walk_expanded, Command, CompositeVm, ConstructionStatus, ExpandableState, HierarchicalVm,
+    Message, MessageHub, ModeledCrudCommands, NullDispatcher, Reconstructable, SearchableState,
     TreeStructureChange, VmNode, VmxError,
 };
 
@@ -1740,4 +1740,228 @@ fn hierarchical_builder_accepts_any_dispatcher() {
 
     assert!(immediate.is_ok());
     assert!(default.is_ok());
+}
+
+// The component baseline on a hierarchy node (chapter 05 §5, #1853): the
+// node forwards the members of its inner component and the current flag a
+// composite sets.
+
+/// A composite selection reaches the node's current flag and its commands.
+#[test]
+fn node_selection_reaches_the_composite_and_the_current_flag() {
+    let node = leaf("node");
+    let composite = CompositeVm::<HierarchicalVm<String>>::new("composite");
+    composite.add(node.clone()).unwrap();
+    composite.construct().unwrap();
+    node.construct().unwrap();
+
+    assert!(node.select_command().can_execute());
+    node.select();
+
+    assert!(node.is_current());
+    assert!(composite.current() == Some(node.clone()));
+}
+
+/// `composite.select_component` sets the node's flag through `VmNode` and
+/// publishes `is_current` from the node.
+#[test]
+fn composite_selection_sets_the_node_flag_and_publishes_is_current() {
+    let node = leaf("node");
+    let composite = CompositeVm::<HierarchicalVm<String>>::new("composite");
+    composite.add(node.clone()).unwrap();
+    composite.construct().unwrap();
+    node.construct().unwrap();
+    let published = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&published);
+    let _subscription = node
+        .property_changed()
+        .subscribe(move |name| sink.lock().unwrap().push(name.to_string()));
+
+    composite.select_component(&node).unwrap();
+
+    assert!(VmNode::is_current(&node));
+    assert!(published
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|name| name == "is_current"));
+}
+
+/// `is_constructed`, `can_select`, `can_deselect` and `deselect` follow the
+/// lifecycle and the composite's current child.
+#[test]
+fn selection_members_follow_the_lifecycle_and_the_composite() {
+    let node = leaf("node");
+    let composite = CompositeVm::<HierarchicalVm<String>>::new("composite");
+    composite.add(node.clone()).unwrap();
+    assert!(!node.is_constructed());
+    node.construct().unwrap();
+    assert!(node.is_constructed());
+    composite.construct().unwrap();
+
+    assert!(node.can_select());
+    assert!(!node.can_deselect());
+    node.select();
+    assert!(node.can_deselect());
+    assert!(!node.can_select());
+    node.deselect();
+
+    assert!(!node.is_current());
+    assert!(node.can_select());
+}
+
+/// The five built-in commands of a constructed node match chapter 05 §5. The
+/// select pair follows `can_select` and `can_deselect`, and the sibling pair
+/// is never executable.
+#[test]
+fn node_baseline_commands_follow_chapter_05() {
+    let node = leaf("node");
+    let composite = CompositeVm::<HierarchicalVm<String>>::new("composite");
+    composite.add(node.clone()).unwrap();
+    composite.construct().unwrap();
+    node.construct().unwrap();
+
+    assert!(node.select_command().can_execute());
+    assert!(!node.deselect_command().can_execute());
+    assert!(!node.select_next_command().can_execute());
+    assert!(!node.select_previous_command().can_execute());
+    assert!(node.reconstruct_command().can_execute());
+
+    node.select();
+
+    assert!(!node.select_command().can_execute());
+    assert!(node.deselect_command().can_execute());
+    assert!(!node.select_next_command().can_execute());
+    assert!(!node.select_previous_command().can_execute());
+}
+
+/// `reconstruct()` returns the error of a failing destruct hook and keeps the
+/// node Constructed, as the rolled-back destruct does.
+#[test]
+fn reconstruct_returns_a_failing_destruct_hook_error() {
+    let node = leaf("node");
+    node.on_destruct(|| Err(VmxError::InvalidArgument("destruct refused".to_string())));
+    node.construct().unwrap();
+
+    assert!(matches!(
+        node.reconstruct(),
+        Err(VmxError::InvalidArgument(message)) if message == "destruct refused"
+    ));
+    assert_eq!(node.status(), ConstructionStatus::Constructed);
+}
+
+/// `reconstruct()` on a disposed node is refused as an invalid transition.
+#[test]
+fn reconstruct_on_a_disposed_node_is_an_invalid_transition() {
+    let node = leaf("node");
+    node.dispose().unwrap();
+
+    assert!(matches!(
+        node.reconstruct(),
+        Err(VmxError::InvalidLifecycleTransition { .. })
+    ));
+}
+
+/// The inherent `destruct` returns the same result as `VmNode::destruct`, for
+/// a refused transition and for a failing hook.
+#[test]
+fn inherent_destruct_returns_the_vmnode_result() {
+    let disposed = leaf("disposed");
+    disposed.dispose().unwrap();
+    assert_eq!(disposed.destruct(), VmNode::destruct(&disposed));
+    assert!(matches!(
+        disposed.destruct(),
+        Err(VmxError::InvalidLifecycleTransition { .. })
+    ));
+
+    let failing = leaf("failing");
+    failing.on_destruct(|| Err(VmxError::InvalidArgument("destruct refused".to_string())));
+    failing.construct().unwrap();
+    let inherent = failing.destruct();
+    assert_eq!(inherent, VmNode::destruct(&failing));
+    assert!(inherent.is_err());
+}
+
+/// The inherent `destruct` needs no trait import: this module imports only
+/// `HierarchicalVm`.
+mod without_trait_imports {
+    use vmx::HierarchicalVm;
+
+    #[test]
+    fn inherent_destruct_needs_no_trait_import() {
+        let node: HierarchicalVm<String> = HierarchicalVm::new("node", "node".to_string());
+        node.construct().unwrap();
+
+        assert!(node.destruct().is_ok());
+        assert_eq!(node.status(), vmx::ConstructionStatus::Destructed);
+    }
+}
+
+/// Completion of `background_errors` is delivered when the node is disposed.
+#[test]
+fn node_background_errors_complete_on_dispose() {
+    let node = leaf("node");
+    let completed = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&completed);
+    let _subscription = node.background_errors().subscribe_with_completion(
+        |_error: VmxError| {},
+        move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        },
+    );
+
+    node.dispose().unwrap();
+
+    assert_eq!(completed.load(Ordering::SeqCst), 1);
+}
+
+/// The reconstruct command of an eager node constructs its children again,
+/// as `reconstruct()` does. A child is destructed first, because a destruct
+/// of the node does not destruct its children (chapter 18 §3).
+#[test]
+fn eager_reconstruct_constructs_children_again_by_method_and_by_command() {
+    for through_command in [false, true] {
+        let constructs = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&constructs);
+        let root = HierarchicalVm::with_children_factory(
+            "root",
+            "root".to_string(),
+            move |_| {
+                let child = leaf("child");
+                let counter = Arc::clone(&counter);
+                child.on_construct(move || {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                });
+                vec![child]
+            },
+            true,
+            MessageHub::new(),
+        );
+        root.construct().unwrap();
+        let child = root.try_children().unwrap().remove(0);
+        child.destruct().unwrap();
+
+        if through_command {
+            root.reconstruct_command().execute();
+        } else {
+            root.reconstruct().unwrap();
+        }
+
+        assert_eq!(root.status(), ConstructionStatus::Constructed);
+        assert_eq!(child.status(), ConstructionStatus::Constructed);
+        assert_eq!(constructs.load(Ordering::SeqCst), 2);
+    }
+}
+
+/// A reconstruct command that outlives its node is disabled (#1483).
+#[test]
+fn node_reconstruct_command_is_disabled_once_the_node_is_gone() {
+    let command = {
+        let node = leaf("node");
+        node.construct().unwrap();
+        node.reconstruct_command()
+    };
+
+    assert!(!command.can_execute());
 }
