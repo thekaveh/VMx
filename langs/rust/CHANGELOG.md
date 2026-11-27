@@ -58,7 +58,7 @@ moves past 0.36.0 because 0.37.0 removes public API
 ### Changed
 
 - `HierarchicalVm::destruct` and `HierarchicalVm::reconstruct` are inherent methods
-  that return `VmxResult<()>` and are `#[must_use]`. They shadow the `Destructable`
+  that return `VmxResult<()>`, a `#[must_use]` type. They shadow the `Destructable`
   and `Reconstructable` trait methods, which discarded results (ADR-0259, #1853).
   Source that calls `node.destruct();` or `node.reconstruct();` with a unit result
   now warns, and fails under `-D warnings`. Source that uses the call as a unit
@@ -76,6 +76,14 @@ moves past 0.36.0 because 0.37.0 removes public API
   `SystemScheduler`, so a notification built with them now expires in real
   time (#1265). A notification VM stops its clock when it observes a hub
   resolution, not at the next read (ADR-0197).
+
+- A token pager's commit wait that would close a wait-for cycle is refused
+  (ADR-0260 §2, rules 2 and 4; #1923). `load_more()`, `load_next()` and
+  `refresh()` then return without appending: the refused commit drops the page
+  that the loader returned, including an ad-hoc loader's page from `load_more()`.
+  The continuation token is not written, so the next load requests the same
+  page. A `load_next()` or `refresh()` whose worker join is refused returns before
+  its page is stored, and the worker's own commit may still store the page later.
 
 ### Removed
 
