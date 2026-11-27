@@ -1210,18 +1210,30 @@ mod tests {
                 // not after a wall-clock delay, so it never lands before the
                 // waiter has blocked on this load.
                 parked.recv_timeout(BOUND).expect("the waiter blocked");
+                // Probe for blocks after the first, before cancelling. A waiter
+                // parked on its loader makes none, so the first probe times out.
+                // A polling waiter blocks on every poll and fills both probes.
+                let mut further = 0usize;
+                while further < 2 && parked.recv_timeout(QUIET_PERIOD).is_ok() {
+                    further += 1;
+                }
                 resource.cancel();
+                further
             })
         };
 
         let waits = waits_for_one_load(&resource, StartIntent::Load, Some(blocked));
-        canceller.join().unwrap();
+        let further = canceller.join().unwrap();
         release.send(()).unwrap();
 
         assert_eq!(resource.resource_status(), AsyncResourceStatus::Idle);
-        // The cancellation wakes the one block the waiter took. One extra
-        // block is tolerated because a condition variable may wake spuriously
-        // in the short interval between the first block and the cancellation.
+        assert_eq!(
+            further, 0,
+            "the waiter blocked again within {QUIET_PERIOD:?} of its first block"
+        );
+        // The cancellation wakes the one block the waiter took. The probe above
+        // already rejects any further block, so this bound only caps the count
+        // that could have built up before the cancellation.
         assert!(
             waits <= 2,
             "the waiter blocked {waits} times before its cancellation"
