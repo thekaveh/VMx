@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from collections import deque
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -62,9 +63,16 @@ class MessageHub(Generic[_THubMessage]):
 
     Subscriber-handler exceptions are isolated per-subscription so a raising
     handler does not terminate the stream for other subscribers (HUB-007).
+
+    The development drain bound (spec/03 §3.3, ADR-0082 §2.4) is opt-in:
+    ``development_diagnostics=None`` enables it only under ``python -X dev``
+    (``sys.flags.dev_mode``), ``True`` enables it, and ``False`` disables it.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, development_diagnostics: bool | None = None) -> None:
+        self._development_diagnostics: bool = (
+            sys.flags.dev_mode if development_diagnostics is None else development_diagnostics
+        )
         self._subject: Subject[Message] = Subject()
         self._gate = Condition(RLock())
         self._pending: deque[Message] = deque()
@@ -296,7 +304,7 @@ class MessageHub(Generic[_THubMessage]):
                 self._terminate_subject()
             if stop_draining:
                 return
-            if __debug__:
+            if self._development_diagnostics:
                 assert message is not None
                 message_types.add(type(message).__name__)
             try:
@@ -308,7 +316,7 @@ class MessageHub(Generic[_THubMessage]):
                 except BaseException:
                     pass  # Preserve the original delivery failure.
                 raise
-            if __debug__:
+            if self._development_diagnostics:
                 delivered += 1
                 with self._gate:
                     has_pending = bool(self._pending)

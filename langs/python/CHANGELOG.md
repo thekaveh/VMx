@@ -134,6 +134,12 @@ below for them.
 
 ### Changed
 
+- The development drain bound is opt-in (ADR-0256, #1910). `MessageHub` takes a
+  keyword-only `development_diagnostics` option, and its default `None` enables
+  the bound only under `python -X dev` (`sys.flags.dev_mode`). An ordinary run,
+  with or without `-O`, no longer raises or drops a finite transaction of more
+  than 10,000 messages. Pass `development_diagnostics=True` to keep the bound,
+  for example where a test relies on it to detect a publish cycle.
 - Disposing a live `CompositeCommand`, `DecoratorCommand` or
   `ConfirmationDecoratorCommand` now emits one `can_execute_changed`
   notification to the wrapper's own subscribers, as TypeScript and Swift do
