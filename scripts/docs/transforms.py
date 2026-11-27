@@ -309,8 +309,16 @@ def rewrite_for_surface(
         )
         return f"{'!' if link.image else ''}[{link.label}]({destination}{link.title_suffix})"
 
+    def in_table_row(link: MarkdownLink) -> bool:
+        line_start = markdown.rfind("\n", 0, link.start) + 1
+        return markdown[line_start : link.start].lstrip().startswith("|")
+
     def wiki_alias_safe(link: MarkdownLink) -> bool:
-        return not any(character in link.label for character in "]|\r\n")
+        # GitHub splits a table row at the alias pipe, and it does not resolve an
+        # alias whose label holds a code span. Both cases use the Markdown form.
+        if in_table_row(link):
+            return False
+        return not any(character in link.label for character in "]|\r\n`")
 
     def rewrite_markdown_link(link: MarkdownLink) -> str:
         target = html.unescape(link.target)

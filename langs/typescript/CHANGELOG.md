@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `HIER-045` conformance tests (ADR-0258, #1919). An eager `HierarchicalVM`
+  skips a disposed child in `construct()` and `reconstruct()`, and the live
+  sibling is constructed. TypeScript already behaved this way, so the test
+  passes with no source change.
 - `find` has a type-guard overload (#1984). With a predicate of the form
   `(vm) => vm is T`, `find` returns `T | null`, so the caller reads the subclass
   members without an `as` cast. The boolean overload and the run-time result

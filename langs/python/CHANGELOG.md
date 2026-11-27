@@ -14,6 +14,10 @@ below for them.
 
 ### Added
 
+- `HIER-045` conformance tests (ADR-0258, #1919). An eager `HierarchicalVM`
+  skips a disposed child in `construct()` and `reconstruct()`, and the live
+  sibling is constructed. Python already behaved this way, so the test passes
+  with no source change.
 - `LIFE-015` tests now assert the `construct()` outcome. An admitted dispose
   from the construct hook skips population: the factory runs 0 times and
   `construct()` does not raise. A dispose that a current publication defers

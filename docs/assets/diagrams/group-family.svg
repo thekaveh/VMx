@@ -76,9 +76,9 @@
 <text x="1040" y="558" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">visible peers</text>
 <rect x="1260" y="466" width="280" height="112" rx="8" fill="#0f172a"/>
 <rect x="1260" y="466" width="280" height="112" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
-<text x="1400" y="494" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Notification stacks</text>
-<text x="1400" y="520" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">visible toast VMs</text>
-<text x="1400" y="539" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">no selected toast</text>
+<text x="1400" y="494" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Peer panels</text>
+<text x="1400" y="520" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">visible peer VMs</text>
+<text x="1400" y="539" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">no selected panel</text>
 <text x="1400" y="558" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">bounded peer set</text>
 <rect x="170" y="730" width="330" height="94" rx="8" fill="#0f172a"/>
 <rect x="170" y="730" width="330" height="94" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>

@@ -873,3 +873,9 @@ v3.30.0 also states the case-ID rule of the consumer conformance schema and
 publishes a JSON Schema for each of the four spec fixtures in
 `spec/schemas/fixtures/` (ADR-0243). These are non-normative supporting
 contracts, and they add no behavior and no conformance ID.
+
+v3.30.0 also makes eager `HierarchicalVM` construction use the chapter 02 §6.1
+child-transition walk (chapter 18 §3, ADR-0258, `HIER-045`). An eager node skips
+a disposed child, joins a child that is already `Constructing`, waits for a child
+whose construct is still in flight, and rolls back with that child if it fails.
+The Swift eager loop did not do these, and the other four flavors already did.

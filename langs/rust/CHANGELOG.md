@@ -16,6 +16,9 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Added
 
+- `HIER-045` conformance tests (ADR-0258, #1919). An eager `HierarchicalVm`
+  skips a disposed child in `construct()`, and the live sibling is constructed.
+  Rust already behaved this way, so the test passes with no source change.
 - `ARES-013` conformance tests (ADR-0228, #671). A discard-mode retry
   cancelled from a value-less `Error` restores that `Error`.
 - `AGG-008` conformance tests (ADR-0224, ADR-0226, #1324). They cover the

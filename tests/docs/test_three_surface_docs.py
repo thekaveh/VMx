@@ -366,6 +366,18 @@ def test_github_heading_anchors_match_github_rendering(tmp_path: Path) -> None:
     } <= anchors
 
 
+@pytest.mark.parametrize(
+    ("heading", "github_id"),
+    [
+        ("5.4. Lifecycle & Messaging", "54-lifecycle--messaging"),
+        ("3.2.3. Build A `ComponentVM<UserModel>`", "323-build-a-componentvmusermodel"),
+        ("8.2.2.1. Python Console hello_vmx", "8221-python-console-hello_vmx"),
+    ],
+)
+def test_github_heading_slug_matches_github_id(heading: str, github_id: str) -> None:
+    assert check_docs._github_heading_slug(heading) == github_id
+
+
 def test_package_readme_sources_require_absolute_https_links(tmp_path: Path) -> None:
     readme = tmp_path / "langs/python/README.md"
     readme.parent.mkdir(parents=True)
@@ -488,6 +500,24 @@ def test_generated_wiki_link_check_rejects_malformed_and_missing_targets(
     assert len(findings) == 2
     assert any("malformed wiki link" in finding.message for finding in findings)
     assert any("wiki target does not exist: Absent" in finding.message for finding in findings)
+
+
+def test_generated_wiki_link_check_rejects_table_row_and_code_label_aliases(
+    tmp_path: Path,
+) -> None:
+    wiki = tmp_path / "generated/wiki"
+    wiki.mkdir(parents=True)
+    (wiki / "Home.md").write_text(
+        "[[Good|Existing]] in a paragraph\n| Row | [[Row|Existing]] |\n[[`code`|Existing]]\n",
+        encoding="utf-8",
+    )
+    (wiki / "Existing.md").write_text("# Existing\n", encoding="utf-8")
+
+    findings = check_generated_wiki_links(tmp_path)
+
+    assert len(findings) == 2
+    assert any("table row" in finding.message for finding in findings)
+    assert any("code-span label" in finding.message for finding in findings)
 
 
 @pytest.mark.parametrize(
@@ -1086,6 +1116,43 @@ def test_wiki_markdown_rewrite_uses_markdown_for_nested_labels() -> None:
     )
 
     assert rewritten == "[VM [layer]](VM-Layer-Map)"
+
+
+def test_wiki_rewrite_uses_markdown_link_in_table_row() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "wiki")
+    source = Path("docs/content/getting-started/csharp.md")
+
+    rewritten = rewrite_for_surface(
+        "| Commands | [Command Families](../primitives/command-families.md) |",
+        surface="wiki",
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert rewritten == "| Commands | [Command Families](Command-Families) |"
+
+
+def test_wiki_rewrite_uses_markdown_link_for_code_span_label() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "wiki")
+    source = Path("docs/content/integration/textual.md")
+
+    rewritten = rewrite_for_surface(
+        "[`replace_all`](../primitives/builders-collections-tree-utilities.md"
+        "#679-observablelist-whole-list-refresh)",
+        surface="wiki",
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert rewritten == (
+        "[`replace_all`](Builders-Collections-Tree-Utilities#679-observablelist-whole-list-refresh)"
+    )
 
 
 def test_surface_rewrite_preserves_inline_code_link_labels() -> None:

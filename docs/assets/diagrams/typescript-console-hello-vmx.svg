@@ -17,14 +17,9 @@
   <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">TypeScript Console hello-vmx Example</text>
   <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">minimal Node script for ComponentVMOf lifecycle and rxjs-backed message observation</text>
   <polyline points="420,224 510,224" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="810,224 900,224" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="1200,224 1290,224" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="270,282 270,444" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="660,282 660,444" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="1050,282 1050,444" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1420,282 1420,444" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="420,505 510,505" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="810,505 900,505" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1200,505 1290,505" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="660,566 425,738" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1050,566 1070,738" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
@@ -46,12 +41,6 @@
 <text x="660" y="220" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">hub.messages subscribe</text>
 <text x="660" y="239" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">status/property logs</text>
 <text x="660" y="258" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">no DOM host</text>
-<rect x="900" y="166" width="300" height="116" rx="8" fill="#0f172a"/>
-<rect x="900" y="166" width="300" height="116" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="1050" y="194" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">User gestures</text>
-<text x="1050" y="220" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">events become VM calls</text>
-<text x="1050" y="239" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">no domain state in host</text>
-<text x="1050" y="258" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">render from VM snapshots</text>
 <rect x="1290" y="166" width="260" height="116" rx="8" fill="#0f172a"/>
 <rect x="1290" y="166" width="260" height="116" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
 <text x="1420" y="194" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Run surface</text>
@@ -98,22 +87,12 @@
 <text x="136" y="930" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Follow arrows top to bottom: host input becomes VMx commands; VMx state publishes renderable projections back to the host.</text>
 <rect x="439" y="196" width="54" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
 <text x="466" y="210" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">binds</text>
-<rect x="826" y="196" width="60" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
-<text x="856" y="210" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">routes</text>
-<rect x="1219" y="196" width="54" height="20" rx="10" fill="#0f172a" stroke="#fbbf24" stroke-width="1"/>
-<text x="1246" y="210" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">runs</text>
 <rect x="299" y="354" width="54" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
 <text x="326" y="368" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">owns</text>
 <rect x="687" y="354" width="74" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
 <text x="724" y="368" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">projects</text>
-<rect x="1079" y="354" width="74" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
-<text x="1116" y="368" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">executes</text>
 <rect x="1443" y="354" width="54" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
 <text x="1470" y="368" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">loads</text>
-<rect x="429" y="477" width="74" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="466" y="491" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">children</text>
-<rect x="819" y="477" width="74" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
-<text x="856" y="491" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">commands</text>
 <rect x="1219" y="477" width="54" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
 <text x="1246" y="491" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">data</text>
 <rect x="517" y="648" width="54" height="20" rx="10" fill="#0f172a" stroke="#94a3b8" stroke-width="1"/>

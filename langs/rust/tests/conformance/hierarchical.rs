@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use vmx::{
     walk_expanded, Command, ConstructionStatus, ExpandableState, HierarchicalVm, Message,
-    MessageHub, ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange,
-    VmxError,
+    MessageHub, ModeledCrudCommands, NullDispatcher, Reconstructable, SearchableState,
+    TreeStructureChange, VmNode, VmxError,
 };
 
 fn leaf(name: &str) -> HierarchicalVm<String> {
@@ -991,6 +991,61 @@ fn constructing_a_constructed_eager_parent_does_not_touch_children() {
     child.dispose().unwrap();
 
     assert_eq!(root.construct(), Ok(()));
+}
+
+/// HIER-045 — Eager construction skips a disposed child (spec/18 §3, ADR-0258)
+#[test]
+fn eager_construction_skips_a_disposed_child() {
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let a = HierarchicalVm::with_children_factory(
+        "a",
+        "a".to_string(),
+        |_| Vec::new(),
+        false,
+        hub.clone(),
+    );
+    let b = HierarchicalVm::with_children_factory(
+        "b",
+        "b".to_string(),
+        |_| Vec::new(),
+        false,
+        hub.clone(),
+    );
+    let (a_child, b_child) = (a.clone(), b.clone());
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |_| vec![a_child.clone(), b_child.clone()],
+        true,
+        hub.clone(),
+    );
+
+    root.construct().unwrap();
+    a.dispose().unwrap();
+    VmNode::destruct(&root).unwrap();
+    VmNode::destruct(&b).unwrap();
+    let before = recorder.messages().len();
+
+    // construct() and reconstruct() must not fail: the walk skips the disposed child.
+    root.construct().unwrap();
+    Reconstructable::reconstruct(&root);
+
+    assert_eq!(root.status(), ConstructionStatus::Constructed);
+    assert_eq!(b.status(), ConstructionStatus::Constructed);
+    assert_eq!(a.status(), ConstructionStatus::Disposed);
+    let a_changes = recorder
+        .messages()
+        .into_iter()
+        .skip(before)
+        .filter(|message| {
+            matches!(message, Message::ConstructionStatusChanged(change) if change.sender_id == a.id())
+        })
+        .count();
+    assert_eq!(
+        a_changes, 0,
+        "a disposed child publishes no construction-status change"
+    );
 }
 
 /// HIER-010 — PropertyChangedMessage on Parent change

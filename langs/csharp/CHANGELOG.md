@@ -16,6 +16,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Added
 
+- `HIER-045` conformance tests (ADR-0258, #1919). An eager `HierarchicalVM`
+  skips a disposed child in `Construct()` and `Reconstruct()`, and the live
+  sibling is constructed. C# already behaved this way, so the test passes with
+  no source change.
+
 - `LIFE-015` tests now assert the `Construct()` outcome. An admitted dispose
   from the construct hook skips population: the factory runs 0 times and
   `Construct()` does not throw. A dispose that a current publication defers
