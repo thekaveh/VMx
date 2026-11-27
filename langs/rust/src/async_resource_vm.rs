@@ -165,8 +165,9 @@ struct Inner<T, D: Dispatcher> {
 /// the previous value under `RetainPrevious`; the `Ok` completion of a load; the
 /// error completion of a load under `RetainPrevious`; the rollback of a panicked
 /// loader; and the cancellation restore. A `T::clone` that calls back into this
-/// VM on one of those paths, for example `resource_status()`, blocks and does
-/// not return. #1925 stays open for this type.
+/// VM on one of those paths, for example `resource_status()`, may block and
+/// not return. This is derived from the code and was not probed. #1925 stays
+/// open for this type.
 pub struct AsyncResourceVm<T, D: Dispatcher = NullDispatcher> {
     inner: Arc<Inner<T, D>>,
     load_command: AsyncRelayCommand,
@@ -351,7 +352,8 @@ where
     ///
     /// The value inside the state is cloned while the VM's lock is held. A
     /// `T::clone` that calls back into this VM, for example `resource_status()`,
-    /// blocks and does not return. This residual of #1925 is not changed.
+    /// may block and not return. This is derived from the code and was not
+    /// probed. This residual of #1925 is not changed.
     pub fn state(&self) -> AsyncResourceState<T> {
         lock(&self.inner.machine).state.clone()
     }
@@ -364,8 +366,9 @@ where
     /// Clones the ready or retained value, when available.
     ///
     /// The clone runs while the VM's lock is held. A `T::clone` that calls back
-    /// into this VM, for example `resource_status()`, blocks and does not
-    /// return. This residual of #1925 is not changed.
+    /// into this VM, for example `resource_status()`, may block and not return.
+    /// This is derived from the code and was not probed. This residual of #1925
+    /// is not changed.
     pub fn value(&self) -> Option<T> {
         lock(&self.inner.machine).state.value().cloned()
     }

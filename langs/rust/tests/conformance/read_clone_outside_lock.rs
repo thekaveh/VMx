@@ -958,6 +958,14 @@ fn counting(id: u32, probe: &Probe, copies: &Arc<AtomicUsize>) -> CountingKey {
 
 /// Removing a key discards the key view's copy of it with no `T::clone`, when a
 /// reader holds a snapshot that contains the key (#1925).
+///
+/// This guards the round-1 regression: the key view must still announce the
+/// removal, so the discard goes through `remove_at_discarding`, which publishes,
+/// and not through `remove_at_handle`, which publishes nothing. The test checks
+/// that announcement through the view's `Count` change. Develop has no snapshot
+/// copy to discriminate: its read clones under the lock and holds no snapshot
+/// while the copy runs. So this test passes on develop too, and it does not
+/// discriminate develop from this branch.
 #[test]
 fn key_view_removal_discards_the_removed_key_without_a_copy() {
     let probe: Probe = Arc::new(Mutex::new(None));
@@ -978,6 +986,13 @@ fn key_view_removal_discards_the_removed_key_without_a_copy() {
     };
     wait_until(&entered);
     copies.store(0, Ordering::SeqCst);
+    let count_changes = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&count_changes);
+    let _count_subscription = view.property_changed().subscribe(move |name| {
+        if name == "Count" {
+            counted.fetch_add(1, Ordering::SeqCst);
+        }
+    });
 
     let key = counting(10, &probe, &copies);
     let removed = within_timeout("ObservableMultiDictionary::remove", BOUND, {
@@ -991,6 +1006,11 @@ fn key_view_removal_discards_the_removed_key_without_a_copy() {
     assert_eq!(
         copied, 0,
         "the key view discards the removed key without a copy"
+    );
+    assert_eq!(
+        count_changes.load(Ordering::SeqCst),
+        1,
+        "the key view announces the removal"
     );
     assert_eq!(view.len(), 0);
     assert_eq!(reader.join().expect("the reader finished"), Some(10));
@@ -1050,4 +1070,61 @@ fn paged_remove_at_clone_of_the_removed_item_may_read_the_pager() {
         Some(vec![2]),
         "the page read inside the clone ran after the removal"
     );
+}
+
+/// A removal waits for the copy of the removed item, and for no other item. A
+/// page read holds the copy of the second item while the first item is
+/// removed, and the removal returns before that copy is released (#1925).
+#[test]
+fn paged_remove_at_waits_for_no_other_items_clone() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let pager = PagedComposition::new(vec![probing(1, &probe), probing(2, &probe)], 2);
+    // The page read copies item 1, then item 2. Only the second copy holds.
+    let copies = Arc::new(AtomicUsize::new(0));
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    {
+        let copies = Arc::clone(&copies);
+        let entered = Arc::clone(&entered);
+        let release = Arc::clone(&release);
+        arm(
+            &probe,
+            Arc::new(move || {
+                if copies.fetch_add(1, Ordering::SeqCst) == 1 {
+                    entered.store(true, Ordering::SeqCst);
+                    let started = Instant::now();
+                    while !release.load(Ordering::SeqCst) && started.elapsed() < HOOK_BOUND {
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                }
+            }),
+        );
+    }
+    let reader = {
+        let pager = pager.clone();
+        thread::spawn(move || {
+            pager
+                .current_page()
+                .iter()
+                .map(|item| item.id)
+                .collect::<Vec<u32>>()
+        })
+    };
+    wait_until(&entered);
+    let (removed, took) = within_timeout("PagedComposition::remove_at", BOUND, {
+        let pager = pager.clone();
+        move || {
+            let started = Instant::now();
+            let removed = pager.remove_at(0).map(|item| item.id);
+            (removed, started.elapsed())
+        }
+    });
+    release.store(true, Ordering::SeqCst);
+
+    assert_eq!(removed, Some(1));
+    assert!(
+        took < HOOK_BOUND,
+        "the removal waited for the other item's copy, which the page read held for {HOOK_BOUND:?}"
+    );
+    assert_eq!(reader.join().expect("the reader finished"), vec![1, 2]);
 }

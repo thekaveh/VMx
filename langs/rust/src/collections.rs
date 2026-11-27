@@ -1838,10 +1838,14 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
 
     /// Replaces and returns an item without changing the count.
     ///
-    /// The item event's payload and the returned old item are made with no
-    /// lock held. A panic from `T::clone` reaches the caller only after the
-    /// replacement is published. In that case no `item_replaced` event is sent,
-    /// and the collection message is (#1925).
+    /// The new item is copied before the replacement is committed, as it was
+    /// before #1925. A panic from its `T::clone` reaches the caller before
+    /// anything is published: the list keeps its items, and no message is sent.
+    /// The old item's event payload and its returned copy are made after the
+    /// replacement is committed, with no lock held. A panic from the old item's
+    /// `T::clone` reaches the caller after the replacement is published. In that
+    /// case no `item_replaced` event is sent, and the collection message is
+    /// (#1925).
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
         let new_item = self
             .streams

@@ -532,18 +532,29 @@ pub trait SelectableVmCollection<T: VmNode>: VmCollection<T> {
 /// children, and lifecycle transitions propagate through the child snapshot.
 ///
 /// Membership changes run under the membership gate, and selection commits
-/// run under the same gate. Under that gate, a child's `Clone` runs in two
-/// places: the rollback of a detach or of a replace, which copies the child
-/// back into the collection, and a selection commit, which stores a copy of the
-/// selected child as the current child (`select`, `set_current`,
-/// `select_component`, and asynchronous selection). A child whose `Clone` calls
-/// back into this composite's membership or selection operations may block or
-/// deadlock in those places. Every other copy runs with no gate held. `add`,
-/// `insert`, `add_range` and `replace` copy their argument before the gate is
-/// taken. `remove` and `clear` copy no child. `remove_at`, `replace` and
-/// `dispose` copy the child they return or the children they dispose after the
-/// gate is released (#1925). This residual of #1925 is documented here and is
-/// not changed.
+/// run under the same gate. Under that gate, a child's `Clone` runs in these
+/// places, and a `Clone` that calls back into this composite's membership or
+/// selection operations may block or deadlock in any of them (derived from the
+/// code; not probed):
+///
+/// - the rollback of a detach or of a replace, which copies the child back into
+///   the collection;
+/// - the selection commit `commit_locked`, which stores a copy of the selected
+///   child as the current child. It runs for `select`, `set_current`,
+///   `select_component`, asynchronous selection, and the construct walk's
+///   selector result (`assign_selector_result`). The selector result copies its
+///   argument under the gate as well.
+///
+/// Every other copy runs with no gate held. `add`, `insert`, `add_range` and
+/// `replace` copy their argument before the gate is taken. `remove` and `clear`
+/// copy no child. `remove_at`, `replace` and `dispose` copy the child they
+/// return or the children they dispose after the gate is released.
+///
+/// `current()` copies the current child under the `current` mutex, not under
+/// the membership gate. A `Clone` that calls `current()` on the same composite
+/// may therefore deadlock. This is derived from the code and was not probed.
+///
+/// The residuals of #1925 are documented here and are not changed.
 pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
     commands: Arc<ComponentCommands>,

@@ -319,9 +319,12 @@ fn observable_list_remove_at_publishes_its_remove_before_a_drop_panic_with_a_rea
     let unarmed = Arc::new(AtomicBool::new(false));
     let hub = MessageHub::new();
     let list = Arc::new(ObservableList::with_hub(1, hub.clone()));
-    // The armed item is the one the call removes. Items are shared between a
-    // snapshot and the list (#1925), so an item that stays in the list is not
-    // dropped with the displaced snapshot.
+    // The armed item is the one the call removes. Since #1925 the list and a
+    // reader's snapshot share each item's `Arc`, so the call drops only the
+    // handle it removed. An armed item that stayed in the list would never be
+    // dropped by this call. Before #1925 the copy-on-write copy held the
+    // originals, so the armed item that stayed in the list was dropped with the
+    // displaced snapshot. This is a fixture change, not a behaviour change.
     list.push(SnapshotItem::new(1, &armed, &sequence));
     list.push(SnapshotItem::new(2, &unarmed, &sequence));
     list.push(SnapshotItem::new(3, &unarmed, &sequence));
@@ -351,7 +354,8 @@ fn observable_list_replace_publishes_its_replace_before_a_drop_panic_with_a_read
     let unarmed = Arc::new(AtomicBool::new(false));
     let hub = MessageHub::new();
     let list = Arc::new(ObservableList::with_hub(1, hub.clone()));
-    // The armed item is the one the call replaces (see the remove test).
+    // The armed item is the one the call replaces. The fixture changed for the
+    // same reason as the remove test above, since #1925 (see its comment).
     list.push(SnapshotItem::new(1, &armed, &sequence));
     list.push(SnapshotItem::new(2, &unarmed, &sequence));
     list.push(SnapshotItem::new(3, &unarmed, &sequence));

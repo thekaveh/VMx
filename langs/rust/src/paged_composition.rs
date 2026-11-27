@@ -286,8 +286,9 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
     /// does not copy it. The removal then returns after that clone. A `Clone`
     /// that removes its own item while a page read holds it deadlocks, because
     /// the removal copies the item under the item lock that the clone already
-    /// holds. The wait is the cost of keeping `Send` and `Sync` for a
-    /// `Send`-only item, which needs one lock per item (#1925).
+    /// holds. That deadlock claim is derived from the code and was not probed.
+    /// The wait is the cost of keeping `Send` and `Sync` for a `Send`-only item,
+    /// which needs one lock per item (#1925).
     pub fn remove_at(&self, index: usize) -> Option<T> {
         let (removed, clamped) = {
             let mut state = lock(&self.core.state);

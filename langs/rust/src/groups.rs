@@ -30,7 +30,8 @@ type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
 /// child's `Clone` runs in one place: the rollback of a detach or of a
 /// replace, which copies the child back into the group. A child whose `Clone`
 /// calls back into this group's membership operations may block or deadlock
-/// there. Every other copy runs with no gate held. `add`, `insert`, `add_range`
+/// there (derived from the code; not probed). Every other copy runs with no
+/// gate held. `add`, `insert`, `add_range`
 /// and `replace` copy their argument before the gate is taken. `remove` and
 /// `clear` copy no child. `remove_at`, `replace` and `dispose` copy the child
 /// they return or the children they dispose after the gate is released (#1925).
