@@ -16,6 +16,17 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Added
 
+- `HierarchicalVm` exposes the component baseline (ADR-0259, #1853):
+  `is_constructed`, `select`, `can_select`, `deselect`, `can_deselect`,
+  `is_current`, `background_errors`, inherent `destruct` and `reconstruct`, and
+  the commands `select_command`, `deselect_command`, `select_next_command`,
+  `select_previous_command` and `reconstruct_command`. `reconstruct` and its
+  command run the eager child cascade. A `CompositeVm` selection now sets the
+  node's `VmNode::is_current`. A caller that has `Destructable` or
+  `Reconstructable` in scope and calls `node.destruct()` or
+  `node.reconstruct()` as a method now gets the inherent `VmxResult<()>`; the
+  fully qualified trait calls are unchanged. The tests are in
+  `tests/conformance/hierarchical.rs`.
 - `HIER-045` conformance tests (ADR-0258, #1919). An eager `HierarchicalVm`
   skips a disposed child in `construct()`, and the live sibling is constructed.
   Rust already behaved this way, so the test passes with no source change.
