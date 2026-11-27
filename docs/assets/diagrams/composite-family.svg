@@ -43,7 +43,7 @@
 <text x="595" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">same IList surface</text>
 <text x="595" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">peer children only</text>
 <text x="595" y="262" fill="#cbd5e1" font-size="10.63" font-weight="400" text-anchor="middle">group child select command stays disabled</text>
-<text x="595" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">good for notification stacks</text>
+<text x="595" y="281" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">good for peer panels</text>
 <rect x="790" y="170" width="300" height="168" rx="8" fill="#0f172a"/>
 <rect x="790" y="170" width="300" height="168" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
 <text x="940" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">AggregateVM1..6</text>

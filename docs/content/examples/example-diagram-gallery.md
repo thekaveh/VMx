@@ -2,8 +2,10 @@
 
 This gallery maps every committed VMx example app except the Python NiceGUI
 page. That page reuses the Textual Notes Showcase view-models and has no diagram
-of its own. Each diagram depicts the same three elements: the host and adapter
-boundary, the VMx-owned application state, and the verification/modeling rule.
+of its own. Each diagram except the Rust TUI Notes Showcase depicts three
+elements: the host and adapter boundary, the VMx-owned application state, and
+the verification/modeling rule. The Rust TUI diagram depicts two: the pure VMx
+MVVM layer and the terminal host adapter.
 
 ## 8.2.1. C\#
 

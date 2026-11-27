@@ -1509,7 +1509,7 @@ def viewmodel_families() -> Diagram:
                 132,
                 "Specialized companions",
                 (
-                    "Lifecycle VM: AsyncResourceVM",
+                    "Modal VM: ModalVM",
                     "Coordinators: Form / Discriminator",
                     "Notification / Confirmation",
                 ),
@@ -1999,7 +1999,7 @@ def composite_family() -> Diagram:
                     "same IList surface",
                     "peer children only",
                     "group child select command stays disabled",
-                    "good for notification stacks",
+                    "good for peer panels",
                 ),
                 "frontend",
             ),
@@ -2299,7 +2299,6 @@ def component_family() -> Diagram:
                 "Selection commands",
                 (
                     "Select / Deselect",
-                    "Toggle selection",
                     "next/previous inert on leaf",
                 ),
                 "bus",
@@ -2785,8 +2784,8 @@ def group_family() -> Diagram:
                 466,
                 280,
                 112,
-                "Notification stacks",
-                ("visible toast VMs", "no selected toast", "bounded peer set"),
+                "Peer panels",
+                ("visible peer VMs", "no selected panel", "bounded peer set"),
                 "security",
             ),
             Box(
@@ -2893,7 +2892,7 @@ def group_family() -> Diagram:
             (
                 "Best fit",
                 (
-                    "Use groups for toolbars, notification stacks, peer panels, and capability rows.",
+                    "Use groups for toolbars, peer panels, and capability rows.",
                     "Use CompositeVM when current selection matters.",
                     "Use AggregateVM when child roles are fixed and heterogeneous.",
                 ),
@@ -3425,7 +3424,7 @@ def specialized_vm_family() -> Diagram:
                 270,
                 122,
                 "DiscriminatorVM",
-                ("ActiveKey", "case registry", "mode/pane coordination"),
+                ("ActiveKey", "modal depth", "mode/pane coordination"),
                 "frontend",
             ),
             Box(
@@ -3924,7 +3923,7 @@ def forms_dialogs_notifications() -> Diagram:
                 128,
                 "FormVM<TM>",
                 (
-                    "Snapshot captured at construct()",
+                    "Snapshot captured at construction",
                     "Model mutates via SetModel()",
                     "IsDirty derives from Model vs Snapshot",
                 ),
@@ -4501,7 +4500,7 @@ def rust_tui_notes_showcase() -> Diagram:
                 235,
                 150,
                 "NotebooksVm",
-                ("ComponentVm lifecycle", "current notebook id", "selection command"),
+                ("ComponentVm lifecycle", "current notebook id", "select() method"),
                 "frontend",
             ),
             Box(
@@ -4526,7 +4525,7 @@ def rust_tui_notes_showcase() -> Diagram:
                 (
                     "FormVm<NoteDraft>",
                     "strict dirty tracking",
-                    "field + model validators",
+                    "title validator",
                 ),
                 "frontend",
             ),
@@ -4536,7 +4535,7 @@ def rust_tui_notes_showcase() -> Diagram:
                 280,
                 150,
                 "GlobalSearchVm",
-                ("SearchableState", "TokenPagedComposition", "load-more command"),
+                ("SearchableState", "TokenPagedComposition", "load_more() method"),
                 "database",
             ),
             Box(
@@ -4575,8 +4574,8 @@ def rust_tui_notes_showcase() -> Diagram:
                 565,
                 300,
                 120,
-                "RelayCommand seams",
-                ("save/revert", "delete request", "mode toggle"),
+                "Methods and commands",
+                ("save() / revert() methods", "delete_command field", "toggle() mode method"),
                 "bus",
             ),
             Box(
@@ -4612,7 +4611,7 @@ def rust_tui_notes_showcase() -> Diagram:
                 360,
                 96,
                 "app.rs event shell",
-                ("keyboard -> VM command", "smoke mode", "terminal lifecycle"),
+                ("keyboard -> VM method", "smoke mode", "terminal lifecycle"),
                 "generic",
             ),
             Box(
@@ -4671,7 +4670,7 @@ def rust_tui_notes_showcase() -> Diagram:
             Polyline(
                 ((825, 490), (670, 565)),
                 color="#fb923c",
-                label="commands",
+                label="methods",
                 label_xy=(720, 528),
             ),
             Polyline(
@@ -4748,6 +4747,46 @@ def rust_tui_notes_showcase() -> Diagram:
     )
 
 
+# Each example diagram declares the arrows it draws. The GUI and TUI apps read
+# user input, so their arrows include the "User gestures" box. The console
+# programs read no input and draw no such box. The Rust console builds a
+# composite with a command, so it also draws the "children" and "commands" arrows.
+GUI_EXAMPLE_ARROWS = (
+    "binds",
+    "routes",
+    "runs",
+    "owns",
+    "projects",
+    "executes",
+    "loads",
+    "children",
+    "commands",
+    "data",
+    "tests",
+    "boundary",
+)
+RUST_CONSOLE_ARROWS = (
+    "binds",
+    "owns",
+    "projects",
+    "loads",
+    "children",
+    "commands",
+    "data",
+    "tests",
+    "boundary",
+)
+CONSOLE_ARROWS = ("binds", "owns", "projects", "loads", "data", "tests", "boundary")
+
+
+def _select_arrows(names: tuple[str, ...], lines: tuple[Polyline, ...]) -> tuple[Polyline, ...]:
+    """Keep the declared arrows, in the order the builder lists them."""
+    unknown = sorted(set(names) - {line.label for line in lines})
+    if unknown:
+        raise ValueError(f"unknown example arrows: {unknown}")
+    return tuple(line for line in lines if line.label in names)
+
+
 def example_app_diagram(
     *,
     diagram_id: str,
@@ -4763,7 +4802,33 @@ def example_app_diagram(
     rule: tuple[str, tuple[str, ...]],
     cards: tuple[tuple[str, tuple[str, ...]], ...],
     footer: str,
+    user_gestures: bool,
+    arrows: tuple[str, ...],
 ) -> Diagram:
+    gesture_arrows = {"routes", "runs", "executes"}
+    if not user_gestures and gesture_arrows & set(arrows):
+        raise ValueError(
+            f"{diagram_id}: arrows {sorted(gesture_arrows & set(arrows))} need the User gestures box"
+        )
+    gesture_boxes = (
+        (
+            Box(
+                900,
+                166,
+                300,
+                116,
+                "User gestures",
+                (
+                    "events become VM calls",
+                    "no domain state in host",
+                    "render from VM snapshots",
+                ),
+                "bus",
+            ),
+        )
+        if user_gestures
+        else ()
+    )
     return Diagram(
         diagram_id=diagram_id,
         title=title,
@@ -4778,19 +4843,7 @@ def example_app_diagram(
         boxes=(
             Box(120, 166, 300, 116, host[0], host[1], "frontend"),
             Box(510, 166, 300, 116, adapter[0], adapter[1], "security"),
-            Box(
-                900,
-                166,
-                300,
-                116,
-                "User gestures",
-                (
-                    "events become VM calls",
-                    "no domain state in host",
-                    "render from VM snapshots",
-                ),
-                "bus",
-            ),
+            *gesture_boxes,
             Box(
                 1290,
                 166,
@@ -4811,78 +4864,81 @@ def example_app_diagram(
             Box(250, 738, 350, 96, verification[0], verification[1], "generic"),
             Box(760, 738, 620, 90, rule[0], rule[1], "generic"),
         ),
-        lines=(
-            Polyline(
-                ((420, 224), (510, 224)),
-                color="#22d3ee",
-                label="binds",
-                label_xy=(466, 208),
-            ),
-            Polyline(
-                ((810, 224), (900, 224)),
-                color="#fb923c",
-                label="routes",
-                label_xy=(856, 208),
-            ),
-            Polyline(
-                ((1200, 224), (1290, 224)),
-                color="#fbbf24",
-                label="runs",
-                label_xy=(1246, 208),
-            ),
-            Polyline(
-                ((270, 282), (270, 444)),
-                color="#34d399",
-                label="owns",
-                label_xy=(326, 366),
-            ),
-            Polyline(
-                ((660, 282), (660, 444)),
-                color="#34d399",
-                label="projects",
-                label_xy=(724, 366),
-            ),
-            Polyline(
-                ((1050, 282), (1050, 444)),
-                color="#fb923c",
-                label="executes",
-                label_xy=(1116, 366),
-            ),
-            Polyline(
-                ((1420, 282), (1420, 444)),
-                color="#a78bfa",
-                label="loads",
-                label_xy=(1470, 366),
-            ),
-            Polyline(
-                ((420, 505), (510, 505)),
-                color="#22d3ee",
-                label="children",
-                label_xy=(466, 489),
-            ),
-            Polyline(
-                ((810, 505), (900, 505)),
-                color="#fb923c",
-                label="commands",
-                label_xy=(856, 489),
-            ),
-            Polyline(
-                ((1200, 505), (1290, 505)),
-                color="#34d399",
-                label="data",
-                label_xy=(1246, 489),
-            ),
-            Polyline(
-                ((660, 566), (425, 738)),
-                color="#64748b",
-                label="tests",
-                label_xy=(544, 660),
-            ),
-            Polyline(
-                ((1050, 566), (1070, 738)),
-                color="#64748b",
-                label="boundary",
-                label_xy=(1114, 660),
+        lines=_select_arrows(
+            arrows,
+            (
+                Polyline(
+                    ((420, 224), (510, 224)),
+                    color="#22d3ee",
+                    label="binds",
+                    label_xy=(466, 208),
+                ),
+                Polyline(
+                    ((810, 224), (900, 224)),
+                    color="#fb923c",
+                    label="routes",
+                    label_xy=(856, 208),
+                ),
+                Polyline(
+                    ((1200, 224), (1290, 224)),
+                    color="#fbbf24",
+                    label="runs",
+                    label_xy=(1246, 208),
+                ),
+                Polyline(
+                    ((270, 282), (270, 444)),
+                    color="#34d399",
+                    label="owns",
+                    label_xy=(326, 366),
+                ),
+                Polyline(
+                    ((660, 282), (660, 444)),
+                    color="#34d399",
+                    label="projects",
+                    label_xy=(724, 366),
+                ),
+                Polyline(
+                    ((1050, 282), (1050, 444)),
+                    color="#fb923c",
+                    label="executes",
+                    label_xy=(1116, 366),
+                ),
+                Polyline(
+                    ((1420, 282), (1420, 444)),
+                    color="#a78bfa",
+                    label="loads",
+                    label_xy=(1470, 366),
+                ),
+                Polyline(
+                    ((420, 505), (510, 505)),
+                    color="#22d3ee",
+                    label="children",
+                    label_xy=(466, 489),
+                ),
+                Polyline(
+                    ((810, 505), (900, 505)),
+                    color="#fb923c",
+                    label="commands",
+                    label_xy=(856, 489),
+                ),
+                Polyline(
+                    ((1200, 505), (1290, 505)),
+                    color="#34d399",
+                    label="data",
+                    label_xy=(1246, 489),
+                ),
+                Polyline(
+                    ((660, 566), (425, 738)),
+                    color="#64748b",
+                    label="tests",
+                    label_xy=(544, 660),
+                ),
+                Polyline(
+                    ((1050, 566), (1070, 738)),
+                    color="#64748b",
+                    label="boundary",
+                    label_xy=(1114, 660),
+                ),
             ),
         ),
         notes=(
@@ -4906,6 +4962,8 @@ def example_app_diagram(
 def csharp_console_hello_vmx() -> Diagram:
     return example_app_diagram(
         diagram_id="csharp-console-hello-vmx",
+        user_gestures=False,
+        arrows=CONSOLE_ARROWS,
         title="C# Console HelloVMx Example",
         subtitle="minimal .NET host for ComponentVM lifecycle, hub messages, and model equality",
         host=(
@@ -4966,6 +5024,8 @@ def csharp_console_hello_vmx() -> Diagram:
 def csharp_wpf_todo_app() -> Diagram:
     return example_app_diagram(
         diagram_id="csharp-wpf-todo-app",
+        user_gestures=True,
+        arrows=GUI_EXAMPLE_ARROWS,
         title="C# WPF Todo App Example",
         subtitle="Windows WPF host showing VMx commands with idiomatic XAML binding wrappers",
         host=(
@@ -5026,6 +5086,8 @@ def csharp_wpf_todo_app() -> Diagram:
 def csharp_avalonia_notes_showcase() -> Diagram:
     return example_app_diagram(
         diagram_id="csharp-avalonia-notes-showcase",
+        user_gestures=True,
+        arrows=GUI_EXAMPLE_ARROWS,
         title="C# Avalonia Notes Showcase Example",
         subtitle="flagship XAML host with AggregateVM6, FormVM, paging, dialogs, theme, and notifications",
         host=(
@@ -5097,6 +5159,8 @@ def csharp_avalonia_notes_showcase() -> Diagram:
 def python_console_hello_vmx() -> Diagram:
     return example_app_diagram(
         diagram_id="python-console-hello-vmx",
+        user_gestures=False,
+        arrows=CONSOLE_ARROWS,
         title="Python Console hello_vmx Example",
         subtitle="minimal uv-run script for ComponentVMOf lifecycle and reactivex-backed hub messages",
         host=(
@@ -5157,6 +5221,8 @@ def python_console_hello_vmx() -> Diagram:
 def python_tk_todo_app() -> Diagram:
     return example_app_diagram(
         diagram_id="python-tk-todo-app",
+        user_gestures=True,
+        arrows=GUI_EXAMPLE_ARROWS,
         title="Python tkinter Todo App Example",
         subtitle="small GUI host using CompositeVM rows and RelayCommand-driven todo actions",
         host=(
@@ -5217,6 +5283,8 @@ def python_tk_todo_app() -> Diagram:
 def python_textual_inspector() -> Diagram:
     return example_app_diagram(
         diagram_id="python-textual-inspector",
+        user_gestures=True,
+        arrows=GUI_EXAMPLE_ARROWS,
         title="Python Textual Inspector Example",
         subtitle="live TUI for walking VMx hierarchies and observing hub message traffic",
         host=("Textual app", ("tree widget", "details panel", "message table")),
@@ -5271,6 +5339,8 @@ def python_textual_inspector() -> Diagram:
 def python_textual_notes_showcase() -> Diagram:
     return example_app_diagram(
         diagram_id="python-textual-notes-showcase",
+        user_gestures=True,
+        arrows=GUI_EXAMPLE_ARROWS,
         title="Python Textual Notes Showcase Example",
         subtitle="flagship terminal host with pure VMx state, Textual rendering, dialogs, search, and paging",
         host=(
@@ -5332,6 +5402,8 @@ def python_textual_notes_showcase() -> Diagram:
 def typescript_console_hello_vmx() -> Diagram:
     return example_app_diagram(
         diagram_id="typescript-console-hello-vmx",
+        user_gestures=False,
+        arrows=CONSOLE_ARROWS,
         title="TypeScript Console hello-vmx Example",
         subtitle="minimal Node script for ComponentVMOf lifecycle and rxjs-backed message observation",
         host=("Node script", ("tsx entrypoint", "npm start", "stdout narrative")),
@@ -5386,6 +5458,8 @@ def typescript_console_hello_vmx() -> Diagram:
 def typescript_react_notes_showcase() -> Diagram:
     return example_app_diagram(
         diagram_id="typescript-react-notes-showcase",
+        user_gestures=True,
+        arrows=GUI_EXAMPLE_ARROWS,
         title="TypeScript React Notes Showcase Example",
         subtitle="flagship web host with hooks as VMx adapters and React components as pure renderers",
         host=(
@@ -5444,6 +5518,8 @@ def typescript_react_notes_showcase() -> Diagram:
 def swift_notes_showcase() -> Diagram:
     return example_app_diagram(
         diagram_id="swift-notes-showcase",
+        user_gestures=True,
+        arrows=GUI_EXAMPLE_ARROWS,
         title="Swift Notes Showcase Example",
         subtitle="SwiftUI + Combine flagship with a pure NotesShowcaseCore VM layer",
         host=(
@@ -5501,6 +5577,8 @@ def swift_notes_showcase() -> Diagram:
 def rust_console_hello_vmx() -> Diagram:
     return example_app_diagram(
         diagram_id="rust-console-hello-vmx",
+        user_gestures=False,
+        arrows=RUST_CONSOLE_ARROWS,
         title="Rust Console hello-vmx Example",
         subtitle="Cargo console demo using ComponentVm, CompositeVm, FilteredCompositeVm, and RelayCommand",
         host=("Cargo binary", ("src/main.rs", "cargo run", "stdout summary")),
