@@ -20,6 +20,7 @@ from scripts.docs.links import (
     find_links,
     find_reference_links,
     is_forbidden,
+    table_line_indexes,
 )
 from scripts.docs.manifest import load_manifest
 from scripts.docs.opener import load_opener
@@ -496,6 +497,7 @@ def check_generated_wiki_links(repo_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for path in _scan_markdown(wiki_root):
         text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        table_lines = table_line_indexes(text)
         for reference in find_reference_links(text):
             findings.append(
                 Finding(
@@ -508,15 +510,16 @@ def check_generated_wiki_links(repo_root: Path) -> list[Finding]:
             scrubbed = WIKI_LINK_RE.sub("", line)
             if ("[[" in scrubbed or "]]" in scrubbed) and "|" in scrubbed:
                 findings.append(Finding("error", f"{path}:{line_number}: malformed wiki link"))
-            for match in WIKI_LINK_RE.finditer(line):
-                if line.lstrip().startswith("|"):
-                    findings.append(
-                        Finding(
-                            "error",
-                            f"{path}:{line_number}: wiki alias link in a table row; "
-                            "GitHub splits the row at the alias pipe",
-                        )
+            matches = list(WIKI_LINK_RE.finditer(line))
+            if matches and (line.lstrip().startswith("|") or line_number - 1 in table_lines):
+                findings.append(
+                    Finding(
+                        "error",
+                        f"{path}:{line_number}: wiki alias link in a table row; "
+                        "GitHub splits the row at the alias pipe",
                     )
+                )
+            for match in matches:
                 if "`" in match.group("label"):
                     findings.append(
                         Finding(
