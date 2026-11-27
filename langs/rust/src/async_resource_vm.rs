@@ -339,6 +339,10 @@ where
     }
 
     /// Returns a snapshot of the complete current acquisition state.
+    ///
+    /// The value inside the state is cloned while the VM's lock is held. A
+    /// `T::clone` that calls back into this VM, for example `resource_status()`,
+    /// blocks and does not return. This residual of #1925 is not changed.
     pub fn state(&self) -> AsyncResourceState<T> {
         lock(&self.inner.machine).state.clone()
     }
@@ -349,6 +353,10 @@ where
     }
 
     /// Clones the ready or retained value, when available.
+    ///
+    /// The clone runs while the VM's lock is held. A `T::clone` that calls back
+    /// into this VM, for example `resource_status()`, blocks and does not
+    /// return. This residual of #1925 is not changed.
     pub fn value(&self) -> Option<T> {
         lock(&self.inner.machine).state.value().cloned()
     }

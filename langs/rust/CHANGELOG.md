@@ -186,7 +186,11 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   not wait. A `Clone` must not read the page that holds its own item, and must
   not remove its own item from its pager. Composite membership changes clone a
   removed or replaced child under the membership gate when a read still holds
-  it. `AsyncResourceVm` is not changed. The regression tests are
+  it. `AsyncResourceVm::state` and `value` still clone the value under the
+  machine lock, so a `Clone` that calls back into the VM, for example
+  `resource_status()`, blocks. The completion path clones the value under that
+  lock as well. Those residuals are documented on the methods, and #1925 stays
+  open for `AsyncResourceVm`. The regression tests are
   `read_clone_outside_lock.rs`.
 
 ## [0.36.0] — unreleased source version
