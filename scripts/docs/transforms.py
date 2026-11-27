@@ -11,6 +11,7 @@ from scripts.docs.links import (
     find_html_link_attributes,
     find_markdown_links,
     is_forbidden,
+    table_line_indexes,
 )
 from scripts.docs.manifest import Manifest, Section
 
@@ -309,7 +310,11 @@ def rewrite_for_surface(
         )
         return f"{'!' if link.image else ''}[{link.label}]({destination}{link.title_suffix})"
 
+    table_lines = table_line_indexes(markdown)
+
     def in_table_row(link: MarkdownLink) -> bool:
+        if markdown.count("\n", 0, link.start) in table_lines:
+            return True
         line_start = markdown.rfind("\n", 0, link.start) + 1
         return markdown[line_start : link.start].lstrip().startswith("|")
 

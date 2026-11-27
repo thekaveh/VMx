@@ -493,6 +493,20 @@ def find_links(markdown: str) -> list[Link]:
     return links
 
 
+def table_line_indexes(markdown: str) -> frozenset[int]:
+    """Return the zero-based lines of GFM tables: header, delimiter and body rows.
+
+    markdown-it applies the GFM table block rules, so a body row needs no leading
+    pipe, a table ends at a blank line or at the next block start, and fenced code
+    is never a table.
+    """
+    lines: set[int] = set()
+    for token in MarkdownIt("commonmark").enable("table").parse(markdown):
+        if token.type == "table_open" and token.map is not None:
+            lines.update(range(*token.map))
+    return frozenset(lines)
+
+
 def find_reference_links(markdown: str) -> list[Link]:
     """Return CommonMark reference definitions, including container-nested ones."""
     if not any("[" in line and "]:" in line for line in markdown.splitlines()):

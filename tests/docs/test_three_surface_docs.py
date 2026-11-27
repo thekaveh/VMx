@@ -520,6 +520,42 @@ def test_generated_wiki_link_check_rejects_table_row_and_code_label_aliases(
     assert any("code-span label" in finding.message for finding in findings)
 
 
+def test_generated_wiki_link_check_reports_one_table_row_finding_per_line(
+    tmp_path: Path,
+) -> None:
+    wiki = tmp_path / "generated/wiki"
+    wiki.mkdir(parents=True)
+    (wiki / "Home.md").write_text(
+        "| [[A|Existing]] | [[B|Existing]] |\n",
+        encoding="utf-8",
+    )
+    (wiki / "Existing.md").write_text("# Existing\n", encoding="utf-8")
+
+    findings = check_generated_wiki_links(tmp_path)
+
+    assert len(findings) == 1
+    assert "table row" in findings[0].message
+
+
+def test_generated_wiki_link_check_rejects_table_row_without_leading_pipe(
+    tmp_path: Path,
+) -> None:
+    wiki = tmp_path / "generated/wiki"
+    wiki.mkdir(parents=True)
+    (wiki / "Home.md").write_text(
+        "| Name | Page |\n| --- | --- |\nCommand | [[Label|Existing]]\n\n"
+        "[[Good|Existing]] in a paragraph\n",
+        encoding="utf-8",
+    )
+    (wiki / "Existing.md").write_text("# Existing\n", encoding="utf-8")
+
+    findings = check_generated_wiki_links(tmp_path)
+
+    assert len(findings) == 1
+    assert "table row" in findings[0].message
+    assert "Home.md:3:" in findings[0].message
+
+
 @pytest.mark.parametrize(
     "definition",
     [
@@ -1133,6 +1169,29 @@ def test_wiki_rewrite_uses_markdown_link_in_table_row() -> None:
     )
 
     assert rewritten == "| Commands | [Command Families](Command-Families) |"
+
+
+def test_wiki_rewrite_uses_markdown_link_in_table_row_without_leading_pipe() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "wiki")
+    source = Path("docs/content/getting-started/csharp.md")
+
+    rewritten = rewrite_for_surface(
+        "| Name | Page |\n| --- | --- |\n"
+        "Commands | [Command Families](../primitives/command-families.md)\n\n"
+        "[Command Families](../primitives/command-families.md)",
+        surface="wiki",
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert rewritten == (
+        "| Name | Page |\n| --- | --- |\n"
+        "Commands | [Command Families](Command-Families)\n\n"
+        "[[Command Families|Command-Families]]"
+    )
 
 
 def test_wiki_rewrite_uses_markdown_link_for_code_span_label() -> None:

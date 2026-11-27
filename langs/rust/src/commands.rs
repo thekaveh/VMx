@@ -8,6 +8,7 @@ use super::{
     Mutex, NullMessageHub, Ordering, Pin, Poll, Subscription, ThreadId, ValueStream,
     ValueSubscription, VmxError, VmxResult, Weak,
 };
+use crate::wait_for_graph::{waits, Resource};
 
 /// A parameterless action with queryable execution eligibility.
 pub trait Command: Send + Sync {
@@ -985,9 +986,23 @@ impl AsyncRelayCommand {
 
     /// Runs an admitted execution and waits for its result, or returns
     /// `Ok(Ok(()))` at once, without a thread, for a rejected call.
+    ///
+    /// The join records an edge that names the worker (spec/03 §4.1). A join
+    /// that would close a wait-for cycle is refused: the call returns at once
+    /// and leaves the worker running, and the worker's own waits follow the
+    /// graph's rules (ADR-0260).
     pub(crate) fn execute_and_join(&self) -> std::thread::Result<VmxResult<()>> {
-        self.start_execution(ExecutionReport::JoinHandle)
-            .map_or(Ok(Ok(())), std::thread::JoinHandle::join)
+        let Some(handle) = self.start_execution(ExecutionReport::JoinHandle) else {
+            return Ok(Ok(()));
+        };
+        let current = thread::current().id();
+        let resource = Resource::CommandExecution(Arc::as_ptr(&self.execution_epoch) as usize);
+        if !waits().try_begin_wait_for(resource, handle.thread().id(), current) {
+            return Ok(Ok(()));
+        }
+        let result = handle.join();
+        waits().end_wait(current);
+        result
     }
 
     /// The awaitable entry point behind [`Command::as_async`]: an admitted
