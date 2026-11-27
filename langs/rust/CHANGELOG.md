@@ -162,6 +162,15 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   create an ownership or walk cycle". The old text described only ownership
   cycles. The variant is otherwise unchanged; no variant is added (ADR-0255).
 
+- The Rust serviced collections' mutations, the token pager's commit and
+  dispose waits, its `load_next()` and `refresh()` joins, and a hierarchy's
+  children materialization now join the wait-for graph (ADR-0260, spec/03
+  §4.1), so a wait cycle through them no longer hangs. A refused serviced
+  mutation commits and queues its change for the delivering thread. A refused
+  pager commit is discarded. A refused join returns without waiting for its
+  worker. A refused `try_children()` returns the overlap error, and `children()`
+  panics with it (#1923).
+
 ## [0.36.0] — unreleased source version
 
 0.36.0 implements spec 3.30.0.

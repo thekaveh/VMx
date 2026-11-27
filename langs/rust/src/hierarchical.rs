@@ -3,13 +3,15 @@
 //! Spec: `spec/18-hierarchical-vm.md`; ADR-0048 and ADR-0087.
 
 use super::{
-    catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, ComponentVm, Condvar,
+    catch_unwind, lock, resume_unwind, thread, Arc, AssertUnwindSafe, ComponentVm, Condvar,
     ConstructionStatus, Dispatcher, Expandable, ExpandableState, Hash, HashMap, HashSet, Message,
     MessageHub, Mutex, NullDispatcher, OnceLock, ParentHandle, PropertyChangedMessage,
     PropertyChangedStream, RelayCommand, ThreadId, TreeNode, TreeNodeRef, TreeStructureChange,
     TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak, HIERARCHY_TOPOLOGY_GATE,
 };
 use crate::components::ComponentCommands;
+use crate::runtime::wait_for_owner;
+use crate::wait_for_graph::{waits, Resource};
 
 type HierChildrenFactory<M, N> =
     Arc<dyn Fn(&HierarchicalVm<M, N>) -> Vec<HierarchicalVm<M, N>> + Send + Sync>;
@@ -91,6 +93,14 @@ struct ChildrenMaterializationState {
     owner: Option<ThreadId>,
     epoch: u64,
     reentered_epoch: u64,
+    /// The threads that wait for the materialization to end.
+    waiters: usize,
+}
+
+impl ChildrenMaterializationState {
+    fn waiters(&mut self) -> &mut usize {
+        &mut self.waiters
+    }
 }
 
 /// A recursive modeled VM with lazy children and derived topology properties.
@@ -833,10 +843,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     ///
     /// Panics when the children factory returns structurally invalid output
     /// (a duplicate child, this node or an ancestor, or an already-parented
-    /// child) or re-enters structural materialization on its receiver. This
-    /// is the fail-fast accessor of spec/18 §4 and ADR-0127, matching Swift's
-    /// `children`; use [`try_children`](Self::try_children) to receive the
-    /// error instead.
+    /// child), re-enters structural materialization on its receiver, or would
+    /// wait for another thread's materialization inside a wait-for cycle
+    /// (ADR-0260). This is the fail-fast accessor of spec/18 §4 and ADR-0127,
+    /// matching Swift's `children`; use [`try_children`](Self::try_children)
+    /// to receive the error instead.
     pub fn children(&self) -> Vec<Self> {
         self.try_children().unwrap_or_else(|error| {
             panic!("children factory returned structurally invalid output: {error}")
@@ -1170,8 +1181,8 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                 return Ok(children);
             }
 
-            let (state, ready) = &*self.inner.materializing_children;
-            let mut state = lock(state);
+            let (state_lock, ready) = &*self.inner.materializing_children;
+            let mut state = lock(state_lock);
             if let Some(children) = lock(&self.inner.children).clone() {
                 return Ok(children);
             }
@@ -1192,9 +1203,26 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                         "children factory re-entered structural materialization".to_string(),
                     ));
                 }
-                Some(_) => {
+                Some(owner) => {
                     drop(topology);
-                    drop(wait(ready, state));
+                    let refused;
+                    (state, refused) = wait_for_owner(
+                        state_lock,
+                        ready,
+                        state,
+                        ChildrenMaterializationState::waiters,
+                        self.materialization_resource(),
+                        owner,
+                    );
+                    if refused {
+                        // The wait would close a wait-for cycle, so the call
+                        // takes the overlap error that a structural call takes
+                        // while a materialization is active (ADR-0260).
+                        return Err(VmxError::InvalidArgument(
+                            "structural operation overlaps active children materialization"
+                                .to_string(),
+                        ));
+                    }
                 }
             }
         };
@@ -1284,6 +1312,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
             *lock(&self.inner.children) = Some(children.clone());
             let result = children.clone();
             materialization_state.owner = None;
+            self.release_materialization_waiters(&materialization_state);
             drop(materialization_state);
             ready.notify_all();
             owner_released = true;
@@ -1411,11 +1440,27 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         Ok(())
     }
 
+    /// The children materialization, as one wait-for graph resource of this
+    /// node (spec/03 §4.1).
+    fn materialization_resource(&self) -> Resource {
+        Resource::ChildrenMaterialization(Arc::as_ptr(&self.inner.materializing_children) as usize)
+    }
+
+    /// Removes the edges of the threads that wait for the materialization that
+    /// `state` ends. The owner calls it before it wakes them (spec/03 §4.1
+    /// rule 4).
+    fn release_materialization_waiters(&self, state: &ChildrenMaterializationState) {
+        if state.waiters > 0 {
+            waits().release_waiters(self.materialization_resource(), &[]);
+        }
+    }
+
     fn finish_children_materialization(&self, epoch: u64) {
         let (state, ready) = &*self.inner.materializing_children;
         let mut state = lock(state);
         if state.epoch == epoch {
             state.owner = None;
+            self.release_materialization_waiters(&state);
         }
         drop(state);
         ready.notify_all();
