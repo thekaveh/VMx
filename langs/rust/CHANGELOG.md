@@ -18,15 +18,11 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 - `HierarchicalVm` exposes the component baseline (ADR-0259, #1853):
   `is_constructed`, `select`, `can_select`, `deselect`, `can_deselect`,
-  `is_current`, `background_errors`, inherent `destruct` and `reconstruct`, and
-  the commands `select_command`, `deselect_command`, `select_next_command`,
-  `select_previous_command` and `reconstruct_command`. `reconstruct` and its
-  command run the eager child cascade. A `CompositeVm` selection now sets the
-  node's `VmNode::is_current`. A caller that has `Destructable` or
-  `Reconstructable` in scope and calls `node.destruct()` or
-  `node.reconstruct()` as a method now gets the inherent `VmxResult<()>`; the
-  fully qualified trait calls are unchanged. The tests are in
-  `tests/conformance/hierarchical.rs`.
+  `is_current`, `background_errors`, and the commands `select_command`,
+  `deselect_command`, `select_next_command`, `select_previous_command` and
+  `reconstruct_command`. `reconstruct_command` runs the eager child cascade. A
+  `CompositeVm` selection now sets the node's `VmNode::is_current`. The tests are
+  in `tests/conformance/hierarchical.rs`.
 - `HIER-045` conformance tests (ADR-0258, #1919). An eager `HierarchicalVm`
   skips a disposed child in `construct()`, and the live sibling is constructed.
   Rust already behaved this way, so the test passes with no source change.
@@ -61,10 +57,21 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Changed
 
+- `HierarchicalVm::destruct` and `HierarchicalVm::reconstruct` are inherent methods
+  that return `VmxResult<()>` and are `#[must_use]`. They shadow the `Destructable`
+  and `Reconstructable` trait methods, which discarded results (ADR-0259, #1853).
+  Source that calls `node.destruct();` or `node.reconstruct();` with a unit result
+  now warns, and fails under `-D warnings`. Source that uses the call as a unit
+  value, such as a unit function's tail expression or a closure that returns `()`,
+  no longer compiles. Migrate by propagating the result with `?`, or by discarding it
+  with `let _ = node.destruct();`. Calls through the trait, such as
+  `Destructable::destruct(&node)`, keep their old signature.
+
 - `SearchableState` now debounces term changes. A term change sends its
   `filtered` message after the debounce, 1 second by default, on the
   scheduler's thread. A zero debounce keeps the immediate message. `search()`
   and source-change messages stay immediate (ADR-0219, spec/06 §8, #1261).
+
 - `NotificationVm::new`/`with_hub` and `ConfirmationVm::new`/`with_hub` use
   `SystemScheduler`, so a notification built with them now expires in real
   time (#1265). A notification VM stops its clock when it observes a hub

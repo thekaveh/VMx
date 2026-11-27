@@ -26,7 +26,7 @@ The Rust `HierarchicalVm` wraps a `ComponentVm` in its `component` field (`langs
 
 ## 3. Consequences
 
-- The change is additive. The Rust API baseline check and `cargo semver-checks` report no break at 0.37.0.
+- The change is a source break for existing call forms. The inherent `destruct` and `reconstruct` shadow the trait methods, so `node.destruct();` and `node.reconstruct();` with a unit result now carry a `must_use` warning, and some unit-valued uses no longer compile (§2 and the CHANGELOG `Changed` entry). The owner accepted the break on 2026-11-27. 0.37.0 absorbs it, since it is the first crates.io release. `cargo semver-checks` and the API baseline check do not model method-call resolution, so they report no break here.
 - A caller that has `Destructable` or `Reconstructable` in scope and calls `node.destruct()` or `node.reconstruct()` as a method now calls the inherent method. It returns `VmxResult<()>`, which is `#[must_use]`, where the trait method returned `()`. The fully qualified trait calls, such as `Reconstructable::reconstruct(&node)`, are unchanged.
 - A Rust tree row can bind the five commands, read `is_constructed`, and see that it is the current child.
 - The node keeps two command sets on one core: the component's own set, which the node does not expose, and the node's set. Both subscribe to the same hub. The node disposes its own set when it is disposed.
