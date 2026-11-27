@@ -509,6 +509,22 @@ def check_generated_wiki_links(repo_root: Path) -> list[Finding]:
             if ("[[" in scrubbed or "]]" in scrubbed) and "|" in scrubbed:
                 findings.append(Finding("error", f"{path}:{line_number}: malformed wiki link"))
             for match in WIKI_LINK_RE.finditer(line):
+                if line.lstrip().startswith("|"):
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{path}:{line_number}: wiki alias link in a table row; "
+                            "GitHub splits the row at the alias pipe",
+                        )
+                    )
+                if "`" in match.group("label"):
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{path}:{line_number}: wiki alias link has a code-span label; "
+                            "GitHub does not resolve it",
+                        )
+                    )
                 if not _visible_markdown_text(match.group("label")):
                     findings.append(
                         Finding(
