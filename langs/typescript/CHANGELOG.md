@@ -256,6 +256,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `TokenPagedComposition`: a load or refresh whose auto-construct fails rejects with
+  the construct failure and destructs the items it constructed, in reverse order
+  (spec/21 §6.2, ADR-0261, #1907, `COL-075`). A failed compensation rejects with
+  `ContainerRollbackError`. Before, the earlier items stayed `Constructed` outside
+  `items`.
+
 - `NotificationVM` contains its timer failures (ADR-0257, `NOTIF-021`, #1875). A
   failing `Pending` subscriber or `PropertyChanged` handler at auto-dismiss or on
   a decay tick goes to `config.onUnhandledError`, not the scheduler. A hub

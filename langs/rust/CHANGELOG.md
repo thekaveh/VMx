@@ -84,6 +84,15 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Fixed
 
+- `TokenPagedComposition::with_auto_construct_loader`: a load or refresh whose
+  auto-construct fails destructs the items it constructed, in reverse order, and
+  returns the construct failure through `execute()` and `execute_async()` (spec/21
+  §6.2, ADR-0261, #1907, `COL-075`). A failed compensation returns
+  `VmxError::ContainerRollback`. Before, the page was committed and the error was
+  dropped. `load_next()` and `refresh()` still discard the failure until #1894
+  decides their route. A page item that is `Disposed` now fails the load too, as it
+  already does in Python (`StatusTransitionError`).
+
 - `walk()`, `walk_expanded()`, `find()`, `HierarchicalVm::depth()` and
   `HierarchicalVm::path()` no longer recurse once per tree level. A tree deeper
   than the thread's stack no longer overflows it. Walk order, the timing of

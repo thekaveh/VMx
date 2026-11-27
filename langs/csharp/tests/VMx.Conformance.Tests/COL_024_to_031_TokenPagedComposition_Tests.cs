@@ -2,6 +2,7 @@ using FluentAssertions;
 using VMx.Collections;
 using VMx.Components;
 using VMx.Composites;
+using VMx.Lifecycle;
 using VMx.Services;
 using Xunit;
 using static VMx.Tests.Helpers.Liveness;
@@ -418,6 +419,110 @@ public class COL_024_to_031_TokenPagedCompositionTests
             [true],
             "the added component VM is constructed before subscribers observe the Reset");
         child.IsConstructed.Should().BeTrue();
+    }
+
+    [Fact, Trait("Conformance", "COL-075")]
+    public async Task COL_075_FailedAutoConstructLoadRollsBackThePage()
+    {
+        var first = ComponentVM.Builder().Name("first").WithNullServices().Build();
+        var second = ComponentVM.Builder().Name("second").WithNullServices()
+            .OnConstruct(() => throw new InvalidOperationException("construct failed")).Build();
+        var third = ComponentVM.Builder().Name("third").WithNullServices().Build();
+        var page = new[] { first, second, third };
+        var sut = new TokenPagedComposition<ComponentVM, string>(
+            _ => Task.FromResult(new TokenPage<ComponentVM, string>(page, "next")),
+            autoConstructOnAdd: true);
+        var notifications = new List<string>();
+        sut.CollectionChanged += (_, e) => notifications.Add(e.Action.ToString());
+        sut.PropertyChanged += (_, e) => notifications.Add(e.PropertyName ?? string.Empty);
+
+        Func<Task> load = () => sut.LoadMoreCommand.ExecuteAsync();
+        await load.Should().ThrowAsync<InvalidOperationException>().WithMessage("construct failed");
+
+        sut.Items.Should().BeEmpty();
+        sut.CurrentToken.Should().BeNull();
+        sut.HasMore.Should().BeTrue();
+        notifications.Should().BeEmpty();
+        page.Select(vm => vm.Status).Should().Equal(
+            [ConstructionStatus.Destructed, ConstructionStatus.Destructed, ConstructionStatus.Destructed]);
+    }
+
+    [Fact, Trait("Conformance", "COL-075")]
+    public async Task COL_075_FailedAutoConstructRefreshKeepsTheAccumulator()
+    {
+        var kept = ComponentVM.Builder().Name("kept").WithNullServices().Build();
+        var fresh = new[]
+        {
+            ComponentVM.Builder().Name("fresh-1").WithNullServices().Build(),
+            ComponentVM.Builder().Name("fresh-2").WithNullServices()
+                .OnConstruct(() => throw new InvalidOperationException("construct failed")).Build(),
+            ComponentVM.Builder().Name("fresh-3").WithNullServices().Build(),
+        };
+        var pages = new Queue<TokenPage<ComponentVM, string>>(
+        [
+            new TokenPage<ComponentVM, string>([kept], "next"),
+            new TokenPage<ComponentVM, string>(fresh, null),
+        ]);
+        var sut = new TokenPagedComposition<ComponentVM, string>(
+            _ => Task.FromResult(pages.Dequeue()), autoConstructOnAdd: true);
+        await sut.LoadMoreCommand.ExecuteAsync();
+        var notifications = new List<string>();
+        sut.CollectionChanged += (_, e) => notifications.Add(e.Action.ToString());
+        sut.PropertyChanged += (_, e) => notifications.Add(e.PropertyName ?? string.Empty);
+
+        Func<Task> refresh = () => sut.RefreshCommand.ExecuteAsync();
+        await refresh.Should().ThrowAsync<InvalidOperationException>().WithMessage("construct failed");
+
+        sut.Items.Should().ContainSingle().Which.Should().BeSameAs(kept);
+        sut.CurrentToken.Should().Be("next");
+        notifications.Should().BeEmpty();
+        fresh.Select(vm => vm.Status).Should().Equal(
+            [ConstructionStatus.Destructed, ConstructionStatus.Destructed, ConstructionStatus.Destructed]);
+        kept.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact, Trait("Conformance", "COL-075")]
+    public async Task COL_075_FailedAutoConstructLoadKeepsAnItemConstructedBeforeIt()
+    {
+        var prior = ComponentVM.Builder().Name("prior").WithNullServices().Build();
+        prior.Construct();
+        var fresh = ComponentVM.Builder().Name("fresh").WithNullServices().Build();
+        var bad = ComponentVM.Builder().Name("bad").WithNullServices()
+            .OnConstruct(() => throw new InvalidOperationException("construct failed")).Build();
+        var sut = new TokenPagedComposition<ComponentVM, string>(
+            _ => Task.FromResult(new TokenPage<ComponentVM, string>([prior, fresh, bad], null)),
+            autoConstructOnAdd: true);
+
+        Func<Task> load = () => sut.LoadMoreCommand.ExecuteAsync();
+        await load.Should().ThrowAsync<InvalidOperationException>().WithMessage("construct failed");
+
+        sut.Items.Should().BeEmpty();
+        prior.Status.Should().Be(ConstructionStatus.Constructed);
+        fresh.Status.Should().Be(ConstructionStatus.Destructed);
+        bad.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact, Trait("Conformance", "COL-075")]
+    public async Task COL_075_FailedRollbackRejectsOnceWithBothFailures()
+    {
+        var stuck = ComponentVM.Builder().Name("stuck").WithNullServices()
+            .OnDestruct(() => throw new InvalidOperationException("destruct failed")).Build();
+        var bad = ComponentVM.Builder().Name("bad").WithNullServices()
+            .OnConstruct(() => throw new InvalidOperationException("construct failed")).Build();
+        var sut = new TokenPagedComposition<ComponentVM, string>(
+            _ => Task.FromResult(new TokenPage<ComponentVM, string>([stuck, bad], "next")),
+            autoConstructOnAdd: true);
+
+        Func<Task> load = () => sut.LoadMoreCommand.ExecuteAsync();
+
+        var failure = (await load.Should().ThrowAsync<AggregateException>()).Which;
+        failure.InnerExceptions.Should().HaveCount(2);
+        failure.InnerExceptions[0].Should().BeOfType<InvalidOperationException>()
+            .Which.Message.Should().Be("construct failed");
+        failure.InnerExceptions[1].Should().BeOfType<InvalidOperationException>()
+            .Which.Message.Should().Be("destruct failed");
+        sut.Items.Should().BeEmpty();
+        sut.CurrentToken.Should().BeNull();
     }
 
     [Fact]

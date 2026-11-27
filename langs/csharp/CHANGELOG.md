@@ -268,6 +268,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- `TokenPagedComposition`: a load or refresh whose auto-construct fails throws the
+  construct failure and destructs the items it constructed, in reverse order
+  (spec/21 §6.2, ADR-0261, #1907, `COL-075`). A failed compensation throws an
+  `AggregateException` that holds both failures. Before, the earlier items stayed
+  `Constructed` outside `Items`.
+
 - The child-transition helper refuses a walk that would wait on itself. A walk that
   lists its own view-model, or that joins a child whose walk waits back on it, throws
   `InvalidOperationException` before it starts or joins a child, and the walking
