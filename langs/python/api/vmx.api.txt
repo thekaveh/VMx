@@ -1051,7 +1051,7 @@ module vmx
     property sender_name [get] -> str
     property sender_object [get] -> object
   class MessageHub(typing.Generic[~_THubMessage])
-    def __init__(self) -> 'None'
+    def __init__(self, *, development_diagnostics: 'bool | None' = None) -> 'None'
     def batch(self) -> 'Iterator[None]'
     def dispose(self) -> 'None'
     property messages [get] -> rx.Observable[Message]

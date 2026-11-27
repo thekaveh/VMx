@@ -175,6 +175,13 @@ Browser hosts opt in with
 has no standard development-mode flag; the browser default is unbounded so a
 production bundle cannot accidentally truncate a valid finite transaction.
 
+Python enables the bound only under `python -X dev` (`sys.flags.dev_mode`, or
+`PYTHONDEVMODE=1`), because an interpreter run without `-O` is not a
+development build. A default run, with or without `-O`, is unbounded. A hub
+built with `development_diagnostics=True` enables the bound, and one built with
+`development_diagnostics=False` disables it, under any interpreter mode
+(ADR-0256).
+
 ### 3.4 Subscriber resilience
 
 If a subscriber's handler raises, the hub MUST swallow the exception (the stream
