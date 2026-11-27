@@ -5,7 +5,9 @@ using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
 using VMx.Commands;
 using VMx.Components;
+using VMx.Composites;
 using VMx.Internal;
+using VMx.Lifecycle;
 
 namespace VMx.Collections;
 
@@ -205,17 +207,40 @@ public sealed class TokenPagedComposition<TVM, TToken> :
     private void ConstructIfNeeded(IReadOnlyList<TVM> items, long generation)
     {
         if (!_autoConstructOnAdd) return;
-        foreach (var item in items)
+        var constructed = new List<(ComponentVMBase Item, ConstructionStatus OriginalStatus)>();
+        try
         {
-            // A hook (PagesEqual or an item's construct) may dispose this
-            // composition or start a newer operation; stale work stops before
-            // it constructs anything else (spec/21 §6).
-            lock (_gate)
+            foreach (var item in items)
             {
-                if (_disposed || generation != _operationGeneration) return;
+                // A hook (PagesEqual or an item's construct) may dispose this
+                // composition or start a newer operation; stale work stops before
+                // it constructs anything else (spec/21 §6).
+                lock (_gate)
+                {
+                    if (_disposed || generation != _operationGeneration) return;
+                }
+                if (item is ComponentVMBase vm && !vm.IsConstructed)
+                {
+                    var originalStatus = vm.Status;
+                    vm.Construct();
+                    constructed.Add((vm, originalStatus));
+                }
             }
-            if (item is ComponentVMBase vm && !vm.IsConstructed)
-                vm.Construct();
+        }
+        catch (Exception originalError)
+        {
+            // Destruct what this operation constructed, last first, back to
+            // Destructed (spec/21 §6.2, ADR-0261). A failed compensation is the
+            // rollback failure, which keeps the original failure (ADR-0123).
+            var rollbackFailures = new List<Exception>();
+            for (var index = constructed.Count - 1; index >= 0; index--)
+                ContainerMembership.Compensate(
+                    constructed[index].Item, constructed[index].OriginalStatus, rollbackFailures);
+            if (rollbackFailures.Count > 0)
+                throw new AggregateException(
+                    "Auto-construct failed and rollback could not restore lifecycle state.",
+                    new[] { originalError }.Concat(rollbackFailures));
+            throw;
         }
     }
 

@@ -8,6 +8,39 @@ import XCTest
 import Combine
 @testable import VMx
 
+/// Errors a scripted COL-075 child throws from its construct or destruct hook.
+private enum Col075Error: Error, Equatable {
+    case constructFailed
+    case destructFailed
+}
+
+/// A component whose construct or destruct hook throws on demand (COL-075).
+private final class Col075Child: ComponentVMBase {
+    init(_ name: String, constructError: Col075Error? = nil, destructError: Col075Error? = nil) {
+        super.init(
+            name: name,
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            onConstruct: { if let constructError { throw constructError } },
+            onDestruct: { if let destructError { throw destructError } }
+        )
+    }
+}
+
+/// Hands out a scripted page sequence to the fetch of a COL-075 refresh test.
+private final class Col075Pages: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pages: [([ComponentVMBase], String?)]
+
+    init(_ pages: [([ComponentVMBase], String?)]) {
+        self.pages = pages
+    }
+
+    func next() -> ([ComponentVMBase], String?) {
+        lock.withLock { pages.removeFirst() }
+    }
+}
+
 final class TokenPagedCompositionTests: XCTestCase {
     private var cancellables: Set<AnyCancellable> = []
 
@@ -424,6 +457,138 @@ final class TokenPagedCompositionTests: XCTestCase {
             "children must be Constructed before subscribers see the Reset")
         XCTAssertTrue(first.isConstructed)
         XCTAssertTrue(second.isConstructed)
+    }
+
+    /// COL-075 — a failed auto-construct load rolls the page back and publishes nothing.
+    /// Catalog: the second of three construct hooks throws, so the load throws. The
+    /// first item, which the load constructed, is Destructed and the third never
+    /// constructs. Items, the token and hasMore are unchanged, and no Reset or
+    /// property event is sent.
+    func testCOL075FailedAutoConstructLoadRollsBackThePage() async throws {
+        let first = Col075Child("first")
+        let second = Col075Child("second", constructError: .constructFailed)
+        let third = Col075Child("third")
+        let page: [ComponentVMBase] = [first, second, third]
+        let sut = TokenPagedComposition<ComponentVMBase, String>(
+            fetchNext: { _ in (page, "next") },
+            autoConstructOnAdd: true
+        )
+        var resets = 0
+        var propertyEvents: [String] = []
+        sut.collectionChanged.sink { event in
+            if event.action == .reset { resets += 1 }
+        }.store(in: &cancellables)
+        sut.propertyChanged.sink { propertyEvents.append($0) }.store(in: &cancellables)
+
+        do {
+            try await sut.loadMoreCommand.executeAsync()
+            XCTFail("a failed construct must fail the load")
+        } catch {
+            XCTAssertEqual(error as? Col075Error, .constructFailed)
+        }
+
+        XCTAssertEqual(sut.items.count, 0)
+        XCTAssertNil(sut.currentToken)
+        XCTAssertTrue(sut.hasMore)
+        XCTAssertEqual(resets, 0)
+        XCTAssertEqual(propertyEvents, [])
+        XCTAssertEqual(
+            [first.status, second.status, third.status],
+            [.destructed, .destructed, .destructed]
+        )
+    }
+
+    /// COL-075 — a failed auto-construct refresh keeps the accumulator and publishes nothing.
+    /// Catalog: a refresh that replaces the accumulator constructs its fresh page. When
+    /// one construct throws, the refresh throws, the fresh items it constructed are
+    /// Destructed, and Items, the token and the notifications are unchanged.
+    func testCOL075FailedAutoConstructRefreshKeepsTheAccumulator() async throws {
+        let kept = Col075Child("kept")
+        let fresh = [
+            Col075Child("fresh-1"),
+            Col075Child("fresh-2", constructError: .constructFailed),
+            Col075Child("fresh-3"),
+        ]
+        let pages = Col075Pages([([kept], "next"), (fresh, nil)])
+        let sut = TokenPagedComposition<ComponentVMBase, String>(
+            fetchNext: { _ in pages.next() },
+            autoConstructOnAdd: true
+        )
+        try await sut.loadMoreCommand.executeAsync()
+        var resets = 0
+        var propertyEvents: [String] = []
+        sut.collectionChanged.sink { event in
+            if event.action == .reset { resets += 1 }
+        }.store(in: &cancellables)
+        sut.propertyChanged.sink { propertyEvents.append($0) }.store(in: &cancellables)
+
+        do {
+            try await sut.refreshCommand.executeAsync()
+            XCTFail("a failed construct must fail the refresh")
+        } catch {
+            XCTAssertEqual(error as? Col075Error, .constructFailed)
+        }
+
+        XCTAssertEqual(sut.items.count, 1)
+        XCTAssertTrue(sut.items.first === kept)
+        XCTAssertEqual(sut.currentToken, "next")
+        XCTAssertEqual(resets, 0)
+        XCTAssertEqual(propertyEvents, [])
+        XCTAssertEqual(fresh.map(\.status), [.destructed, .destructed, .destructed])
+        XCTAssertEqual(kept.status, .constructed)
+    }
+
+    /// COL-075 — a failed auto-construct load keeps an item constructed before it.
+    /// Catalog: an item that was Constructed before the load keeps that status when a
+    /// later construct fails. Only the item the load constructed is Destructed.
+    func testCOL075FailedAutoConstructLoadKeepsAnItemConstructedBeforeIt() async throws {
+        let prior = Col075Child("prior")
+        try prior.construct()
+        let fresh = Col075Child("fresh")
+        let bad = Col075Child("bad", constructError: .constructFailed)
+        let sut = TokenPagedComposition<ComponentVMBase, String>(
+            fetchNext: { _ in ([prior, fresh, bad], nil) },
+            autoConstructOnAdd: true
+        )
+
+        do {
+            try await sut.loadMoreCommand.executeAsync()
+            XCTFail("a failed construct must fail the load")
+        } catch {
+            XCTAssertEqual(error as? Col075Error, .constructFailed)
+        }
+
+        XCTAssertEqual(sut.items.count, 0)
+        XCTAssertEqual(prior.status, .constructed)
+        XCTAssertEqual(fresh.status, .destructed)
+        XCTAssertEqual(bad.status, .destructed)
+    }
+
+    /// COL-075 — a failed rollback throws the rollback failure once, with both errors.
+    /// Catalog: the first item constructs, then the second construct fails. The rollback
+    /// destruct of the first item also fails, so the load throws a ContainerRollbackError
+    /// that keeps the construct failure as its original error and the destruct failure
+    /// as its compensation error. Nothing is committed.
+    func testCOL075FailedRollbackThrowsTheRollbackFailureOnce() async throws {
+        let stuck = Col075Child("stuck", destructError: .destructFailed)
+        let bad = Col075Child("bad", constructError: .constructFailed)
+        let sut = TokenPagedComposition<ComponentVMBase, String>(
+            fetchNext: { _ in ([stuck, bad], "next") },
+            autoConstructOnAdd: true
+        )
+
+        do {
+            try await sut.loadMoreCommand.executeAsync()
+            XCTFail("a failed rollback must fail the load")
+        } catch let rollback as ContainerRollbackError {
+            XCTAssertEqual(rollback.originalError as? Col075Error, .constructFailed)
+            XCTAssertEqual(rollback.compensationError as? Col075Error, .destructFailed)
+        } catch {
+            XCTFail("expected ContainerRollbackError, got \(error)")
+        }
+
+        XCTAssertEqual(sut.items.count, 0)
+        XCTAssertNil(sut.currentToken)
     }
 
     /// COL-031 — PagedComposition observes CompositeVM collection changes.

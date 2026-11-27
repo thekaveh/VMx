@@ -899,3 +899,10 @@ children materialization of `HierarchicalVM` join the wait-for graph (ADR-0260,
 queues its change for the delivering thread, and the other refused waits take
 the results that chapter 03 §4.1 names. The other four flavors do not change,
 and no conformance ID is added.
+
+v3.30.0 also makes a token pager's load or refresh fail and roll back when a
+construct under auto-construction fails (ADR-0261, #1907, `COL-075`). Each
+flavor destructs the items that the operation constructed, in reverse order,
+publishes no notification, and reports the failure once through its command. A
+failed compensation is the rollback failure. Rust's pager had committed the page
+and dropped the error; it now returns the error.

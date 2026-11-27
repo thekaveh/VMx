@@ -161,15 +161,39 @@ public final class TokenPagedComposition<TVM, TToken> {
 
     private func constructIfNeeded(_ items: [TVM], generation: Int) throws {
         guard autoConstructOnAdd else { return }
-        for item in items {
-            // A hook (pagesEqual or an item's construct) may dispose this
-            // composition or start a newer operation; stale work stops before
-            // it constructs anything else (spec/21 §6).
-            let isCurrent = stateQueue.sync { !disposed && generation == operationGeneration }
-            guard isCurrent else { return }
-            if let vm = item as? ComponentVMBase, !vm.isConstructed {
-                try vm.construct()
+        var constructed: [(item: ComponentVMBase, originalStatus: ConstructionStatus)] = []
+        do {
+            for item in items {
+                // A hook (pagesEqual or an item's construct) may dispose this
+                // composition or start a newer operation; stale work stops before
+                // it constructs anything else (spec/21 §6).
+                let isCurrent = stateQueue.sync { !disposed && generation == operationGeneration }
+                guard isCurrent else { return }
+                if let vm = item as? ComponentVMBase, !vm.isConstructed {
+                    let originalStatus = vm.status
+                    try vm.construct()
+                    constructed.append((item: vm, originalStatus: originalStatus))
+                }
             }
+        } catch let originalError {
+            // Destruct what this operation constructed, last first, back to
+            // Destructed (spec/21 §6.2, ADR-0261). The first compensation failure
+            // is the rollback failure, which keeps the original failure (ADR-0123).
+            var compensationError: Error?
+            for entry in constructed.reversed() {
+                let failure = ContainerSupport.compensateAutoConstruct(
+                    entry.item, originalStatus: entry.originalStatus
+                )
+                if let failure, compensationError == nil {
+                    compensationError = failure
+                }
+            }
+            if let compensationError {
+                throw ContainerRollbackError(
+                    originalError: originalError, compensationError: compensationError
+                )
+            }
+            throw originalError
         }
     }
 
