@@ -7,6 +7,8 @@ use super::{
     CollectionChangedMessage, Message, MessageHub, Mutex, MutexGuard, PropertyChangedMessage,
     VmNode,
 };
+use crate::runtime::wait_for_owner;
+use crate::wait_for_graph::{waits, Resource};
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -21,6 +23,14 @@ struct TokenPagerLifecycleState {
     dispose_requested: bool,
     cancel_active: bool,
     disposed: bool,
+    /// The threads that wait for the commit or dispose state to change.
+    waiters: usize,
+}
+
+impl TokenPagerLifecycleState {
+    fn waiters(&mut self) -> &mut usize {
+        &mut self.waiters
+    }
 }
 
 struct TokenPagerLifecycle {
@@ -41,9 +51,26 @@ impl TokenPagerLifecycle {
                 dispose_requested: false,
                 cancel_active: false,
                 disposed: false,
+                waiters: 0,
             }),
             ready: Condvar::new(),
         }
+    }
+
+    /// The commit and dispose lifecycle, as one wait-for graph resource
+    /// (spec/03 §4.1).
+    fn resource(&self) -> Resource {
+        Resource::PagerLifecycle(std::ptr::from_ref(self) as usize)
+    }
+
+    /// Ends the outermost commit or the disposal, which the waiting threads
+    /// observe. The edges of those threads are removed before they wake
+    /// (spec/03 §4.1 rule 4).
+    fn release(&self, state: &mut TokenPagerLifecycleState) {
+        if state.waiters > 0 {
+            waits().release_waiters(self.resource(), &[]);
+        }
+        self.ready.notify_all();
     }
 
     fn is_terminal(&self) -> bool {
@@ -54,11 +81,21 @@ impl TokenPagerLifecycle {
     fn begin_commit(self: &Arc<Self>) -> Option<TokenPagerCommit> {
         let current = thread::current().id();
         let mut state = lock(&self.state);
-        while state.active_owner.is_some() && state.active_owner != Some(current) {
-            state = self
-                .ready
-                .wait(state)
-                .unwrap_or_else(|error| error.into_inner());
+        while let Some(owner) = state.active_owner.filter(|owner| *owner != current) {
+            let refused;
+            (state, refused) = wait_for_owner(
+                &self.state,
+                &self.ready,
+                state,
+                TokenPagerLifecycleState::waiters,
+                self.resource(),
+                owner,
+            );
+            if refused {
+                // The wait would close a wait-for cycle. The commit is
+                // discarded, so nothing is committed or published (ADR-0260).
+                return None;
+            }
         }
         if state.dispose_requested || state.disposed {
             return None;
@@ -87,11 +124,24 @@ impl TokenPagerLifecycle {
                 state.cancel_active = true;
                 return;
             }
+            // The first request's commit ends the pager: its finish sets
+            // `disposed`. A refused wait returns and leaves that to the commit.
             while !state.disposed {
-                state = self
-                    .ready
-                    .wait(state)
-                    .unwrap_or_else(|error| error.into_inner());
+                let Some(owner) = state.active_owner else {
+                    return;
+                };
+                let refused;
+                (state, refused) = wait_for_owner(
+                    &self.state,
+                    &self.ready,
+                    state,
+                    TokenPagerLifecycleState::waiters,
+                    self.resource(),
+                    owner,
+                );
+                if refused {
+                    return;
+                }
             }
             return;
         }
@@ -106,14 +156,26 @@ impl TokenPagerLifecycle {
             return;
         }
         state.dispose_requested = true;
-        while state.active_owner.is_some() {
-            state = self
-                .ready
-                .wait(state)
-                .unwrap_or_else(|error| error.into_inner());
+        while let Some(owner) = state.active_owner {
+            let refused;
+            (state, refused) = wait_for_owner(
+                &self.state,
+                &self.ready,
+                state,
+                TokenPagerLifecycleState::waiters,
+                self.resource(),
+                owner,
+            );
+            if refused {
+                // The wait would close a wait-for cycle. The request stands
+                // and the commit stops publishing, and its finish ends the
+                // pager, as the same-thread path does (ADR-0260).
+                state.cancel_active = true;
+                return;
+            }
         }
         state.disposed = true;
-        self.ready.notify_all();
+        self.release(&mut state);
     }
 
     fn commit_allowed(&self) -> bool {
@@ -138,7 +200,7 @@ impl TokenPagerLifecycle {
         if state.dispose_requested {
             state.disposed = true;
         }
-        self.ready.notify_all();
+        self.release(&mut state);
     }
 }
 

@@ -309,6 +309,11 @@ column instead of blocking.
 | A Rust `ObservableMultiDictionary` mutation waits for another thread's delivery         | The thread that delivers the changes         | The mutation commits and queues its change for that thread, which delivers it in commit order (chapter 21 §4.2, ADR-0208)                                                                                        |
 | A Rust `ValueStream` send or `dispose()` waits for another thread's delivery            | The thread that drains the stream            | The call returns without waiting. The value or terminal stays queued, and the drainer delivers it in order (ADR-0209)                                                                                            |
 | A Rust `DerivedProperty::recompute` waits for another thread's recompute gate           | The thread that holds the gate               | The call runs its transform at once, without the gate. Its result is discarded if another commit lands after its snapshot (ADR-0209)                                                                             |
+| A Rust serviced collection mutation waits for another thread's delivery                 | The thread that delivers the changes         | The mutation commits and queues its change for that thread, which delivers it in commit order (chapter 21 §2.13, ADR-0260). A panic that escapes the drain can leave the change unnotified.                      |
+| A Rust `TokenPagedComposition` load or refresh waits for another commit                 | The thread that holds the commit             | The commit is discarded: nothing is stored or published, and the call returns (chapter 21 §6, ADR-0260)                                                                                                          |
+| A Rust `TokenPagedComposition` `dispose()` waits for another commit or disposal         | The thread that holds the commit             | The call records the dispose request and returns, and the commit ends the pager and publishes nothing further (ADR-0260)                                                                                         |
+| A Rust `TokenPagedComposition` `load_next()` or `refresh()` joins its worker            | The worker that the join's edge names        | The call returns without joining. The worker runs on, and its commit follows the row above (ADR-0260)                                                                                                            |
+| A Rust `HierarchicalVm` children materialization waits for another thread               | The thread that runs the children factory    | `try_children` returns the structural overlap error, and `children` panics with it (ADR-0260)                                                                                                                    |
 
 1. **One graph.** A wait that would close a cycle across any mix of these
    waits is refused. A wait that closes no cycle blocks as before. No flavor
@@ -319,7 +324,10 @@ column instead of blocking.
    resource instance is one hub, one lifecycle delivery, one hook lease, one
    container's membership transaction, one ownership gate or lock object, one
    form's publication scope, one Rust dictionary's delivery, one Rust stream
-   value or terminal delivery, or one Rust recompute gate.
+   value or terminal delivery, one Rust recompute gate, one Rust serviced
+   collection's delivery, one Rust token pager's commit and dispose lifecycle,
+   one Rust command execution (the worker that a join waits for), or one Rust
+   hierarchy node's children materialization.
    An edge is never keyed by VM identity: a container that is also a child has
    a membership transaction and an ownership gate, and they are two resources.
    A waiting thread has at most one edge. A wait with several possible owners
@@ -335,8 +343,11 @@ column instead of blocking.
    publication, ends a membership transaction, releases an ownership gate,
    ends a batch, releases a drain, closes its outermost form publication
    scope, ends a Rust dictionary delivery, delivers a Rust stream value or
-   terminal, releases a Rust recompute gate, and when a borrower ends or
-   partially exits its borrowed scopes. A
+   terminal, releases a Rust recompute gate, ends a Rust serviced delivery,
+   ends a Rust token pager commit or disposal, ends a Rust children
+   materialization, and when a borrower ends or partially exits its borrowed
+   scopes. A joiner that waits for a Rust command worker removes its edge when
+   the join returns, and the worker has no wait left when it ends. A
    woken waiter that must still wait records its wait
    again. A stale edge never makes an operation take its refused-wait result,
    and a released owner never keeps a waiter blocked.

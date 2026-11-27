@@ -68,6 +68,9 @@ mod conformance {
     mod hierarchical;
     mod hierarchical_batch;
     mod hierarchical_disposed_node;
+    // Every case here observes the wait-for graph through a test seam.
+    #[cfg(feature = "test-seams")]
+    mod hierarchical_materialization_wait_cycle;
     mod hub_collection_changes;
     mod hub_disposal_during_publication;
     // Every case here observes the wait-for graph through a test seam.
@@ -106,11 +109,17 @@ mod conformance {
     mod reverse_destruct_order;
     mod search_filter;
     mod selection_transactions;
+    // Every case here observes the wait-for graph through a test seam.
+    #[cfg(feature = "test-seams")]
+    mod serviced_collection_wait_cycle;
     mod stream_wait_cycle;
     mod subscribe_value;
     mod threading;
     mod token_clone_reentry;
     mod token_load_terminal;
+    // Every case here observes the wait-for graph through a test seam.
+    #[cfg(feature = "test-seams")]
+    mod token_pager_wait_cycle;
     mod token_paging_failing_subscriber_steps;
     mod token_refresh_cursor;
     mod tree_selection;

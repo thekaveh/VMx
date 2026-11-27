@@ -297,6 +297,10 @@ wanting foreground delivery subscribe via `ObserveOn(dispatcher.Foreground)`
 after the fact, as they would for any other hub message
 (see [chapter 11 — threading](11-threading.md)).
 
+The one exception is a Rust mutation whose wait for another thread's delivery
+would close a wait-for cycle. Then the thread that delivers the changes
+publishes the mutation's change, as §2.13 states.
+
 ### 2.6 Ownership
 
 `ServicedObservableCollection<T>` does **not** own, construct, destruct, or
@@ -552,6 +556,16 @@ does not collapse keyed changes into Reset and does not weaken key-index
 atomicity. For reentrant mutations, each individual operation preserves its
 local-before-hub partial order; no one portable global ordering of nested local
 and external events is required.
+
+In Rust, one thread at a time delivers a serviced collection's changes, keyed
+or unkeyed. A mutation on another thread waits for that delivery and records the
+wait in the wait-for graph (chapter 03 §4.1). When the wait would close a cycle,
+the mutation commits and queues its change for the delivering thread, which
+delivers the changes in commit order, the local stream first and then the hub.
+The mutation may therefore return before its change is published. If a panic
+escapes the delivering thread's drain, the queued changes are discarded and a
+refused change can then go unnotified, although a subscriber's panic never
+causes this because the hub swallows it (chapter 03 §3.4, ADR-0260).
 
 ### 2.14 Ownership
 

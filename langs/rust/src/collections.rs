@@ -3,7 +3,7 @@
 //! Spec: `spec/21-collections.md`.
 
 use super::{
-    catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, AtomicBool, BTreeMap,
+    catch_unwind, lock, resume_unwind, thread, Arc, AssertUnwindSafe, AtomicBool, BTreeMap,
     CollectionChangeAction, CollectionChangedMessage, Condvar, Hash, HashMap, Message, MessageHub,
     Mutex, Ordering, PropertyChangedMessage, PropertyChangedStream, ThreadId, VecDeque, VmxError,
     VmxResult,
@@ -67,21 +67,63 @@ struct ServicedCollectionDelivery {
 struct ServicedCollectionDeliveryState {
     pending: VecDeque<Message>,
     draining_owner: Option<ThreadId>,
-    /// Counts published changes. Every effective mutation publishes, so a
+    /// Counts committed changes. Every effective mutation commits, so a
     /// caller that compared items on a copy detects an intervening change.
     revision: u64,
+    /// The threads that wait for the drain to end.
+    waiters: usize,
+}
+
+impl ServicedCollectionDeliveryState {
+    fn waiters(&mut self) -> &mut usize {
+        &mut self.waiters
+    }
 }
 
 impl ServicedCollectionDelivery {
     fn revision(&self) -> u64 {
         lock(&self.state).revision
     }
+
+    /// The drain, as one wait-for graph resource (spec/03 §4.1).
+    fn resource(&self) -> Resource {
+        Resource::ServicedDelivery(std::ptr::from_ref(self) as usize)
+    }
+
+    /// Ends the drain. The edges of the threads that wait for it are removed
+    /// before they wake (spec/03 §4.1 rule 4).
+    fn release(&self, state: &mut ServicedCollectionDeliveryState) {
+        state.draining_owner = None;
+        if state.waiters > 0 {
+            waits().release_waiters(self.resource(), &[]);
+        }
+        self.ready.notify_all();
+    }
+
+    /// Takes the drain for a refused admission when its owner released the
+    /// drain with changes still queued. The refused change then belongs to
+    /// this admission, which delivers it.
+    fn claim_released_drain(&self, current: ThreadId) -> bool {
+        let mut state = lock(&self.state);
+        if state.draining_owner.is_some() || state.pending.is_empty() {
+            return false;
+        }
+        state.draining_owner = Some(current);
+        true
+    }
 }
 
+/// One mutation's hold on a serviced collection's delivery. The admission owns
+/// the drain when no other thread drains, nests under its own thread's drain,
+/// or is refused when waiting for another thread's drain would close a
+/// wait-for cycle (ADR-0260).
 struct ServicedCollectionAdmission {
     delivery: Arc<ServicedCollectionDelivery>,
     current: ThreadId,
     owns_drain: bool,
+    /// The wait for another thread's drain was refused. The change is queued
+    /// for that thread, which delivers it in commit order.
+    refused: bool,
     armed: bool,
 }
 
@@ -89,10 +131,21 @@ impl ServicedCollectionAdmission {
     fn acquire(delivery: Arc<ServicedCollectionDelivery>) -> Self {
         let current = thread::current().id();
         let mut state = lock(&delivery.state);
-        while state.draining_owner.is_some_and(|owner| owner != current) {
-            state = wait(&delivery.ready, state);
+        let mut refused = false;
+        while let Some(owner) = state.draining_owner.filter(|owner| *owner != current) {
+            (state, refused) = wait_for_owner(
+                &delivery.state,
+                &delivery.ready,
+                state,
+                ServicedCollectionDeliveryState::waiters,
+                delivery.resource(),
+                owner,
+            );
+            if refused {
+                break;
+            }
         }
-        let owns_drain = state.draining_owner.is_none();
+        let owns_drain = !refused && state.draining_owner.is_none();
         if owns_drain {
             state.draining_owner = Some(current);
         }
@@ -101,20 +154,39 @@ impl ServicedCollectionAdmission {
             delivery,
             current,
             owns_drain,
+            refused,
             armed: true,
         }
     }
 
-    fn disarm(&mut self) {
+    /// Queues one committed change. The caller holds the collection's state
+    /// lock, so the queue order is the commit order (ADR-0260).
+    fn enqueue(&self, message: Message) {
+        let mut state = lock(&self.delivery.state);
+        debug_assert!(self.refused || state.draining_owner == Some(self.current));
+        state.pending.push_back(message);
+        state.revision = state.revision.wrapping_add(1);
+    }
+
+    /// Ends the admission and delivers what it queued. The owner delivers
+    /// every queued change in commit order, then releases the drain. A refused
+    /// admission takes a drain that was released with changes queued. A
+    /// nested admission leaves delivery to its outer admission.
+    fn deliver(mut self, local_hub: &MessageHub, external_hub: Option<&MessageHub>) {
         self.armed = false;
+        let drains =
+            self.owns_drain || (self.refused && self.delivery.claim_released_drain(self.current));
+        if drains {
+            drain_as_owner(&self.delivery, self.current, local_hub, external_hub);
+        }
     }
 }
 
 impl Drop for ServicedCollectionAdmission {
-    /// Releases a drain that was not handed to `publish` or `finish`. If user
-    /// code under the admission panicked, the messages its nested mutations
-    /// queued are discarded. A subscriber panic does the same, so a later
-    /// mutation never delivers them late (#1065).
+    /// Releases a drain that was not handed to `deliver`. If user code under
+    /// the admission panicked, the messages its nested mutations queued are
+    /// discarded, so a later mutation never delivers them late (#1065). The
+    /// hub swallows a subscriber's panic, so a subscriber never causes this.
     fn drop(&mut self) {
         if !self.armed || !self.owns_drain {
             return;
@@ -124,9 +196,55 @@ impl Drop for ServicedCollectionAdmission {
             state.pending.clear();
         }
         if state.draining_owner == Some(self.current) {
-            state.draining_owner = None;
+            self.delivery.release(&mut state);
         }
-        self.delivery.ready.notify_all();
+    }
+}
+
+/// Delivers every pending message as the drain owner, then releases the
+/// drain. A panic that escapes the drain clears the queue and re-raises. The
+/// hub swallows a subscriber's panic, so it does not reach this path.
+fn drain_as_owner(
+    delivery: &ServicedCollectionDelivery,
+    current: ThreadId,
+    local_hub: &MessageHub,
+    external_hub: Option<&MessageHub>,
+) {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        drain_delivery(delivery, current, local_hub, external_hub);
+    }));
+    if let Err(error) = result {
+        let mut state = lock(&delivery.state);
+        state.pending.clear();
+        if state.draining_owner == Some(current) {
+            delivery.release(&mut state);
+        }
+        drop(state);
+        resume_unwind(error);
+    }
+}
+
+fn drain_delivery(
+    delivery: &ServicedCollectionDelivery,
+    current: ThreadId,
+    local_hub: &MessageHub,
+    external_hub: Option<&MessageHub>,
+) {
+    loop {
+        let message = {
+            let mut state = lock(&delivery.state);
+            debug_assert_eq!(state.draining_owner, Some(current));
+            let Some(message) = state.pending.pop_front() else {
+                delivery.release(&mut state);
+                return;
+            };
+            message
+        };
+
+        local_hub.send(message.clone());
+        if let Some(hub) = external_hub {
+            hub.send(message);
+        }
     }
 }
 
@@ -202,15 +320,14 @@ where
     pub fn push(&self, item: T) {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
         let mut retired = None;
-        let index = {
+        {
             let mut inner = lock(&self.inner);
             let items = cow_mut(&mut inner, &mut retired);
             items.push(item);
-            items.len() - 1
-        };
-        publish_then_drop(retired, || {
-            self.publish(admission, CollectionChangeAction::Add, None, Some(index));
-        });
+            let index = items.len() - 1;
+            self.queue(&admission, CollectionChangeAction::Add, None, Some(index));
+        }
+        publish_then_drop(retired, || self.deliver(admission));
     }
 
     /// Removes the first item equal to `item`.
@@ -231,7 +348,7 @@ where
             let found = snapshot.iter().position(|candidate| candidate == item);
             drop(snapshot);
             let Some(index) = found else {
-                self.finish(admission);
+                self.deliver(admission);
                 return false;
             };
             let mut retired = None;
@@ -240,12 +357,17 @@ where
                 if self.delivery.revision() != revision {
                     continue;
                 }
-                cow_mut(&mut inner, &mut retired).remove(index)
+                let removed = cow_mut(&mut inner, &mut retired).remove(index);
+                self.queue(
+                    &admission,
+                    CollectionChangeAction::Remove,
+                    Some(index),
+                    None,
+                );
+                removed
             };
             // The removed item drops after the change is published (#1295).
-            publish_then_drop((removed, retired), || {
-                self.publish(admission, CollectionChangeAction::Remove, Some(index), None);
-            });
+            publish_then_drop((removed, retired), || self.deliver(admission));
             return true;
         }
     }
@@ -259,11 +381,16 @@ where
             if index >= inner.len() {
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
-            cow_mut(&mut inner, &mut retired).remove(index)
+            let removed = cow_mut(&mut inner, &mut retired).remove(index);
+            self.queue(
+                &admission,
+                CollectionChangeAction::Remove,
+                Some(index),
+                None,
+            );
+            removed
         };
-        publish_then_drop(retired, || {
-            self.publish(admission, CollectionChangeAction::Remove, Some(index), None);
-        });
+        publish_then_drop(retired, || self.deliver(admission));
         Ok(removed)
     }
 
@@ -276,16 +403,16 @@ where
             if index >= inner.len() {
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
-            std::mem::replace(&mut cow_mut(&mut inner, &mut retired)[index], item)
-        };
-        publish_then_drop(retired, || {
-            self.publish(
-                admission,
+            let old = std::mem::replace(&mut cow_mut(&mut inner, &mut retired)[index], item);
+            self.queue(
+                &admission,
                 CollectionChangeAction::Replace,
                 Some(index),
                 Some(index),
             );
-        });
+            old
+        };
+        publish_then_drop(retired, || self.deliver(admission));
         Ok(old)
     }
 
@@ -303,11 +430,11 @@ where
             if inner.is_empty() && snapshot.is_empty() {
                 return;
             }
-            std::mem::replace(&mut *inner, Arc::new(snapshot))
+            let previous = std::mem::replace(&mut *inner, Arc::new(snapshot));
+            self.queue(&admission, CollectionChangeAction::Reset, None, None);
+            previous
         };
-        publish_then_drop(previous, || {
-            self.publish(admission, CollectionChangeAction::Reset, None, None);
-        });
+        publish_then_drop(previous, || self.deliver(admission));
     }
 
     /// Moves an item between valid indices and publishes one move change.
@@ -327,108 +454,56 @@ where
             let items = cow_mut(&mut inner, &mut retired);
             let item = items.remove(from_index);
             items.insert(to_index, item);
-        }
-        publish_then_drop(retired, || {
-            self.publish(
-                admission,
+            self.queue(
+                &admission,
                 CollectionChangeAction::Move,
                 Some(from_index),
                 Some(to_index),
             );
-        });
+        }
+        publish_then_drop(retired, || self.deliver(admission));
         Ok(())
     }
 
     /// Clears a non-empty collection and publishes one reset change.
     pub fn clear(&self) {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
+        // The items drop after the reset is published (#1295).
         let previous = {
             let mut inner = lock(&self.inner);
             if inner.is_empty() {
                 return;
             }
-            std::mem::take(&mut *inner)
+            let previous = std::mem::take(&mut *inner);
+            self.queue(&admission, CollectionChangeAction::Reset, None, None);
+            previous
         };
-        // The items drop after the reset is published (#1295).
-        publish_then_drop(previous, || {
-            self.publish(admission, CollectionChangeAction::Reset, None, None);
-        });
+        publish_then_drop(previous, || self.deliver(admission));
     }
 
-    fn publish(
+    /// Queues the change of a commit. The caller holds `inner`, so the queue
+    /// order is the commit order (ADR-0260).
+    fn queue(
         &self,
-        mut admission: ServicedCollectionAdmission,
+        admission: &ServicedCollectionAdmission,
         action: CollectionChangeAction,
         old_index: Option<usize>,
         new_index: Option<usize>,
     ) {
-        let message = Message::CollectionChanged(CollectionChangedMessage {
+        admission.enqueue(Message::CollectionChanged(CollectionChangedMessage {
             sender_id: self.owner_id,
             sender_name: "ServicedObservableCollection".to_string(),
             property_name: "items".to_string(),
             action,
             old_index,
             new_index,
-        });
-
-        let current = admission.current;
-        let mut delivery = lock(&self.delivery.state);
-        debug_assert_eq!(delivery.draining_owner, Some(current));
-        delivery.pending.push_back(message);
-        delivery.revision = delivery.revision.wrapping_add(1);
-        if !admission.owns_drain {
-            admission.disarm();
-            return;
-        }
-        admission.disarm();
-        drop(delivery);
-        self.drain_as_owner(current);
+        }));
     }
 
-    /// Ends an admission that published nothing. When it owns the drain, a
-    /// nested mutation from user `PartialEq` may have queued messages
-    /// meanwhile; they are delivered before the drain is released (#747).
-    fn finish(&self, mut admission: ServicedCollectionAdmission) {
-        admission.disarm();
-        if admission.owns_drain {
-            self.drain_as_owner(admission.current);
-        }
-    }
-
-    /// Delivers every pending message as the drain owner, then releases the
-    /// drain. A panicking subscriber clears the queue and re-raises.
-    fn drain_as_owner(&self, current: ThreadId) {
-        let result = catch_unwind(AssertUnwindSafe(|| self.drain_delivery(current)));
-        if let Err(error) = result {
-            let mut delivery = lock(&self.delivery.state);
-            delivery.pending.clear();
-            if delivery.draining_owner == Some(current) {
-                delivery.draining_owner = None;
-            }
-            self.delivery.ready.notify_all();
-            drop(delivery);
-            resume_unwind(error);
-        }
-    }
-
-    fn drain_delivery(&self, current: ThreadId) {
-        loop {
-            let message = {
-                let mut delivery = lock(&self.delivery.state);
-                debug_assert_eq!(delivery.draining_owner, Some(current));
-                let Some(message) = delivery.pending.pop_front() else {
-                    delivery.draining_owner = None;
-                    self.delivery.ready.notify_all();
-                    return;
-                };
-                message
-            };
-
-            self.local_hub.send(message.clone());
-            if let Some(hub) = &self.external_hub {
-                hub.send(message);
-            }
-        }
+    /// Ends `admission` and delivers its queued changes to the local stream,
+    /// then to the external hub.
+    fn deliver(&self, admission: ServicedCollectionAdmission) {
+        admission.deliver(&self.local_hub, self.external_hub.as_ref());
     }
 }
 
@@ -691,11 +766,11 @@ where
             let duplicate = find_key(&candidates, &key.key).is_some();
             drop(candidates);
             if duplicate {
-                self.finish(admission);
+                self.deliver(admission);
                 return Err(Self::duplicate_key_error());
             }
             let mut retired = None;
-            let position = {
+            {
                 let mut inner = lock(&self.inner);
                 if self.delivery.revision() != revision {
                     continue;
@@ -704,11 +779,14 @@ where
                 cow_mut(&mut inner.items, &mut retired).push(item);
                 inner.index_key(&key, position);
                 inner.keys.push(key);
-                position
-            };
-            publish_then_drop(retired, || {
-                self.publish(admission, CollectionChangeAction::Add, None, Some(position));
-            });
+                self.queue(
+                    &admission,
+                    CollectionChangeAction::Add,
+                    None,
+                    Some(position),
+                );
+            }
+            publish_then_drop(retired, || self.deliver(admission));
             return Ok(());
         }
     }
@@ -727,7 +805,7 @@ where
             let found = snapshot.iter().position(|candidate| candidate == item);
             drop(snapshot);
             let Some(position) = found else {
-                self.finish(admission);
+                self.deliver(admission);
                 return false;
             };
             let removed = {
@@ -735,16 +813,16 @@ where
                 if self.delivery.revision() != revision {
                     continue;
                 }
-                Self::remove_membership(&mut inner, position)
-            };
-            publish_then_drop(removed, || {
-                self.publish(
-                    admission,
+                let removed = Self::remove_membership(&mut inner, position);
+                self.queue(
+                    &admission,
                     CollectionChangeAction::Remove,
                     Some(position),
                     None,
                 );
-            });
+                removed
+            };
+            publish_then_drop(removed, || self.deliver(admission));
             return true;
         }
     }
@@ -757,12 +835,17 @@ where
             if index >= inner.items.len() {
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
-            Self::remove_membership(&mut inner, index)
+            let removed = Self::remove_membership(&mut inner, index);
+            self.queue(
+                &admission,
+                CollectionChangeAction::Remove,
+                Some(index),
+                None,
+            );
+            removed
         };
         let (removed, old_key, retired) = removed;
-        publish_then_drop((old_key, retired), || {
-            self.publish(admission, CollectionChangeAction::Remove, Some(index), None);
-        });
+        publish_then_drop((old_key, retired), || self.deliver(admission));
         Ok(removed)
     }
 
@@ -776,7 +859,7 @@ where
             let found = find_key(&candidates, key);
             drop(candidates);
             let Some(position) = found else {
-                self.finish(admission);
+                self.deliver(admission);
                 return None;
             };
             let removed = {
@@ -784,17 +867,17 @@ where
                 if self.delivery.revision() != revision {
                     continue;
                 }
-                Self::remove_membership(&mut inner, position)
-            };
-            let (removed, old_key, retired) = removed;
-            publish_then_drop((old_key, retired), || {
-                self.publish(
-                    admission,
+                let removed = Self::remove_membership(&mut inner, position);
+                self.queue(
+                    &admission,
                     CollectionChangeAction::Remove,
                     Some(position),
                     None,
                 );
-            });
+                removed
+            };
+            let (removed, old_key, retired) = removed;
+            publish_then_drop((old_key, retired), || self.deliver(admission));
             return Some(removed);
         }
     }
@@ -812,7 +895,7 @@ where
             let owner = find_key(&candidates, &key.key);
             drop(candidates);
             if owner.is_some_and(|owner| owner != index) {
-                self.finish(admission);
+                self.deliver(admission);
                 return Err(Self::duplicate_key_error());
             }
             let mut retired = None;
@@ -823,19 +906,19 @@ where
                 }
                 if index >= inner.items.len() {
                     drop(inner);
-                    self.finish(admission);
+                    self.deliver(admission);
                     return Err(VmxError::InvalidArgument("index out of range".to_string()));
                 }
-                Self::replace_membership(&mut inner, index, key, item, &mut retired)
-            };
-            publish_then_drop((old_key, retired), || {
-                self.publish(
-                    admission,
+                let replaced = Self::replace_membership(&mut inner, index, key, item, &mut retired);
+                self.queue(
+                    &admission,
                     CollectionChangeAction::Replace,
                     Some(index),
                     Some(index),
                 );
-            });
+                replaced
+            };
+            publish_then_drop((old_key, retired), || self.deliver(admission));
             return Ok(old);
         }
     }
@@ -866,11 +949,11 @@ where
             if inner.items.is_empty() && fresh.items.is_empty() {
                 return Ok(());
             }
-            std::mem::replace(&mut *inner, fresh)
+            let previous = std::mem::replace(&mut *inner, fresh);
+            self.queue(&admission, CollectionChangeAction::Reset, None, None);
+            previous
         };
-        publish_then_drop(previous, || {
-            self.publish(admission, CollectionChangeAction::Reset, None, None);
-        });
+        publish_then_drop(previous, || self.deliver(admission));
         Ok(())
     }
 
@@ -886,7 +969,7 @@ where
             let existing = find_key(&candidates, &key.key);
             drop(candidates);
             let mut retired = None;
-            let (index, replaced) = {
+            let (replaced, added) = {
                 let mut inner = lock(&self.inner);
                 if self.delivery.revision() != revision {
                     continue;
@@ -894,28 +977,23 @@ where
                 if let Some(index) = existing {
                     let replaced =
                         Self::replace_membership(&mut inner, index, key, item, &mut retired);
-                    (index, Some(replaced))
+                    self.queue(
+                        &admission,
+                        CollectionChangeAction::Replace,
+                        Some(index),
+                        Some(index),
+                    );
+                    (Some(replaced), false)
                 } else {
                     let index = inner.items.len();
                     cow_mut(&mut inner.items, &mut retired).push(item);
                     inner.index_key(&key, index);
                     inner.keys.push(key);
-                    (index, None)
+                    self.queue(&admission, CollectionChangeAction::Add, None, Some(index));
+                    (None, true)
                 }
             };
-            let added = replaced.is_none();
-            publish_then_drop((replaced, retired), || {
-                if added {
-                    self.publish(admission, CollectionChangeAction::Add, None, Some(index));
-                } else {
-                    self.publish(
-                        admission,
-                        CollectionChangeAction::Replace,
-                        Some(index),
-                        Some(index),
-                    );
-                }
-            });
+            publish_then_drop((replaced, retired), || self.deliver(admission));
             return Ok(added);
         }
     }
@@ -940,15 +1018,14 @@ where
             let key = inner.keys.remove(from_index);
             inner.keys.insert(to_index, key);
             inner.repair_positions(from_index.min(to_index));
-        }
-        publish_then_drop(retired, || {
-            self.publish(
-                admission,
+            self.queue(
+                &admission,
                 CollectionChangeAction::Move,
                 Some(from_index),
                 Some(to_index),
             );
-        });
+        }
+        publish_then_drop(retired, || self.deliver(admission));
         Ok(())
     }
 
@@ -962,11 +1039,11 @@ where
             if inner.items.is_empty() {
                 return;
             }
-            std::mem::take(&mut *inner)
+            let previous = std::mem::take(&mut *inner);
+            self.queue(&admission, CollectionChangeAction::Reset, None, None);
+            previous
         };
-        publish_then_drop(previous, || {
-            self.publish(admission, CollectionChangeAction::Reset, None, None);
-        });
+        publish_then_drop(previous, || self.deliver(admission));
     }
 
     fn duplicate_key_error() -> VmxError {
@@ -1004,80 +1081,29 @@ where
         (std::mem::replace(&mut items[index], item), old_key)
     }
 
-    fn publish(
+    /// Queues the change of a commit. The caller holds `inner`, so the queue
+    /// order is the commit order (ADR-0260).
+    fn queue(
         &self,
-        mut admission: ServicedCollectionAdmission,
+        admission: &ServicedCollectionAdmission,
         action: CollectionChangeAction,
         old_index: Option<usize>,
         new_index: Option<usize>,
     ) {
-        let message = Message::CollectionChanged(CollectionChangedMessage {
+        admission.enqueue(Message::CollectionChanged(CollectionChangedMessage {
             sender_id: self.owner_id,
             sender_name: "KeyedServicedObservableCollection".to_string(),
             property_name: "items".to_string(),
             action,
             old_index,
             new_index,
-        });
-
-        let current = admission.current;
-        let mut delivery = lock(&self.delivery.state);
-        debug_assert_eq!(delivery.draining_owner, Some(current));
-        delivery.pending.push_back(message);
-        delivery.revision = delivery.revision.wrapping_add(1);
-        if !admission.owns_drain {
-            admission.disarm();
-            return;
-        }
-        admission.disarm();
-        drop(delivery);
-        self.drain_as_owner(current);
+        }));
     }
 
-    /// Ends an admission that published nothing. When it owns the drain, a
-    /// nested mutation from user `PartialEq` may have queued messages
-    /// meanwhile; they are delivered before the drain is released (#747).
-    fn finish(&self, mut admission: ServicedCollectionAdmission) {
-        admission.disarm();
-        if admission.owns_drain {
-            self.drain_as_owner(admission.current);
-        }
-    }
-
-    /// Delivers every pending message as the drain owner, then releases the
-    /// drain. A panicking subscriber clears the queue and re-raises.
-    fn drain_as_owner(&self, current: ThreadId) {
-        let result = catch_unwind(AssertUnwindSafe(|| self.drain_delivery(current)));
-        if let Err(error) = result {
-            let mut delivery = lock(&self.delivery.state);
-            delivery.pending.clear();
-            if delivery.draining_owner == Some(current) {
-                delivery.draining_owner = None;
-            }
-            self.delivery.ready.notify_all();
-            drop(delivery);
-            resume_unwind(error);
-        }
-    }
-
-    fn drain_delivery(&self, current: ThreadId) {
-        loop {
-            let message = {
-                let mut delivery = lock(&self.delivery.state);
-                debug_assert_eq!(delivery.draining_owner, Some(current));
-                let Some(message) = delivery.pending.pop_front() else {
-                    delivery.draining_owner = None;
-                    self.delivery.ready.notify_all();
-                    return;
-                };
-                message
-            };
-
-            self.local_hub.send(message.clone());
-            if let Some(hub) = &self.external_hub {
-                hub.send(message);
-            }
-        }
+    /// Ends `admission` and delivers its queued changes to the local stream,
+    /// then to the external hub.
+    fn deliver(&self, admission: ServicedCollectionAdmission) {
+        admission.deliver(&self.local_hub, self.external_hub.as_ref());
     }
 }
 

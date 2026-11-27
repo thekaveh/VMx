@@ -887,3 +887,10 @@ forwards the current flag through `VmNode`, so a composite selection reaches
 it (ADR-0259, #1853). The other four flavors already had these members through
 the component base class, so their behavior does not change. No conformance ID
 is added.
+
+v3.30.0 also makes the Rust serviced collections, the token pager, and the
+children materialization of `HierarchicalVM` join the wait-for graph (ADR-0260,
+#1923). A wait cycle through them no longer hangs. A refused serviced mutation
+queues its change for the delivering thread, and the other refused waits take
+the results that chapter 03 §4.1 names. The other four flavors do not change,
+and no conformance ID is added.
