@@ -60,7 +60,12 @@ the pager.
 
 ## 3. Consequences
 
-- A failed load or refresh leaves no live item outside `Items` in any flavor.
+- On an ordinary construct failure, every item that the failed load or refresh
+  constructed is destructed, so none stays `Constructed` outside `Items`. When a
+  compensating destruct also fails, that failure is the rollback failure (§2 rule 3):
+  the item whose destruct failed is left as that failure leaves it, and the other
+  constructed items are still destructed. Items of a superseded operation are out
+  of scope (#1627).
 - A successful load or refresh still constructs every item before the `Reset`
   (`COL-030`).
 - A refresh that keeps the accumulator constructs nothing, so it cannot fail this

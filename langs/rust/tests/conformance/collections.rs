@@ -2514,6 +2514,42 @@ fn token_failed_rollback_returns_the_rollback_failure_once() {
     assert_eq!(*errors.lock().unwrap(), vec![expected]);
 }
 
+/// A page item that is already Disposed fails the load with its construct error,
+/// and the items constructed before it are destructed, as for any failed construct
+/// (spec 21 §6.2, ADR-0261).
+#[test]
+fn token_failed_auto_construct_load_rejects_a_disposed_item() {
+    let first = ComponentVm::with_model("first", "model", MessageHub::new(), vmx::NullDispatcher);
+    let disposed =
+        ComponentVm::with_model("disposed", "model", MessageHub::new(), vmx::NullDispatcher);
+    disposed.dispose().expect("the item disposes");
+    let page = vec![first.clone(), disposed.clone()];
+    let pages = TokenPagedComposition::<ComponentVm<&str>, usize>::with_auto_construct_loader(
+        None,
+        move |_| (page.clone(), None),
+    );
+
+    let outcome = pages
+        .load_more_command()
+        .execute_async()
+        .join()
+        .expect("the load does not panic");
+
+    assert!(
+        matches!(
+            outcome,
+            Err(VmxError::InvalidLifecycleTransition {
+                from: ConstructionStatus::Disposed,
+                operation: "construct",
+            })
+        ),
+        "a disposed page item fails the load with its construct error, got {outcome:?}"
+    );
+    assert!(pages.items().is_empty());
+    assert_eq!(first.status(), ConstructionStatus::Destructed);
+    assert_eq!(disposed.status(), ConstructionStatus::Disposed);
+}
+
 /// DISP-006 — token paging disposal terminally disables owned commands and direct loading
 #[test]
 fn token_paging_dispose_is_idempotent_and_terminal() {
