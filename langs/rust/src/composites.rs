@@ -12,6 +12,7 @@ use super::{
     ParentHandle, ParentRegistration, ParentTransfer, PropertyChangedStream, PublicationLease,
     RelayCommand, StartAttempt, TreeNode, TreeNodeRef, ViewModelType, VmNode, VmxError, VmxResult,
 };
+use crate::collections::into_item;
 use crate::components::ComponentCommands;
 use crate::selection_inputs::membership_section;
 use crate::{Message, Subscription, ValueStream};
@@ -182,9 +183,8 @@ impl<T: VmNode> CompositeSelection<T> {
     /// not a member for selection (ADR-0189). Call under the gate.
     fn is_selectable_member_locked(&self, item: &T) -> bool {
         self.items
-            .to_vec()
-            .iter()
-            .any(|candidate| same_node(candidate, item))
+            .position_where(|candidate| same_node(candidate, item))
+            .is_some()
             && !lock(&self.uncommitted).staged.contains(&item.id())
             && item.status() != ConstructionStatus::Disposed
     }
@@ -530,6 +530,31 @@ pub trait SelectableVmCollection<T: VmNode>: VmCollection<T> {
 ///
 /// Membership transfers are atomic, selection is restricted to constructed
 /// children, and lifecycle transitions propagate through the child snapshot.
+///
+/// Membership changes run under the membership gate, and selection commits
+/// run under the same gate. Under that gate, a child's `Clone` runs in these
+/// places, and a `Clone` that calls back into this composite's membership or
+/// selection operations may block or deadlock in any of them (derived from the
+/// code; not probed):
+///
+/// - the rollback of a detach or of a replace, which copies the child back into
+///   the collection;
+/// - the selection commit `commit_locked`, which stores a copy of the selected
+///   child as the current child. It runs for `select`, `set_current`,
+///   `select_component`, asynchronous selection, and the construct walk's
+///   selector result (`assign_selector_result`). The selector result copies its
+///   argument under the gate as well.
+///
+/// Every other copy runs with no gate held. `add`, `insert`, `add_range` and
+/// `replace` copy their argument before the gate is taken. `remove` and `clear`
+/// copy no child. `remove_at`, `replace` and `dispose` copy the child they
+/// return or the children they dispose after the gate is released.
+///
+/// `current()` copies the current child under the `current` mutex, not under
+/// the membership gate. A `Clone` that calls `current()` on the same composite
+/// may therefore deadlock. This is derived from the code and was not probed.
+///
+/// The residuals of #1925 are documented here and are not changed.
 pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
     commands: Arc<ComponentCommands>,
@@ -607,7 +632,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             },
             {
                 let items = items.clone();
-                move |child_id| items.to_vec().iter().any(|item| item.id() == child_id)
+                move |child_id| items.position_where(|item| item.id() == child_id).is_some()
             },
             {
                 let core = core.clone();
@@ -626,12 +651,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                         return Err(VmxError::Disposed);
                     }
                     let index = items
-                        .to_vec()
-                        .iter()
-                        .position(|item| item.id() == child_id)
+                        .position_where(|item| item.id() == child_id)
                         .ok_or(VmxError::InconsistentParent)?;
+                    // The child's handle is taken with no `T::clone` under the
+                    // gate; the rollback makes the owned copy (#1925).
                     let removed = items
-                        .remove_at_silent(index)
+                        .remove_at_handle(index)
                         .ok_or(VmxError::InconsistentParent)?;
                     // The detach stays uncommitted until the commit or the
                     // rollback runs (spec/06 §4.3 rule 4).
@@ -639,7 +664,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     let commit_items = items.clone();
                     let commit_selection = selection.clone();
                     let commit_core = core.clone();
-                    let commit_removed = removed.clone();
+                    let commit_removed = Arc::clone(&removed);
                     let rollback_items = items.clone();
                     let rollback_selection = selection.clone();
                     let rollback_gate = Arc::clone(&detach_gate);
@@ -690,8 +715,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                                 let _ = transaction.finish();
                                 return Ok(());
                             }
-                            let _ = rollback_items
-                                .insert_silent(index.min(rollback_items.len()), removed.clone());
+                            let _ = rollback_items.insert_silent(
+                                index.min(rollback_items.len()),
+                                into_item(Arc::clone(&removed)),
+                            );
                             removed.set_parent_handle(Some(owner_handle));
                             drop(_gate);
                             let _ = transaction.finish();
@@ -714,9 +741,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 let selection = selection.clone();
                 move |child_id| {
                     let item = items
-                        .to_vec()
-                        .into_iter()
-                        .find(|item| item.id() == child_id)
+                        .find_where(|item| item.id() == child_id)
                         .ok_or(VmxError::NonChild)?;
                     selection.request(&core, Some(item), true, None)
                 }
@@ -949,6 +974,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let original_status = item.status();
         let mut late_start;
         let mut staged = self.selection.staging();
+        // The stored copy is made before the membership gate is taken (#1925).
+        let stored = item.clone();
         let index = {
             let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -959,7 +986,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
             let index = self.len();
             item.set_parent_handle(Some(self.ownership.handle()));
-            self.items.insert_silent(index, item.clone())?;
+            self.items.insert_silent(index, stored)?;
             // Attached but not admitted: not a member for selection yet
             // (spec/06 §4.3 rule 2).
             staged.stage(item.id());
@@ -980,12 +1007,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             if let Some(start) = late_start.as_mut() {
                 start.forget();
             }
-            if let Some(index) = self
-                .items()
-                .iter()
-                .position(|child| child.id() == item.id())
-            {
-                let _ = self.items.remove_at_silent(index);
+            if let Some(index) = self.items.position_where(|child| child.id() == item.id()) {
+                let _ = self.items.remove_at_handle(index);
             }
             staged.admit();
             if item
@@ -1045,6 +1068,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let mut transfers = Vec::with_capacity(candidates.len());
         let mut original_statuses = Vec::with_capacity(candidates.len());
         let mut staged = self.selection.staging();
+        // The stored copies are made before the membership gate is taken (#1925).
+        let copies = candidates.clone();
         let result = (|| {
             for child in &candidates {
                 let transfer = begin_parent_transfer(child, &self.ownership.handle())?;
@@ -1056,9 +1081,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 if self.disposal_pending() {
                     return Err(VmxError::Disposed);
                 }
-                for child in &candidates {
+                for (child, copy) in candidates.iter().zip(copies) {
                     child.set_parent_handle(Some(self.ownership.handle()));
-                    self.items.insert_silent(self.len(), child.clone())?;
+                    self.items.insert_silent(self.len(), copy)?;
                     // A staged population is not selectable until it commits
                     // (spec/06 §4.3 rule 2).
                     staged.stage(child.id());
@@ -1081,8 +1106,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             let mut compensation_error = None;
             let _gate = membership_section(&self.membership_gate);
             for child in candidates.iter().rev() {
-                if let Some(index) = self.items().iter().position(|item| item.id() == child.id()) {
-                    let _ = self.items.remove_at_silent(index);
+                if let Some(index) = self.items.position_where(|item| item.id() == child.id()) {
+                    let _ = self.items.remove_at_handle(index);
                 }
             }
             staged.admit();
@@ -1124,9 +1149,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         for child in &candidates {
             if let Some(index) = self
                 .items
-                .to_vec()
-                .iter()
-                .position(|candidate| candidate.id() == child.id())
+                .position_where(|candidate| candidate.id() == child.id())
             {
                 self.items.publish_add(index);
             }
@@ -1148,6 +1171,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let original_status = item.status();
         let mut late_start;
         let mut staged = self.selection.staging();
+        // The stored copy is made before the membership gate is taken (#1925).
+        let stored = item.clone();
         {
             let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -1163,7 +1188,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
             item.set_parent_handle(Some(self.ownership.handle()));
-            self.items.insert_silent(index, item.clone())?;
+            self.items.insert_silent(index, stored)?;
             staged.stage(item.id());
             late_start = self.attach_start(&item);
         }
@@ -1181,12 +1206,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             if let Some(start) = late_start.as_mut() {
                 start.forget();
             }
-            if let Some(position) = self
-                .items()
-                .iter()
-                .position(|child| child.id() == item.id())
-            {
-                let _ = self.items.remove_at_silent(position);
+            if let Some(position) = self.items.position_where(|child| child.id() == item.id()) {
+                let _ = self.items.remove_at_handle(position);
             }
             staged.admit();
             if item
@@ -1238,11 +1259,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         )?;
         let removed = {
             let _gate = membership_section(&self.membership_gate);
-            self.items()
-                .iter()
-                .position(|candidate| same_node(candidate, item))
+            self.items
+                .position_where(|candidate| same_node(candidate, item))
                 .map(|index| {
-                    let removed = self.items.remove_at_silent(index).expect("index checked");
+                    let removed = self.items.remove_at_handle(index).expect("index checked");
                     let cleared = self.selection.clear_if_current_locked(&removed);
                     (index, removed, cleared)
                 })
@@ -1262,6 +1282,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     /// Removes and returns the child at `index`.
+    ///
+    /// The returned child is copied after the removal is published and the
+    /// membership gate is released, so its `Clone` runs with no gate held
+    /// (#1925).
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
         self.reject_if_disposed()?;
         let transaction = begin_membership_transaction(
@@ -1272,7 +1296,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             let _gate = membership_section(&self.membership_gate);
             let removed = self
                 .items
-                .remove_at_silent(index)
+                .remove_at_handle(index)
                 .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
             let cleared = self.selection.clear_if_current_locked(&removed);
             (removed, cleared)
@@ -1286,7 +1310,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let published = self.publish_current(cleared);
         self.items.publish_remove(index);
         published.and(transaction.finish())?;
-        Ok(removed)
+        Ok(into_item(removed))
     }
 
     /// Replaces and returns a child using atomic ownership transfer.
@@ -1299,6 +1323,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let original_status = item.status();
         let mut late_start;
         let mut staged = self.selection.staging();
+        // The stored copy is made before the membership gate is taken (#1925).
+        let stored = item.clone();
         let old = {
             let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() {
@@ -1308,7 +1334,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 return Err(VmxError::Disposed);
             }
             item.set_parent_handle(Some(self.ownership.handle()));
-            match self.items.replace_silent(index, item.clone()) {
+            match self.items.replace_handle(index, stored) {
                 Ok(old) => {
                     staged.stage(item.id());
                     late_start = self.attach_start(&item);
@@ -1339,11 +1365,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 start.forget();
             }
             if let Some(attached) = self
-                .items()
-                .iter()
-                .position(|candidate| candidate.id() == item.id())
+                .items
+                .position_where(|candidate| candidate.id() == item.id())
             {
-                let _ = self.items.replace_silent(attached, old.clone());
+                let _ = self
+                    .items
+                    .replace_handle(attached, into_item(Arc::clone(&old)));
                 old.set_parent_handle(Some(self.ownership.handle()));
                 item.set_parent_handle(None);
             }
@@ -1388,7 +1415,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         }
         match commit_error {
             Some(error) => Err(error),
-            None => Ok(old),
+            // The old child is copied after the replacement is published and
+            // the membership gate is released (#1925).
+            None => Ok(into_item(old)),
         }
     }
 
@@ -1425,7 +1454,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         )?;
         let (removed, cleared) = {
             let _gate = membership_section(&self.membership_gate);
-            for item in self.items() {
+            for item in self.items.handles() {
                 if item
                     .parent_handle()
                     .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
@@ -1434,10 +1463,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
             }
             let removed = self.items.take_silent();
-            let current = lock(&self.current).clone();
-            let cleared = current
-                .filter(|current| removed.iter().any(|item| same_node(item, current)))
-                .and_then(|current| self.selection.clear_if_current_locked(&current));
+            // The current child is matched by its id, so no copy of it runs
+            // under the gate (#1925).
+            let current_id = lock(&self.current).as_ref().map(|current| current.id());
+            let cleared = current_id
+                .and_then(|id| removed.iter().find(|item| item.id() == id))
+                .and_then(|current| self.selection.clear_if_current_locked(current));
             (removed, cleared)
         };
         // `is_current` is published after the membership gate is released: a
@@ -1701,7 +1732,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     } else {
                         // A disposed container publishes nothing (ADR-0142).
                         self.items.close_publication();
-                        Some(self.items())
+                        Some(self.items.handles())
                     };
                 }
             }
@@ -1709,6 +1740,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let Some(snapshot) = snapshot else {
             return Ok(());
         };
+        // The children are copied after the membership gate is released (#1925).
+        let snapshot: Vec<T> = snapshot.into_iter().map(into_item).collect();
         let children = self.destruct_order.arrange(snapshot);
         let commands = self.commands.clone();
         self.core.dispose_container_then(
