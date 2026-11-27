@@ -1093,20 +1093,29 @@ fn notify_state<T, D: Dispatcher>(inner: &Inner<T, D>) {
 }
 
 // Unit-test instrumentation only: counts the times a load's waiting thread
-// blocks before the load settles.
+// blocks before the load settles, and reports each block to an optional
+// observer before the thread waits.
 #[cfg(test)]
 mod load_waits {
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
+    use std::sync::mpsc::Sender;
 
     thread_local! {
         static WAITS: Cell<usize> = const { Cell::new(0) };
+        static OBSERVER: RefCell<Option<Sender<()>>> = const { RefCell::new(None) };
     }
 
     pub(super) fn record() {
         WAITS.with(|waits| waits.set(waits.get() + 1));
+        OBSERVER.with(|observer| {
+            if let Some(observer) = observer.borrow().as_ref() {
+                let _ = observer.send(());
+            }
+        });
     }
 
-    pub(super) fn counted<R>(work: impl FnOnce() -> R) -> (R, usize) {
+    pub(super) fn counted<R>(observer: Option<Sender<()>>, work: impl FnOnce() -> R) -> (R, usize) {
+        OBSERVER.with(|slot| *slot.borrow_mut() = observer);
         let before = WAITS.with(Cell::get);
         let result = work();
         (result, WAITS.with(Cell::get) - before)
@@ -1127,12 +1136,18 @@ mod tests {
 
     // Runs one load on a helper thread, so a waiter that never wakes fails
     // the bound instead of hanging the test, and returns how often it blocked.
-    fn waits_for_one_load(resource: &AsyncResourceVm<i32>, intent: StartIntent) -> usize {
+    // `observer` receives one message per block, before the block.
+    fn waits_for_one_load(
+        resource: &AsyncResourceVm<i32>,
+        intent: StartIntent,
+        observer: Option<mpsc::Sender<()>>,
+    ) -> usize {
         let inner = resource.inner.clone();
         let (reported, report) = mpsc::channel();
         thread::spawn(move || {
-            let (result, waits) =
-                load_waits::counted(|| run_intent(inner, intent, CancellationToken::new()));
+            let (result, waits) = load_waits::counted(observer, || {
+                run_intent(inner, intent, CancellationToken::new())
+            });
             let _ = reported.send((result, waits));
         });
         let (result, waits) = report
@@ -1149,7 +1164,7 @@ mod tests {
             Ok(1)
         });
 
-        let waits = waits_for_one_load(&resource, StartIntent::Load);
+        let waits = waits_for_one_load(&resource, StartIntent::Load, None);
 
         assert_eq!(resource.value(), Some(1));
         assert!(
@@ -1162,29 +1177,33 @@ mod tests {
     fn cancellation_wakes_a_waiting_load_without_polling() {
         let (release, released) = mpsc::channel::<()>();
         let released = Mutex::new(released);
-        let (started_sender, started) = mpsc::channel();
         let resource = AsyncResourceVm::new("resource", move |_| {
-            let _ = started_sender.send(());
             let _ = released.lock().unwrap().recv();
             Ok(1)
         });
+        let (blocked, parked) = mpsc::channel();
         let canceller = {
             let resource = resource.clone();
             thread::spawn(move || {
-                started.recv_timeout(BOUND).expect("the loader started");
-                thread::sleep(LOAD_DURATION);
+                // The cancellation is ordered after the waiter's first block,
+                // not after a wall-clock delay, so it never lands before the
+                // waiter has blocked on this load.
+                parked.recv_timeout(BOUND).expect("the waiter blocked");
                 resource.cancel();
             })
         };
 
-        let waits = waits_for_one_load(&resource, StartIntent::Load);
+        let waits = waits_for_one_load(&resource, StartIntent::Load, Some(blocked));
         canceller.join().unwrap();
         release.send(()).unwrap();
 
         assert_eq!(resource.resource_status(), AsyncResourceStatus::Idle);
+        // The cancellation wakes the one block the waiter took. One extra
+        // block is tolerated because a condition variable may wake spuriously
+        // in the short interval between the first block and the cancellation.
         assert!(
             waits <= 2,
-            "the waiter blocked {waits} times before a cancellation {LOAD_DURATION:?} in"
+            "the waiter blocked {waits} times before its cancellation"
         );
     }
 
