@@ -279,6 +279,35 @@ class GenerateDiagramsTests(unittest.TestCase):
         self.assertEqual(len(diagram.boxes), 22)
         self.assertEqual(len(diagram.boundaries), 5)
 
+    def test_example_diagrams_declare_their_own_arrows(self) -> None:
+        gui_arrows = sorted(self.generator.GUI_EXAMPLE_ARROWS)
+        console_arrows = sorted(self.generator.CONSOLE_ARROWS)
+        rust_console_arrows = sorted(self.generator.RUST_CONSOLE_ARROWS)
+        expected = {
+            "csharp-wpf-todo-app": (gui_arrows, True),
+            "csharp-avalonia-notes-showcase": (gui_arrows, True),
+            "python-tk-todo-app": (gui_arrows, True),
+            "python-textual-inspector": (gui_arrows, True),
+            "python-textual-notes-showcase": (gui_arrows, True),
+            "typescript-react-notes-showcase": (gui_arrows, True),
+            "swift-notes-showcase": (gui_arrows, True),
+            "csharp-console-hello-vmx": (console_arrows, False),
+            "python-console-hello-vmx": (console_arrows, False),
+            "typescript-console-hello-vmx": (console_arrows, False),
+            "rust-console-hello-vmx": (rust_console_arrows, False),
+        }
+        diagrams = self.generator.build_diagrams()
+
+        self.assertTrue(set(expected) <= set(diagrams))
+        for diagram_id, (arrows, has_gestures) in expected.items():
+            with self.subTest(diagram=diagram_id):
+                diagram = diagrams[diagram_id]
+                titles = {box.title for box in diagram.boxes}
+
+                self.assertEqual(sorted(line.label for line in diagram.lines), arrows)
+                self.assertIn("Run surface", titles)
+                self.assertEqual("User gestures" in titles, has_gestures)
+
     def test_layout_check_reports_known_collisions(self) -> None:
         diagram = self.generator.system_architecture()
         group = diagram.boundaries[0]
@@ -405,7 +434,7 @@ class GenerateDiagramsTests(unittest.TestCase):
         self.assertEqual(
             boxes["Specialized companions"].lines,
             (
-                "Lifecycle VM: AsyncResourceVM",
+                "Modal VM: ModalVM",
                 "Coordinators: Form / Discriminator",
                 "Notification / Confirmation",
             ),

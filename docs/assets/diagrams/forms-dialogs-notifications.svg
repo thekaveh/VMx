@@ -37,7 +37,7 @@
 <rect x="120" y="170" width="420" height="128" rx="8" fill="#0f172a"/>
 <rect x="120" y="170" width="420" height="128" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
 <text x="330" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">FormVM&lt;TM&gt;</text>
-<text x="330" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Snapshot captured at construct()</text>
+<text x="330" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Snapshot captured at construction</text>
 <text x="330" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Model mutates via SetModel()</text>
 <text x="330" y="262" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IsDirty derives from Model vs Snapshot</text>
 <rect x="120" y="336" width="200" height="118" rx="8" fill="#0f172a"/>

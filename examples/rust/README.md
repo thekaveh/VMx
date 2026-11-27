@@ -41,7 +41,7 @@ rust search matches: 1
 
 Cross-platform Ratatui showcase app. The terminal host is thin. VMx view
 models own notebook selection, note filtering, page state, editor mode, form
-validation, save/revert commands, global token search, and notifications.
+validation, save/revert methods, global token search, and notifications.
 
 ### 2.1. Parity Role
 
