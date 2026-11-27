@@ -562,7 +562,10 @@ or unkeyed. A mutation on another thread waits for that delivery and records the
 wait in the wait-for graph (chapter 03 §4.1). When the wait would close a cycle,
 the mutation commits and queues its change for the delivering thread, which
 delivers the changes in commit order, the local stream first and then the hub.
-The mutation may therefore return before its change is published (ADR-0260).
+The mutation may therefore return before its change is published. If a panic
+escapes the delivering thread's drain, the queued changes are discarded and a
+refused change can then go unnotified, although a subscriber's panic never
+causes this because the hub swallows it (chapter 03 §3.4, ADR-0260).
 
 ### 2.14 Ownership
 

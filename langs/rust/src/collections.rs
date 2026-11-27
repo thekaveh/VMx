@@ -185,8 +185,8 @@ impl ServicedCollectionAdmission {
 impl Drop for ServicedCollectionAdmission {
     /// Releases a drain that was not handed to `deliver`. If user code under
     /// the admission panicked, the messages its nested mutations queued are
-    /// discarded. A subscriber panic does the same, so a later mutation never
-    /// delivers them late (#1065).
+    /// discarded, so a later mutation never delivers them late (#1065). The
+    /// hub swallows a subscriber's panic, so a subscriber never causes this.
     fn drop(&mut self) {
         if !self.armed || !self.owns_drain {
             return;
@@ -202,7 +202,8 @@ impl Drop for ServicedCollectionAdmission {
 }
 
 /// Delivers every pending message as the drain owner, then releases the
-/// drain. A panicking subscriber clears the queue and re-raises.
+/// drain. A panic that escapes the drain clears the queue and re-raises. The
+/// hub swallows a subscriber's panic, so it does not reach this path.
 fn drain_as_owner(
     delivery: &ServicedCollectionDelivery,
     current: ThreadId,

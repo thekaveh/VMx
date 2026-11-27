@@ -88,6 +88,12 @@ struct BatchAttachCandidate<N, K> {
     subtree: Vec<(K, N)>,
 }
 
+/// The message of the overlap error that a structural call takes while a
+/// children materialization is active. A materialization that would wait
+/// inside a wait-for cycle takes it too (ADR-0260).
+const MATERIALIZATION_OVERLAP: &str =
+    "structural operation overlaps active children materialization";
+
 #[derive(Default)]
 struct ChildrenMaterializationState {
     owner: Option<ThreadId>,
@@ -843,19 +849,28 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     ///
     /// Panics when the children factory returns structurally invalid output
     /// (a duplicate child, this node or an ancestor, or an already-parented
-    /// child), re-enters structural materialization on its receiver, or would
-    /// wait for another thread's materialization inside a wait-for cycle
-    /// (ADR-0260). This is the fail-fast accessor of spec/18 §4 and ADR-0127,
-    /// matching Swift's `children`; use [`try_children`](Self::try_children)
-    /// to receive the error instead.
+    /// child) or re-enters structural materialization on its receiver. It also
+    /// panics when the call would close a wait-for cycle by waiting for another
+    /// thread's materialization (ADR-0260); that panic names the refused wait.
+    /// This is the fail-fast accessor of spec/18 §4 and ADR-0127, matching
+    /// Swift's `children`; use [`try_children`](Self::try_children) to receive
+    /// the error instead.
     pub fn children(&self) -> Vec<Self> {
         self.try_children().unwrap_or_else(|error| {
+            if matches!(&error, VmxError::InvalidArgument(message)
+                if message.as_str() == MATERIALIZATION_OVERLAP)
+            {
+                panic!("children materialization would close a wait-for cycle: {error}");
+            }
             panic!("children factory returned structurally invalid output: {error}")
         })
     }
 
     /// Materializes children after atomically validating the complete factory
     /// snapshot. Invalid output leaves the hierarchy unchanged and can be retried.
+    /// A call that would close a wait-for cycle by waiting for another thread's
+    /// materialization returns the structural overlap error instead of waiting
+    /// (ADR-0260).
     pub fn try_children(&self) -> VmxResult<Vec<Self>> {
         self.materialize_children()
     }
@@ -1205,8 +1220,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                 }
                 Some(owner) => {
                     drop(topology);
-                    let refused;
-                    (state, refused) = wait_for_owner(
+                    // The returned guard is released here. The loop locks the
+                    // state again on its next pass, so it is never read.
+                    let (returned, refused) = wait_for_owner(
                         state_lock,
                         ready,
                         state,
@@ -1214,13 +1230,13 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                         self.materialization_resource(),
                         owner,
                     );
+                    drop(returned);
                     if refused {
                         // The wait would close a wait-for cycle, so the call
                         // takes the overlap error that a structural call takes
                         // while a materialization is active (ADR-0260).
                         return Err(VmxError::InvalidArgument(
-                            "structural operation overlaps active children materialization"
-                                .to_string(),
+                            MATERIALIZATION_OVERLAP.to_string(),
                         ));
                     }
                 }
@@ -1486,7 +1502,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                 ));
             }
             return Err(VmxError::InvalidArgument(
-                "structural operation overlaps active children materialization".to_string(),
+                MATERIALIZATION_OVERLAP.to_string(),
             ));
         }
         Ok(())

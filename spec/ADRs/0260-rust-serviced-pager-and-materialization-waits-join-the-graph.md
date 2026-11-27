@@ -120,10 +120,12 @@ names. A wait that closes no cycle still blocks.
   nothing, so its loaded page is lost. A `load_next` or `refresh` can return
   before its page is stored. A `children()` call made from a drainer's
   subscriber can panic, where it would otherwise have hung.
-- If a drainer's subscriber panics, the drain clears its queue (#1065). A change
+- If a panic escapes a drain, the drain clears its queue (#1065), and a change
   that a refused mutation queued is then discarded too. The change stays in the
-  collection's state without a notification, as a nested change does after such
-  a panic. This is a known limit, and it is no worse than before.
+  collection's state without a notification. The hub swallows a subscriber's
+  panic (chapter 03 §3.4), so a subscriber's panic never causes this, and the
+  refused change is still notified (`a_refused_change_is_notified_after_a_drainer_subscriber_panics`).
+  This is a known limit, and it is no worse than before.
 - The serviced mutators now queue their changes under the state lock. Their
   delivery code is shared by the two serviced types. Pull request #1954 removes
   duplicate code in the same files and may need a rebase.

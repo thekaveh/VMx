@@ -182,6 +182,70 @@ fn refresh_from_a_drainer_whose_commit_wait_closes_a_cycle_returns() {
     );
 }
 
+/// Thread A holds a commit that publishes on the pager's hub, and the test holds
+/// that publish until thread B records its wait. B then makes `call` from a
+/// thread that holds no commit and drains nothing. Its join of the worker waits
+/// for A's commit, with no cycle, so the join blocks. Returns whether B recorded
+/// its wait, and the items after the call.
+fn join_from_a_thread_without_a_cycle(call: fn(&Pages)) -> (bool, Vec<i32>) {
+    let hub = MessageHub::new();
+    let pages = Pages::with_loader_and_hub(None, |_| (vec![9], Some(9)), hub.clone());
+    let pages_id = pages.id();
+    let deadline = Instant::now() + BOUND * 2;
+
+    let b_thread = Slot::default();
+    let b_waited = Arc::new(AtomicBool::new(false));
+    let _hold = {
+        let b_thread = b_thread.clone();
+        let b_waited = Arc::clone(&b_waited);
+        let gated = Arc::new(AtomicBool::new(false));
+        hub.subscribe(move |message| {
+            if message.sender_id() == pages_id && !gated.swap(true, Ordering::SeqCst) {
+                // Hold A's commit until B records its wait for the join.
+                let waited = eventually(|| b_thread.get().is_some_and(wait_registered_for_testing));
+                b_waited.store(waited, Ordering::SeqCst);
+            }
+        })
+    };
+
+    let a = {
+        let pages = pages.clone();
+        thread::spawn(move || pages.load_more(|_| (vec![1], Some(1))))
+    };
+    let b = {
+        let pages = pages.clone();
+        let b_thread = b_thread.clone();
+        thread::spawn(move || {
+            assert!(eventually(|| !pages.items().is_empty()));
+            b_thread.set(thread::current().id());
+            call(&pages);
+            pages.items()
+        })
+    };
+
+    join_by(a, deadline, "thread A");
+    let items = join_by(b, deadline, "thread B");
+    (b_waited.load(Ordering::SeqCst), items)
+}
+
+/// A `load_next` join with no cycle blocks until the worker's commit ends, so
+/// the call returns the joined page, not the refused-wait result.
+#[test]
+fn a_load_next_join_without_a_cycle_returns_the_joined_page() {
+    let (waited, items) = join_from_a_thread_without_a_cycle(|pages| pages.load_next());
+    assert!(waited, "B did not record its wait for the worker");
+    assert_eq!(items, vec![1, 9]);
+}
+
+/// A `refresh` join with no cycle blocks until the worker's commit ends, so the
+/// call returns the refreshed items, not the refused-wait result.
+#[test]
+fn a_refresh_join_without_a_cycle_returns_the_refreshed_items() {
+    let (waited, items) = join_from_a_thread_without_a_cycle(|pages| pages.refresh());
+    assert!(waited, "B did not record its wait for the worker");
+    assert_eq!(items, vec![9]);
+}
+
 /// A load that waits for another thread's commit, with no cycle, records its
 /// wait and still waits. Its page follows the committed one.
 #[test]

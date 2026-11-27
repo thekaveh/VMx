@@ -131,6 +131,71 @@ fn a_push_whose_delivery_wait_closes_a_cycle_queues_its_change() {
     assert_eq!(list.to_vec(), vec![1, 2]);
 }
 
+/// A drainer's subscriber that panics does not lose the refused change. The hub
+/// swallows a subscriber's panic (spec/03 §3.4), so the drain goes on and
+/// delivers the queued change, after the panicking change, in commit order.
+#[test]
+fn a_refused_change_is_notified_after_a_drainer_subscriber_panics() {
+    let hub = MessageHub::new();
+    let list = ServicedObservableCollection::with_hub(1, hub.clone());
+    let (local, _local) = changes(&list.collection_changed());
+    let _panics = list.collection_changed().subscribe(|message| {
+        if matches!(message, Message::CollectionChanged(change)
+            if change.new_index == Some(0))
+        {
+            panic!("subscriber failure");
+        }
+    });
+    let (published, _hub) = changes(&hub);
+    let deadline = Instant::now() + BOUND * 2;
+
+    let a_thread = Slot::default();
+    let batch_open = Arc::new(AtomicBool::new(false));
+
+    let b = {
+        let hub = hub.clone();
+        let list = list.clone();
+        let a_thread = a_thread.clone();
+        let batch_open = Arc::clone(&batch_open);
+        thread::spawn(move || {
+            hub.batch(|| {
+                batch_open.store(true, Ordering::SeqCst);
+                let a_waits =
+                    eventually(|| a_thread.get().is_some_and(wait_registered_for_testing));
+                if a_waits {
+                    list.push(2);
+                }
+                a_waits
+            })
+        })
+    };
+
+    let a = {
+        let list = list.clone();
+        let a_thread = a_thread.clone();
+        let batch_open = Arc::clone(&batch_open);
+        thread::spawn(move || {
+            assert!(eventually(|| batch_open.load(Ordering::SeqCst)));
+            a_thread.set(thread::current().id());
+            list.push(1);
+        })
+    };
+
+    assert!(
+        join_by(b, deadline, "thread B"),
+        "A never waited for B's batch"
+    );
+    join_by(a, deadline, "thread A");
+
+    let expected = vec![
+        (CollectionChangeAction::Add, Some(0)),
+        (CollectionChangeAction::Add, Some(1)),
+    ];
+    assert_eq!(*local.lock().unwrap(), expected);
+    assert_eq!(*published.lock().unwrap(), expected);
+    assert_eq!(list.to_vec(), vec![1, 2]);
+}
+
 /// The keyed collection shares the serviced admission, so the same cycle
 /// queues its change too.
 #[test]
