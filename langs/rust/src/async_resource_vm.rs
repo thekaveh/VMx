@@ -1131,8 +1131,10 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    const LOAD_DURATION: Duration = Duration::from_millis(100);
     const BOUND: Duration = Duration::from_secs(5);
+    // How long a parked waiter is given to block again before its report is
+    // released. It bounds only the no-polling probe, never the block count.
+    const QUIET_PERIOD: Duration = Duration::from_millis(250);
 
     // Runs one load on a helper thread, so a waiter that never wakes fails
     // the bound instead of hanging the test, and returns how often it blocked.
@@ -1159,17 +1161,36 @@ mod tests {
 
     #[test]
     fn a_waiting_load_blocks_until_its_loader_reports_instead_of_polling() {
-        let resource = AsyncResourceVm::new("resource", |_| {
-            thread::sleep(LOAD_DURATION);
+        let (release, released) = mpsc::channel::<()>();
+        let released = Mutex::new(released);
+        let resource = AsyncResourceVm::new("resource", move |_| {
+            let _ = released.lock().unwrap().recv();
             Ok(1)
         });
+        let (blocked, parked) = mpsc::channel();
+        let reporter = thread::spawn(move || {
+            // The loader reports only after the waiter's first block, not
+            // after a wall-clock delay, so the report never precedes the block.
+            parked.recv_timeout(BOUND).expect("the waiter blocked");
+            // Probe for blocks after the first. A waiter parked on its loader
+            // makes none, so the first probe times out. A polling waiter blocks
+            // on every poll and fills both probes, so the report then reaches
+            // it after three or more blocks, which the bound below rejects.
+            for _ in 0..2 {
+                if parked.recv_timeout(QUIET_PERIOD).is_err() {
+                    break;
+                }
+            }
+            release.send(()).unwrap();
+        });
 
-        let waits = waits_for_one_load(&resource, StartIntent::Load, None);
+        let waits = waits_for_one_load(&resource, StartIntent::Load, Some(blocked));
+        reporter.join().unwrap();
 
         assert_eq!(resource.value(), Some(1));
         assert!(
             waits <= 2,
-            "the waiter blocked {waits} times during a {LOAD_DURATION:?} load"
+            "the waiter blocked {waits} times before its loader reported"
         );
     }
 
