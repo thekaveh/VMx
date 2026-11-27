@@ -13,7 +13,9 @@ from vmx._disposal import _run_disposal_steps
 from vmx._subscriber_failures import FanOutSubject
 from vmx.collections.collection_changed import CollectionChangedEvent
 from vmx.commands.async_relay_command import AsyncRelayCommand
+from vmx.components._container_helpers import compensate_auto_construct
 from vmx.components.base import _ComponentVMBase
+from vmx.lifecycle.status import ConstructionStatus
 
 TVM = TypeVar("TVM")
 TToken = TypeVar("TToken")
@@ -140,14 +142,30 @@ class TokenPagedComposition(Generic[TVM, TToken]):
     def _construct_if_needed(self, items: Sequence[TVM], generation: int) -> None:
         if not self._auto_construct_on_add:
             return
-        for item in items:
-            # A hook (pages_equal or an item's construct) may dispose this
-            # composition or start a newer operation; stale work stops before
-            # it constructs anything else (spec/21 §6).
-            if self._disposed or generation != self._operation_generation:
-                return
-            if isinstance(item, _ComponentVMBase) and not item.is_constructed:
-                item.construct()
+        constructed: list[tuple[_ComponentVMBase, ConstructionStatus]] = []
+        try:
+            for item in items:
+                # A hook (pages_equal or an item's construct) may dispose this
+                # composition or start a newer operation; stale work stops before
+                # it constructs anything else (spec/21 §6).
+                if self._disposed or generation != self._operation_generation:
+                    return
+                if isinstance(item, _ComponentVMBase) and not item.is_constructed:
+                    original_status = item.status
+                    item.construct()
+                    constructed.append((item, original_status))
+        except BaseException as original_error:
+            # Destruct what this operation constructed, last first, back to
+            # Destructed (spec/21 §6.2, ADR-0261). The first compensation failure
+            # is the rollback failure, which keeps the original failure (ADR-0123).
+            compensation_error: BaseException | None = None
+            for child, original_status in reversed(constructed):
+                error = compensate_auto_construct(child, original_status)
+                if compensation_error is None:
+                    compensation_error = error
+            if compensation_error is not None:
+                raise compensation_error from original_error
+            raise
 
     # Each step runs even when an earlier subscriber raises, so a failing subscriber
     # skips no later step (spec/21 §6.2, ADR-0239, ADR-0220 rule 1). The first

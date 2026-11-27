@@ -6,6 +6,11 @@ import type { Observable } from "rxjs";
 import { AsyncRelayCommand } from "../commands/asyncRelayCommand.js";
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import {
+  compensateAutoConstruct,
+  ContainerRollbackError,
+} from "../components/parentTransfer.js";
+import { ConstructionStatus } from "../lifecycle/status.js";
+import {
   makeCollectionChangedEvent,
   type CollectionChangedEvent,
 } from "./collectionChangedEvent.js";
@@ -127,14 +132,32 @@ export class TokenPagedComposition<TVM, TToken> {
 
   #constructIfNeeded(items: readonly TVM[], generation: number): void {
     if (!this.#autoConstructOnAdd) return;
-    for (const item of items) {
-      // A hook (pagesEqual or an item's construct) may dispose this
-      // composition or start a newer operation; stale work stops before it
-      // constructs anything else (spec/21 §6).
-      if (!this.#isOperationCurrent(generation)) return;
-      if (item instanceof ComponentVMBase && !item.isConstructed) {
-        item.construct();
+    const constructed: { item: ComponentVMBase; originalStatus: ConstructionStatus }[] = [];
+    try {
+      for (const item of items) {
+        // A hook (pagesEqual or an item's construct) may dispose this
+        // composition or start a newer operation; stale work stops before it
+        // constructs anything else (spec/21 §6).
+        if (!this.#isOperationCurrent(generation)) return;
+        if (item instanceof ComponentVMBase && !item.isConstructed) {
+          const originalStatus = item.status;
+          item.construct();
+          constructed.push({ item, originalStatus });
+        }
       }
+    } catch (originalError) {
+      // Destruct what this operation constructed, last first, back to
+      // Destructed (spec/21 §6.2, ADR-0261). The first compensation failure is
+      // the rollback failure, which keeps the original failure (ADR-0123).
+      let compensationError: unknown;
+      for (const { item, originalStatus } of constructed.reverse()) {
+        const failure = compensateAutoConstruct(item, originalStatus);
+        if (compensationError === undefined) compensationError = failure;
+      }
+      if (compensationError !== undefined) {
+        throw new ContainerRollbackError(originalError, compensationError);
+      }
+      throw originalError;
     }
   }
 

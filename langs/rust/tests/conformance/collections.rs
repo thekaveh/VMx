@@ -2301,6 +2301,219 @@ fn token_auto_construct_constructs_before_reset_event() {
     );
 }
 
+fn eventually(condition: impl Fn() -> bool) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if condition() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    condition()
+}
+
+/// COL-075 — a failed auto-construct load rolls the page back and publishes nothing.
+/// Catalog: the second of three construct hooks fails, so the load fails. The first
+/// item, which the load constructed, is Destructed and the third never constructs.
+/// Items, the token and hasMore are unchanged, and no hub notification is sent.
+#[test]
+fn token_failed_auto_construct_load_rolls_back_the_page() {
+    let first = ComponentVm::with_model("first", "model", MessageHub::new(), vmx::NullDispatcher);
+    let second = ComponentVm::with_model("second", "model", MessageHub::new(), vmx::NullDispatcher);
+    second.on_construct(|| Err(VmxError::Other("construct failed".to_string())));
+    let third = ComponentVm::with_model("third", "model", MessageHub::new(), vmx::NullDispatcher);
+    let page = vec![first.clone(), second.clone(), third.clone()];
+    let pages = TokenPagedComposition::<ComponentVm<&str>, usize>::with_auto_construct_loader(
+        None,
+        move |_| (page.clone(), Some(1)),
+    );
+    let notifications = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = notifications.clone();
+    let _subscription = pages.hub().subscribe(move |message| {
+        if matches!(
+            message,
+            Message::CollectionChanged(_) | Message::PropertyChanged(_)
+        ) {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    });
+
+    let outcome = pages
+        .load_more_command()
+        .execute_async()
+        .join()
+        .expect("the load does not panic");
+
+    assert_eq!(
+        outcome,
+        Err(VmxError::Other("construct failed".to_string()))
+    );
+    assert!(pages.items().is_empty());
+    assert_eq!(pages.current_token(), None);
+    assert!(pages.has_more());
+    assert_eq!(notifications.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(
+        vec![first.status(), second.status(), third.status()],
+        vec![ConstructionStatus::Destructed; 3]
+    );
+}
+
+/// COL-075 — a failed auto-construct refresh keeps the accumulator and publishes nothing.
+/// Catalog: a refresh that replaces the accumulator constructs its fresh page. When one
+/// construct fails, the refresh fails, the fresh items it constructed are Destructed, and
+/// Items, the token and the notifications are unchanged.
+#[test]
+fn token_failed_auto_construct_refresh_keeps_the_accumulator() {
+    let kept = ComponentVm::with_model("kept", "model", MessageHub::new(), vmx::NullDispatcher);
+    let fresh_first =
+        ComponentVm::with_model("fresh-1", "model", MessageHub::new(), vmx::NullDispatcher);
+    let fresh_second =
+        ComponentVm::with_model("fresh-2", "model", MessageHub::new(), vmx::NullDispatcher);
+    fresh_second.on_construct(|| Err(VmxError::Other("construct failed".to_string())));
+    let fresh_third =
+        ComponentVm::with_model("fresh-3", "model", MessageHub::new(), vmx::NullDispatcher);
+    let fresh = vec![
+        fresh_first.clone(),
+        fresh_second.clone(),
+        fresh_third.clone(),
+    ];
+    let first_page = vec![kept.clone()];
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let loader_calls = calls.clone();
+    let pages = TokenPagedComposition::<ComponentVm<&str>, usize>::with_auto_construct_loader(
+        None,
+        move |_| {
+            if loader_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                (first_page.clone(), Some(1))
+            } else {
+                (fresh.clone(), None)
+            }
+        },
+    );
+    pages.load_next();
+    let notifications = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = notifications.clone();
+    let _subscription = pages.hub().subscribe(move |message| {
+        if matches!(
+            message,
+            Message::CollectionChanged(_) | Message::PropertyChanged(_)
+        ) {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    });
+
+    let outcome = pages
+        .refresh_command()
+        .execute_async()
+        .join()
+        .expect("the refresh does not panic");
+
+    assert_eq!(
+        outcome,
+        Err(VmxError::Other("construct failed".to_string()))
+    );
+    assert_eq!(
+        pages
+            .items()
+            .iter()
+            .map(|item| item.id())
+            .collect::<Vec<_>>(),
+        vec![kept.id()]
+    );
+    assert_eq!(pages.current_token(), Some(1));
+    assert_eq!(notifications.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(
+        vec![
+            fresh_first.status(),
+            fresh_second.status(),
+            fresh_third.status()
+        ],
+        vec![ConstructionStatus::Destructed; 3]
+    );
+    assert_eq!(kept.status(), ConstructionStatus::Constructed);
+}
+
+/// COL-075 — a failed auto-construct load keeps an item constructed before it.
+/// Catalog: an item that was Constructed before the load keeps that status when a
+/// later construct fails. Only the item the load constructed is Destructed.
+#[test]
+fn token_failed_auto_construct_load_keeps_an_item_constructed_before_it() {
+    let prior = ComponentVm::with_model("prior", "model", MessageHub::new(), vmx::NullDispatcher);
+    prior.construct().expect("the prior item constructs");
+    let fresh = ComponentVm::with_model("fresh", "model", MessageHub::new(), vmx::NullDispatcher);
+    let bad = ComponentVm::with_model("bad", "model", MessageHub::new(), vmx::NullDispatcher);
+    bad.on_construct(|| Err(VmxError::Other("construct failed".to_string())));
+    let page = vec![prior.clone(), fresh.clone(), bad.clone()];
+    let pages = TokenPagedComposition::<ComponentVm<&str>, usize>::with_auto_construct_loader(
+        None,
+        move |_| (page.clone(), None),
+    );
+
+    let outcome = pages
+        .load_more_command()
+        .execute_async()
+        .join()
+        .expect("the load does not panic");
+
+    assert_eq!(
+        outcome,
+        Err(VmxError::Other("construct failed".to_string()))
+    );
+    assert!(pages.items().is_empty());
+    assert_eq!(prior.status(), ConstructionStatus::Constructed);
+    assert_eq!(fresh.status(), ConstructionStatus::Destructed);
+    assert_eq!(bad.status(), ConstructionStatus::Destructed);
+}
+
+/// COL-075 — a failed rollback returns the rollback failure once, with both errors.
+/// Catalog: the first item constructs, then the second construct fails. The destruct of
+/// the first item also fails, so the load fails with a ContainerRollback error that
+/// holds both failures. Through execute(), the error stream receives that error once.
+#[test]
+fn token_failed_rollback_returns_the_rollback_failure_once() {
+    let expected = VmxError::ContainerRollback {
+        original: Box::new(VmxError::Other("construct failed".to_string())),
+        compensation: Box::new(VmxError::Other("destruct failed".to_string())),
+    };
+    let stuck_page = || {
+        let stuck =
+            ComponentVm::with_model("stuck", "model", MessageHub::new(), vmx::NullDispatcher);
+        stuck.on_destruct(|| Err(VmxError::Other("destruct failed".to_string())));
+        let bad = ComponentVm::with_model("bad", "model", MessageHub::new(), vmx::NullDispatcher);
+        bad.on_construct(|| Err(VmxError::Other("construct failed".to_string())));
+        vec![stuck, bad]
+    };
+
+    let by_join = TokenPagedComposition::<ComponentVm<&str>, usize>::with_auto_construct_loader(
+        None,
+        move |_| (stuck_page(), Some(1)),
+    );
+    let outcome = by_join
+        .load_more_command()
+        .execute_async()
+        .join()
+        .expect("the load does not panic");
+    assert_eq!(outcome, Err(expected.clone()));
+    assert!(by_join.items().is_empty());
+    assert_eq!(by_join.current_token(), None);
+
+    let by_execute = TokenPagedComposition::<ComponentVm<&str>, usize>::with_auto_construct_loader(
+        None,
+        move |_| (stuck_page(), Some(1)),
+    );
+    let errors = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = errors.clone();
+    let _subscription = by_execute
+        .load_more_command()
+        .error_stream()
+        .subscribe(move |error| observed.lock().unwrap().push(error));
+    by_execute.load_more_command().execute();
+
+    assert!(eventually(|| !errors.lock().unwrap().is_empty()));
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    assert_eq!(*errors.lock().unwrap(), vec![expected]);
+}
+
 /// DISP-006 — token paging disposal terminally disables owned commands and direct loading
 #[test]
 fn token_paging_dispose_is_idempotent_and_terminal() {

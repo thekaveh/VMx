@@ -12,6 +12,7 @@ from vmx.collections.paged_composition import PagedComposition
 from vmx.collections.token_paged_composition import TokenPagedComposition
 from vmx.components.component_vm import ComponentVM
 from vmx.composites.composite_vm import CompositeVM
+from vmx.lifecycle.status import ConstructionStatus
 from vmx.services.null_dispatcher import NULL_DISPATCHER
 from vmx.services.null_message_hub import NULL_MESSAGE_HUB
 
@@ -451,6 +452,125 @@ async def test_COL_030_token_paged_auto_constructs_added_component_vms() -> None
         "added component VMs are constructed before subscribers observe the reset"
     )
     assert child.is_constructed is True
+
+
+def _fail_construct() -> None:
+    raise RuntimeError("construct failed")
+
+
+def _fail_destruct() -> None:
+    raise RuntimeError("destruct failed")
+
+
+@pytest.mark.conformance("COL-075")
+async def test_COL_075_failed_auto_construct_load_rolls_back_the_page() -> None:
+    first = ComponentVM.builder().name("first").with_null_services().build()
+    second = (
+        ComponentVM.builder()
+        .name("second")
+        .with_null_services()
+        .on_construct(_fail_construct)
+        .build()
+    )
+    third = ComponentVM.builder().name("third").with_null_services().build()
+    page = [first, second, third]
+
+    async def fetch(token: str | None) -> tuple[list[ComponentVM], str | None]:
+        return (page, "next")
+
+    sut = TokenPagedComposition(fetch_next=fetch, auto_construct_on_add=True)
+    notifications: list[str] = []
+    sut.on_collection_changed.subscribe(lambda e: notifications.append(e.action))
+    sut.on_property_changed.subscribe(notifications.append)
+
+    with pytest.raises(RuntimeError, match="construct failed"):
+        await sut.load_more_command.execute_async()
+
+    assert sut.items == []
+    assert sut.current_token is None
+    assert sut.has_more is True
+    assert notifications == []
+    assert [vm.status for vm in page] == [ConstructionStatus.DESTRUCTED] * 3
+
+
+@pytest.mark.conformance("COL-075")
+async def test_COL_075_failed_auto_construct_refresh_keeps_the_accumulator() -> None:
+    kept = ComponentVM.builder().name("kept").with_null_services().build()
+    fresh = [
+        ComponentVM.builder().name("fresh-1").with_null_services().build(),
+        ComponentVM.builder()
+        .name("fresh-2")
+        .with_null_services()
+        .on_construct(_fail_construct)
+        .build(),
+        ComponentVM.builder().name("fresh-3").with_null_services().build(),
+    ]
+    pages: list[tuple[list[ComponentVM], str | None]] = [([kept], "next"), (fresh, None)]
+
+    async def fetch(token: str | None) -> tuple[list[ComponentVM], str | None]:
+        return pages.pop(0)
+
+    sut = TokenPagedComposition(fetch_next=fetch, auto_construct_on_add=True)
+    await sut.load_more_command.execute_async()
+    notifications: list[str] = []
+    sut.on_collection_changed.subscribe(lambda e: notifications.append(e.action))
+    sut.on_property_changed.subscribe(notifications.append)
+
+    with pytest.raises(RuntimeError, match="construct failed"):
+        await sut.refresh_command.execute_async()
+
+    assert sut.items == [kept]
+    assert sut.current_token == "next"
+    assert notifications == []
+    assert [vm.status for vm in fresh] == [ConstructionStatus.DESTRUCTED] * 3
+    assert kept.status is ConstructionStatus.CONSTRUCTED
+
+
+@pytest.mark.conformance("COL-075")
+async def test_COL_075_failed_auto_construct_load_keeps_a_prior_construct() -> None:
+    prior = ComponentVM.builder().name("prior").with_null_services().build()
+    prior.construct()
+    fresh = ComponentVM.builder().name("fresh").with_null_services().build()
+    bad = (
+        ComponentVM.builder().name("bad").with_null_services().on_construct(_fail_construct).build()
+    )
+    page = [prior, fresh, bad]
+
+    async def fetch(token: str | None) -> tuple[list[ComponentVM], str | None]:
+        return (page, None)
+
+    sut = TokenPagedComposition(fetch_next=fetch, auto_construct_on_add=True)
+
+    with pytest.raises(RuntimeError, match="construct failed"):
+        await sut.load_more_command.execute_async()
+
+    assert sut.items == []
+    assert prior.status is ConstructionStatus.CONSTRUCTED
+    assert fresh.status is ConstructionStatus.DESTRUCTED
+    assert bad.status is ConstructionStatus.DESTRUCTED
+
+
+@pytest.mark.conformance("COL-075")
+async def test_COL_075_failed_rollback_raises_the_rollback_failure_once() -> None:
+    stuck = (
+        ComponentVM.builder().name("stuck").with_null_services().on_destruct(_fail_destruct).build()
+    )
+    bad = (
+        ComponentVM.builder().name("bad").with_null_services().on_construct(_fail_construct).build()
+    )
+
+    async def fetch(token: str | None) -> tuple[list[ComponentVM], str | None]:
+        return ([stuck, bad], "next")
+
+    sut = TokenPagedComposition(fetch_next=fetch, auto_construct_on_add=True)
+
+    with pytest.raises(RuntimeError, match="destruct failed") as raised:
+        await sut.load_more_command.execute_async()
+
+    assert isinstance(raised.value.__cause__, RuntimeError)
+    assert str(raised.value.__cause__) == "construct failed"
+    assert sut.items == []
+    assert sut.current_token is None
 
 
 @pytest.mark.conformance("COL-031")

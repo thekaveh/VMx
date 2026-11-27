@@ -3,9 +3,9 @@
 //! Spec: `spec/21-collections.md`; ADR-0033.
 
 use super::{
-    clone_locked, lock, next_id, Arc, AsyncRelayCommand, CollectionChangeAction,
-    CollectionChangedMessage, Message, MessageHub, Mutex, MutexGuard, PropertyChangedMessage,
-    VmNode,
+    clone_locked, compensate_auto_start, lock, next_id, rollback_error, Arc, AsyncRelayCommand,
+    CollectionChangeAction, CollectionChangedMessage, ConstructionStatus, Message, MessageHub,
+    Mutex, MutexGuard, PropertyChangedMessage, VmNode, VmxResult,
 };
 use crate::runtime::wait_for_owner;
 use crate::wait_for_graph::{waits, Resource};
@@ -477,23 +477,38 @@ fn is_current_operation(generation: &AtomicUsize, operation: usize) -> bool {
 /// Constructs `page` item by item while `operation` is current and `commit`
 /// is allowed. A construct hook can start a newer load or refresh or dispose
 /// the pager; the stale operation then constructs nothing more and returns
-/// `false`, so it commits nothing (spec 21 §6.2). Items it already
-/// constructed are dropped with the page, never destructed, as in the other
-/// flavors.
+/// `Ok(false)`, so it commits nothing (spec 21 §6.2). An item that was already
+/// `Constructed` is not recorded, so the rollback never destructs it. When an
+/// item's construct fails, each item this call constructed is destructed back
+/// to `Destructed`, last first, and the failure is returned. A failed destruct
+/// makes the returned error the rollback failure, which keeps both (spec 21
+/// §6.2, ADR-0261, ADR-0123).
 fn construct_while_current<T: VmNode>(
     page: &[T],
     generation: &AtomicUsize,
     operation: usize,
     commit: &TokenPagerCommit,
-) -> bool {
+) -> VmxResult<bool> {
     let current = || commit.is_allowed() && is_current_operation(generation, operation);
+    let mut constructed: Vec<(&T, ConstructionStatus)> = Vec::new();
     for item in page {
         if !current() {
-            return false;
+            return Ok(false);
         }
-        let _ = item.construct();
+        let original_status = item.status();
+        if let Err(error) = item.construct() {
+            let mut compensation_error = None;
+            for (constructed_item, original) in constructed.iter().rev() {
+                compensation_error =
+                    compensation_error.or(compensate_auto_start(*constructed_item, *original));
+            }
+            return Err(rollback_error(error, compensation_error));
+        }
+        if original_status != ConstructionStatus::Constructed {
+            constructed.push((item, original_status));
+        }
     }
-    current()
+    Ok(current())
 }
 
 impl TokenPagerCommit {
@@ -874,6 +889,10 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + Sync + 'static
 impl<T: VmNode, Token: Clone + Send + Sync + 'static> TokenPagedComposition<T, Token> {
     /// Creates a pager that constructs each loaded VM before publishing its reset.
     ///
+    /// A construct that fails fails the load or refresh: the VMs this operation
+    /// constructed are destructed again, and nothing is committed (spec 21 §6.2,
+    /// ADR-0261).
+    ///
     /// The token argument is retained for source compatibility and ignored.
     pub fn with_auto_construct_loader<F>(_initial_token: Option<Token>, loader: F) -> Self
     where
@@ -917,7 +936,7 @@ impl<T: VmNode, Token: Clone + Send + Sync + 'static> TokenPagedComposition<T, T
                 let Some(commit) = load_lifecycle.begin_commit() else {
                     return Ok(());
                 };
-                if !construct_while_current(&page, &load_generation, operation, &commit) {
+                if !construct_while_current(&page, &load_generation, operation, &commit)? {
                     return Ok(());
                 }
                 let page = store_page(page, compare);
@@ -985,7 +1004,7 @@ impl<T: VmNode, Token: Clone + Send + Sync + 'static> TokenPagedComposition<T, T
                     return Ok(());
                 }
                 if plan.replace_items
-                    && !construct_while_current(&page, &refresh_generation, operation, &commit)
+                    && !construct_while_current(&page, &refresh_generation, operation, &commit)?
                 {
                     return Ok(());
                 }

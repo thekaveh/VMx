@@ -1,6 +1,6 @@
 # ADR 0069 — Add token-paged composition
 
-**Status:** Accepted (2026-07-01; the refresh rule is amended by ADR-0136)
+**Status:** Accepted (2026-07-01; the refresh rule is amended by ADR-0136; extended by ADR-0261)
 **Spec version:** introduced in 3.1.0
 
 ## 1. Context

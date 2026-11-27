@@ -224,6 +224,12 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Fixed
 
+- `TokenPagedComposition`: a load or refresh whose auto-construct fails throws the
+  construct failure and destructs the items it constructed, in reverse order
+  (spec/21 §6.2, ADR-0261, #1907, `COL-075`). A failed compensation throws
+  `ContainerRollbackError`. Before, the earlier items stayed `constructed` outside
+  `items`.
+
 - An eager `HierarchicalVM` constructs its direct children through the
   child-transition walk (spec/02 §6.1, ADR-0189). A disposed child is skipped, so
   a parent whose child was disposed can `construct()` and `reconstruct()` again

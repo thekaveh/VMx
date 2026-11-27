@@ -185,6 +185,11 @@ below for them.
 
 ### Fixed
 
+- `TokenPagedComposition`: a load or refresh whose auto-construct fails raises the
+  construct failure and destructs the items it constructed, in reverse order
+  (spec/21 §6.2, ADR-0261, #1907, `COL-075`). A failed compensation is raised
+  `from` the original failure. Before, the earlier items stayed `CONSTRUCTED`
+  outside `items`.
 - A child-transition walk that lists its own view-model, or that would join a
   child whose walk waits back on it, raises `RuntimeError` and starts no child.
   Before, `construct()` returned and every view-model on the cycle stayed
