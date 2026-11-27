@@ -774,6 +774,11 @@ that lists its own view-model, or that would join a child whose walk waits back 
 it, raises the flavor's usage error and starts no child, so no view-model is left
 `Constructing` (ADR-0255, `LIFE-023`, `LIFE-024`).
 
+v3.30.0 also makes the Python development drain bound opt-in. An interpreter run
+without `-X dev`, with or without `-O`, no longer bounds a drain, so a finite
+transaction of any length is delivered whole. `MessageHub(development_diagnostics=True)`
+enables the bound, and `python -X dev` enables it by default (ADR-0256).
+
 v3.30.0 also defines failing subscribers and notification order. A delivery on
 a library channel reaches every attached subscriber once, even when an earlier
 one fails, and no failure detaches a subscriber or the library's own source
