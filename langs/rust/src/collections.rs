@@ -1614,6 +1614,10 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     ///
     /// `PartialEq` runs on a shared snapshot with no lock held. When the list
     /// changed meanwhile, the search runs again.
+    ///
+    /// When a `T::clone` that makes the `item_removed` payload panics, no
+    /// item event is sent. The collection messages are still sent, and the
+    /// panic reaches the caller after them (#1925).
     pub fn remove(&self, item: &T) -> bool
     where
         T: PartialEq,
@@ -1670,11 +1674,21 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     ///
     /// The item event's payload and the returned item are made with no lock
     /// held. A panic from `T::clone` reaches the caller only after the removal
-    /// is published (#1925).
+    /// is published. In that case no item event is sent, and the collection
+    /// messages are sent (#1925).
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
-        let (item, retired) = self
-            .remove_at_committed(index)
+        let item = self
+            .remove_at_published(index)
             .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
+        Ok(into_item(item))
+    }
+
+    /// Removes the item at `index` and publishes the removal as
+    /// [`remove_at`](Self::remove_at) does. Returns the removed item's handle,
+    /// which the caller copies with [`into_item`] or drops. See `remove_at` for
+    /// the panic behaviour (#1925).
+    fn remove_at_published(&self, index: usize) -> Option<Arc<T>> {
+        let (item, retired) = self.remove_at_committed(index)?;
         let payload = self
             .streams
             .item_removed
@@ -1694,7 +1708,43 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         if let Some(panic) = panic {
             resume_unwind(panic);
         }
-        Ok(into_item(item))
+        Some(item)
+    }
+
+    /// Removes the item at `index` and publishes the removal as `remove_at`
+    /// does, but drops the removed item rather than returning a copy of it. A
+    /// copy is made only for an item-event subscriber, so the discarded item is
+    /// not cloned when nobody asked for it (#1925).
+    pub(crate) fn remove_at_discarding(&self, index: usize) {
+        drop(self.remove_at_published(index));
+    }
+
+    /// Returns the index of the first item for which `predicate` holds. The
+    /// search runs on a shared snapshot with no lock held, and copies no item
+    /// (#1925).
+    pub(crate) fn position_where(&self, mut predicate: impl FnMut(&T) -> bool) -> Option<usize> {
+        let snapshot = Arc::clone(&lock(&self.inner));
+        snapshot.iter().position(|item| predicate(item.as_ref()))
+    }
+
+    /// Returns the first item for which `predicate` holds. Only that item is
+    /// copied, and it is copied with no lock held (#1925).
+    pub(crate) fn find_where(&self, mut predicate: impl FnMut(&T) -> bool) -> Option<T> {
+        let snapshot = Arc::clone(&lock(&self.inner));
+        let found = snapshot
+            .iter()
+            .find(|item| predicate(item.as_ref()))
+            .map(Arc::clone);
+        drop(snapshot);
+        found.map(into_item)
+    }
+
+    /// Returns the handles of all items in order, copying none. The caller
+    /// makes each owned item with [`into_item`] after it has released the
+    /// owner's lock (#1925).
+    pub(crate) fn handles(&self) -> Vec<Arc<T>> {
+        let snapshot = Arc::clone(&lock(&self.inner));
+        snapshot.iter().cloned().collect()
     }
 
     /// Removes the item at `index` and returns its handle, with no `T::clone`.
@@ -1790,7 +1840,8 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     ///
     /// The item event's payload and the returned old item are made with no
     /// lock held. A panic from `T::clone` reaches the caller only after the
-    /// replacement is published (#1925).
+    /// replacement is published. In that case no `item_replaced` event is sent,
+    /// and the collection message is (#1925).
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
         let new_item = self
             .streams
@@ -2862,7 +2913,7 @@ where
         fn apply<K: Clone + Send + 'static>(list: &ObservableList<K>, change: KeyViewChange<K>) {
             match change {
                 KeyViewChange::Push(key) => list.push(key),
-                KeyViewChange::RemoveAt(position) => drop(list.remove_at(position)),
+                KeyViewChange::RemoveAt(position) => list.remove_at_discarding(position),
                 KeyViewChange::Clear => list.clear(),
             }
         }

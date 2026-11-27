@@ -12,7 +12,7 @@ use super::bounded_wait::within_timeout;
 use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -152,7 +152,7 @@ fn observable_list_get_clone_may_wait_for_a_write() {
     assert_eq!(id, Some(10));
     assert!(
         finished.load(Ordering::SeqCst),
-        "the write waited for the get"
+        "the write finished while the get ran"
     );
     assert_eq!(list.len(), 2);
 }
@@ -198,7 +198,7 @@ fn serviced_get_clone_may_wait_for_a_write() {
     assert_eq!(id, Some(10));
     assert!(
         finished.load(Ordering::SeqCst),
-        "the write waited for the get"
+        "the write finished while the get ran"
     );
     assert_eq!(collection.len(), 2);
 }
@@ -272,7 +272,7 @@ fn keyed_get_clone_may_wait_for_a_write() {
     assert_eq!(id, Some(10));
     assert!(
         finished.load(Ordering::SeqCst),
-        "the write waited for the get"
+        "the write finished while the get ran"
     );
     assert_eq!(collection.len(), 2);
 }
@@ -359,7 +359,7 @@ fn paged_current_page_clone_may_wait_for_a_write() {
     assert_eq!(ids, vec![10]);
     assert!(
         finished.load(Ordering::SeqCst),
-        "the write waited for the page read"
+        "the write finished while the page read ran"
     );
     assert_eq!(pager.page_count(), 2);
 }
@@ -845,7 +845,7 @@ fn serviced_to_vec_clone_may_wait_for_a_write() {
     assert_eq!(ids, vec![10]);
     assert!(
         finished.load(Ordering::SeqCst),
-        "the write waited for the to_vec"
+        "the write finished while the to_vec ran"
     );
     assert_eq!(collection.len(), 2);
 }
@@ -879,7 +879,7 @@ fn keyed_to_vec_clone_may_wait_for_a_write() {
     assert_eq!(ids, vec![10]);
     assert!(
         finished.load(Ordering::SeqCst),
-        "the write waited for the to_vec"
+        "the write finished while the to_vec ran"
     );
     assert_eq!(collection.len(), 2);
 }
@@ -895,9 +895,12 @@ fn read_only_list_get_clone_may_read_the_list() {
     dictionary.insert(probing(10, &probe), 1, 100);
     let view = dictionary.keys1();
     let reader = view.clone();
+    let fired = Arc::new(AtomicBool::new(false));
+    let hook_fired = Arc::clone(&fired);
     arm(
         &probe,
         first_call(move || {
+            hook_fired.store(true, Ordering::SeqCst);
             let _ = reader.len();
         }),
     );
@@ -905,5 +908,146 @@ fn read_only_list_get_clone_may_read_the_list() {
         let view = view.clone();
         move || view.get(0).map(|key| key.id)
     });
+    assert!(fired.load(Ordering::SeqCst), "the clone's hook ran");
     assert_eq!(id, Some(10));
+}
+
+/// A key that counts its copies, and whose `Clone` runs the probe (#1925).
+struct CountingKey {
+    id: u32,
+    copies: Arc<AtomicUsize>,
+    probe: Probe,
+}
+
+impl Clone for CountingKey {
+    fn clone(&self) -> Self {
+        self.copies.fetch_add(1, Ordering::SeqCst);
+        let probe = self.probe.lock().unwrap().clone();
+        if let Some(probe) = probe {
+            probe();
+        }
+        Self {
+            id: self.id,
+            copies: Arc::clone(&self.copies),
+            probe: Arc::clone(&self.probe),
+        }
+    }
+}
+
+impl PartialEq for CountingKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for CountingKey {}
+
+impl Hash for CountingKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+fn counting(id: u32, probe: &Probe, copies: &Arc<AtomicUsize>) -> CountingKey {
+    CountingKey {
+        id,
+        copies: Arc::clone(copies),
+        probe: Arc::clone(probe),
+    }
+}
+
+/// Removing a key discards the key view's copy of it with no `T::clone`, when a
+/// reader holds a snapshot that contains the key (#1925).
+#[test]
+fn key_view_removal_discards_the_removed_key_without_a_copy() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let copies = Arc::new(AtomicUsize::new(0));
+    let dictionary = Arc::new(ObservableMultiDictionary::<CountingKey, u32, u32>::new(1));
+    dictionary.insert(counting(10, &probe, &copies), 1, 100);
+    let view = dictionary.keys1();
+    // The reader's copy of the key holds the snapshot that contains it.
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    arm(
+        &probe,
+        hold_until_written(Arc::clone(&entered), Arc::clone(&release), || 0),
+    );
+    let reader = {
+        let view = view.clone();
+        thread::spawn(move || view.get(0).map(|key| key.id))
+    };
+    wait_until(&entered);
+    copies.store(0, Ordering::SeqCst);
+
+    let key = counting(10, &probe, &copies);
+    let removed = within_timeout("ObservableMultiDictionary::remove", BOUND, {
+        let dictionary = Arc::clone(&dictionary);
+        move || dictionary.remove(&key, &1)
+    });
+    let copied = copies.load(Ordering::SeqCst);
+    release.store(true, Ordering::SeqCst);
+
+    assert_eq!(removed, Some(100));
+    assert_eq!(
+        copied, 0,
+        "the key view discards the removed key without a copy"
+    );
+    assert_eq!(view.len(), 0);
+    assert_eq!(reader.join().expect("the reader finished"), Some(10));
+}
+
+/// A `Clone` of the removed item that calls `current_page` on the same pager
+/// returns. The item has left the source before its copy runs, so the page read
+/// does not copy it, and `remove_at` then returns the item (#1925).
+#[test]
+fn paged_remove_at_clone_of_the_removed_item_may_read_the_pager() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let pager = PagedComposition::new(vec![probing(1, &probe), probing(2, &probe)], 1);
+    let entered = Arc::new(AtomicBool::new(false));
+    let read_during_clone: Arc<Mutex<Option<Vec<u32>>>> = Arc::new(Mutex::new(None));
+    let hook_pager = pager.clone();
+    let hook_read = Arc::clone(&read_during_clone);
+    let hook_entered = Arc::clone(&entered);
+    arm(
+        &probe,
+        first_call(move || {
+            hook_entered.store(true, Ordering::SeqCst);
+            // Wait until `remove_at` has taken the item out of the source. The
+            // removal then waits for this clone to return.
+            let started = Instant::now();
+            while hook_pager.page_count() != 1 && started.elapsed() < HOOK_BOUND {
+                thread::sleep(Duration::from_millis(1));
+            }
+            if hook_pager.page_count() == 1 {
+                let ids: Vec<u32> = hook_pager
+                    .current_page()
+                    .iter()
+                    .map(|item| item.id)
+                    .collect();
+                *hook_read.lock().unwrap() = Some(ids);
+            }
+        }),
+    );
+    let reader = {
+        let pager = pager.clone();
+        thread::spawn(move || {
+            pager
+                .current_page()
+                .iter()
+                .map(|item| item.id)
+                .collect::<Vec<u32>>()
+        })
+    };
+    wait_until(&entered);
+    let removed = within_timeout("PagedComposition::remove_at", BOUND, {
+        let pager = pager.clone();
+        move || pager.remove_at(0).map(|item| item.id)
+    });
+    assert_eq!(removed, Some(1));
+    assert_eq!(reader.join().expect("the reader finished"), vec![1]);
+    assert_eq!(
+        read_during_clone.lock().unwrap().clone(),
+        Some(vec![2]),
+        "the page read inside the clone ran after the removal"
+    );
 }

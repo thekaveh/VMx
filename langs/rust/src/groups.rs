@@ -26,15 +26,15 @@ type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
 /// Lifecycle transitions propagate to the current children, and optional
 /// auto-construction constructs children added to an already-constructed group.
 ///
-/// Membership changes run under the membership gate. A child's `Clone` runs
-/// under that gate in three places: the detach's copy of every child through
-/// `to_vec` (the detach closure in `with_destruct_order`), the rollback of a
-/// detach or a replace, which copies the child back into the group, and the
-/// copy of the new child that `replace` stores. A child whose `Clone` calls
-/// back into this group's membership operations may block or deadlock in those
-/// places. `remove`, `remove_at`, and the copy of the replaced child that
-/// `replace` returns run with no gate held (#1925). This residual of #1925 is
-/// documented here and is not changed.
+/// Membership changes run under the membership gate. Under that gate, a
+/// child's `Clone` runs in one place: the rollback of a detach or of a
+/// replace, which copies the child back into the group. A child whose `Clone`
+/// calls back into this group's membership operations may block or deadlock
+/// there. Every other copy runs with no gate held. `add`, `insert`, `add_range`
+/// and `replace` copy their argument before the gate is taken. `remove` and
+/// `clear` copy no child. `remove_at`, `replace` and `dispose` copy the child
+/// they return or the children they dispose after the gate is released (#1925).
+/// This residual of #1925 is documented here and is not changed.
 pub struct GroupVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
     commands: Arc<ComponentCommands>,
@@ -111,7 +111,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             },
             {
                 let items = items.clone();
-                move |child_id| items.to_vec().iter().any(|item| item.id() == child_id)
+                move |child_id| items.position_where(|item| item.id() == child_id).is_some()
             },
             {
                 let items = items.clone();
@@ -129,9 +129,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                         return Err(VmxError::Disposed);
                     }
                     let index = items
-                        .to_vec()
-                        .iter()
-                        .position(|item| item.id() == child_id)
+                        .position_where(|item| item.id() == child_id)
                         .ok_or(VmxError::InconsistentParent)?;
                     // The child's handle is taken with no `T::clone` under the
                     // gate; the rollback makes the owned copy (#1925).
@@ -385,6 +383,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let original_status = item.status();
         let mut late_start;
+        // The stored copy is made before the membership gate is taken (#1925).
+        let stored = item.clone();
         let index = {
             let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -395,7 +395,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             }
             let index = self.len();
             item.set_parent_handle(Some(self.ownership.handle()));
-            self.items.insert_silent(index, item.clone())?;
+            self.items.insert_silent(index, stored)?;
             late_start = self.attach_start(&item);
             index
         };
@@ -413,11 +413,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             if let Some(start) = late_start.as_mut() {
                 start.forget();
             }
-            if let Some(index) = self
-                .items()
-                .iter()
-                .position(|child| child.id() == item.id())
-            {
+            if let Some(index) = self.items.position_where(|child| child.id() == item.id()) {
                 let _ = self.items.remove_at_handle(index);
             }
             if item
@@ -470,6 +466,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         }
         let mut transfers = Vec::with_capacity(candidates.len());
         let mut original_statuses = Vec::with_capacity(candidates.len());
+        // The stored copies are made before the membership gate is taken (#1925).
+        let copies = candidates.clone();
         let result = (|| {
             for child in &candidates {
                 let transfer = begin_parent_transfer(child, &self.ownership.handle())?;
@@ -481,9 +479,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 if self.disposal_pending() {
                     return Err(VmxError::Disposed);
                 }
-                for child in &candidates {
+                for (child, copy) in candidates.iter().zip(copies) {
                     child.set_parent_handle(Some(self.ownership.handle()));
-                    self.items.insert_silent(self.len(), child.clone())?;
+                    self.items.insert_silent(self.len(), copy)?;
                 }
             }
             // Make the entire snapshot visible before any child hook runs.
@@ -503,7 +501,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             let mut compensation_error = None;
             let _gate = membership_section(&self.membership_gate);
             for child in candidates.iter().rev() {
-                if let Some(index) = self.items().iter().position(|item| item.id() == child.id()) {
+                if let Some(index) = self.items.position_where(|item| item.id() == child.id()) {
                     let _ = self.items.remove_at_handle(index);
                 }
             }
@@ -541,9 +539,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         for child in &candidates {
             if let Some(index) = self
                 .items
-                .to_vec()
-                .iter()
-                .position(|candidate| candidate.id() == child.id())
+                .position_where(|candidate| candidate.id() == child.id())
             {
                 self.items.publish_add(index);
             }
@@ -564,6 +560,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let original_status = item.status();
         let mut late_start;
+        // The stored copy is made before the membership gate is taken (#1925).
+        let stored = item.clone();
         {
             let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -579,7 +577,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
             item.set_parent_handle(Some(self.ownership.handle()));
-            self.items.insert_silent(index, item.clone())?;
+            self.items.insert_silent(index, stored)?;
             late_start = self.attach_start(&item);
         }
         let admission = self
@@ -596,11 +594,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             if let Some(start) = late_start.as_mut() {
                 start.forget();
             }
-            if let Some(position) = self
-                .items()
-                .iter()
-                .position(|child| child.id() == item.id())
-            {
+            if let Some(position) = self.items.position_where(|child| child.id() == item.id()) {
                 let _ = self.items.remove_at_handle(position);
             }
             if item
@@ -648,9 +642,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         )?;
         let removed = {
             let _gate = membership_section(&self.membership_gate);
-            self.items()
-                .iter()
-                .position(|candidate| candidate.id() == item.id())
+            self.items
+                .position_where(|candidate| candidate.id() == item.id())
                 .map(|index| {
                     let removed = self.items.remove_at_handle(index).expect("index checked");
                     (index, removed)
@@ -706,6 +699,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let original_status = item.status();
         let mut late_start;
+        // The stored copy is made before the membership gate is taken (#1925).
+        let stored = item.clone();
         let old = {
             let _gate = membership_section(&self.membership_gate);
             if self.disposal_pending() {
@@ -715,7 +710,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 return Err(VmxError::Disposed);
             }
             item.set_parent_handle(Some(self.ownership.handle()));
-            match self.items.replace_handle(index, item.clone()) {
+            match self.items.replace_handle(index, stored) {
                 Ok(old) => {
                     late_start = self.attach_start(&item);
                     old
@@ -745,9 +740,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 start.forget();
             }
             if let Some(attached) = self
-                .items()
-                .iter()
-                .position(|candidate| candidate.id() == item.id())
+                .items
+                .position_where(|candidate| candidate.id() == item.id())
             {
                 let _ = self
                     .items
@@ -820,7 +814,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         )?;
         let removed = {
             let _gate = membership_section(&self.membership_gate);
-            for item in self.items() {
+            for item in self.items.handles() {
                 if item
                     .parent_handle()
                     .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
@@ -997,7 +991,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                     } else {
                         // A disposed container publishes nothing (ADR-0142).
                         self.items.close_publication();
-                        Some(self.items())
+                        Some(self.items.handles())
                     };
                 }
             }
@@ -1005,6 +999,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         let Some(snapshot) = snapshot else {
             return Ok(());
         };
+        // The children are copied after the membership gate is released (#1925).
+        let snapshot: Vec<T> = snapshot.into_iter().map(into_item).collect();
         let children = self.destruct_order.arrange(snapshot);
         let commands = self.commands.clone();
         self.core.dispose_container_then(
