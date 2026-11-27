@@ -1227,13 +1227,14 @@ mod tests {
         release.send(()).unwrap();
 
         assert_eq!(resource.resource_status(), AsyncResourceStatus::Idle);
-        assert_eq!(
-            further, 0,
-            "the waiter blocked again within {QUIET_PERIOD:?} of its first block"
+        // One further block is tolerated, as in the sibling test, because a
+        // condition variable may wake spuriously inside the probe. Two further
+        // blocks mean the waiter polls.
+        assert!(
+            further <= 1,
+            "the waiter blocked {further} more times within {QUIET_PERIOD:?} of its first block"
         );
-        // The cancellation wakes the one block the waiter took. The probe above
-        // already rejects any further block, so this bound only caps the count
-        // that could have built up before the cancellation.
+        // The first block and the one tolerated spurious wakeup.
         assert!(
             waits <= 2,
             "the waiter blocked {waits} times before its cancellation"
