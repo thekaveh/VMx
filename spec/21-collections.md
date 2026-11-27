@@ -1148,6 +1148,17 @@ they are constructed before the reset event is emitted. C# enables it with the
 Swift with the `autoConstructOnAdd:` initializer argument, and Rust with the
 `TokenPagedComposition::with_auto_construct_loader` constructor.
 
+A construct that fails under auto-construction fails the load or refresh that
+started it, like a fetch failure (`COL-075`, ADR-0261). The composition destructs
+each item that this operation constructed, in reverse order, back to
+`Destructed`. `Items`, `CurrentToken` and `HasMore` stay unchanged, and the
+operation publishes no `Reset` and no property notification. An item that was
+`Constructed` before the operation keeps its status, and an item that the
+operation did not construct is not disposed. When a compensating `destruct()`
+also fails, the operation fails with the rollback failure, which carries both
+failures (ADR-0123). A stale or disposed operation keeps the rules above: it
+commits nothing and constructs nothing more.
+
 Disposal is terminal for suspended load/refresh completions. If `dispose()` wins
 the race while a fetch is in flight, the resumed operation MUST return without
 mutating `Items`, advancing `CurrentToken`, changing `HasMore`, or publishing
@@ -1210,7 +1221,7 @@ behavior of each ID.
 | `COL-005`..`COL-009`, `COL-023`, `COL-040`..`COL-047`                       | §3 `ObservableList<T>` (ADR-0026, ADR-0089)                                                            |
 | `COL-010`..`COL-015`, `COL-022`, `COL-067`, `COL-068`, `COL-070`, `COL-071` | §4 `ObservableDictionary` (ADR-0025, ADR-0177, ADR-0214)                                               |
 | `COL-016`..`COL-021`, `COL-031`, `COL-074`                                  | §5 `PagedComposition<TVM>` (ADR-0023, ADR-0251)                                                        |
-| `COL-024`..`COL-030`, `COL-065`                                             | §6 `TokenPagedComposition<TVM, TToken>` (ADR-0069, ADR-0202)                                           |
+| `COL-024`..`COL-030`, `COL-065`, `COL-075`                                  | §6 `TokenPagedComposition<TVM, TToken>` (ADR-0069, ADR-0202, ADR-0261)                                 |
 | `COL-032`..`COL-039`                                                        | chapter 01 §1.4 shared `Move` (ADR-0085)                                                               |
 | `COL-066`, `COL-069`, `COL-072`, `COL-073`                                  | §2, §3, §4 and §6.2 failing subscribers (ADR-0171, ADR-0191, ADR-0220, ADR-0239)                       |
 | `AGCH-001`..`AGCH-012`                                                      | §9 dynamic aggregate change stream (ADR-0098, ADR-0192, ADR-0214)                                      |

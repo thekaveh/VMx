@@ -3964,6 +3964,23 @@ page 0, and `move_to_next_page` and `move_to_last_page` land on page 1
 
 > Spec: `21-collections.md` §5.1, §5.2 and §8, `14-capabilities.md` §2.10, ADR-0251.
 
+### COL-075 — a failed auto-construct load or refresh rolls the page back
+
+**Given** a `TokenPagedComposition` with auto-construct-on-add enabled, and a
+fetched page of three component VMs whose second construct hook throws
+**When** a load runs, or a refresh that replaces the accumulator runs
+**Then** the command fails with the construct failure, and `Items`,
+`CurrentToken` and `HasMore` are unchanged
+**And** the first item, which the operation constructed, is `Destructed` again,
+and the third item is never constructed
+**And** no `Reset` and no property notification is published
+**And** an item that was `Constructed` before the operation keeps its status
+**And** when a compensating `destruct()` also fails, the command fails once with
+the rollback failure, which carries both the construct failure and the destruct
+failure
+
+> Spec: `21-collections.md` §6.2 and §8, ADR-0261.
+
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles
