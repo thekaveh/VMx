@@ -879,3 +879,11 @@ child-transition walk (chapter 18 §3, ADR-0258, `HIER-045`). An eager node skip
 a disposed child, joins a child that is already `Constructing`, waits for a child
 whose construct is still in flight, and rolls back with that child if it fails.
 The Swift eager loop did not do these, and the other four flavors already did.
+
+v3.30.0 also gives the Rust `HierarchicalVM` the component baseline: the
+selection members, `is_constructed`, the five built-in commands,
+`background_errors`, and inherent `destruct` and `reconstruct`. The node
+forwards the current flag through `VmNode`, so a composite selection reaches
+it (ADR-0259, #1853). The other four flavors already had these members through
+the component base class, so their behavior does not change. No conformance ID
+is added.

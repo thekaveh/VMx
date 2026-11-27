@@ -15,14 +15,9 @@
  * See spec/03-messages.md §"Convenience helpers".
  */
 import { filter, type Observable } from "rxjs";
+import type { IMessageHub } from "../services/messageHub.js";
 import { canonicalSender } from "./canonicalSender.js";
 import { PropertyChangedMessage } from "./propertyChanged.js";
-import type { IMessage } from "./types.js";
-
-/** Minimal hub shape required by the helper. */
-interface IHubLike {
-  readonly messages: Observable<IMessage>;
-}
 
 /**
  * Returns the stream of {@link PropertyChangedMessage} events published to `hub`
@@ -45,7 +40,7 @@ interface IHubLike {
  * @throws RangeError if `propertyName` is an empty array.
  */
 export function whenPropertyChanged(
-  hub: IHubLike,
+  hub: Pick<IMessageHub, "messages">,
   sender: object,
   propertyName: string | readonly string[],
 ): Observable<PropertyChangedMessage<unknown>> {

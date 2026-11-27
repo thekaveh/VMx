@@ -338,6 +338,11 @@ bodies, `spec/HISTORY.md`, CHANGELOG entries, proposals, and audit reports.
 `tools/tests/test_current_documentation_facts.py` fails when a current-facing
 file states one of these counts.
 
+One exception applies to the unreleased section of `spec/HISTORY.md`. The rule in
+`tools/tests/test_adr_release_records.py` requires that section to name each ADR and
+conformance ID that the release adds, so a PR that adds one also names it there.
+Released sections keep their numbers.
+
 ## 4. Releases and tagging
 
 Each flavor versions and releases independently. Most operational tags use

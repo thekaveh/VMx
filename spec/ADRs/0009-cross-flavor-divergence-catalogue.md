@@ -674,6 +674,26 @@ source list.
   `self._on_approved.on_next(current)`, TypeScript `formVm.ts`
   `this.#onApproved.next(current)`).
 
+### 2.37 TypeScript container ownership members (deferred source break)
+
+In TypeScript 3.x, `CompositeVMBase` exposes the owning-parent protocol that
+moves its children as public members: `owner`, `ownerParent`, `containsChild`,
+`detachForTransfer` and `childDisposed`. Their types, `IOwningParentVM` and
+`ParentTransfer`, are marked `@internal` and are not exported from the root.
+
+- **TypeScript (3.x)**: the five members are public declarations of the
+  composite. `detachForTransfer` opens a membership transaction that only the
+  returned `ParentTransfer` can end, with `commit()` or `rollback()`. No
+  supported example, test or documentation page calls them. They are internal
+  ownership plumbing, not a supported API.
+- **TypeScript (4.0)**: the source break removes these five members from
+  `CompositeVMBase`. The composite gives each child a private adaptor, as
+  `GroupVM` does, and the published declarations strip `@internal`. The public
+  `IParentVM` members stay.
+- **Reason**: a caller that starts a transfer and never ends it leaves the
+  composite in an open membership transaction. Removing public members is a
+  source break, so it waits for the TypeScript 4.0 major (#1888).
+
 ## 3. Rationale
 
 ADR-0006 already declares the principle; this ADR is its operational catalogue.

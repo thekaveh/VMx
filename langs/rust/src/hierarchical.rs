@@ -6,9 +6,10 @@ use super::{
     catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, ComponentVm, Condvar,
     ConstructionStatus, Dispatcher, Expandable, ExpandableState, Hash, HashMap, HashSet, Message,
     MessageHub, Mutex, NullDispatcher, OnceLock, ParentHandle, PropertyChangedMessage,
-    PropertyChangedStream, ThreadId, TreeNode, TreeNodeRef, TreeStructureChange,
+    PropertyChangedStream, RelayCommand, ThreadId, TreeNode, TreeNodeRef, TreeStructureChange,
     TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak, HIERARCHY_TOPOLOGY_GATE,
 };
+use crate::components::ComponentCommands;
 
 type HierChildrenFactory<M, N> =
     Arc<dyn Fn(&HierarchicalVm<M, N>) -> Vec<HierarchicalVm<M, N>> + Send + Sync>;
@@ -131,6 +132,9 @@ pub struct HierarchicalVm<
 
 struct HierarchicalVmInner<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> {
     component: ComponentVm<M>,
+    /// The node's own command set. It reconstructs with the eager child
+    /// cascade, which `component`'s commands do not (#1853).
+    commands: ComponentCommands,
     node_data: N,
     children: Arc<Mutex<Option<HierChildren<M, N>>>>,
     materializing_children: Arc<(Mutex<ChildrenMaterializationState>, Condvar)>,
@@ -217,21 +221,27 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         F: Fn(&Self) -> Vec<Self> + Send + Sync + 'static,
     {
         Self {
-            inner: Arc::new_cyclic(|this| HierarchicalVmInner {
-                component: ComponentVm::with_model(name, model, hub.clone(), NullDispatcher::new()),
-                node_data,
-                children: Arc::new(Mutex::new(None)),
-                materializing_children: Arc::new((
-                    Mutex::new(ChildrenMaterializationState::default()),
-                    Condvar::new(),
-                )),
-                parent: Mutex::new(None),
-                root: Mutex::new(this.clone()),
-                children_factory: Arc::new(children_factory),
-                eager_children: Arc::new(Mutex::new(eager_children)),
-                parked_attach_items: Arc::new(Mutex::new(Vec::new())),
-                hub,
-                expansion: OnceLock::new(),
+            inner: Arc::new_cyclic(|this| {
+                let component =
+                    ComponentVm::with_model(name, model, hub.clone(), NullDispatcher::new());
+                let commands = Self::build_commands(&component, this);
+                HierarchicalVmInner {
+                    component,
+                    commands,
+                    node_data,
+                    children: Arc::new(Mutex::new(None)),
+                    materializing_children: Arc::new((
+                        Mutex::new(ChildrenMaterializationState::default()),
+                        Condvar::new(),
+                    )),
+                    parent: Mutex::new(None),
+                    root: Mutex::new(this.clone()),
+                    children_factory: Arc::new(children_factory),
+                    eager_children: Arc::new(Mutex::new(eager_children)),
+                    parked_attach_items: Arc::new(Mutex::new(Vec::new())),
+                    hub,
+                    expansion: OnceLock::new(),
+                }
             }),
             materialization_context: None,
         }
@@ -937,6 +947,140 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         self.inner.component.status()
     }
 
+    /// Builds the node's command set over its component core (#1853).
+    ///
+    /// The reconstruct action runs this node's `reconstruct`, with the eager
+    /// child cascade. It holds the node weakly, so a stored command keeps no
+    /// node alive (#750), and the predicate is false once the node is gone
+    /// (#1483).
+    fn build_commands(
+        component: &ComponentVm<M>,
+        node: &Weak<HierarchicalVmInner<M, N>>,
+    ) -> ComponentCommands {
+        let alive = {
+            let node = node.clone();
+            move || node.strong_count() > 0
+        };
+        let reconstruct = {
+            let node = node.clone();
+            move || {
+                if let Some(inner) = node.upgrade() {
+                    // The command reports nothing, as the container commands
+                    // do; `reconstruct()` is the call that returns errors.
+                    let _ = HierarchicalVm {
+                        inner,
+                        materialization_context: None,
+                    }
+                    .reconstruct();
+                }
+            }
+        };
+        ComponentCommands::with_liveness(&component.core, alive, reconstruct)
+    }
+
+    /// Destructs this node. Its children are not destructed (spec/18 §3).
+    pub fn destruct(&self) -> VmxResult<()> {
+        self.inner.component.destruct()
+    }
+
+    /// Destructs and then constructs this node. The construct phase is the
+    /// eager child cascade of [`Self::construct`], so an eager node constructs
+    /// its children again (spec/18 §3, #1853).
+    ///
+    /// # Errors
+    ///
+    /// The destruct's error, or [`VmxError::InvalidLifecycleTransition`] when
+    /// the node is not constructed (for example, when it is disposed).
+    pub fn reconstruct(&self) -> VmxResult<()> {
+        let core = &self.inner.component.core;
+        core.admit_reconstruct()?;
+        self.destruct()?;
+        // A background destruct can settle later, so the construct phase is
+        // stored on the core. It holds the node weakly (#750), and a node that
+        // is gone skips it.
+        let inner = Arc::downgrade(&self.inner);
+        core.construct_after_destruct(move |core| {
+            let Some(inner) = inner.upgrade() else {
+                return Ok(());
+            };
+            let node = Self {
+                inner,
+                materialization_context: None,
+            };
+            core.transition_with(crate::LifecycleOperation::Construct, || {
+                if *lock(&node.inner.eager_children) {
+                    for child in node.try_children()? {
+                        core.transition_child(&child, crate::LifecycleOperation::Construct)?;
+                    }
+                }
+                Ok(())
+            })
+        })
+    }
+
+    /// Reports whether this node is constructed.
+    pub fn is_constructed(&self) -> bool {
+        self.inner.component.is_constructed()
+    }
+
+    /// Reports whether this constructed node can select itself through its
+    /// composite.
+    pub fn can_select(&self) -> bool {
+        self.inner.component.can_select()
+    }
+
+    /// Selects this node through its owning selectable composite.
+    pub fn select(&self) {
+        self.inner.component.select();
+    }
+
+    /// Reports whether this node can deselect itself through its composite.
+    pub fn can_deselect(&self) -> bool {
+        self.inner.component.can_deselect()
+    }
+
+    /// Deselects this node through its owning selectable composite.
+    pub fn deselect(&self) {
+        self.inner.component.deselect();
+    }
+
+    /// Reports whether this node is current in its owning container.
+    pub fn is_current(&self) -> bool {
+        self.inner.component.is_current()
+    }
+
+    /// Returns the stable command that selects this node through its parent.
+    pub fn select_command(&self) -> RelayCommand {
+        self.inner.commands.select()
+    }
+
+    /// Returns the stable command that deselects this node through its parent.
+    pub fn deselect_command(&self) -> RelayCommand {
+        self.inner.commands.deselect()
+    }
+
+    /// Returns the inert baseline next-sibling command.
+    pub fn select_next_command(&self) -> RelayCommand {
+        self.inner.commands.select_next()
+    }
+
+    /// Returns the inert baseline previous-sibling command.
+    pub fn select_previous_command(&self) -> RelayCommand {
+        self.inner.commands.select_previous()
+    }
+
+    /// Returns the stable command that destructs and reconstructs this node,
+    /// with the eager child cascade (#1853).
+    pub fn reconstruct_command(&self) -> RelayCommand {
+        self.inner.commands.reconstruct()
+    }
+
+    /// Returns the hot stream of background lifecycle failures. It completes
+    /// when the node is disposed.
+    pub fn background_errors(&self) -> crate::LifecycleErrorStream {
+        self.inner.component.background_errors()
+    }
+
     /// Detaches materialized children so the factory runs on the next read.
     ///
     /// A disposed node returns without a change (spec/18 §7.1).
@@ -1012,7 +1156,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         let parked = std::mem::take(&mut *lock(&self.inner.parked_attach_items));
         // Parked items are dropped after the lock is released.
         drop(parked);
-        self.inner.component.dispose()
+        let result = self.inner.component.dispose();
+        // The node's own commands leave the hub with the node (#1853).
+        self.inner.commands.dispose();
+        result
     }
 
     fn materialize_children(&self) -> VmxResult<Vec<Self>> {
@@ -1352,7 +1499,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> VmN
     }
 
     fn destruct(&self) -> VmxResult<()> {
-        self.inner.component.destruct()
+        HierarchicalVm::destruct(self)
     }
 
     fn dispose(&self) -> VmxResult<()> {
@@ -1377,6 +1524,22 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> VmN
 
     fn parent_handle(&self) -> Option<ParentHandle> {
         self.inner.component.core.parent_handle()
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        self.inner.component.core.set_current_flag(is_current);
+    }
+
+    fn commit_current_flag(&self, is_current: bool) -> bool {
+        self.inner.component.core.commit_current_flag(is_current)
+    }
+
+    fn publish_current_flag(&self, _is_current: bool) {
+        self.inner.component.core.publish_current_flag();
+    }
+
+    fn is_current(&self) -> bool {
+        HierarchicalVm::is_current(self)
     }
 }
 

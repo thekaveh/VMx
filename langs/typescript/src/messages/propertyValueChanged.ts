@@ -12,14 +12,9 @@
  * See spec/03-messages.md §"Convenience helpers".
  */
 import { filter, map, Observable } from "rxjs";
+import type { IMessageHub } from "../services/messageHub.js";
 import { canonicalSender } from "./canonicalSender.js";
 import { PropertyChangedMessage } from "./propertyChanged.js";
-import type { IMessage } from "./types.js";
-
-/** Minimal hub shape required by the helper. */
-interface IHubLike {
-  readonly messages: Observable<IMessage>;
-}
 
 /**
  * Returns an observable that emits the current value of `propertyName` on `source`
@@ -32,7 +27,7 @@ interface IHubLike {
  * @returns Cold observable of property values (snapshotted at delivery time).
  */
 export function propertyValueChangedMessagesFor<TSource extends object>(
-  hub: IHubLike,
+  hub: Pick<IMessageHub, "messages">,
   source: TSource,
   propertyName: keyof TSource & string,
 ): Observable<unknown> {

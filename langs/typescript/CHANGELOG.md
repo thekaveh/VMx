@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Root exports for the public types that the declarations use (#1888).
+  `ContainerRollbackError` is now exported as a class (spec/06 §4.2, ADR-0218),
+  so a caller can catch it with `instanceof`. `FieldValidator`, `ModelValidator`,
+  `ModelEquals` and `AsyncTask` are exported as types. Before, the declarations
+  named them but the root did not export them.
 - `HIER-045` conformance tests (ADR-0258, #1919). An eager `HierarchicalVM`
   skips a disposed child in `construct()` and `reconstruct()`, and the live
   sibling is constructed. TypeScript already behaved this way, so the test
@@ -149,6 +154,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The `hub` parameter of `whenPropertyChanged` and `propertyValueChangedMessagesFor`
+  is typed `Pick<IMessageHub, "messages">`. The private `IHubLike` interfaces that
+  the declarations named are removed. The shape is the same, so no caller changes
+  (#1888).
+
 - The construct walk of a composite or group now counts members only
   (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
   joins a child, and again after the child settles. A child that a removal or
@@ -234,6 +244,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Deprecated
 
+- The owning-parent members of `CompositeVMBase` (`owner`, `ownerParent`,
+  `containsChild`, `detachForTransfer` and `childDisposed`) are internal
+  ownership plumbing. `@thekaveh/vmx` 4.0 removes them from the public
+  declarations and strips the `@internal` declarations from the published typings
+  (ADR-0009 §2.37, #1888).
 - Building a `HierarchicalVM` subclass without `hub` and `dispatcher`. The
   raw constructor then falls back to a private hub that no application observer
   sees. That overload is `@deprecated`; pass both, or build through

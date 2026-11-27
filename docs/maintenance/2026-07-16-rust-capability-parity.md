@@ -339,9 +339,10 @@ observable behavior covered by this review.
 The ADR-0120 sender representation in §12.2.1 and the ADR-0202 node-data
 parameter in §12.2.2 are the intentional flavor-specific shapes in this
 ledger. The §12.5 editorial note applies to all five flavors and is not a
-parity backlog. §12.7 to §12.14 record the items and differences found
+parity backlog. §12.7 to §12.15 record the items and differences found
 after closure; §12.8 to §12.13 are now closed or resolved, §12.7 is a
-recorded difference, and §12.14 is closed (ADR-0227). Future differences still require
+recorded difference, §12.14 is closed (ADR-0227), and §12.15 is closed
+(ADR-0259). Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
 
@@ -457,3 +458,21 @@ is returned from the call (ADR-0227 §3). The regression tests are
 `langs/rust/tests/conformance/destruct_start_race.rs`. #1569 tracks the
 item. The C# sibling, #1375, closed on 2026-11-09 and is cited only as
 history.
+
+## 12.15. Closed: Hierarchy Node Component Baseline
+
+A hierarchy node is a component: the C#, Python, TypeScript and Swift
+`HierarchicalVM` derive from the component base class, and chapter 05 §5 puts
+the five built-in commands on that baseline. The Rust `HierarchicalVm` wraps a
+`ComponentVm` and did not expose that baseline. It had no inherent
+`is_constructed`, selection member, built-in command, `background_errors`,
+`destruct` or `reconstruct`. Its `VmNode` implementation did not forward the
+current flag, so `VmNode::is_current` returned `false` after a composite
+selection.
+
+ADR-0259 closes the Rust item (#1853). The node forwards the baseline members
+to its inner component. Its `reconstruct` and the reconstruct command run the
+eager child cascade of chapter 18 §3. The `VmNode` implementation forwards
+the current flag. The regression tests are in
+`langs/rust/tests/conformance/hierarchical.rs`. The trait signatures of
+`Destructable` and `Reconstructable` are unchanged (#1840).
