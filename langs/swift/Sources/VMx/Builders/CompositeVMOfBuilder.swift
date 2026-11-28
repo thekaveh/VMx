@@ -15,7 +15,7 @@ public struct CompositeVMOfBuilder<Model, VM: ComponentVMBase> {
     private var _childrenModels: (() -> [Model])?
     private var _childModelToChildViewModel: ((Model) -> VM)?
     private var _onConstruct: (() throws -> Void)?
-    private var _onDestruct: (() -> Void)?
+    private var _onDestruct: (() throws -> Void)?
     private var _currentSelector: (([VM]) -> VM?)?
     private var _onCurrentChanged: ((VM?) -> Void)?
     private var _autoConstructOnAdd: Bool = false
@@ -61,7 +61,7 @@ public struct CompositeVMOfBuilder<Model, VM: ComponentVMBase> {
         var c = self; c._onConstruct = cb; return c
     }
     public func onDestruct(
-        _ cb: @escaping () -> Void
+        _ cb: @escaping () throws -> Void
     ) -> CompositeVMOfBuilder<Model, VM> {
         var c = self; c._onDestruct = cb; return c
     }

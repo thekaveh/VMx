@@ -19,7 +19,7 @@ public struct ComponentVMOfBuilder<Model> {
     private var _modelEquals: ((Model, Model) -> Bool)?
     private var _onModelChanged: ((Model) -> Void)?
     private var _onConstruct: (() throws -> Void)?
-    private var _onDestruct: (() -> Void)?
+    private var _onDestruct: (() throws -> Void)?
     private var _background: Bool = false
 
     /// One-shot box used to distinguish "model was assigned (possibly nil
@@ -80,7 +80,7 @@ public struct ComponentVMOfBuilder<Model> {
     }
 
     public func onDestruct(
-        _ cb: @escaping () -> Void
+        _ cb: @escaping () throws -> Void
     ) -> ComponentVMOfBuilder<Model> {
         var copy = self; copy._onDestruct = cb; return copy
     }

@@ -41,7 +41,7 @@ public struct ComponentVMOfOptions<Model> {
     public var modelEquals: ((Model, Model) -> Bool)?
     public var onModelChanged: ((Model) -> Void)?
     public var onConstruct: (() throws -> Void)?
-    public var onDestruct: (() -> Void)?
+    public var onDestruct: (() throws -> Void)?
     public var background: Bool
 
     public init(
@@ -54,7 +54,7 @@ public struct ComponentVMOfOptions<Model> {
         modelEquals: ((Model, Model) -> Bool)? = nil,
         onModelChanged: ((Model) -> Void)? = nil,
         onConstruct: (() throws -> Void)? = nil,
-        onDestruct: (() -> Void)? = nil,
+        onDestruct: (() throws -> Void)? = nil,
         background: Bool = false
     ) {
         self.name = name
@@ -88,7 +88,7 @@ open class ComponentVMOf<Model>: ComponentVMBase {
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
         onConstruct: (() throws -> Void)? = nil,
-        onDestruct: (() -> Void)? = nil,
+        onDestruct: (() throws -> Void)? = nil,
         background: Bool = false
     ) {
         self._model = initialModel
@@ -121,7 +121,7 @@ open class ComponentVMOf<Model>: ComponentVMBase {
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
         onConstruct: (() throws -> Void)? = nil,
-        onDestruct: (() -> Void)? = nil,
+        onDestruct: (() throws -> Void)? = nil,
         background: Bool = false
     ) where Model: Equatable {
         self._model = initialModel

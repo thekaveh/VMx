@@ -21,7 +21,7 @@ public struct CompositeVMOptions<Child: ComponentVMBase> {
     public var current: (([Child]) -> Child?)?
     public var onCurrentChanged: ((Child?) -> Void)?
     public var onConstruct: (() throws -> Void)?
-    public var onDestruct: (() -> Void)?
+    public var onDestruct: (() throws -> Void)?
     public var autoConstructOnAdd: Bool
     public var asyncSelection: Bool
     /// The order in which the composite destructs and disposes its children
@@ -37,7 +37,7 @@ public struct CompositeVMOptions<Child: ComponentVMBase> {
         current: (([Child]) -> Child?)? = nil,
         onCurrentChanged: ((Child?) -> Void)? = nil,
         onConstruct: (() throws -> Void)? = nil,
-        onDestruct: (() -> Void)? = nil,
+        onDestruct: (() throws -> Void)? = nil,
         autoConstructOnAdd: Bool = false,
         asyncSelection: Bool = false,
         destructOrder: ChildOrder = .insertion
@@ -140,7 +140,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         dispatcher: Dispatcher,
         childrenFactory: (() -> [Child])? = nil,
         onConstruct: (() throws -> Void)? = nil,
-        onDestruct: (() -> Void)? = nil,
+        onDestruct: (() throws -> Void)? = nil,
         currentSelector: (([Child]) -> Child?)? = nil,
         onCurrentChanged: ((Child?) -> Void)? = nil,
         autoConstructOnAdd: Bool = false,
