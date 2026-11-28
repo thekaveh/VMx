@@ -12,7 +12,7 @@ public struct GroupVMBuilder<Child: ComponentVMBase> {
     private var _dispatcher: Dispatcher?
     private var _children: (() -> [Child])?
     private var _onConstruct: (() throws -> Void)?
-    private var _onDestruct: (() -> Void)?
+    private var _onDestruct: (() throws -> Void)?
     private var _autoConstructOnAdd: Bool = false
     private var _destructOrder: ChildOrder = .insertion
 
@@ -46,7 +46,7 @@ public struct GroupVMBuilder<Child: ComponentVMBase> {
         var c = self; c._onConstruct = cb; return c
     }
     public func onDestruct(
-        _ cb: @escaping () -> Void
+        _ cb: @escaping () throws -> Void
     ) -> GroupVMBuilder<Child> {
         var c = self; c._onDestruct = cb; return c
     }

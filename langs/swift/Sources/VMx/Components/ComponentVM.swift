@@ -11,7 +11,7 @@ public struct ComponentVMOptions {
     public var hub: MessageHubProtocol?
     public var dispatcher: Dispatcher?
     public var onConstruct: (() throws -> Void)?
-    public var onDestruct: (() -> Void)?
+    public var onDestruct: (() throws -> Void)?
     public var background: Bool
 
     public init(
@@ -20,7 +20,7 @@ public struct ComponentVMOptions {
         hub: MessageHubProtocol? = nil,
         dispatcher: Dispatcher? = nil,
         onConstruct: (() throws -> Void)? = nil,
-        onDestruct: (() -> Void)? = nil,
+        onDestruct: (() throws -> Void)? = nil,
         background: Bool = false
     ) {
         self.name = name

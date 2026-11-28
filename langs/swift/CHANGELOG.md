@@ -166,6 +166,18 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Changed
 
+- **BREAKING:** the `onDestruct` hook of every Swift builder, options struct
+  and initializer is now `() throws -> Void` (#1599). The six builders'
+  `onDestruct(_:)` setters, the `onDestruct` property and initializer
+  parameter of `ComponentVMOptions`, `ComponentVMOfOptions`,
+  `CompositeVMOptions` and `GroupVMOptions`, and the `onDestruct` parameter of
+  the `ComponentVMOf` initializers, `CompositeVM`, `CompositeVMOf` and
+  `GroupVM` now accept a throwing closure. A throwing destruct hook rolls the
+  view-model back to `Constructed` (spec/02 §2.5, `LIFE-014`), as the
+  `onConstruct` hook already does. Existing non-throwing closures compile
+  unchanged. Migration: code that stores one of these options' `onDestruct`
+  value in a `() -> Void` variable, or calls it directly, must type it as
+  `() throws -> Void` and write `try` at the call.
 - **Breaking:** when a failed container change also fails its lifecycle
   compensation, the reported error now carries the original failure and the
   first compensation failure (ADR-0218, spec/06 §4.2, #1305, `COMP-040`).

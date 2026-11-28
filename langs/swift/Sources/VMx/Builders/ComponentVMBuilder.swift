@@ -11,7 +11,7 @@ public struct ComponentVMBuilder {
     private var _hub: MessageHubProtocol?
     private var _dispatcher: Dispatcher?
     private var _onConstruct: (() throws -> Void)?
-    private var _onDestruct: (() -> Void)?
+    private var _onDestruct: (() throws -> Void)?
     private var _background: Bool = false
 
     public init() {}
@@ -56,7 +56,7 @@ public struct ComponentVMBuilder {
         return copy
     }
 
-    public func onDestruct(_ cb: @escaping () -> Void) -> ComponentVMBuilder {
+    public func onDestruct(_ cb: @escaping () throws -> Void) -> ComponentVMBuilder {
         var copy = self
         copy._onDestruct = cb
         return copy

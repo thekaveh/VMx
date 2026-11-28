@@ -16,7 +16,7 @@ public struct GroupVMOptions<Child: ComponentVMBase> {
     public var dispatcher: Dispatcher?
     public var children: (() -> [Child])?
     public var onConstruct: (() throws -> Void)?
-    public var onDestruct: (() -> Void)?
+    public var onDestruct: (() throws -> Void)?
     public var autoConstructOnAdd: Bool
     /// The order in which the group destructs and disposes its children
     /// (default `.insertion`, ADR-0161).
@@ -29,7 +29,7 @@ public struct GroupVMOptions<Child: ComponentVMBase> {
         dispatcher: Dispatcher? = nil,
         children: (() -> [Child])? = nil,
         onConstruct: (() throws -> Void)? = nil,
-        onDestruct: (() -> Void)? = nil,
+        onDestruct: (() throws -> Void)? = nil,
         autoConstructOnAdd: Bool = false,
         destructOrder: ChildOrder = .insertion
     ) {
@@ -145,7 +145,7 @@ open class GroupVM<Child: ComponentVMBase>:
         dispatcher: Dispatcher,
         childrenFactory: (() -> [Child])? = nil,
         onConstruct: (() throws -> Void)? = nil,
-        onDestruct: (() -> Void)? = nil,
+        onDestruct: (() throws -> Void)? = nil,
         autoConstructOnAdd: Bool = false,
         destructOrder: ChildOrder = .insertion
     ) {
